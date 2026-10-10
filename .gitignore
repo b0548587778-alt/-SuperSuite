@@ -1,0 +1,36 @@
+# Node
+node_modules/
+
+# Build output (regenerable with `npm run dist`)
+dist/
+dist-prev/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Runtime user data (stored outside repo)
+userdata/
+.leases/
+
+# Dev scaffolding / one-off probes (see TODO-FIXES.md #9 — move to scripts/ or delete)
+fitness-*.js
+fitness-*.json
+probe*.js
+probe*.json
+scan-*.js
+scan-dbg*.js
+shot*.js
+shot*.json
+title-check.js
+title-check.json
+verify-*.js
+verify-*.json
+sm*.js
+sm*.log
+shell-shot.png

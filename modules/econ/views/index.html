@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+    <title>מערכת כלכלית מאוחדת</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+    <aside>
+        <div class="brand">
+            <span class="logo">✦</span>
+            <div>
+                <b>מערכת כלכלית מאוחדת</b>
+                <small>ניהול פיננסי ועסקי חכם ופשוט</small>
+            </div>
+        </div>
+        <nav>
+            <button class="nav active" data-view="dashboard">⌂ <span>לוח בקרה</span></button>
+            <button class="nav" data-view="finance">₪ <span>תכנון פיננסי</span></button>
+            <button class="nav" data-view="business">▣ <span>עסקים ולקוחות</span></button>
+            <button class="nav" data-view="acct-reports">📈 <span>דוחות ומע"מ</span></button>
+            <button class="nav" data-view="acct-journal">📒 <span>יומן חשבונאי</span></button>
+            <button class="nav" data-view="acct-invoices">🧾 <span>חשבוניות מס</span></button>
+            <button class="nav" data-view="acct-chart">🗂 <span>תוכנית חשבונות</span></button>
+            <button class="nav" data-view="acct-settings">🏢 <span>הגדרות עסק ומע"מ</span></button>
+            <button class="nav" data-view="acct-pricing">🏷 <span>מחירון ותמחור</span></button>
+            <button class="nav" data-view="acct-personal">🏠 <span>הוצאות אישיות ומשפחה</span></button>
+            <button class="nav" data-view="market-intel">📊 <span>מודיעין שוק</span></button>
+            <button class="nav" data-view="mortgage">🏠 <span>משכנתאות והלוואות</span></button>
+            <button class="nav" data-view="personal-finance">💰 <span>התוכנית הפיננסית</span></button>
+            <button class="nav" data-view="tasks">📋 <span>משימות</span></button>
+            <button class="nav" data-view="contacts">👥 <span>אנשי קשר</span></button>
+            <button class="nav" data-view="fitness">💪 <span>כושר ובריאות</span></button>
+            <button class="nav" data-view="voice-notes">🎤 <span>הערות קוליות</span></button>
+            <button class="nav" data-view="canvas">🎨 <span>לוח לבן</span></button>
+        </nav>
+        <div class="side-bottom">
+            <button id="backupBtn">⬇ גיבוי נתונים</button>
+            <button id="restoreBtn">↥ שחזור גיבוי</button>
+            <small>הנתונים נשמרים במחשב שלך</small>
+        </div>
+    </aside>
+    <main>
+        <header>
+            <div>
+                <h1 id="pageTitle">לוח בקרה</h1>
+                <p id="today"></p>
+            </div>
+            <div class="header-actions">
+                <span class="status">● מערכת פעילה</span>
+                <button class="primary" id="addBtn">＋ הוספת רשומה</button>
+                <button class="secondary" id="userBtn">👤 משתמש</button>
+            </div>
+        </header>
+        <section id="view"></section>
+    </main>
+    <div id="modal" class="modal hidden">
+        <div class="modal-card">
+            <button class="close" id="closeModal">×</button>
+            <h2 id="modalTitle"></h2>
+            <form id="modalForm"></form>
+            <div class="modal-actions">
+                <button class="secondary" id="cancelBtn">ביטול</button>
+                <button class="primary" id="submitBtn">שמירה</button>
+            </div>
+        </div>
+    </div>
+    <div id="toastContainer"></div>
+    <script src="../unified-ui.js"></script>
+</body>
+</html>

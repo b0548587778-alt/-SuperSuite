@@ -1,0 +1,51 @@
+{
+  "name": "super-suite",
+  "version": "2.1.0",
+  "description": "חבילת העבודה המאוחדת — כלכלה, שמאות, כושר וכלים",
+  "main": "main.js",
+  "author": "Bunim Seller",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis portable",
+    "test": "node --test tests/accounting.test.js tests/integration.test.js tests/ipc-guard.test.js tests/exports.test.js tests/backupCrypto.test.js tests/pricing.test.js tests/regressions.test.js tests/security.test.js tests/features.test.js tests/regressions-r2.test.js tests/tools-calc.test.js"
+  },
+  "devDependencies": {
+    "electron": "^38.8.6",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.bunimseller.supersuite",
+    "productName": "SuperSuite",
+    "files": [
+      "main.js",
+      "shell/**/*",
+      "modules/**/*",
+      "build/icon.png",
+      "package.json",
+      "modules/tools/calc.js"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false,
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "SuperSuite-Portable.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "SuperSuite-Setup.${ext}"
+    },
+    "icon": "build/icon.ico"
+  }
+}

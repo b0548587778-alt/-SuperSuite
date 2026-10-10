@@ -1,0 +1,94 @@
+{
+ "navInfo": [
+  {
+   "view": "dashboard",
+   "txt": "⌂\nלוח בקרה"
+  },
+  {
+   "view": "finance",
+   "txt": "₪\nתכנון פיננסי"
+  },
+  {
+   "view": "business",
+   "txt": "▣\nעסקים ולקוחות"
+  },
+  {
+   "view": "acct-reports",
+   "txt": "📈\nדוחות ומע\"מ"
+  },
+  {
+   "view": "acct-journal",
+   "txt": "📒\nיומן חשבונאי"
+  },
+  {
+   "view": "acct-invoices",
+   "txt": "🧾\nחשבוניות מס"
+  },
+  {
+   "view": "acct-chart",
+   "txt": "🗂\nתוכנית חשבונות"
+  },
+  {
+   "view": "acct-settings",
+   "txt": "🏢\nהגדרות עסק ומע\"מ"
+  },
+  {
+   "view": "acct-pricing",
+   "txt": "🏷\nמחירון ותמחור"
+  },
+  {
+   "view": "acct-personal",
+   "txt": "🏠\nהוצאות אישיות ומשפחה"
+  },
+  {
+   "view": "market-intel",
+   "txt": "📊\nמודיעין שוק"
+  },
+  {
+   "view": "mortgage",
+   "txt": "🏠\nמשכנתאות והלוואות"
+  },
+  {
+   "view": "personal-finance",
+   "txt": "💰\nהתוכנית הפיננסית"
+  },
+  {
+   "view": "tasks",
+   "txt": "📋\nמשימות"
+  },
+  {
+   "view": "contacts",
+   "txt": "👥\nאנשי קשר"
+  },
+  {
+   "view": "fitness",
+   "txt": "💪\nכושר ובריאות"
+  },
+  {
+   "view": "voice-notes",
+   "txt": "🎤\nהערות קוליות"
+  },
+  {
+   "view": "canvas",
+   "txt": "🎨\nלוח לבן"
+  }
+ ],
+ "clicked": "CLICKED",
+ "after": {
+  "visibleViews": [
+   {
+    "id": "view",
+    "cls": "",
+    "h": 862,
+    "txt": "טוען..."
+   }
+  ],
+  "headings": [
+   "כושר ובריאות"
+  ],
+  "docTitle": "מערכת כלכלית מאוחדת"
+ },
+ "errs": [
+  "Error loading view data: TypeError: Cannot read properties of undefined (reading 'getFitnessData')"
+ ]
+}

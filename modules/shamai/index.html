@@ -1,0 +1,1506 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="שמאי" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="description" content="שמאי - פלטפורמה רב-תחומית לסוחרים. שמאות, מחירי שוק חיים, ניהול הזדמנויות." />
+
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+
+  <title>שמאי · פלטפורמת סוחרים</title>
+
+  <!-- גופנים: ללא תלות ברשת. הגופנים מותקנים מקומית, עם נפילה לגופן עברי חלופי. -->
+  <style>
+    :root{
+      --font-display:"Frank Ruhl Libre","FrankRuehl","David","Times New Roman",serif;
+      --font-body:"Heebo","Segoe UI","Arial",sans-serif;
+    }
+  </style>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <script src="lib/qrcode.js"></script>
+  <script src="lib/lz-string.min.js"></script>
+  <div id="app">
+    <!-- HEADER -->
+    <header class="hdr">
+      <div class="brand">
+        <div class="logo">שמאי</div>
+        <div class="tagline">פלטפורמת סוחרים</div>
+        <div class="heb-date" id="heb-date"></div>
+      </div>
+      <div class="hdr-actions">
+        <button class="hdr-btn" id="btn-theme" aria-label="ערכת נושא">🌙</button>
+        <button class="hdr-btn" id="btn-global-search" aria-label="חיפוש">🔍</button>
+        <div class="hdr-stats" id="hdr-stats"></div>
+      </div>
+    </header>
+
+    <!-- GLOBAL SEARCH OVERLAY -->
+    <div class="search-overlay" id="search-overlay" hidden>
+      <div class="search-modal">
+        <div class="search-header">
+          <input type="text" id="global-search-input" placeholder="חפש פריטים, שמאויות, כלים..." />
+          <button id="search-close" aria-label="סגור">×</button>
+        </div>
+        <div id="search-results" class="search-results"></div>
+      </div>
+    </div>
+
+    <!-- INSTALL PROMPT -->
+    <div class="install-banner" id="install-banner" hidden>
+      <span id="install-text">התקן את שמאי</span>
+      <button id="btn-install">התקן</button>
+      <button id="btn-install-dismiss" class="dismiss" aria-label="סגור">×</button>
+    </div>
+
+    <!-- TOP NAV - 4 main sections -->
+    <nav class="top-nav">
+      <button class="top-tab active" data-view="dashboard">
+        <span class="tt-icon">⌂</span>
+        <span class="tt-text">בית</span>
+      </button>
+      <button class="top-tab" data-view="appraisal">
+        <span class="tt-icon">◆</span>
+        <span class="tt-text">שמאות</span>
+      </button>
+      <button class="top-tab" data-view="ledger">
+        <span class="tt-icon">◎</span>
+        <span class="tt-text">פנקס</span>
+        <span class="tt-badge" id="ledger-badge" hidden>0</span>
+      </button>
+      <button class="top-tab" data-view="tools">
+        <span class="tt-icon">⚙</span>
+        <span class="tt-text">כלים</span>
+      </button>
+    </nav>
+
+    <main class="main">
+      <!-- ═══════════════════ DASHBOARD ═══════════════════ -->
+      <section class="view" data-view="dashboard">
+        <div class="hero">
+          <div class="hero-greet" id="hero-greet">בוקר טוב</div>
+          <div class="hero-stats">
+            <div class="hero-stat">
+              <div class="hs-label">פעיל</div>
+              <div class="hs-value" id="hero-active">0</div>
+              <div class="hs-sub">הזדמנויות</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hs-label">פוטנציאל</div>
+              <div class="hs-value" id="hero-potential">₪0</div>
+              <div class="hs-sub">רווח חזוי</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hs-label">החודש</div>
+              <div class="hs-value" id="hero-monthly">₪0</div>
+              <div class="hs-sub">רווח בפועל</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="quick-actions">
+          <button class="qa" data-quick="appraisal-gold">
+            <span class="qa-icon">◆</span><span>זהב/כסף</span>
+          </button>
+          <button class="qa" data-quick="appraisal-diamond">
+            <span class="qa-icon">✦</span><span>יהלום</span>
+          </button>
+          <button class="qa" data-quick="appraisal-watch">
+            <span class="qa-icon">◔</span><span>שעון</span>
+          </button>
+          <button class="qa" data-quick="ledger-new">
+            <span class="qa-icon">+</span><span>פריט חדש</span>
+          </button>
+        </div>
+
+        <div class="section-title">שווקים חיים</div>
+        <div class="cards" id="market-cards"></div>
+
+        <div class="section-title">קריפטו</div>
+        <div class="cards" id="crypto-cards"></div>
+
+        <div class="jewish-widget" id="jewish-widget"></div>
+
+        <div class="section-title">תובנות חכמות</div>
+        <div id="insights-list" class="insights-list"></div>
+
+        <div class="section-title">מטבעות</div>
+        <div class="metrics-row" id="fx-row"></div>
+
+        <div class="section-title-row">
+          <div class="section-title">תזכורות</div>
+        </div>
+        <div id="reminders-list" class="reminders-list"></div>
+
+        <details class="manual-prices">
+          <summary>עדכון מחירים ידני</summary>
+          <div class="manual-grid">
+            <label>זהב $/oz <input type="number" id="manual-gold" step="0.01" /></label>
+            <label>כסף $/oz <input type="number" id="manual-silver" step="0.01" /></label>
+            <label>פלטינה $/oz <input type="number" id="manual-platinum" step="0.01" /></label>
+            <label>USD/ILS <input type="number" id="manual-usdils" step="0.001" /></label>
+            <label>נחושת $/lb <input type="number" id="manual-copper" step="0.01" /></label>
+            <label>אלומיניום $/lb <input type="number" id="manual-aluminum" step="0.01" /></label>
+            <button class="btn-secondary" id="btn-save-manual">שמור</button>
+          </div>
+        </details>
+      </section>
+
+      <!-- ═══════════════════ APPRAISAL HUB ═══════════════════ -->
+      <section class="view" data-view="appraisal">
+        <!-- Sub-nav grid -->
+        <div class="sub-hub" id="appraisal-hub">
+          <div class="hub-title">בחר תחום שמאות</div>
+          <div class="hub-grid">
+            <button class="hub-card" data-sub="gold">
+              <div class="hc-icon">◆</div><div class="hc-name">זהב/כסף</div>
+              <div class="hc-desc">ערך התכה לפי טוהר</div>
+            </button>
+            <button class="hub-card" data-sub="diamond">
+              <div class="hc-icon">✦</div><div class="hc-name">יהלום</div>
+              <div class="hc-desc">4Cs + טבעי/מעבדה</div>
+            </button>
+            <button class="hub-card" data-sub="watch">
+              <div class="hc-icon">◔</div><div class="hc-name">שעוני יוקרה</div>
+              <div class="hc-desc">Rolex, Patek, AP...</div>
+            </button>
+            <button class="hub-card" data-sub="antique">
+              <div class="hc-icon">❦</div><div class="hc-name">יודאיקה ועתיקות</div>
+              <div class="hc-desc">8 קטגוריות</div>
+            </button>
+            <button class="hub-card" data-sub="book">
+              <div class="hc-icon">✡</div><div class="hc-name">ספרי קודש</div>
+              <div class="hc-desc">מהדורות נדירות</div>
+            </button>
+            <button class="hub-card" data-sub="coin">
+              <div class="hc-icon">◉</div><div class="hc-name">מטבעות</div>
+              <div class="hc-desc">נומיסמטי + התכה</div>
+            </button>
+            <button class="hub-card" data-sub="phone">
+              <div class="hc-icon">▢</div><div class="hc-name">טלפונים</div>
+              <div class="hc-desc">iPhone, Samsung</div>
+            </button>
+            <button class="hub-card" data-sub="art">
+              <div class="hc-icon">✺</div><div class="hc-name">אומנות</div>
+              <div class="hc-desc">ציורים, פסלים</div>
+            </button>
+            <button class="hub-card" data-sub="rug">
+              <div class="hc-icon">▦</div><div class="hc-name">שטיחי משי</div>
+              <div class="hc-desc">פרסיים, אנטיים</div>
+            </button>
+            <button class="hub-card" data-sub="scrap">
+              <div class="hc-icon">⚒</div><div class="hc-name">סקראפ</div>
+              <div class="hc-desc">נחושת, אלומיניום</div>
+            </button>
+            <button class="hub-card" data-sub="realestate">
+              <div class="hc-icon">⌂</div><div class="hc-name">נדל"ן</div>
+              <div class="hc-desc">דירה, חנות, משרד</div>
+            </button>
+            <button class="hub-card" data-sub="vehicle">
+              <div class="hc-icon">⊞</div><div class="hc-name">רכב</div>
+              <div class="hc-desc">מחיר מחירון, פיחות</div>
+            </button>
+            <button class="hub-card" data-sub="nft">
+              <div class="hc-icon">⬢</div><div class="hc-name">NFT/דיגיטלי</div>
+              <div class="hc-desc">אספנות דיגיטלית</div>
+            </button>
+            <button class="hub-card" data-sub="wine">
+              <div class="hc-icon">🍷</div><div class="hc-name">יין</div>
+              <div class="hc-desc">בורדו, בורגונדי, כשר</div>
+            </button>
+            <button class="hub-card" data-sub="bag">
+              <div class="hc-icon">👜</div><div class="hc-name">תיקי יוקרה</div>
+              <div class="hc-desc">Hermès, Chanel, LV</div>
+            </button>
+            <button class="hub-card" data-sub="gbook">
+              <div class="hc-icon">📚</div><div class="hc-name">ספרי אספנות</div>
+              <div class="hc-desc">מהדורות, חתומים</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Sub-views -->
+        <div class="sub-view" data-sub="gold" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות זהב/כסף</h2>
+          </div>
+
+          <div class="toggle-row">
+            <button class="toggle active" data-metal="gold">◆ זהב</button>
+            <button class="toggle" data-metal="silver">◇ כסף</button>
+          </div>
+
+          <details class="presets">
+            <summary>פריסטים: מטבעות נפוצים</summary>
+            <div id="coin-presets" class="preset-grid"></div>
+          </details>
+
+          <div class="field">
+            <label>טוהר</label>
+            <div class="purity-grid" id="purity-grid"></div>
+          </div>
+
+          <div class="field-row">
+            <div class="field flex2">
+              <label>משקל</label>
+              <input type="number" id="g-weight" value="10" step="0.1" min="0" />
+            </div>
+            <div class="field">
+              <label>יחידה</label>
+              <select id="g-unit">
+                <option value="g">גרם</option>
+                <option value="oz">אונקיה</option>
+                <option value="kg">ק"ג</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="check-inline">
+              <input type="checkbox" id="g-scrap-mode" />
+              <span>מצב סוחר סקראפ (מחיר 70% משווי התכה)</span>
+            </label>
+          </div>
+
+          <div class="field">
+            <label>מחיר מבוקש (₪) - אופציונלי</label>
+            <input type="number" id="g-asking" placeholder="בדוק רווחיות" />
+          </div>
+
+          <div class="result-box" id="g-result"></div>
+
+          <button class="btn-secondary" id="g-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="diamond" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות יהלום</h2>
+          </div>
+
+          <div class="toggle-row">
+            <button class="toggle active" data-origin="natural">◆ טבעי</button>
+            <button class="toggle" data-origin="lab">⬡ מעבדה (-25%)</button>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>משקל (קראט)</label>
+              <input type="number" id="d-carat" value="1.00" step="0.01" min="0.3" />
+            </div>
+            <div class="field">
+              <label>צורה</label>
+              <select id="d-shape"></select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>צבע (D=לבן · M=צהבהב)</label>
+            <div class="scale-grid" id="d-color"></div>
+          </div>
+
+          <div class="field">
+            <label>ניקיון (FL=מושלם · I3=פגום)</label>
+            <div class="scale-grid" id="d-clarity"></div>
+          </div>
+
+          <div class="field">
+            <label>חיתוך</label>
+            <div class="scale-grid" id="d-cut"></div>
+          </div>
+
+          <div class="field">
+            <label>פלואורסנציה</label>
+            <div class="scale-grid" id="d-fluor"></div>
+          </div>
+
+          <div class="field">
+            <label>סוג תעודה</label>
+            <div class="scale-grid" id="d-cert"></div>
+          </div>
+
+          <div class="field-row">
+            <div class="field flex2">
+              <label>מחיר מבוקש</label>
+              <input type="number" id="d-asking" placeholder="כמה דורשים?" />
+            </div>
+            <div class="field">
+              <label>מטבע</label>
+              <select id="d-currency">
+                <option value="ILS">₪</option>
+                <option value="USD">$</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="result-box" id="d-result"></div>
+          <button class="btn-secondary" id="d-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="watch" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות שעוני יוקרה</h2>
+          </div>
+
+          <div class="field">
+            <label>מותג</label>
+            <div class="brand-grid" id="watch-brands"></div>
+          </div>
+
+          <div class="field">
+            <label>דגם / רפרנס</label>
+            <input type="text" id="w-model" placeholder="Submariner 126610LN, או 'Royal Oak 15500'" />
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>שנת ייצור</label>
+              <input type="number" id="w-year" placeholder="2020" />
+            </div>
+            <div class="field">
+              <label>מצב</label>
+              <select id="w-condition">
+                <option value="new">חדש בקופסה</option>
+                <option value="unworn">חדש לא לבוש</option>
+                <option value="excellent" selected>מצוין</option>
+                <option value="good">טוב</option>
+                <option value="fair">סביר</option>
+                <option value="poor">דורש שיפוץ</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>מקור / Box & Papers</label>
+            <select id="w-papers">
+              <option value="full">מלא: קופסה + ניירות + תעודה</option>
+              <option value="partial">חלקי: קופסה או ניירות</option>
+              <option value="none">ללא קופסה ולא ניירות</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>שירות אחרון</label>
+            <select id="w-service">
+              <option value="recent">בוצע בשנתיים אחרונות</option>
+              <option value="medium" selected>3-5 שנים</option>
+              <option value="old">5+ שנים / לא ידוע</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>מחיר רטרייל / השוואה ב-Chrono24 (₪)</label>
+            <input type="number" id="w-retail" placeholder="חפש דגם זהה ב-Chrono24" />
+            <div class="field-hint">בלי ערך זה - אי אפשר לחשב</div>
+          </div>
+
+          <div class="field">
+            <label>מחיר מבוקש (₪)</label>
+            <input type="number" id="w-asking" placeholder="כמה דורשים?" />
+          </div>
+
+          <div class="result-box" id="w-result"></div>
+          <button class="btn-secondary" id="w-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="antique" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>יודאיקה ועתיקות</h2>
+          </div>
+
+          <div class="field">
+            <label>קטגוריה</label>
+            <div class="cat-grid" id="cat-grid"></div>
+          </div>
+
+          <div class="field">
+            <label>שם / תיאור</label>
+            <input type="text" id="a-name" placeholder="חנוכייה כסף 925, פולין 1890" />
+          </div>
+
+          <details class="presets">
+            <summary>חישוב כסף אוטומטי (כלי כסף)</summary>
+            <div class="manual-grid">
+              <label>משקל הכלי בגרם
+                <input type="number" id="a-silver-weight" />
+              </label>
+              <label>טוהר
+                <select id="a-silver-purity">
+                  <option value="999">999 (טהור)</option>
+                  <option value="925" selected>925 (Sterling)</option>
+                  <option value="900">900 (Coin)</option>
+                  <option value="800">800 (אירופאי)</option>
+                </select>
+              </label>
+              <button class="btn-secondary" id="a-calc-silver">חשב התכה ⟶ הכנס לשווי שוק</button>
+            </div>
+          </details>
+
+          <div class="field">
+            <label>שווי שוק משוער (₪) - מצב מנטה</label>
+            <input type="number" id="a-market" placeholder="בדוק ב-Kedem, Sothebys" />
+          </div>
+
+          <div class="field">
+            <label>מצב הפריט</label>
+            <div class="cond-grid" id="cond-grid"></div>
+          </div>
+
+          <div class="field">
+            <label>מקור / הולמרק</label>
+            <div class="hallmark-grid" id="hallmark-grid"></div>
+          </div>
+
+          <div class="field">
+            <label>תוספות ערך</label>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" id="a-prov" /><span>תיעוד / Provenance +25%</span></label>
+              <label class="check"><input type="checkbox" id="a-signed" /><span>חתום / סימון יוצר ידוע +15%</span></label>
+              <label class="check"><input type="checkbox" id="a-rare" /><span>פריט נדיר / יחיד +50%</span></label>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>מחיר מבוקש (₪)</label>
+            <input type="number" id="a-asking" />
+          </div>
+
+          <div class="result-box" id="a-result"></div>
+          <button class="btn-secondary" id="a-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="book" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות ספרי קודש</h2>
+          </div>
+
+          <div class="field">
+            <label>סוג</label>
+            <div class="cat-grid" id="book-types"></div>
+          </div>
+
+          <div class="field">
+            <label>שם / כותרת</label>
+            <input type="text" id="b-name" placeholder="ש&quot;ס וילנא, חומש מקראות גדולות..." />
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>מהדורה</label>
+              <input type="text" id="b-edition" placeholder="וילנא 1890, ונציה 1520..." />
+            </div>
+            <div class="field">
+              <label>שנה</label>
+              <input type="number" id="b-year" placeholder="1890" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label>מצב הספר</label>
+            <div class="cond-grid" id="book-cond"></div>
+          </div>
+
+          <div class="field">
+            <label>שלמות</label>
+            <select id="b-complete">
+              <option value="full">שלם · כל הדפים</option>
+              <option value="missing-few">חסרים 1-3 דפים</option>
+              <option value="missing-many">חסרים 4+ דפים</option>
+              <option value="incomplete">לא שלם / חצי</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>תוספות ערך</label>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" id="b-rabbi" /><span>חתימת רב / הקדשה +40%</span></label>
+              <label class="check"><input type="checkbox" id="b-glosses" /><span>הגהות בעט / הערות +15%</span></label>
+              <label class="check"><input type="checkbox" id="b-binding" /><span>כריכה מקורית מעור +20%</span></label>
+              <label class="check"><input type="checkbox" id="b-first" /><span>מהדורה ראשונה +50%</span></label>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>שווי שוק משוער (₪)</label>
+            <input type="number" id="b-market" placeholder="חפש ב-Kedem, Asufa, Genazym" />
+          </div>
+
+          <div class="field">
+            <label>מחיר מבוקש (₪)</label>
+            <input type="number" id="b-asking" />
+          </div>
+
+          <div class="result-box" id="b-result"></div>
+          <button class="btn-secondary" id="b-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="coin" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות מטבעות</h2>
+          </div>
+
+          <div class="field">
+            <label>תקופה</label>
+            <div class="cat-grid" id="coin-eras"></div>
+          </div>
+
+          <div class="field">
+            <label>שם המטבע</label>
+            <input type="text" id="cn-name" placeholder="לירה ארץ ישראלית 1949, נפוליאון..." />
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>שנה</label>
+              <input type="number" id="cn-year" />
+            </div>
+            <div class="field">
+              <label>מתכת</label>
+              <select id="cn-metal">
+                <option value="gold">זהב</option>
+                <option value="silver">כסף</option>
+                <option value="copper">נחושת/ברונזה</option>
+                <option value="other">אחר</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>משקל (גרם)</label>
+              <input type="number" id="cn-weight" step="0.01" />
+            </div>
+            <div class="field">
+              <label>טוהר (‰)</label>
+              <input type="number" id="cn-purity" value="900" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label>דירוג נומיסמטי</label>
+            <div class="scale-grid" id="cn-grade"></div>
+          </div>
+
+          <div class="field">
+            <label>פרמיה נומיסמטית מעל ערך התכה</label>
+            <select id="cn-premium">
+              <option value="0">אין פרמיה (מטבע נפוץ)</option>
+              <option value="1.5" selected>×1.5 (מטבע בקושי אספני)</option>
+              <option value="3">×3 (מטבע אספני בינוני)</option>
+              <option value="10">×10 (מטבע נדיר)</option>
+              <option value="50">×50 (נדיר מאוד)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>מחיר מבוקש (₪)</label>
+            <input type="number" id="cn-asking" />
+          </div>
+
+          <div class="result-box" id="cn-result"></div>
+          <button class="btn-secondary" id="cn-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="phone" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות טלפונים</h2>
+          </div>
+
+          <div class="field">
+            <label>מותג</label>
+            <div class="brand-grid" id="phone-brands"></div>
+          </div>
+
+          <div class="field">
+            <label>דגם</label>
+            <input type="text" id="ph-model" placeholder="iPhone 15 Pro Max, Galaxy S25 Ultra..." />
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>אחסון</label>
+              <select id="ph-storage">
+                <option value="64">64GB</option>
+                <option value="128" selected>128GB</option>
+                <option value="256">256GB</option>
+                <option value="512">512GB</option>
+                <option value="1024">1TB</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>אחריות</label>
+              <select id="ph-warranty">
+                <option value="active">פעילה</option>
+                <option value="none" selected>אין</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>מצב כללי</label>
+            <div class="cond-grid" id="phone-cond"></div>
+          </div>
+
+          <div class="field">
+            <label>בריאות סוללה (%) - אם iPhone</label>
+            <input type="number" id="ph-battery" min="0" max="100" placeholder="85" />
+          </div>
+
+          <div class="field">
+            <label>מחיר חדש בחנות (₪) - בערך</label>
+            <input type="number" id="ph-retail" placeholder="5,000" />
+          </div>
+
+          <div class="field">
+            <label>מחיר מבוקש (₪)</label>
+            <input type="number" id="ph-asking" />
+          </div>
+
+          <div class="result-box" id="ph-result"></div>
+          <button class="btn-secondary" id="ph-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="art" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות אומנות</h2>
+          </div>
+
+          <div class="field">
+            <label>שם האמן</label>
+            <input type="text" id="ar-artist" placeholder="ראובן רובין, נחום גוטמן..." />
+          </div>
+
+          <div class="field">
+            <label>טכניקה</label>
+            <div class="brand-grid" id="art-techniques"></div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>אורך (ס"מ)</label>
+              <input type="number" id="ar-length" />
+            </div>
+            <div class="field">
+              <label>רוחב (ס"מ)</label>
+              <input type="number" id="ar-width" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label>שנת יצירה</label>
+            <input type="number" id="ar-year" placeholder="1965" />
+          </div>
+
+          <div class="field">
+            <label>מצב היצירה</label>
+            <div class="cond-grid" id="art-cond"></div>
+          </div>
+
+          <div class="field">
+            <label>תוספות ערך</label>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" id="ar-signed" /><span>חתום על-ידי האמן +30%</span></label>
+              <label class="check"><input type="checkbox" id="ar-prov" /><span>תיעוד יד מקור +25%</span></label>
+              <label class="check"><input type="checkbox" id="ar-frame" /><span>מסגרת מקורית +10%</span></label>
+              <label class="check"><input type="checkbox" id="ar-exhibited" /><span>הוצג בתערוכה ידועה +20%</span></label>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>שווי שוק (₪) - בדוק ב-Artprice / מכירות</label>
+            <input type="number" id="ar-market" />
+          </div>
+
+          <div class="field">
+            <label>מחיר מבוקש (₪)</label>
+            <input type="number" id="ar-asking" />
+          </div>
+
+          <div class="result-box" id="ar-result"></div>
+          <button class="btn-secondary" id="ar-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="rug" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות שטיחי משי ופרסיים</h2>
+          </div>
+
+          <div class="field">
+            <label>אזור מקור</label>
+            <div class="brand-grid" id="rug-regions"></div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>אורך (ס"מ)</label>
+              <input type="number" id="rg-length" placeholder="200" />
+            </div>
+            <div class="field">
+              <label>רוחב (ס"מ)</label>
+              <input type="number" id="rg-width" placeholder="300" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label>חומר</label>
+            <select id="rg-material">
+              <option value="silk">משי</option>
+              <option value="silk-wool">משי על צמר</option>
+              <option value="wool" selected>צמר</option>
+              <option value="wool-cotton">צמר על כותנה</option>
+              <option value="cotton">כותנה</option>
+            </select>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>קשרים לאינץ' רבוע (KPSI)</label>
+              <input type="number" id="rg-kpsi" placeholder="200" />
+              <div class="field-hint">משי: 400+, צמר איכותי: 150-300</div>
+            </div>
+            <div class="field">
+              <label>גיל</label>
+              <select id="rg-age">
+                <option value="new">חדש (פחות מ-30 שנה)</option>
+                <option value="semi" selected>סמי-אנטיק (30-100 שנה)</option>
+                <option value="antique">אנטיק (100+ שנה)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>מצב</label>
+            <div class="cond-grid" id="rug-cond"></div>
+          </div>
+
+          <div class="field">
+            <label>מחיר מבוקש (₪)</label>
+            <input type="number" id="rg-asking" />
+          </div>
+
+          <div class="result-box" id="rg-result"></div>
+          <button class="btn-secondary" id="rg-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="scrap" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות סקראפ</h2>
+          </div>
+
+          <div class="field">
+            <label>סוג חומר</label>
+            <div class="brand-grid" id="scrap-types"></div>
+          </div>
+
+          <div class="field-row">
+            <div class="field flex2">
+              <label>משקל</label>
+              <input type="number" id="sc-weight" value="100" />
+            </div>
+            <div class="field">
+              <label>יחידה</label>
+              <select id="sc-unit">
+                <option value="kg" selected>ק"ג</option>
+                <option value="ton">טון</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>מחיר לק"ג בשוק (₪) - אם ידוע</label>
+            <input type="number" id="sc-price-kg" step="0.01" />
+            <div class="field-hint">אם ריק - יחושב לפי מחיר בורסה רשמי</div>
+          </div>
+
+          <div class="field">
+            <label>מחיר רכישה מבוקש (₪)</label>
+            <input type="number" id="sc-asking" />
+          </div>
+
+          <div class="result-box" id="sc-result"></div>
+          <button class="btn-secondary" id="sc-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="realestate" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות נדל"ן</h2>
+          </div>
+
+          <div class="field">
+            <label>סוג הנכס</label>
+            <div class="brand-grid" id="re-types"></div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>שטח רשום (מ"ר)</label>
+              <input type="number" id="re-size" placeholder="80" />
+            </div>
+            <div class="field">
+              <label>חדרים</label>
+              <input type="number" id="re-rooms" value="3" step="0.5" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label>אזור / שכונה</label>
+            <select id="re-area">
+              <option value="tel-aviv-luxury">ת"א מרכז/רמת אביב/צפון הישן</option>
+              <option value="tel-aviv">ת"א רגיל</option>
+              <option value="jerusalem-haredi" selected>ירושלים חרדי (גאולה/מאה שערים)</option>
+              <option value="jerusalem">ירושלים אחר</option>
+              <option value="bnei-brak">בני ברק</option>
+              <option value="ramat-gan">רמת גן/גבעתיים</option>
+              <option value="herzliya">הרצליה/רעננה</option>
+              <option value="haifa">חיפה</option>
+              <option value="periphery">פריפריה</option>
+            </select>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>קומה</label>
+              <input type="number" id="re-floor" value="2" />
+            </div>
+            <div class="field">
+              <label>שנת בניה</label>
+              <input type="number" id="re-year" placeholder="1985" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label>מצב הנכס</label>
+            <div class="cond-grid" id="re-cond"></div>
+          </div>
+
+          <div class="field">
+            <label>מאפיינים</label>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" id="re-elevator" /><span>מעלית +5%</span></label>
+              <label class="check"><input type="checkbox" id="re-parking" /><span>חניה צמודה +6%</span></label>
+              <label class="check"><input type="checkbox" id="re-balcony" /><span>מרפסת/גינה +4%</span></label>
+              <label class="check"><input type="checkbox" id="re-storage" /><span>מחסן +2%</span></label>
+              <label class="check"><input type="checkbox" id="re-renovated" /><span>אחרי שיפוץ +8%</span></label>
+              <label class="check"><input type="checkbox" id="re-tama" /><span>תמ"א 38 בעתיד +10%</span></label>
+              <label class="check"><input type="checkbox" id="re-view" /><span>נוף פתוח/חזית +3%</span></label>
+              <label class="check"><input type="checkbox" id="re-noise" /><span>כביש רועש -5%</span></label>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>מחיר מבוקש (₪)</label>
+            <input type="number" id="re-asking" placeholder="1,000,000" />
+          </div>
+
+          <div class="result-box" id="re-result"></div>
+          <button class="btn-secondary" id="re-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="vehicle" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות רכב</h2>
+          </div>
+
+          <div class="field">
+            <label>יצרן</label>
+            <div class="brand-grid" id="veh-brands"></div>
+          </div>
+
+          <div class="field">
+            <label>דגם</label>
+            <input type="text" id="veh-model" placeholder="Corolla, Yaris, Mazda 3..." />
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>שנת ייצור</label>
+              <input type="number" id="veh-year" placeholder="2020" />
+            </div>
+            <div class="field">
+              <label>קילומטרים</label>
+              <input type="number" id="veh-km" placeholder="60,000" />
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>יד</label>
+              <select id="veh-hand">
+                <option value="1">יד 1</option>
+                <option value="2" selected>יד 2</option>
+                <option value="3">יד 3</option>
+                <option value="4+">יד 4+</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>סוג מנוע</label>
+              <select id="veh-engine">
+                <option value="gas" selected>בנזין</option>
+                <option value="diesel">דיזל</option>
+                <option value="hybrid">היברידי</option>
+                <option value="electric">חשמלי</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>מצב כללי</label>
+            <div class="cond-grid" id="veh-cond"></div>
+          </div>
+
+          <div class="field">
+            <label>מאפיינים</label>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" id="veh-test" /><span>טסט בתוקף +3%</span></label>
+              <label class="check"><input type="checkbox" id="veh-accident" /><span>תאונה רצינית בעבר -25%</span></label>
+              <label class="check"><input type="checkbox" id="veh-private" /><span>בעלות פרטית (לא ליסינג) +5%</span></label>
+              <label class="check"><input type="checkbox" id="veh-service" /><span>תיעוד טיפולים מלא +4%</span></label>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>מחיר מחירון לוי יצחק (₪)</label>
+            <input type="number" id="veh-list" placeholder="80,000" />
+            <div class="field-hint">חפש בלוי יצחק או יד2 לדגם זהה. בלי זה אי אפשר לחשב.</div>
+          </div>
+
+          <div class="field">
+            <label>מחיר מבוקש (₪)</label>
+            <input type="number" id="veh-asking" />
+          </div>
+
+          <div class="result-box" id="veh-result"></div>
+          <button class="btn-secondary" id="veh-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="nft" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות NFT / אספנות דיגיטלית</h2>
+          </div>
+
+          <div class="field">
+            <label>סוג</label>
+            <div class="brand-grid" id="nft-types"></div>
+          </div>
+
+          <div class="field">
+            <label>שם הקולקציה / היצירה</label>
+            <input type="text" id="nft-name" placeholder="CryptoPunks #1234, Bored Ape #5678..." />
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>Floor Price (ETH)</label>
+              <input type="number" id="nft-floor" step="0.001" placeholder="0.5" />
+              <div class="field-hint">מחיר בסיס מ-OpenSea</div>
+            </div>
+            <div class="field">
+              <label>Rarity Rank (1=נדיר ביותר)</label>
+              <input type="number" id="nft-rarity" placeholder="500" />
+              <div class="field-hint">מ-Rarity Tools</div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>נדירות פרטים מיוחדים</label>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" id="nft-1of1" /><span>1/1 (יחיד) +500%</span></label>
+              <label class="check"><input type="checkbox" id="nft-celeb" /><span>בבעלות סלב/אמן ידוע +200%</span></label>
+              <label class="check"><input type="checkbox" id="nft-utility" /><span>יש Utility/הטבות +50%</span></label>
+              <label class="check"><input type="checkbox" id="nft-historic" /><span>היסטורי (Genesis) +100%</span></label>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>מחיר מבוקש</label>
+              <input type="number" id="nft-asking" step="0.001" />
+            </div>
+            <div class="field">
+              <label>מטבע</label>
+              <select id="nft-currency">
+                <option value="ETH">ETH</option>
+                <option value="USD">USD</option>
+                <option value="ILS">ILS ₪</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="result-box" id="nft-result"></div>
+          <button class="btn-secondary" id="nft-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="wine" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות יין</h2>
+          </div>
+          <div class="field"><label>אזור מקור</label><div class="brand-grid" id="wn-regions"></div></div>
+          <div class="field"><label>שם היין / יצרן</label><input type="text" id="wn-name" placeholder="Château Margaux, Yarden..." /></div>
+          <div class="field-row">
+            <div class="field"><label>בציר (שנה)</label><input type="number" id="wn-vintage" placeholder="2015" /></div>
+            <div class="field"><label>ציון Parker/Wine Spectator</label><input type="number" id="wn-score" placeholder="92" min="50" max="100" /></div>
+          </div>
+          <div class="field">
+            <label class="check-inline"><input type="checkbox" id="wn-kosher" /><span>כשר למהדרין +15%</span></label>
+          </div>
+          <div class="field">
+            <label>מחיר רטרייל ב-Wine-Searcher (₪)</label>
+            <input type="number" id="wn-retail" placeholder="500" />
+            <div class="field-hint">מחיר ממוצע. בלי זה אי אפשר לחשב.</div>
+          </div>
+          <div class="field"><label>מחיר מבוקש (₪)</label><input type="number" id="wn-asking" /></div>
+          <div class="result-box" id="wn-result"></div>
+          <button class="btn-secondary" id="wn-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="bag" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות תיקי יוקרה</h2>
+          </div>
+          <div class="field"><label>מותג</label><div class="brand-grid" id="bg-brands"></div></div>
+          <div class="field"><label>דגם / שם</label><input type="text" id="bg-model" placeholder="Birkin 30, Classic Flap, Neverfull..." /></div>
+          <div class="field"><label>שנת יצירה (Year stamp)</label><input type="number" id="bg-year" /></div>
+          <div class="field"><label>מצב</label><div class="cond-grid" id="bg-cond"></div></div>
+          <div class="field">
+            <label class="check-inline"><input type="checkbox" id="bg-auth" /><span>תיעוד אותנטי / אומת על-ידי שמאי +20%</span></label>
+          </div>
+          <div class="field">
+            <label>מחיר רטרייל / חנות רשמית (₪)</label>
+            <input type="number" id="bg-retail" placeholder="20,000" />
+          </div>
+          <div class="field"><label>מחיר מבוקש (₪)</label><input type="number" id="bg-asking" /></div>
+          <div class="result-box" id="bg-result"></div>
+          <button class="btn-secondary" id="bg-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="gbook" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>שמאות ספרי אספנות</h2>
+          </div>
+          <div class="field"><label>סוג</label><div class="brand-grid" id="gb-types"></div></div>
+          <div class="field-row">
+            <div class="field"><label>שם הספר</label><input type="text" id="gb-name" placeholder="The Great Gatsby..." /></div>
+            <div class="field"><label>שנה</label><input type="number" id="gb-year" /></div>
+          </div>
+          <div class="field"><label>מחבר</label><input type="text" id="gb-author" /></div>
+          <div class="field"><label>מצב</label><div class="cond-grid" id="gb-cond"></div></div>
+          <div class="field">
+            <label>מחיר השוואה (Abebooks/Biblio) ₪</label>
+            <input type="number" id="gb-retail" placeholder="100" />
+          </div>
+          <div class="field"><label>מחיר מבוקש (₪)</label><input type="number" id="gb-asking" /></div>
+          <div class="result-box" id="gb-result"></div>
+          <button class="btn-secondary" id="gb-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+      </section>
+
+      <!-- ═══════════════════ LEDGER ═══════════════════ -->
+      <section class="view" data-view="ledger">
+        <div class="page-header">
+          <h2>פנקס הזדמנויות</h2>
+          <button class="btn-primary" id="btn-new-opp">+ חדש</button>
+        </div>
+
+        <div class="stats-grid" id="opp-stats"></div>
+
+        <div class="new-box" id="new-opp-form" hidden>
+          <div class="new-box-title">פריט חדש</div>
+          <details class="templates-toggle">
+            <summary>📋 טען מתבנית</summary>
+            <div id="templates-list"></div>
+          </details>
+          <input type="text" id="no-name" placeholder="שם הפריט" />
+          <div class="field-row">
+            <input type="number" id="no-asking" placeholder="מחיר מבוקש ₪" />
+            <input type="number" id="no-est" placeholder="שווי משוער ₪" />
+          </div>
+          <select id="no-cat"></select>
+          <input type="text" id="no-seller" placeholder="מוכר / מיקום / טלפון" />
+          <textarea id="no-notes" placeholder="הערות..."></textarea>
+          <div class="quick-buttons">
+            <label class="photo-input-wrap">
+              <span class="photo-input-label">📷 תמונה</span>
+              <input type="file" id="no-photo" accept="image/*" capture="environment" hidden />
+            </label>
+            <button type="button" class="quick-btn" id="btn-scan-barcode">📊 ברקוד</button>
+            <button type="button" class="quick-btn" id="btn-ocr-cert">🔬 OCR תעודה</button>
+          </div>
+          <div class="photo-preview" id="no-photo-preview" hidden></div>
+          <div class="field-row">
+            <button class="btn-primary" id="no-add">הוסף</button>
+            <button class="btn-ghost" id="no-cancel">ביטול</button>
+          </div>
+        </div>
+
+        <div class="search-row">
+          <input type="text" id="opp-search" placeholder="🔍 חיפוש..." />
+          <select id="opp-sort">
+            <option value="newest">חדש קודם</option>
+            <option value="oldest">ותיק קודם</option>
+            <option value="profit-desc">רווח גבוה קודם</option>
+            <option value="profit-pct">% רווח קודם</option>
+            <option value="name">לפי שם</option>
+          </select>
+        </div>
+
+        <div class="filter-row" id="filter-row">
+          <button class="filter-btn active" data-filter="all">הכל</button>
+          <button class="filter-btn" data-filter="watching">במעקב</button>
+          <button class="filter-btn" data-filter="bought">נקנה</button>
+          <button class="filter-btn" data-filter="sold">נמכר</button>
+        </div>
+
+        <div class="cat-filter-row" id="cat-filter-row"></div>
+
+        <div id="opp-list" class="opp-list"></div>
+
+        <div class="export-row">
+          <button class="btn-ghost" id="btn-export-json">↓ JSON</button>
+          <button class="btn-ghost" id="btn-export-csv">↓ CSV</button>
+          <button class="btn-ghost" id="btn-print-catalog">🖨 קטלוג</button>
+          <button class="btn-ghost" id="btn-import">↑ ייבוא</button>
+          <input type="file" id="file-import" hidden accept="application/json" />
+        </div>
+      </section>
+
+      <!-- ═══════════════════ TOOLS HUB ═══════════════════ -->
+      <section class="view" data-view="tools">
+        <div class="sub-hub" id="tools-hub">
+          <div class="hub-title">בחר כלי</div>
+          <div class="hub-grid">
+            <button class="hub-card" data-tool="roi">
+              <div class="hc-icon">∞</div><div class="hc-name">מחשבון ROI</div>
+              <div class="hc-desc">רווח, עמלות, תשואה</div>
+            </button>
+            <button class="hub-card" data-tool="mortgage">
+              <div class="hc-icon">⌂</div><div class="hc-name">משכנתא</div>
+              <div class="hc-desc">החזר חודשי, סה"כ ריבית</div>
+            </button>
+            <button class="hub-card" data-tool="rental">
+              <div class="hc-icon">▦</div><div class="hc-name">תשואת השכרה</div>
+              <div class="hc-desc">Cap Rate, ROI שנתי</div>
+            </button>
+            <button class="hub-card" data-tool="re-tax">
+              <div class="hc-icon">₪</div><div class="hc-name">מסי נדל"ן</div>
+              <div class="hc-desc">מס רכישה ושבח</div>
+            </button>
+            <button class="hub-card" data-tool="vehicle">
+              <div class="hc-icon">⚙</div><div class="hc-name">עלות רכב</div>
+              <div class="hc-desc">בעלות אמיתית</div>
+            </button>
+            <button class="hub-card" data-tool="currency">
+              <div class="hc-icon">$</div><div class="hc-name">מטבעות</div>
+              <div class="hc-desc">המרה רב-מטבעית</div>
+            </button>
+            <button class="hub-card" data-tool="crypto">
+              <div class="hc-icon">₿</div><div class="hc-name">קריפטו</div>
+              <div class="hc-desc">מחירים חיים</div>
+            </button>
+            <button class="hub-card" data-tool="analytics">
+              <div class="hc-icon">▤</div><div class="hc-name">אנליטיקה</div>
+              <div class="hc-desc">גרפים, פילוח, רווחים</div>
+            </button>
+            <button class="hub-card" data-tool="compare">
+              <div class="hc-icon">⇄</div><div class="hc-name">השוואה</div>
+              <div class="hc-desc">בין 2-3 פריטים</div>
+            </button>
+            <button class="hub-card" data-tool="auth">
+              <div class="hc-icon">🔍</div><div class="hc-name">אמיתי או מזויף</div>
+              <div class="hc-desc">בדיקות זיהוי זיופים</div>
+            </button>
+            <button class="hub-card" data-tool="contacts">
+              <div class="hc-icon">👥</div><div class="hc-name">אנשי קשר</div>
+              <div class="hc-desc">CRM - מוכרים וקונים</div>
+            </button>
+            <button class="hub-card" data-tool="calc">
+              <div class="hc-icon">±</div><div class="hc-name">מחשבון</div>
+              <div class="hc-desc">חישובים מהירים, המרות</div>
+            </button>
+            <button class="hub-card" data-tool="settings">
+              <div class="hc-icon">⚙</div><div class="hc-name">הגדרות</div>
+              <div class="hc-desc">גיבוי, נתונים</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="sub-view" data-tool="roi" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>מחשבון ROI</h2></div>
+          <div class="field-row">
+            <div class="field"><label>קנייה (₪)</label><input type="number" id="r-buy" value="1000" /></div>
+            <div class="field"><label>מכירה (₪)</label><input type="number" id="r-sell" value="1500" /></div>
+          </div>
+          <div class="field">
+            <label>עמלות / מסים</label>
+            <div class="field-row">
+              <input type="number" id="r-fees" value="15" class="flex2" />
+              <select id="r-fees-type">
+                <option value="pct">%</option>
+                <option value="fixed">₪ קבוע</option>
+              </select>
+            </div>
+            <div class="field-hint">מכירות פומביות 15-25% · eBay 13% · Chrono24 6.5% · מס רווח הון 25%</div>
+          </div>
+          <div class="field">
+            <label>תקופת החזקה (ימים)</label>
+            <input type="number" id="r-days" value="30" />
+          </div>
+          <div class="result-box" id="r-result"></div>
+        </div>
+
+        <div class="sub-view" data-tool="mortgage" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>מחשבון משכנתא</h2></div>
+          <div class="field"><label>סכום הלוואה (₪)</label><input type="number" id="mt-amount" value="1000000" /></div>
+          <div class="field-row">
+            <div class="field"><label>ריבית שנתית (%)</label><input type="number" id="mt-rate" value="5.5" step="0.01" /></div>
+            <div class="field"><label>תקופה (שנים)</label><input type="number" id="mt-years" value="25" /></div>
+          </div>
+          <div class="field">
+            <label>סוג מסלול</label>
+            <select id="mt-type">
+              <option value="spitzer" selected>שפיצר (קבוע)</option>
+              <option value="equal-principal">קרן שווה</option>
+            </select>
+          </div>
+          <div class="result-box" id="mt-result"></div>
+        </div>
+
+        <div class="sub-view" data-tool="rental" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>תשואת השכרה</h2></div>
+          <div class="field"><label>מחיר רכישה (₪)</label><input type="number" id="rn-price" value="2000000" /></div>
+          <div class="field"><label>שכ"ד חודשי (₪)</label><input type="number" id="rn-rent" value="6000" /></div>
+          <div class="field-row">
+            <div class="field"><label>ועד בית חודשי</label><input type="number" id="rn-vaad" value="200" /></div>
+            <div class="field"><label>ארנונה חודשית</label><input type="number" id="rn-arnona" value="350" /></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>ביטוח שנתי</label><input type="number" id="rn-insurance" value="1200" /></div>
+            <div class="field"><label>אחזקה שנתית</label><input type="number" id="rn-maint" value="3000" /></div>
+          </div>
+          <div class="field">
+            <label>ימי ריקנות שנתיים (חודשים)</label>
+            <input type="number" id="rn-vacancy" value="0.5" step="0.1" />
+          </div>
+          <div class="result-box" id="rn-result"></div>
+        </div>
+
+        <div class="sub-view" data-tool="re-tax" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>מסי נדל"ן</h2></div>
+          <div class="toggle-row">
+            <button class="toggle active" data-tax="purchase">מס רכישה</button>
+            <button class="toggle" data-tax="appreciation">מס שבח</button>
+          </div>
+
+          <div id="tax-purchase">
+            <div class="field"><label>שווי הנכס (₪)</label><input type="number" id="tx-value" value="2500000" /></div>
+            <div class="field">
+              <label>מצב הרוכש</label>
+              <select id="tx-status">
+                <option value="single">דירה יחידה</option>
+                <option value="additional" selected>דירה נוספת</option>
+                <option value="new-immigrant">עולה חדש</option>
+              </select>
+            </div>
+            <div class="result-box" id="tx-result"></div>
+          </div>
+
+          <div id="tax-appreciation" hidden>
+            <div class="field-row">
+              <div class="field"><label>מחיר רכישה (₪)</label><input type="number" id="ap-buy" value="1500000" /></div>
+              <div class="field"><label>מחיר מכירה (₪)</label><input type="number" id="ap-sell" value="2500000" /></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>הוצאות מוכרות (₪)</label><input type="number" id="ap-expenses" value="50000" /></div>
+              <div class="field"><label>שנות החזקה</label><input type="number" id="ap-years" value="10" /></div>
+            </div>
+            <div class="field">
+              <label class="check-inline">
+                <input type="checkbox" id="ap-single" checked />
+                <span>פטור דירה יחידה (שיעור מס 0%)</span>
+              </label>
+            </div>
+            <div class="result-box" id="ap-result"></div>
+          </div>
+        </div>
+
+        <div class="sub-view" data-tool="vehicle" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>עלות רכב אמיתית</h2></div>
+          <div class="field"><label>מחיר קנייה (₪)</label><input type="number" id="v-buy" value="80000" /></div>
+          <div class="field"><label>מחיר מכירה צפוי (₪)</label><input type="number" id="v-sell" value="50000" /></div>
+          <div class="field"><label>תקופת החזקה (שנים)</label><input type="number" id="v-years" value="3" /></div>
+          <div class="field-row">
+            <div class="field"><label>ביטוח שנתי</label><input type="number" id="v-insurance" value="3500" /></div>
+            <div class="field"><label>טסט+אגרה</label><input type="number" id="v-test" value="500" /></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>דלק חודשי</label><input type="number" id="v-fuel" value="800" /></div>
+            <div class="field"><label>טיפולים שנתי</label><input type="number" id="v-service" value="2000" /></div>
+          </div>
+          <div class="result-box" id="v-result"></div>
+        </div>
+
+        <div class="sub-view" data-tool="currency" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>מחשבון מטבעות</h2></div>
+          <div class="field-row">
+            <div class="field flex2"><label>סכום</label><input type="number" id="cu-amount" value="100" /></div>
+            <div class="field">
+              <label>מ-</label>
+              <select id="cu-from">
+                <option value="USD">USD $</option>
+                <option value="ILS" selected>ILS ₪</option>
+                <option value="EUR">EUR €</option>
+                <option value="GBP">GBP £</option>
+                <option value="CHF">CHF</option>
+                <option value="JPY">JPY ¥</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>אל</label>
+              <select id="cu-to">
+                <option value="USD" selected>USD $</option>
+                <option value="ILS">ILS ₪</option>
+                <option value="EUR">EUR €</option>
+                <option value="GBP">GBP £</option>
+                <option value="CHF">CHF</option>
+                <option value="JPY">JPY ¥</option>
+              </select>
+            </div>
+          </div>
+          <div class="result-box" id="cu-result"></div>
+        </div>
+
+        <div class="sub-view" data-tool="crypto" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>קריפטו</h2></div>
+          <div class="cards" id="crypto-full"></div>
+          <div class="field-row" style="margin-top:16px">
+            <div class="field flex2"><label>סכום</label><input type="number" id="cr-amount" value="0.01" step="0.001" /></div>
+            <div class="field">
+              <label>מטבע</label>
+              <select id="cr-coin">
+                <option value="bitcoin">BTC</option>
+                <option value="ethereum">ETH</option>
+                <option value="solana">SOL</option>
+                <option value="binancecoin">BNB</option>
+                <option value="ripple">XRP</option>
+              </select>
+            </div>
+          </div>
+          <div class="result-box" id="cr-convert"></div>
+        </div>
+
+        <div class="sub-view" data-tool="analytics" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>אנליטיקה</h2></div>
+          <div id="analytics-summary"></div>
+          <div class="section-title">פילוח לפי קטגוריה</div>
+          <div id="analytics-bycat" class="cat-pie"></div>
+          <div class="section-title">סטטוס</div>
+          <div id="analytics-bystatus"></div>
+          <div class="section-title">היסטוריית מכירות</div>
+          <div id="analytics-history"></div>
+        </div>
+
+        <div class="sub-view" data-tool="compare" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>השוואת פריטים</h2></div>
+          <div class="text-faint" style="margin-bottom:12px">בחר עד 3 פריטים מהפנקס להשוואה צד-לצד</div>
+          <div id="compare-picker"></div>
+          <div id="compare-result"></div>
+        </div>
+
+        <div class="sub-view" data-tool="auth" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="tools-hub">‹ חזרה</button>
+            <h2>אמיתי או מזויף</h2>
+          </div>
+          <div id="auth-hub-view"></div>
+          <div id="auth-checker-view" hidden>
+            <button class="back-btn" id="btn-back-to-auth-hub" style="margin-bottom:12px">‹ חזרה לרשימה</button>
+            <div id="auth-view"></div>
+          </div>
+        </div>
+
+        <div class="sub-view" data-tool="contacts" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>אנשי קשר</h2></div>
+          <div id="contacts-view"></div>
+        </div>
+
+        <div class="sub-view" data-tool="calc" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>מחשבון</h2></div>
+          <div id="calc-view"></div>
+        </div>
+
+        <div class="sub-view" data-tool="settings" hidden>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>הגדרות</h2></div>
+
+          <div class="settings-card">
+            <h3>סנכרון בין מכשירים</h3>
+            <p class="text-faint">העבר את הנתונים שלך בין מכשירים בלי אינטרנט - באמצעות סריקת QR.</p>
+            <button class="btn-secondary" id="btn-show-qr">📱 הצג QR לגיבוי</button>
+            <button class="btn-secondary" id="btn-scan-qr">📷 סרוק QR לשחזור</button>
+            <div id="qr-container" hidden></div>
+          </div>
+
+          <div class="settings-card">
+            <h3>גיבוי בענן (אופציונלי)</h3>
+            <p class="text-faint">צור קוד סנכרון שתוכל להזין במכשיר אחר. הנתונים נשמרים מוצפנים בשרת ציבורי למשך 30 יום.</p>
+            <button class="btn-secondary" id="btn-cloud-upload">☁️ העלה לענן</button>
+            <button class="btn-secondary" id="btn-cloud-download">⬇️ הורד מענן (עם קוד)</button>
+            <div id="cloud-status" class="text-faint" style="margin-top:8px"></div>
+          </div>
+
+          <div class="settings-card">
+            <h3>נתונים מקומיים</h3>
+            <button class="btn-secondary" id="btn-export-all">↓ גיבוי מלא (JSON)</button>
+            <button class="btn-secondary" id="btn-import-all">↑ שחזור מגיבוי</button>
+            <input type="file" id="file-import-all" hidden accept="application/json" />
+            <button class="btn-ghost danger" id="btn-clear-all">🗑 מחק את כל הנתונים</button>
+          </div>
+
+          <div class="settings-card">
+            <h3>סטטיסטיקה</h3>
+            <div id="settings-stats"></div>
+          </div>
+
+          <div class="settings-card">
+            <h3>אודות</h3>
+            <p>שמאי v3.0 · פלטפורמת סוחרים</p>
+            <p class="text-faint">המחירים מסופקים כסיוע - לא תחליף לאבחון מקצועי. כל הנתונים נשמרים מקומית במכשיר שלך.</p>
+            <p class="text-faint">פותח עבור: שמחה בונים סלר</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="ftr">
+      <div id="footer-status">טוען מחירים...</div>
+    </footer>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
