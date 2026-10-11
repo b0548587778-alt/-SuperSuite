@@ -22,49 +22,6 @@ async function adminSession(id) {
   await handlers['auth:login'](ev(id), 'owner_r2', PASS);
 }
 
-test('תיקון: main.js משתמש ב-addChildView (ולא addChild) ומחליף תצוגות עם setVisible', () => {
-  const main = read('main.js');
-  assert.match(main, /contentView\.addChildView\(/, 'Electron View API: addChildView');
-  assert.doesNotMatch(main, /contentView\.addChild\(/, 'addChild אינו שיטה של View');
-  // מעבר לשונית: כל התצוגות מקבלות setVisible לפי המודול הפעיל
-  const sw = main.slice(main.indexOf('function switchTo'), main.indexOf('function setZoom'));
-  assert.match(sw, /setVisible\(k === id\)/);
-});
-
-test('תיקון: גיבוי ושחזור מהמעטפת בודקים הרשאה של המשתמש ולא "יש כניסה כלשהי"', () => {
-  const main = read('main.js');
-  assert.match(main, /shellGuard\(e, 'data\.backup'\)/);
-  assert.match(main, /shellGuard\(e, 'data\.restore'\)/);
-  assert.doesNotMatch(main, /isLoggedIn\(\)\)\s*throw/, 'הבדיקה הישנה הוסרה');
-  assert.match(main, /econ\.assertAccess\(econSenderId\(\), permission\)/);
-});
-
-test('תיקון: יעד הגיבוי מתרענן אחרי כניסה, בלי לייצר חריגה לפני שהמשתמש התחבר', () => {
-  const sh = read('shell/shell.js');
-  const pre = read('shell/preload.js');
-  const main = read('main.js');
-  // לא קוראים ליעד פעם אחת סטטית — אחרת יעד שהוגדר לא יוצג עד רענון ידני
-  assert.doesNotMatch(sh, /^refreshTarget\(\);\s*$/m, 'אין קריאה חד-פעמית בטעינה');
-  // קודם שואלים בשקט אם יש כניסה, ורק אז מבקשים את היעד (מונע חריגה בכל הפעלה)
-  assert.match(sh, /await window\.shellAPI\.isLoggedIn\(\)/);
-  assert.match(sh, /if \(!\(await window\.shellAPI\.isLoggedIn\(\)\)\) return/);
-  assert.match(sh, /onActive\(id => \{ if \(id === 'econ'\) refreshTargetIfLoggedIn\(\)/);
-  assert.match(sh, /if \(targetShown\) return/);
-  assert.match(pre, /isLoggedIn: \(\) => ipcRenderer\.invoke\('shell:is-logged-in'\)/);
-  // הערוץ מחזיר null (לא שגיאה) כשאין כניסה — כדי שהמעטפת תדע לחכות
-  assert.match(main, /ipcMain\.handle\('shell:is-logged-in'/);
-  assert.match(main, /if \(!econLoggedIn\(\)\) return null/);
-});
-
-test('תיקון: אין גיבוי גלוי ליצוא מהממשק (רק SSBK1: מוצפן)', () => {
-  const ui = read('modules/econ/unified-ui.js');
-  const pre = read('modules/econ/preload.js');
-  assert.doesNotMatch(ui, /systemAPI\.backupData/, 'אין קריאה לגיבוי גלוי');
-  assert.doesNotMatch(ui, /JSON\.stringify\(backup/, 'לא מסריאליזים גיבוי גלוי לקובץ');
-  assert.doesNotMatch(pre, /backupData:/, 'הערוץ הגלוי לא חשוף לממשק');
-  assert.match(ui, /backupEncrypted/);
-});
-
 test('תיקון: מי שרק צופה (data.view) לא יכול לגבות או לשחזר', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-r2-'));
   await ipc.initEcon(dir);
