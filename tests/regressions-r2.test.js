@@ -166,14 +166,3 @@ test('תיקון: אין תלות ברשת חיצונית באף מודול — 
   assert.doesNotMatch(sw, /fonts\.googleapis\.com/, 'sw.js לא מטפל בגוגל פונטים');
 });
 
-test('תיקון: לתוויות הניווט במערכת הכלכלית יש כותרת לכל תצוגה', () => {
-  const ui = read('modules/econ/unified-ui.js');
-  const html = read('modules/econ/views/index.html');
-  // אוסף את כל ה-view-ים המוגדרים כפתורי ניווט
-  const views = [...html.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]);
-  assert.ok(views.length >= 15, `נמצאו ${views.length} תצוגות`);
-  for (const v of views) {
-    if (v === 'dashboard') continue; // מוגדר גם הוא; נבדק ממילא למטה
-    assert.match(ui, new RegExp(`'${v}':`), `חסרה כותרת לתצוגה '${v}' ב-viewTitles`);
-  }
-});

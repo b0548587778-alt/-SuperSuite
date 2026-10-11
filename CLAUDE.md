@@ -24,7 +24,7 @@
 
 ```bash
 npm start          # הרצת האפליקציה בפיתוח (electron .)
-npm test           # הרצת 88 הבדיקות (node --test)
+npm test           # הרצת 87 הבדיקות (node --test)
 npm run dist       # בניית מתקין NSIS + portable ל-Windows
 ```
 
@@ -110,7 +110,7 @@ npm run dist       # בניית מתקין NSIS + portable ל-Windows
 ## בדיקות
 
 - מסגרת: `node --test`. אין Jest/Vitest — רק מודול `test` המובנה.
-- **88 בדיקות** ב-`tests/`, כולן חייבות לעבור לפני סיום עבודה.
+- **87 בדיקות** ב-`tests/`, כולן חייבות לעבור לפני סיום עבודה.
 - קבצים עיקריים: `accounting`, `integration`, `ipc-guard`, `exports`, `backupCrypto`, `pricing`, `regressions`, `security`, `features`, `regressions-r2`, `tools-calc`.
 - כל תיקון באג חייב לקבל בדיקת רגרסיה מלווה.
 - בדיקות ה-UI מריצות את הרינדור ב-Chromium עם API מדומה (ללא שגיאות JS).
