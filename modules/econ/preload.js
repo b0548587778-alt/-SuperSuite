@@ -75,7 +75,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   deleteVoiceNote: (noteId) => ipcRenderer.invoke('voiceNotes:delete', noteId),
   searchVoiceNotes: (query) => ipcRenderer.invoke('voiceNotes:search', query),
   // Modules: מעבר בין מודולי החבילה מתוך לוח הבקרה
-  openModule: (id) => ipcRenderer.invoke('shell:switch', id),
+  openModule: (id) => ipcRenderer.invoke('shell:open-module', id),
 
   // Accounting
   getChart: () => ipcRenderer.invoke('acct:getChart'),

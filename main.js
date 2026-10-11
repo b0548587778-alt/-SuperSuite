@@ -5,6 +5,7 @@ const AB = require('./modules/econ/core/features');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
+const { canShellNavigate, canModuleOpen, EDITING_CHECK_JS } = require('./shell/nav-guard');
 
 const SIDEBAR = 200;
 const MODS = ['econ', 'shamai', 'trainer', 'tools'];
@@ -57,11 +58,18 @@ function layout() {
 }
 
 // קיצורי מקלדת: נתפסים גם בתוך המודולים וגם במעטפת. פקודות שאינן ניווט נשלחות למעטפת
-function handleShortcut(input) {
+function handleShortcut(input, wc) {
   if (input.type !== 'keyDown') return false;
   // חזרות אוטומטיות (החזקת מקש) לא מפעילות ניווט/זום — מונע "הצפה" בשינויי מצב
   if (input.isAutoRepeat) return false;
-  if (input.control && !input.shift && /^[1-4]$/.test(input.key)) { switchTo(MODS[+input.key - 1]); return true; }
+  if (input.control && !input.shift && /^[1-4]$/.test(input.key)) {
+    // מבטלים את הקיצור תמיד (Ctrl+ספרה לא מכניס תו), ומעבירים מודול רק אם לא מקלידים בשדה
+    const target = MODS[+input.key - 1];
+    wc.executeJavaScript(EDITING_CHECK_JS)
+      .then(editing => { if (!editing) switchTo(target); })
+      .catch(() => {});
+    return true;
+  }
   if (input.control && (input.key === '=' || input.key === '+')) { setZoom(zoom + ZOOM_STEP); return true; }
   if (input.control && input.key === '-') { setZoom(zoom - ZOOM_STEP); return true; }
   if (input.control && input.key === '0') { setZoom(1); return true; }
@@ -82,7 +90,7 @@ function wireView(id, wc) {
     e.preventDefault();
     if (isExternal(url)) shell.openExternal(url);
   });
-  wc.on('before-input-event', (e, input) => { if (handleShortcut(input)) e.preventDefault(); });
+  wc.on('before-input-event', (e, input) => { if (handleShortcut(input, wc)) e.preventDefault(); });
 }
 
 function ensureView(id) {
@@ -153,7 +161,7 @@ function createWindow() {
   win.on('maximize', layout); win.on('unmaximize', layout); win.on('enter-full-screen', layout); win.on('leave-full-screen', layout);
   win.webContents.on('will-navigate', e => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.webContents.on('before-input-event', (e, input) => { if (handleShortcut(input)) e.preventDefault(); });
+  win.webContents.on('before-input-event', (e, input) => { if (handleShortcut(input, win.webContents)) e.preventDefault(); });
   win.loadFile(path.join(__dirname, 'shell', 'shell.html'));
   // לא נכנסים לשום מודול אוטומטית: המשתמש בוחר מהמסך הראשי.
   // (קודם נכנסנו ל-'econ' מיד עם העלייה, וזה נעל את המשתמש בלי אפשרות לצאת.)
@@ -299,11 +307,16 @@ app.whenReady().then(async () => {
   }
 
   ipcMain.handle('shell:switch', (e, id) => {
-    if (!win || win.isDestroyed()) return false;
-    // המעטפת בלבד רשאית לנווט; מודול יכול לבקש מעבר דרך shell:open-module
-    if (e.sender.id === win.webContents.id) { switchTo(id); return true; }
-    if (MODS.includes(id)) { switchTo(id); return true; }
-    return false;
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return false;
+    switchTo(id);
+    return true;
+  });
+  // מודול (למשל לוח הבקרה של econ) מבקש לפתוח מודול אחר. נבדק שהשולח הוא תצוגת מודול קיימת.
+  ipcMain.handle('shell:open-module', (e, id) => {
+    const moduleViewIds = Object.values(views).map(v => v.webContents.id);
+    if (!win || win.isDestroyed() || !canModuleOpen(e.sender.id, moduleViewIds, id, MODS)) return false;
+    switchTo(id);
+    return true;
   });
   ipcMain.handle('shell:home', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; goHome(); return true; });
   ipcMain.handle('shell:quit', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; app.quit(); return true; });

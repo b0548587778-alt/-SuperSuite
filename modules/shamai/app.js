@@ -477,78 +477,9 @@ function verdictHTML(profit, marginPct) {
 //  PRICE FETCHING
 // ─────────────────────────────────────────────────────────────────────────────
 
+// אין שליפת מחירים מהרשת: האפליקציה פועלת אופליין (CLAUDE.md, כלל 6). המחירים מוזנים ידנית.
 async function fetchAllPrices(silent = false) {
-  if (state.loading) return;
-  state.loading = true;
-  $$('.mini-stat').forEach(s => s.classList.add('loading'));
-
-  let successCount = 0;
-  const totalCount = 4;
-
-  // Fetch in parallel
-  const results = await Promise.allSettled([
-    // Metals
-    fetch('https://api.gold-api.com/price/XAU').then(r => r.json()).catch(() => null),
-    fetch('https://api.gold-api.com/price/XAG').then(r => r.json()).catch(() => null),
-    fetch('https://api.gold-api.com/price/XPT').then(r => r.json()).catch(() => null),
-    // FX
-    fetch('https://api.frankfurter.app/latest?from=USD&to=ILS,EUR,GBP,CHF,JPY').then(r => r.json()).catch(() => null),
-    // Crypto - top 5 coins
-    fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin,ripple&vs_currencies=usd&include_24hr_change=true').then(r => r.json()).catch(() => null),
-  ]);
-
-  if (results[0]?.value?.price) { state.prices.gold = results[0].value.price; successCount++; }
-  if (results[1]?.value?.price) { state.prices.silver = results[1].value.price; successCount++; }
-  if (results[2]?.value?.price) { state.prices.platinum = results[2].value.price; successCount++; }
-  if (results[3]?.value?.rates) {
-    const r = results[3].value.rates;
-    if (r.ILS) { state.prices.usdIls = r.ILS; successCount++; }
-    if (r.EUR) state.prices.eurIls = r.ILS / r.EUR;
-    if (r.GBP) state.prices.gbpIls = r.ILS / r.GBP;
-    state.prices.fxRates = r;
-  }
-  if (results[4]?.value) {
-    const c = results[4].value;
-    if (c.bitcoin?.usd) {
-      state.prices.bitcoin = c.bitcoin.usd;
-      state.prices.bitcoinChange = c.bitcoin.usd_24h_change || 0;
-    }
-    if (c.ethereum?.usd) {
-      state.prices.ethereum = c.ethereum.usd;
-      state.prices.ethereumChange = c.ethereum.usd_24h_change || 0;
-    }
-    if (c.solana?.usd) {
-      state.prices.solana = c.solana.usd;
-      state.prices.solanaChange = c.solana.usd_24h_change || 0;
-    }
-    if (c.binancecoin?.usd) {
-      state.prices.binancecoin = c.binancecoin.usd;
-      state.prices.binancecoinChange = c.binancecoin.usd_24h_change || 0;
-    }
-    if (c.ripple?.usd) {
-      state.prices.ripple = c.ripple.usd;
-      state.prices.rippleChange = c.ripple.usd_24h_change || 0;
-    }
-  }
-
-  if (successCount > 0) {
-    state.prices.lastUpdate = new Date().toISOString();
-    state.prices.source = successCount === totalCount ? 'live' : `live-partial:${successCount}/${totalCount}`;
-    Storage.save('prices', state.prices);
-    if (!silent) toast(successCount === totalCount ? 'מחירים עודכנו' : `עודכן חלקית (${successCount}/${totalCount})`, 'success');
-  } else if (!silent) {
-    toast('עדכון נכשל - בדוק חיבור', 'error');
-  }
-
-  state.loading = false;
-  recordPriceHistory();
-  $$('.mini-stat').forEach(s => s.classList.remove('loading'));
-  renderHeader();
-  // Re-render whatever view is active
-  if (state.view === 'dashboard') renderDashboard();
-  if (state.view === 'tools' && state.subView === 'crypto') renderCryptoFull();
-  // Update calculations
-  recalcCurrent();
+  if (!silent) toast('מחירי שוק חיים לא זמינים במצב אופליין — ניתן להזין מחירים ידנית', 'info');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5032,80 +4963,18 @@ function restoreFromCode(code) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  CLOUD SYNC - via free public service (npoint.io)
+//  CLOUD SYNC - הוסר (אופליין)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// סנכרון ענן הוסר: האפליקציה פועלת אופליין. לגיבוי השתמש בקובץ JSON מוצפן.
 async function uploadToCloud() {
   const status = $('#cloud-status');
-  if (!status) return;
-  status.textContent = '☁️ מעלה...';
-
-  const data = {
-    v: '3.0',
-    t: Date.now(),
-    opps: state.opportunities,
-    prices: state.prices,
-  };
-
-  try {
-    // Try npoint.io first (no auth required, 30-day retention)
-    const response = await fetch('https://api.npoint.io/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!response.ok) throw new Error('שרת לא זמין');
-    const result = await response.json();
-    const id = result.id || result;
-    // Generate short code
-    const shortCode = id.substring(0, 8).toUpperCase();
-    state.settings = state.settings || {};
-    state.settings.lastCloudId = id;
-    Storage.save('settings', state.settings);
-    status.innerHTML = `
-      ✓ הועלה בהצלחה!
-      <br>קוד שחזור: <strong style="color:var(--gold);font-size:18px;letter-spacing:2px">${shortCode}</strong>
-      <br><span class="text-faint">קוד מלא: ${id}</span>
-    `;
-    toast('✓ הועלה לענן', 'success');
-  } catch (e) {
-    // Fallback: just save to localStorage as a "pending upload"
-    status.innerHTML = `
-      ⚠️ העלאה לענן נכשלה: ${e.message}
-      <br>אפשרויות:
-      <br>• השתמש בגיבוי JSON ידני
-      <br>• השתמש בסנכרון QR (אם המכשירים קרובים)
-    `;
-  }
+  if (status) status.textContent = 'סנכרון ענן כבוי — השתמש בגיבוי ידני';
 }
 
 async function downloadFromCloud() {
-  const id = prompt('הזן את קוד הגיבוי:');
-  if (!id) return;
   const status = $('#cloud-status');
-  status.textContent = '⬇️ מוריד...';
-
-  try {
-    const response = await fetch(`https://api.npoint.io/${id.toLowerCase()}`);
-    if (!response.ok) throw new Error('קוד לא נמצא');
-    const data = await response.json();
-    if (!data.opps || !Array.isArray(data.opps)) throw new Error('פורמט לא תקין');
-    if (!confirm(`לטעון ${data.opps.length} פריטים מהענן? פעולה זו תחליף את הנתונים הנוכחיים.`)) {
-      status.textContent = 'בוטל';
-      return;
-    }
-    state.opportunities = data.opps;
-    if (data.prices) state.prices = { ...state.prices, ...data.prices };
-    Storage.save('opportunities', state.opportunities);
-    Storage.save('prices', state.prices);
-    renderHeader();
-    renderDashboard();
-    status.textContent = `✓ שוחזרו ${data.opps.length} פריטים`;
-    toast('✓ שוחזר מהענן', 'success');
-  } catch (e) {
-    status.innerHTML = `⚠️ שחזור נכשל: ${e.message}`;
-    toast('שחזור נכשל', 'error');
-  }
+  if (status) status.textContent = 'סנכרון ענן כבוי — השתמש בשחזור מגיבוי ידני';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -6701,20 +6570,6 @@ async function scanBarcodeForOpp() {
   $('#no-name').value = `מוצר ${result.value}`;
   $('#no-notes').value = `ברקוד (${result.format}): ${result.value}`;
   toast(`✓ נסרק: ${result.value}`, 'success');
-  // Try to lookup product info via free OpenFoodFacts API (works for many barcodes)
-  if (result.format.includes('ean') || result.format.includes('upc')) {
-    try {
-      const resp = await fetch(`https://world.openfoodfacts.org/api/v0/product/${result.value}.json`);
-      const data = await resp.json();
-      if (data.status === 1 && data.product) {
-        const p = data.product;
-        const name = p.product_name_he || p.product_name || `מוצר ${result.value}`;
-        $('#no-name').value = name;
-        $('#no-notes').value = `ברקוד: ${result.value}\nמותג: ${p.brands || '?'}`;
-        toast(`✓ נמצא: ${name}`, 'success');
-      }
-    } catch (e) {}
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

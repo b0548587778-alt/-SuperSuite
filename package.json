@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis portable",
-    "test": "node --test tests/accounting.test.js tests/integration.test.js tests/ipc-guard.test.js tests/exports.test.js tests/backupCrypto.test.js tests/pricing.test.js tests/regressions.test.js tests/security.test.js tests/features.test.js tests/regressions-r2.test.js tests/tools-calc.test.js"
+    "test": "node --test tests/accounting.test.js tests/integration.test.js tests/ipc-guard.test.js tests/exports.test.js tests/backupCrypto.test.js tests/pricing.test.js tests/regressions.test.js tests/security.test.js tests/features.test.js tests/regressions-r2.test.js tests/tools-calc.test.js tests/nav-guard.test.js"
   },
   "devDependencies": {
     "electron": "^38.8.6",
