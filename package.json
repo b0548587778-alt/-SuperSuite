@@ -22,8 +22,7 @@
       "shell/**/*",
       "modules/**/*",
       "build/icon.png",
-      "package.json",
-      "modules/tools/calc.js"
+      "package.json"
     ],
     "npmRebuild": false,
     "win": {

@@ -16,6 +16,8 @@ const ENTRY = {
   tools: 'app://tools/index.html'
 };
 const ZOOM_MIN = 0.8, ZOOM_MAX = 1.6, ZOOM_STEP = 0.1;
+// תקרת גודל לערך בודד ב-localStorage בזמן שחזור גיבוי (5MB — מגן מפני קובץ גיבוי נפוח/זדוני)
+const LS_VALUE_MAX = 5 * 1024 * 1024;
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }
@@ -35,7 +37,9 @@ function registerProtocol() {
     const mod = url.hostname;
     if (!MODS.includes(mod)) return new Response('Not found', { status: 404 });
     const root = path.join(modulesRoot(), mod);
-    let rel = decodeURIComponent(url.pathname);
+    let rel;
+    try { rel = decodeURIComponent(url.pathname); }
+    catch { return new Response('Bad request', { status: 400 }); }
     if (rel === '/' || rel === '') rel = '/index.html';
     const file = path.normalize(path.join(root, rel));
     if (!file.startsWith(root + path.sep)) return new Response('Forbidden', { status: 403 });
@@ -55,6 +59,8 @@ function layout() {
 // קיצורי מקלדת: נתפסים גם בתוך המודולים וגם במעטפת. פקודות שאינן ניווט נשלחות למעטפת
 function handleShortcut(input) {
   if (input.type !== 'keyDown') return false;
+  // חזרות אוטומטיות (החזקת מקש) לא מפעילות ניווט/זום — מונע "הצפה" בשינויי מצב
+  if (input.isAutoRepeat) return false;
   if (input.control && !input.shift && /^[1-4]$/.test(input.key)) { switchTo(MODS[+input.key - 1]); return true; }
   if (input.control && (input.key === '=' || input.key === '+')) { setZoom(zoom + ZOOM_STEP); return true; }
   if (input.control && input.key === '-') { setZoom(zoom - ZOOM_STEP); return true; }
@@ -126,7 +132,7 @@ function loadState() { return loadJson(stateFile()); }
 function saveState() {
   try {
     if (!win || win.isDestroyed()) return;
-    const b = win.isMaximized() ? (win._normal || win.getNormalBounds()) : win.getBounds();
+    const b = win.isMaximized() ? win.getNormalBounds() : win.getBounds();
     saveJson(stateFile(), { ...b, max: win.isMaximized() });
   } catch {}
 }
@@ -231,9 +237,19 @@ async function restoreAll(passphrase) {
   for (const id of LS_MODS) {
     const items = data.localStorage && data.localStorage[id];
     if (!items) continue;
+    // קובץ הגיבוי הוא קלט חיצוני: מוודאים שכל ערך הוא מחרוזת בגודל סביר
+    // לפני שכותבים אותו ל-localStorage של המודול. ערך לא-מחרוזתי או ענק נפסל בשקט.
+    if (typeof items !== 'object' || Array.isArray(items)) continue;
+    const clean = {};
+    for (const [k, val] of Object.entries(items)) {
+      if (typeof k !== 'string' || k.length > 256) continue;
+      if (typeof val !== 'string' || val.length > LS_VALUE_MAX) continue;
+      clean[k] = val;
+    }
+    if (!Object.keys(clean).length) continue;
     const v = ensureView(id);
     if (v.webContents.isLoading()) await new Promise(res => v.webContents.once('did-finish-load', res));
-    await v.webContents.executeJavaScript(`(()=>{const d=${JSON.stringify(items)};localStorage.clear();for(const k in d)localStorage.setItem(k,d[k]);})()`);
+    await v.webContents.executeJavaScript(`(()=>{const d=${JSON.stringify(clean)};localStorage.clear();for(const k in d)localStorage.setItem(k,d[k]);})()`);
   }
   for (const id of Object.keys(views)) views[id].webContents.reload();
   dialog.showMessageBox(win, { type: 'info', message: 'השחזור הושלם' });
@@ -282,7 +298,13 @@ app.whenReady().then(async () => {
     app.quit(); return;
   }
 
-  ipcMain.handle('shell:switch', (_e, id) => switchTo(id));
+  ipcMain.handle('shell:switch', (e, id) => {
+    if (!win || win.isDestroyed()) return false;
+    // המעטפת בלבד רשאית לנווט; מודול יכול לבקש מעבר דרך shell:open-module
+    if (e.sender.id === win.webContents.id) { switchTo(id); return true; }
+    if (MODS.includes(id)) { switchTo(id); return true; }
+    return false;
+  });
   ipcMain.handle('shell:home', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; goHome(); return true; });
   ipcMain.handle('shell:quit', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; app.quit(); return true; });
   ipcMain.handle('shell:is-logged-in', (e) => {
