@@ -58,3 +58,38 @@ test('כלל 6: שמאי לא שולח בקשות רשת לשירותים חיצ
   assert.doesNotMatch(src, /fetch\(\s*['`]https?:\/\//, 'אין fetch לכתובת חיצונית');
   assert.doesNotMatch(src, /fetch\(\s*`https?:\/\//, 'אין fetch לכתובת חיצונית (תבנית)');
 });
+
+// בדיקות התנהגות של ה-preload: טוענים את הקובץ עם Electron מדומה ובודקים מה נחשף ומה נשלח לערוצים.
+function loadPreload(file) {
+  const exposed = {};
+  const calls = [];
+  const sandboxRequire = (mod) => {
+    if (mod !== 'electron') throw new Error('unexpected require ' + mod);
+    return {
+      contextBridge: { exposeInMainWorld: (name, api) => { exposed[name] = api; } },
+      ipcRenderer: {
+        invoke: (channel, ...args) => { calls.push([channel, ...args]); return Promise.resolve(true); },
+        on: () => {},
+      },
+    };
+  };
+  vm.runInNewContext(read(file), { require: sandboxRequire, module: { exports: {} }, console });
+  return { exposed, calls };
+}
+
+test('התנהגות: econ.openModule שולח לערוץ shell:open-module (ולא shell:switch)', async () => {
+  const { exposed, calls } = loadPreload('modules/econ/preload.js');
+  await exposed.systemAPI.openModule('shamai');
+  assert.deepEqual(calls.at(-1), ['shell:open-module', 'shamai']);
+});
+
+test('התנהגות: המעטפת מנווטת דרך shell:switch', async () => {
+  const { exposed, calls } = loadPreload('shell/preload.js');
+  await exposed.shellAPI.switchTo('tools');
+  assert.deepEqual(calls.at(-1), ['shell:switch', 'tools']);
+});
+
+test('התנהגות: ה-API של econ לא חושף גיבוי גלוי', () => {
+  const { exposed } = loadPreload('modules/econ/preload.js');
+  assert.equal('backupData' in exposed.systemAPI, false);
+});
