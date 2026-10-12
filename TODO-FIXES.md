@@ -152,6 +152,9 @@ if (input.control && !input.shift && /^[1-4]$/.test(input.key))
 **חשוב:** ה-PNG **כן** נדרש בזמן ריצה — `main.js:139` משתמש בו
 (`icon: path.join(__dirname,'build','icon.png')`). **אל תמחק אותו.**
 
+**תיקון (בוצע):** נוסף `"build/icon.ico"` ל-`files`, לצד ה-PNG, כדי ששני
+האייקונים יהיו מפורשים ב-payload ולא ייווצר בלבול בעריכה הבאה.
+
 ---
 
 ## 🔵 ניקיון וטסטים

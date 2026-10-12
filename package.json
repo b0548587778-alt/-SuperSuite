@@ -21,6 +21,7 @@
       "main.js",
       "shell/**/*",
       "modules/**/*",
+      "build/icon.ico",
       "build/icon.png",
       "package.json"
     ],

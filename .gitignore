@@ -18,6 +18,12 @@ Desktop.ini
 userdata/
 .leases/
 
+# Python (tools/passwords — כלי נפרד, אינו חלק מהאפליקציה)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
 # Dev scaffolding / one-off probes (see TODO-FIXES.md #9 — move to scripts/ or delete)
 fitness-*.js
 fitness-*.json

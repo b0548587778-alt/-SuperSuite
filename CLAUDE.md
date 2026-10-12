@@ -30,6 +30,16 @@ npm run dist       # בניית מתקין NSIS + portable ל-Windows
 
 בנייה למשתמש קצה: `build-exe.bat` (מתקין Node אוטומטית אם חסר), או GitHub Actions → `Build Windows installer`.
 
+### כלי עזר ב-Python (אופציונלי)
+
+`tools/passwords/` — מודול נפרד להצפנה ולערבול סיסמאות. **אינו חלק מהאפליקציה ואינו
+נטען על ידה.** דורש את הספרייה `cryptography` (ראו `requirements.txt` בתיקייה). הרצת בדיקות:
+
+```bash
+cd tools/passwords
+python -m unittest test_encryption -v
+```
+
 ---
 
 ## ארכיטקטורה
@@ -111,14 +121,17 @@ npm run dist       # בניית מתקין NSIS + portable ל-Windows
 
 - מסגרת: `node --test`. אין Jest/Vitest — רק מודול `test` המובנה.
 - **87 בדיקות** ב-`tests/`, כולן חייבות לעבור לפני סיום עבודה.
-- קבצים עיקריים: `accounting`, `integration`, `ipc-guard`, `exports`, `backupCrypto`, `pricing`, `regressions`, `security`, `features`, `regressions-r2`, `tools-calc`.
+- קבצים עיקריים: `accounting`, `integration`, `ipc-guard`, `exports`, `backupCrypto`, `pricing`, `regressions`, `security`, `features`, `regressions-r2`, `tools-calc`, `nav-guard`, `main-behavior`, `shell-ui`, `ui-nav`.
 - כל תיקון באג חייב לקבל בדיקת רגרסיה מלווה.
 - בדיקות ה-UI מריצות את הרינדור ב-Chromium עם API מדומה (ללא שגיאות JS).
+- `tests/main-behavior.test.js` טוען את `main.js` האמיתי עם Electron מדומה — הבדיקות שם בודקות התנהגות, לא טקסט.
+- `tools/passwords/test_encryption.py` — בדיקות Python נפרדות (`python -m unittest`), אינן חלק מ-`npm test`.
 
 **ידוע ולא מכוסה בבדיקות:** הרצת Electron עצמו, בנייה NSIS/portable, DPAPI, וחיבור USB אמיתי — דורשים בדיקה ידנית ב-Windows.
 
-**פער ידוע:** `tests/regressions-r2.test.js` מכיל בדיקות שסורקות מחרוזות בקוד המקור במקום להתנהגות.
-הן ישברו בעריכת פורמט ולא יתפסו רגרסיה אמיתית. להמיר בהזדמנות.
+**לא ניתן להריץ בסביבה המסוננת הזו:** בדיקות `tools/passwords` דורשות את הספרייה
+`cryptography`, שאינה ניתנת להתקנה מכאן (PyPI חסום). הן נכתבו ואומתו מבחינת תחביר
+וקריאות API, אך **טרם הורצו בפועל** — יש להריץ אותן במחשב שבו הספרייה מותקנת.
 
 ---
 
@@ -138,6 +151,8 @@ shell/                   — המעטפת: html, js, preload
 modules/<mod>/           — מודול בודד, נטען כ-WebContentsView
 modules/econ/core/       — לוגיקת ליבה: db, accounting, crypto, exports
 modules/econ/services/   — שירותים עסקיים
+shell/nav-guard.js       — כללי מעבר מודולים (נבדקים ב-tests/nav-guard.test.js)
+tools/passwords/         — כלי Python נפרד: הצפנה וערבול סיסמאות (לא חלק מהאפליקציה)
 tests/                   — בדיקות
 ```
 
