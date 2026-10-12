@@ -24,7 +24,7 @@
 
 ```bash
 npm start          # הרצת האפליקציה בפיתוח (electron .)
-npm test           # הרצת 87 הבדיקות (node --test)
+npm test           # הרצת 99 הבדיקות (node --test)
 npm run dist       # בניית מתקין NSIS + portable ל-Windows
 ```
 
@@ -120,8 +120,8 @@ python -m unittest test_encryption -v
 ## בדיקות
 
 - מסגרת: `node --test`. אין Jest/Vitest — רק מודול `test` המובנה.
-- **87 בדיקות** ב-`tests/`, כולן חייבות לעבור לפני סיום עבודה.
-- קבצים עיקריים: `accounting`, `integration`, `ipc-guard`, `exports`, `backupCrypto`, `pricing`, `regressions`, `security`, `features`, `regressions-r2`, `tools-calc`, `nav-guard`, `main-behavior`, `shell-ui`, `ui-nav`.
+- **99 בדיקות** ב-`tests/`, כולן חייבות לעבור לפני סיום עבודה.
+- קבצים עיקריים: `accounting`, `integration`, `ipc-guard`, `exports`, `backupCrypto`, `pricing`, `regressions`, `security`, `features`, `regressions-r2`, `tools-calc`, `nav-guard`, `main-behavior`, `shell-ui`, `ui-nav`, `fitness-view`.
 - כל תיקון באג חייב לקבל בדיקת רגרסיה מלווה.
 - בדיקות ה-UI מריצות את הרינדור ב-Chromium עם API מדומה (ללא שגיאות JS).
 - `tests/main-behavior.test.js` טוען את `main.js` האמיתי עם Electron מדומה — הבדיקות שם בודקות התנהגות, לא טקסט.

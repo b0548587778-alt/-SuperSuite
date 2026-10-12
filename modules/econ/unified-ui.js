@@ -594,17 +594,71 @@
     `;
   }
 
-  // Render fitness view
+  // Render fitness view — אימונים, תזונה ומדדים
+  const FITNESS_KINDS = {
+    workout: { emoji: '🏃', label: 'אימון' },
+    nutrition: { emoji: '🍎', label: 'תזונה' },
+    metric: { emoji: '⚖️', label: 'מדד' }
+  };
+
+  // תרגום ערכי המקרא (השירות שומר באנגלית) לתוויות בעברית
+  const FITNESS_WORKOUT_TYPES = {
+    cardio: 'אירובי', strength: 'כוח', yoga: 'יוגה',
+    walking: 'הליכה', sports: 'ספורט', other: 'אחר'
+  };
+  const FITNESS_MEAL_TYPES = {
+    breakfast: 'בוקר', lunch: 'צהריים', dinner: 'ערב', snack: 'ביניים'
+  };
+
   function renderFitness(data) {
     const fitness = data || {};
+    const workouts = fitness.workouts || [];
+    const nutrition = fitness.nutrition || [];
+    const metrics = fitness.metrics || [];
+    const total = workouts.length + nutrition.length + metrics.length;
+
+    // כרטיס אימון
+    const workoutCard = (w) => `
+      <div class="card">
+        <h4>${FITNESS_KINDS.workout.emoji} ${esc(FITNESS_WORKOUT_TYPES[w.type] || w.type || 'אימון')}</h4>
+        <p>משך: ${Number(w.durationMinutes) || 0} דקות${w.caloriesBurned ? ` · ${Number(w.caloriesBurned)} קלוריות` : ''}</p>
+        ${w.notes ? `<p>${esc(w.notes)}</p>` : ''}
+        <small>תאריך: ${esc(w.date || '')}</small>
+      </div>`;
+    // כרטיס תזונה
+    const nutritionCard = (n) => `
+      <div class="card">
+        <h4>${FITNESS_KINDS.nutrition.emoji} ${esc(FITNESS_MEAL_TYPES[n.mealType] || n.mealType || 'ארוחה')}</h4>
+        <p>${Number(n.calories) || 0} קלוריות</p>
+        ${n.description ? `<p>${esc(n.description)}</p>` : ''}
+        ${n.notes ? `<p>${esc(n.notes)}</p>` : ''}
+        <small>תאריך: ${esc(n.date || '')}</small>
+      </div>`;
+    // כרטיס מדד
+    const metricCard = (m) => `
+      <div class="card">
+        <h4>${FITNESS_KINDS.metric.emoji} מדד</h4>
+        ${m.weightKg !== null && m.weightKg !== undefined ? `<p>משקל: ${Number(m.weightKg)} ק"ג</p>` : ''}
+        ${m.bodyFatPercent !== null && m.bodyFatPercent !== undefined ? `<p>אחוז שומן: ${Number(m.bodyFatPercent)}%</p>` : ''}
+        ${m.notes ? `<p>${esc(m.notes)}</p>` : ''}
+        <small>תאריך: ${esc(m.date || '')}</small>
+      </div>`;
+
+    const section = (title, items, renderCard) => `
+      <div class="section">
+        <h4>${title} (${items.length})</h4>
+        ${items.length === 0
+          ? renderEmpty('אין רשומות עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל')
+          : items.map(renderCard).join('')}
+      </div>`;
+
     return `
       <div class="fitness">
         <h3>כושר ובריאות</h3>
-        <div class="section">
-          <h4>אימונים: ${fitness.workouts?.length || 0}</h4>
-          <h4>תזונה: ${fitness.nutrition?.length || 0}</h4>
-          <h4>מדדים: ${fitness.metrics?.length || 0}</h4>
-        </div>
+        ${total === 0 ? renderEmpty('אין רשומות כושר עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל') : ''}
+        ${section('אימונים', workouts, workoutCard)}
+        ${section('תזונה', nutrition, nutritionCard)}
+        ${section('מדדים', metrics, metricCard)}
       </div>
     `;
   }
@@ -771,6 +825,63 @@
       create: (data) => window.systemAPI.saveCanvasBoard(data),
       update: (id, data) => window.systemAPI.updateCanvasBoard(id, data),
       remove: (id) => window.systemAPI.deleteCanvasBoard(id)
+    },
+    'fitness': {
+      title: 'רשומת כושר חדשה',
+      // טופס אחד עם בחירת סוג — השדות מוחלפים לפי הסוג הנבחר
+      dynamic: true,
+      fields: [
+        { name: 'fitnessKind', label: 'סוג הרשומה', type: 'select', required: true, options: [
+          { value: 'workout', label: 'אימון' },
+          { value: 'nutrition', label: 'תזונה' },
+          { value: 'metric', label: 'מדד גוף' }
+        ]},
+        // אימון
+        { name: 'date', label: 'תאריך', type: 'date', required: true, kinds: ['workout', 'nutrition', 'metric'] },
+        { name: 'type', label: 'סוג האימון', type: 'select', required: true, kinds: ['workout'], options: [
+          { value: 'cardio', label: 'אירובי' },
+          { value: 'strength', label: 'כוח' },
+          { value: 'yoga', label: 'יוגה' },
+          { value: 'walking', label: 'הליכה' },
+          { value: 'sports', label: 'ספורט' },
+          { value: 'other', label: 'אחר' }
+        ]},
+        { name: 'durationMinutes', label: 'משך (דקות)', type: 'number', required: true, kinds: ['workout'] },
+        { name: 'caloriesBurned', label: 'קלוריות שנשרפו', type: 'number', kinds: ['workout'] },
+        // תזונה
+        { name: 'mealType', label: 'סוג הארוחה', type: 'select', required: true, kinds: ['nutrition'], options: [
+          { value: 'breakfast', label: 'בוקר' },
+          { value: 'lunch', label: 'צהריים' },
+          { value: 'dinner', label: 'ערב' },
+          { value: 'snack', label: 'ביניים' }
+        ]},
+        { name: 'calories', label: 'קלוריות', type: 'number', required: true, kinds: ['nutrition'] },
+        { name: 'description', label: 'תיאור הארוחה', type: 'text', kinds: ['nutrition'] },
+        // מדד
+        { name: 'weightKg', label: 'משקל (ק"ג)', type: 'number', kinds: ['metric'] },
+        { name: 'bodyFatPercent', label: 'אחוז שומן (%)', type: 'number', kinds: ['metric'] },
+        // הערות — לכל הסוגים
+        { name: 'notes', label: 'הערות', type: 'textarea', kinds: ['workout', 'nutrition', 'metric'] }
+      ],
+      create: (data) => {
+        const kind = data.fitnessKind;
+        const base = { date: data.date, notes: data.notes };
+        if (kind === 'workout') {
+          return window.systemAPI.createWorkout({
+            ...base, type: data.type,
+            durationMinutes: data.durationMinutes, caloriesBurned: data.caloriesBurned
+          });
+        }
+        if (kind === 'nutrition') {
+          return window.systemAPI.createNutrition({
+            ...base, mealType: data.mealType,
+            calories: data.calories, description: data.description
+          });
+        }
+        return window.systemAPI.createMetric({
+          ...base, weightKg: data.weightKg, bodyFatPercent: data.bodyFatPercent
+        });
+      }
     }
   };
 
@@ -974,8 +1085,16 @@
   }
 
   function renderAcctPersonal(d) {
-    const entries = d?.entries || [];
-    const s = d?.summary || { income: 0, expense: 0, balance: 0, categories: [] };
+    const entries = Array.isArray(d?.entries) ? d.entries : [];
+    // הגנת עומק: סיכום עשוי לחזור חסר או חסר שדות (גרסת נתונים ישנה / תשובת שרת חלקית).
+    // אין להפיל את כל התצוגה בגלל שדה אחד — הכפתור היה מושבת שלא לצורך.
+    const raw = d?.summary || {};
+    const s = {
+      income: Number(raw.income) || 0,
+      expense: Number(raw.expense) || 0,
+      balance: Number(raw.balance) || 0,
+      categories: Array.isArray(raw.categories) ? raw.categories : []
+    };
     return `
       <div class="acct-header">
         <div>הוצאות והכנסות אישיות/משפחתיות — <b>נשמרות בנפרד מהיומן העסקי</b> ואינן נכנסות לדוחות המע"מ והרווח של העסק.</div>
@@ -1211,12 +1330,14 @@
   };
   Object.assign(formSchemas, acctFormSchemas);
 
-  const readOnlyViews = ['dashboard', 'finance', 'personal-finance', 'fitness', 'acct-reports'];
+  // תצוגות ללא טופס הוספה — מחושבות/מצטברות בלבד.
+  // נגזר מ-formSchemas כדי שלא ייווצר פער בין הרשימה לסכימות בפועל.
+  const hasForm = (viewName) => !!formSchemas[viewName];
 
   // Attach view-specific handlers
   function attachViewHandlers(viewName) {
-    // כפתור הוספה — מושבת בתצוגות ללא טופס
-    elements.addBtn.disabled = readOnlyViews.includes(viewName);
+    // כפתור הוספה — מושבת רק בתצוגות שאין להן טופס מוגדר
+    elements.addBtn.disabled = !hasForm(viewName);
 
     // כפתורי מחיקה בכרטיסים
     document.querySelectorAll('[data-action="delete"]').forEach(btn => {
@@ -1291,35 +1412,83 @@
       return;
     }
     showModal(schema.title, buildFormHtml(schema.fields));
+    if (schema.dynamic) attachDynamicFields(schema);
     if (schema.afterRender) schema.afterRender();
+  }
+
+  // שדות פעילים לפי הסוג הנבחר (לטופס דינמי עם בחירת סוג)
+  function activeFields(schema) {
+    if (!schema.dynamic) return schema.fields;
+    const kindEl = document.getElementById('f_' + schema.fields[0].name);
+    const kind = kindEl ? kindEl.value : schema.fields[0].options[0].value;
+    return schema.fields.filter(f => !f.kinds || f.kinds.includes(kind));
+  }
+
+  // טופס דינמי: החלפת השדות בכל שינוי בסוג הרשומה
+  function attachDynamicFields(schema) {
+    const kindName = schema.fields[0].name;
+    const kindEl = document.getElementById('f_' + kindName);
+    if (!kindEl) return;
+    const fieldsWrap = document.getElementById('formFields');
+    if (!fieldsWrap) return;
+
+    const refresh = () => {
+      // שמירת הערכים שכבר הוזנו, כדי לא לאבד אותם במעבר בין סוגים
+      const prev = {};
+      for (const f of schema.fields) {
+        const el = document.getElementById('f_' + f.name);
+        if (el && f.name !== kindName) prev[f.name] = el.value;
+      }
+      fieldsWrap.innerHTML = buildFormHtml(activeFields(schema).filter(f => f.name !== kindName));
+      // שחזור ערכים תואמים
+      for (const [name, value] of Object.entries(prev)) {
+        const el = document.getElementById('f_' + name);
+        if (el) el.value = value;
+      }
+    };
+    kindEl.addEventListener('change', refresh);
+    refresh();
   }
 
   // בניית HTML של טופס לפי סכימה
   function buildFormHtml(fields) {
-    return fields.map(f => {
-      const req = f.required ? 'required' : '';
-      let input;
-      if (f.type === 'textarea') {
-        input = `<textarea id="f_${esc(f.name)}" name="${esc(f.name)}" rows="3" ${req}>${esc(f.value ?? '')}</textarea>`;
-      } else if (f.type === 'select') {
-        const opts = (f.options || [])
-          .map(o => `<option value="${esc(o.value)}"${String(o.value) === String(f.value ?? '') ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
-        input = `<select id="f_${esc(f.name)}" name="${esc(f.name)}" ${req}>${opts}</select>`;
-      } else {
-        const val = f.value !== undefined && f.value !== null ? ` value="${esc(f.value)}"` : '';
-        input = `<input id="f_${esc(f.name)}" name="${esc(f.name)}" type="${esc(f.type)}"${val} ${req}>`;
-      }
-      return `<label class="field">
-        <span>${esc(f.label)}${f.required ? ' *' : ''}</span>
-        ${input}
-      </label>`;
-    }).join('');
+    // טופס דינמי: שדה הסוג נשאר בחוץ, שאר השדות נעטפים ב-wrapper שמתחלף
+    const schema = formSchemas[state.currentView];
+    if (!schema || !schema.dynamic) return fields.map(renderField).join('');
+
+    const kindName = schema.fields[0].name;
+    const isKind = (f) => f.name === kindName;
+    const head = fields.filter(isKind).map(renderField).join('');
+    const rest = fields.filter(f => !isKind(f));
+    return head + `<div id="formFields">${rest.map(renderField).join('')}</div>`;
   }
 
-  // איסוף ערכי הטופס
+  // רינדור שדה בודד
+  function renderField(f) {
+    const req = f.required ? 'required' : '';
+    let input;
+    if (f.type === 'textarea') {
+      input = `<textarea id="f_${esc(f.name)}" name="${esc(f.name)}" rows="3" ${req}>${esc(f.value ?? '')}</textarea>`;
+    } else if (f.type === 'select') {
+      const opts = (f.options || [])
+        .map(o => `<option value="${esc(o.value)}"${String(o.value) === String(f.value ?? '') ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
+      input = `<select id="f_${esc(f.name)}" name="${esc(f.name)}" ${req}>${opts}</select>`;
+    } else {
+      const val = f.value !== undefined && f.value !== null ? ` value="${esc(f.value)}"` : '';
+      input = `<input id="f_${esc(f.name)}" name="${esc(f.name)}" type="${esc(f.type)}"${val} ${req}>`;
+    }
+    return `<label class="field">
+      <span>${esc(f.label)}${f.required ? ' *' : ''}</span>
+      ${input}
+    </label>`;
+  }
+
+  // איסוף ערכי הטופס — בטופס דינמי נאספים רק השדות הפעילים לסוג הנבחר
   function collectFormData(fields) {
+    const schema = formSchemas[state.currentView];
+    const relevant = (schema && schema.dynamic) ? activeFields(schema) : fields;
     const data = {};
-    for (const f of fields) {
+    for (const f of relevant) {
       const el = document.getElementById('f_' + f.name);
       if (!el) continue;
       let value = el.value.trim();

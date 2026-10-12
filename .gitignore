@@ -25,18 +25,20 @@ __pycache__/
 venv/
 
 # Dev scaffolding / one-off probes (see TODO-FIXES.md #9 — move to scripts/ or delete)
-fitness-*.js
-fitness-*.json
-probe*.js
-probe*.json
-scan-*.js
-scan-dbg*.js
-shot*.js
-shot*.json
-title-check.js
-title-check.json
-verify-*.js
-verify-*.json
-sm*.js
-sm*.log
-shell-shot.png
+# מוגבל לשורש הפרויקט בלבד: בלעדי ה-"/" המוביל, הדפוסים היו חוסמים גם קבצים
+# תחת tests/ (למשל tests/fitness-view.test.js).
+/fitness-*.js
+/fitness-*.json
+/probe*.js
+/probe*.json
+/scan-*.js
+/scan-dbg*.js
+/shot*.js
+/shot*.json
+/title-check.js
+/title-check.json
+/verify-*.js
+/verify-*.json
+/sm*.js
+/sm*.log
+/shell-shot.png
