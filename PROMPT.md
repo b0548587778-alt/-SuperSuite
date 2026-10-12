@@ -19,7 +19,7 @@
 
 - **הפרויקט:** `C:\Users\bunim seller\Projects\SuperSuite`
 - **git:** מאותחל, שישה commits, ענף `master` (HEAD = `a6c5406`)
-- **בדיקות:** 99/99 עוברות (`npm test`)
+- **בדיקות:** 114/114 עוברות (`npm test`)
 - **חבילה מוכנה להעלאה:** `C:\Users\bunim seller\Projects\SuperSuite-repo.bundle`
 
 ### מה ביקשתי לעשות — לפי הסדר
@@ -100,7 +100,7 @@ python -m unittest test_encryption -v
 
 ```bash
 npm start          # הרצה בפיתוח
-npm test           # 99 בדיקות
+npm test           # 114 בדיקות
 npm run dist       # בניית NSIS + portable
 ```
 
@@ -108,7 +108,7 @@ npm run dist       # בניית NSIS + portable
 
 ## ניסוח קצר (לשימוש מהיר)
 
-> אני עובד על SuperSuite — חבילת Electron עם 4 מודולים (`econ` מערכת כלכלית, `shamai` שמאי, `trainer` TrainerPro, `tools` ארגז כלים). הפרויקט ב-`C:\Users\bunim seller\Projects\SuperSuite`, git מאותחל, 99/99 בדיקות עוברות.
+> אני עובד על SuperSuite — חבילת Electron עם 4 מודולים (`econ` מערכת כלכלית, `shamai` שמאי, `trainer` TrainerPro, `tools` ארגז כלים). הפרויקט ב-`C:\Users\bunim seller\Projects\SuperSuite`, git מאותחל, 114/114 בדיקות עוברות.
 >
 > תסרוק את הקוד, תזהה בעיות אמיתיות, תתעד אותן ב-`TODO-FIXES.md` לפי עדיפות, ותיישם אותן בפועל. תכתוב/תעדכן את `CLAUDE.md` עם כל מה שצריך לדעת על הפרויקט.
 >

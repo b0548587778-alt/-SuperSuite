@@ -66,67 +66,9 @@ class FinancialService {
     return exportToCSV(data, filename);
   }
 
-  // Calculate ROI
-  async calculateROI(investment, returns) {
-    if (!investment || !returns) {
-      throw new Error('Investment and returns values are required');
-    }
-    
-    const investmentNum = Number(investment);
-    const returnsNum = Number(returns);
-    
-    if (investmentNum <= 0) {
-      throw new Error('Investment must be greater than zero');
-    }
-    
-    const roi = ((returnsNum - investmentNum) / investmentNum) * 100;
-    return {
-      investment: investmentNum,
-      returns: returnsNum,
-      roi: roi.toFixed(2) + '%',
-      profit: returnsNum - investmentNum
-    };
-  }
+  // חישובי ROI וריבית דריבית חיים ב-utils/calculations.js בלבד.
+  // היו כאן שתי עטיפות duplicate שאיש לא קרא להן (ל-service אין require ל-utils) — הוסרו.
 
-  // Calculate compound interest
-  async calculateCompoundInterest(principal, rate, years, monthlyContribution = 0) {
-    // בדיקה לערכים חסרים (מאפשר ריבית 0 שהיא מקרה חוקי)
-    if (principal === undefined || principal === null ||
-        rate === undefined || rate === null ||
-        years === undefined || years === null) {
-      throw new Error('Principal, rate, and years are required');
-    }
-
-    const p = Number(principal);
-    const r = Number(rate) / 100; // Convert percentage to decimal
-    const y = Number(years);
-    const m = Number(monthlyContribution) || 0;
-    
-    if (p < 0 || r < 0 || y < 0 || m < 0) {
-      throw new Error('Values cannot be negative');
-    }
-    
-    // Handle zero interest rate case
-    let futureValue;
-    if (r === 0) {
-      futureValue = p + (m * 12 * y);
-    } else {
-      // Compound interest formula with monthly contributions
-      futureValue = p * Math.pow(1 + r / 12, y * 12) + (m * (Math.pow(1 + r / 12, y * 12) - 1) / (r / 12));
-    }
-    const totalContributed = p + (m * 12 * y);
-    const totalInterest = futureValue - totalContributed;
-    
-    return {
-      principal: p,
-      annualRate: r * 100,
-      years: y,
-      monthlyContribution: m,
-      totalContributed,
-      futureValue: Math.round(futureValue * 100) / 100,
-      totalInterest: Math.round(totalInterest * 100) / 100
-    };
-  }
 }
 
 module.exports = { FinancialService: new FinancialService() };

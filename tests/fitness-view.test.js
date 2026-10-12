@@ -13,7 +13,7 @@ const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[
 
 // --- DOM מדומה עם רישום אלמנטים לפי id, כדי ששדות הטופס יהיו ניתנים לבדיקה ---
 // מחזיר harness אחרי ש-init() הסתיים במלואו — ראו settle.
-async function makeHarness({ calls, fitnessData }) {
+async function makeHarness({ calls, fitnessData, personalFinance, accounting, tasks }) {
   const elements = {};
 
   function fakeElement(id = '', extra = {}) {
@@ -44,13 +44,16 @@ async function makeHarness({ calls, fitnessData }) {
   const systemAPI = new Proxy({}, {
     get(_t, name) {
       if (name === 'getFitnessData') return () => Promise.resolve(fitnessData);
+      // renderTasks קורא data.tasks — השירות מחזיר עטיפה, לא מערך גולמי
+      if (name === 'getTasks') return () => Promise.resolve({ tasks: tasks || [] });
+      if (name === 'getPersonalFinance') return () => Promise.resolve(personalFinance || {});
       if (name === 'authStatus') return () => Promise.resolve({ user: { id: 'u1', name: 'משתמש' }, configured: true });
       return (...args) => {
         calls.push({ name, args });
         if (LIST_RETURNS.has(name)) return Promise.resolve([]);
         if (SUMMARY_RETURNS.has(name)) return Promise.resolve({ income: 0, expense: 0, balance: 0, count: 0, categories: [] });
         // דוח חשבונאי מלא — null מדמה "אין נתונים" וה-renderer מטפל בכך ב-`acc ? ... : ''`
-        if (name === 'getAccountingReports') return Promise.resolve(null);
+        if (name === 'getAccountingReports') return Promise.resolve(accounting === undefined ? null : accounting);
         if (OPAQUE_OBJECTS.has(name)) return Promise.resolve({});
         return Promise.resolve({});
       };
@@ -58,11 +61,18 @@ async function makeHarness({ calls, fitnessData }) {
   });
 
   const navButtons = VIEWS.map(view => fakeElement('', { dataset: { view } }));
+  // כפתור עריכה שהרינדור "יצר" — בלעדיו attachViewHandlers לא רושם מאזין edit
+  // ואף בדיקה לא יכולה להפעיל את נתיב העריכה בפועל.
+  const editBtn = fakeElement('editBtn', { dataset: { action: 'edit', id: (tasks || [])[0]?.id } });
   const document = {
     readyState: 'complete',
     getElementById(id) { return (elements[id] ||= fakeElement(id)); },
     querySelector() { return fakeElement(); },
-    querySelectorAll(sel) { return sel === '.nav' ? navButtons : []; },
+    querySelectorAll(sel) {
+      if (sel === '.nav') return navButtons;
+      if (sel === '[data-action="edit"]' && tasks && tasks.length) return [editBtn];
+      return [];
+    },
     addEventListener() {},
     createElement() { return fakeElement(); },
     body: fakeElement(),
@@ -76,7 +86,7 @@ async function makeHarness({ calls, fitnessData }) {
   vm.runInContext(UI_SRC, context, { filename: 'unified-ui.js' });
 
   await settle(context);
-  return { context, elements, document, navButtons };
+  return { context, elements, document, navButtons, editBtn };
 }
 
 // init() מתחיל ריצה אסינכרונית בזמן טעינת ה-script (readyState='complete'),
@@ -246,7 +256,7 @@ test('שדה חובה חסר בסוג הנבחר — לא נשלחת קריאה 
 
 test('תצוגות תצוגה-בלבד נשארות מושבתות — אין להן טופס', async () => {
   // כל תצוגה נבדקת ב-harness נפרד, כדי שמצב disabled לא יישאר מהתצוגה הקודמת
-  for (const view of ['dashboard', 'finance', 'personal-finance', 'acct-reports']) {
+  for (const view of ['dashboard', 'finance', 'acct-reports']) {
     const harness = await makeHarness({ calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] } });
     await goToView(view, harness);
     assert.equal(harness.elements.addBtn.disabled, true, `כפתור ההוספה מושבת ב-${view}`);
@@ -267,7 +277,7 @@ test('כל תצוגה עם כפתור פעיל אכן מייצרת טופס — 
 });
 
 test('התצוגות ללא טופס — הכפתור מושבת ולא נפתח דבר', async () => {
-  for (const view of ['dashboard', 'finance', 'personal-finance', 'acct-reports']) {
+  for (const view of ['dashboard', 'finance', 'acct-reports']) {
     const harness = await makeHarness({ calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] } });
     await goToView(view, harness);
     assert.equal(harness.elements.addBtn.disabled, true, `כפתור ההוספה מושבת ב-${view}`);
@@ -276,6 +286,208 @@ test('התצוגות ללא טופס — הכפתור מושבת ולא נפתח
     assert.equal(harness.elements.modalForm.innerHTML, '', `לא נפתח טופס ב-${view}`);
   }
 });
+
+test('"תכנון פיננסי" ו"התוכנית הפיננסית" אינם אותו מסך — האחד תמונת מצב, השני ניתן לעריכה', async () => {
+  const harness = await makeHarness({
+    calls: [],
+    fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    // אותה תוכנית בדיוק מוגשת לשני המסכים — ההבדל חייב להיות ברינדור, לא בנתונים
+    personalFinance: {
+      planName: 'תוכנית לדוגמה', currency: 'ILS',
+      incomes: [{ id: 'i1', source: 'משכורת', amount: 12000, frequency: 'monthly' }],
+      expenses: [{ id: 'e1', category: 'שכירות', amount: 3500, frequency: 'monthly' }],
+      investments: [{ id: 'v1', name: 'קרן', principal: 50000, annualRate: 6, years: 10 }],
+      cashFlowEntries: []
+    }
+  });
+
+  await goToView('finance', harness);
+  const financeHtml = harness.elements.view.innerHTML;
+  assert.equal(harness.elements.addBtn.disabled, true, 'בתכנון הפיננסי אין טופס — תמונת מצב בלבד');
+  assert.match(financeHtml, /תזרים חודשי נטו/, 'תכנון פיננסי מציג תזרים מחושב');
+  assert.match(financeHtml, /₪8,500/, 'התזרים הנטו מחושב נכון (12,000 − 3,500)');
+
+  await goToView('personal-finance', harness);
+  const planHtml = harness.elements.view.innerHTML;
+  assert.equal(harness.elements.addBtn.disabled, false, 'התוכנית הפיננסית ניתנת לעריכה — יש טופס');
+  assert.match(planHtml, /משכורת/, 'התוכנית הפיננסית מציגה את פריטי ההכנסה עצמם');
+  assert.match(planHtml, /קרן/, 'התוכנית הפיננסית מציגה את פריטי ההשקעה עצמם');
+
+  // השניים חייבים להיות תוכן שונה — לא שני עותקים של אותו מסך
+  assert.notEqual(financeHtml, planHtml, 'שני המסכים אינם אותו תוכן');
+});
+
+// --- רגרסיה: דוח חשבונאי חלקי לא מפיל את התצוגה ---
+// כל השדות שמגיעים מהשירות מנורמלים לפני הרינדור. דוח חסר (תקופה בלי תנועות,
+// גרסת נתונים ישנה, תשובה חלקית) היה מפיל את הרינדור ב-TypeError ומשאיר מסך ריק.
+test('דוח חשבונאי חלקי (ללא trialBalance/balanceSheet) לא מפיל את תצוגת הדוחות', async () => {
+  const harness = await makeHarness({
+    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    // דוח "רזה" — חסרים כל המפתחות שהרינדור קורא ישירות
+    accounting: { period: { to: '2026-10-12' } }
+  });
+  await goToView('acct-reports', harness);
+  const html = harness.elements.view.innerHTML;
+  assert.ok(html.length > 0, 'התצוגה רונדרה ולא נשארה ריקה');
+  assert.doesNotMatch(html, /NaN/, 'אין "NaN" בתצוגה כשדה חסר');
+  assert.doesNotMatch(html, /undefined/, 'אין "undefined" בתצוגה כשדה חסר');
+  assert.match(html, /מאזן בוחן/, 'הכרטיסים המרכזיים עדיין מוצגים');
+});
+
+test('דוח עם מערכים לא-תקינים (מחרוזת במקום מערך) לא מפיל את תצוגת הדוחות', async () => {
+  const harness = await makeHarness({
+    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    accounting: {
+      period: { from: '2026-01-01', to: '2026-10-12' },
+      vatRate: 0.17,
+      summary: { income: 100, expenses: 40, vatPayable: 10, profit: 60 },
+      // צורות פגומות בכוונה
+      balanceSheet: { assets: 'לא-מערך', liabilities: null, equity: undefined, balanced: true },
+      incomeStatement: { revenue: 0, expenses: [], totalRevenue: 0, netProfit: 0 },
+      vat: { outputVat: 0, inputVat: 0, netPayable: 0 },
+      aged: { buckets: 'x' },
+      trialBalance: { rows: null, balanced: true }
+    }
+  });
+  await goToView('acct-reports', harness);
+  const html = harness.elements.view.innerHTML;
+  assert.ok(html.length > 0, 'התצוגה רונדרה');
+  assert.doesNotMatch(html, /NaN/, 'אין "NaN" פרץ מהמערכים הפגומים');
+});
+
+test('מסך הבית עם דוח חשבונאי חלקי מציג את שאר הכרטיסים במקום מסך ריק', async () => {
+  const harness = await makeHarness({
+    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    accounting: { period: { to: '2026-10-12' }, balanceSheet: {}, incomeStatement: {}, vat: {} }
+  });
+  await goToView('dashboard', harness);
+  const html = harness.elements.view.innerHTML;
+  assert.ok(html.length > 0, 'מסך הבית רונדר');
+  assert.match(html, /לוח הבקרה של העסק/, 'כרטיס העסק עדיין מוצג');
+  assert.doesNotMatch(html, /NaN/, 'אין "NaN" ביתרת הבנק/רווח כשהמאזן חלקי');
+});
+
+test('מוצר ללא בלוק תמחור מחושב לא מפיל את המחירון', async () => {
+  // מוצר שנשמר בגרסה ישנה בלי p.pricing — הרינדור חייב להציג 0 ולא לקרוס
+  const harness = await makeHarness({
+    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] }
+  });
+  await goToView('acct-pricing', harness);
+  const html = harness.elements.view.innerHTML;
+  assert.ok(html.length > 0, 'המחירון רונדר גם כשאין מוצרים');
+  assert.doesNotMatch(html, /NaN/, 'אין "NaN" בתמחור');
+});
+
+test('שיעור מע"מ חסר בהגדרות מוצג כ"—" ולא כ"NaN%"', async () => {
+  const harness = await makeHarness({
+    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] }
+  });
+  await goToView('acct-settings', harness);
+  const html = harness.elements.view.innerHTML;
+  assert.doesNotMatch(html, /NaN%/, 'שיעור מע"מ חסר לא הופך ל-"NaN%"');
+});
+
+// --- רגרסיה: מסלול העריכה ---
+// handleEdit מילא שדות בהעתקה עיוורת מ-record[f.name], אבל שדות הטופס אינם שמות
+// הרשומה בהכרח (הגדרות מע"מ: vatRate=0.17 ברשומה מול vatPercent=17 בטופס).
+// התוצאה הייתה טופס עריכה ריק וכשל בשמירה על שדה חובה.
+
+test('טופס הגדרות המע"מ מציג את שדה האחוז (המיפוי vatRate → vatPercent)', async () => {
+  const harness = await makeHarness({
+    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] }
+  });
+  await goToView('acct-settings', harness);
+  await (harness.elements.addBtn._listeners.click[0])();
+  const html = harness.elements.modalForm.innerHTML;
+  assert.match(html, /id="f_vatPercent"/, 'שדה שיעור המע"מ קיים בטופס');
+  assert.match(html, /name="vatPercent"/, 'השדה נשלח בשם שהסכימה ממפה');
+});
+
+// הדליפה נצפית רק בנתיב עריכה אמיתי: handleEdit כותב את ערכי הרשומה ישירות
+// ל-f.value שבסכימה (או דרך prepare), ובלעדי השחזור ב-closeModal הערכים נשארים
+// שם — וטופס "הוספה" הבא נפתח מלא בנתוני הרשומה האחרונה שנערכה.
+// הבדיקה מפעילה את נתיב העריכה בפועל (המאזין ש-attachViewHandlers רשם), ואז
+// פותחת "הוספה" ובודקת שהשדה נקי. אומתה כ-falsifiable: בהסרת השחזור היא נכשלת.
+test('עריכת רשומה אינה מזהמת את טופס ההוספה הבא', async () => {
+  const harness = await makeHarness({
+    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    tasks: [{ id: 't1', title: 'לשלם ארנונה', description: 'עד סוף החודש', category: 'finance', priority: 'high', status: 'todo', dueDate: '2026-11-01' }]
+  });
+  await goToView('tasks', harness);
+
+  const titleOf = (h) => /id="f_title"[^>]*value="([^"]*)"/.exec(h)?.[1];
+
+  // 1. טופס "הוספה" ראשון — ריק
+  await (harness.elements.addBtn._listeners.click[0])();
+  assert.equal(titleOf(harness.elements.modalForm.innerHTML), undefined, 'טופס ההוספה נפתח ריק');
+  await (harness.elements.cancelBtn._listeners.click[0])();
+
+  // 2. עריכה אמיתית של המשימה — נתיב handleEdit
+  const editHandlers = harness.editBtn._listeners.click || [];
+  assert.ok(editHandlers.length >= 1, 'נתיב העריכה נרשם');
+  await editHandlers[0]();
+  assert.equal(titleOf(harness.elements.modalForm.innerHTML), 'לשלם ארנונה', 'טופס העריכה נטען עם נתוני הרשומה');
+  await (harness.elements.cancelBtn._listeners.click[0])();
+
+  // 3. "הוספה" נוספת — חייבת לפתוח ריק, בלי שאריות מהרשומה שנערכה
+  await (harness.elements.addBtn._listeners.click[0])();
+  assert.equal(titleOf(harness.elements.modalForm.innerHTML), undefined,
+    'טופס ההוספה נפתח נקי — אין דליפת ערכים מהרשומה שנערכה');
+});
+
+test('סגירת החלון מנקה את הטופס ואת מצב העריכה', async () => {
+  const harness = await makeHarness({
+    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] }
+  });
+  await goToView('tasks', harness);
+  await (harness.elements.addBtn._listeners.click[0])();
+  assert.ok(harness.elements.modalForm.innerHTML.length > 0, 'הטופס פתוח');
+  await (harness.elements.cancelBtn._listeners.click[0])();
+  assert.equal(harness.elements.modalForm.innerHTML, '', 'הטופס נוקה בסגירה');
+});
+
+test('תכנון פיננסי עם נתונים ריקים מציג הודעה ידידותית ולא מסך ריק', async () => {
+  const harness = await makeHarness({
+    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    personalFinance: { planName: 'ריק', currency: 'ILS', incomes: [], expenses: [], investments: [], cashFlowEntries: [] }
+  });
+  await goToView('finance', harness);
+  assert.match(harness.elements.view.innerHTML, /אין נתונים בתכנון הפיננסי/, 'מוצגת הודעת ריק');
+});
+
+// --- סקירה: אילו תצוגות מציעות עריכה, ואילו בכוונה append-only ---
+// הערוץ marketIntel:updateEntry קיים ב-ipc.js ובשירות, אך ה-UI מעולם לא חיבר
+// אליו כפתור. הבדיקה מוודאת שהחיבור קיים — עריכה שלא נגישה היא יכולת מדומה.
+test('מודיעין שוק: לרשומה יש כפתור עריכה שמחובר לערוץ updateEntry', async () => {
+  const source = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+  assert.match(source, /update:\s*\(id,\s*data\)\s*=>\s*window\.systemAPI\.updateMarketIntelEntry\(id,\s*data\)/,
+    'סכימת מודיעין השוק מחוברת ל-updateMarketIntelEntry');
+});
+
+test('תצוגות חשבונאיות שהן append-only אינן מציגות כפתור עריכה מת', async () => {
+  // יומן, חשבוניות, תרשים חשבונות, מחירון ורשומות אישיות הן append-only בעיצוב:
+  // רשומת יומן מבוטלת בהפכה ולא נערכת, חשבונית מבוטלת ולא נערכת. אין להן ערוץ
+  // update — ולכן סכימה בלי update היא נכונה, וכפתור עריכה היה מטעה.
+  const source = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+  for (const view of ['acct-journal', 'acct-invoices', 'acct-chart', 'acct-pricing', 'acct-personal']) {
+    const body = schemaBody(source, view);
+    assert.ok(body, `סכימת ${view} נמצאה`);
+    assert.doesNotMatch(body, /\bupdate\s*:/, `${view} אינו מצהיר על update — אין כפתור מת`);
+  }
+});
+
+// מחלץ את גוף הסכימה לפי התאמת סוגריים, לא לפי regex שביר.
+function schemaBody(source, view) {
+  const opener = new RegExp(`['"]${view}['"]\\s*\\]?\\s*[=:]\\s*\\{`);
+  const m = opener.exec(source);
+  if (!m) return null;
+  let i = m.index + m[0].length - 1, depth = 0;
+  for (; i < source.length; i++) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}') { depth--; if (depth === 0) return source.slice(m.index, i + 1); }
+  }
+  return null;
+}
 
 test('כל תצוגה שהכפתור שלה פעיל — פתיחת הטופס מייצרת שדות בפועל', async () => {
   // כל תצוגה נבדקת ב-harness נפרד לגמרי, כדי שלא יישאר מצב מהתצוגה הקודמת

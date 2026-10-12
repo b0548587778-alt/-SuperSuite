@@ -24,6 +24,11 @@ contextBridge.exposeInMainWorld('systemAPI', {
   getPersonalFinance: () => ipcRenderer.invoke('personalFinance:get'),
   updatePersonalFinance: (financeData) => ipcRenderer.invoke('personalFinance:update', financeData),
   calculateLoan: (loanData) => ipcRenderer.invoke('personalFinance:calculateLoan', loanData),
+  // הוספת פריט בודד לתוכנית — במקום לדרוס את כל האוסף דרך updatePersonalFinance
+  addPersonalIncome: (incomeData) => ipcRenderer.invoke('personalFinance:addIncome', incomeData),
+  addPersonalExpense: (expenseData) => ipcRenderer.invoke('personalFinance:addExpense', expenseData),
+  addPersonalInvestment: (investmentData) => ipcRenderer.invoke('personalFinance:addInvestment', investmentData),
+  addPersonalCashFlowEntry: (cashFlowData) => ipcRenderer.invoke('personalFinance:addCashFlowEntry', cashFlowData),
 
   // Mortgage
   getMortgageScenarios: () => ipcRenderer.invoke('mortgage:getScenarios'),

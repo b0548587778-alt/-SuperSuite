@@ -9,7 +9,8 @@
     data: {},
     loading: false,
     error: null,
-    editingId: null
+    editingId: null,
+    fieldValuesBackup: null
   };
 
   // DOM references
@@ -34,11 +35,11 @@
   // View titles mapping
   const viewTitles = {
     'dashboard': 'לוח בקרה',
-    'finance': 'תכנון פיננסי',
+    'finance': 'תכנון פיננסי — תמונת מצב',
     'business': 'עסקים ולקוחות',
     'market-intel': 'מודיעין שוק',
     'mortgage': 'משכנתאות והלוואות',
-    'personal-finance': 'התוכנית הפיננסית',
+    'personal-finance': 'התוכנית הפיננסית — הגדרה ופריטים',
     'tasks': 'משימות',
     'contacts': 'אנשי קשר',
     'fitness': 'כושר ובריאות',
@@ -371,8 +372,9 @@
     const finance = data?.finance;
     const tasks = data?.tasks;
     const marketIntel = data?.marketIntel;
-    const acc = data?.accounting;
-    const invoices = (data?.invoices || []).slice(0, 5);
+    // דוח חשבונאי חלקי לא מפיל את מסך הבית — מנורמל לאותה צורה מלאה כמו בדוחות.
+    const acc = data?.accounting ? normalizeAcctReports(data.accounting) : null;
+    const invoices = (Array.isArray(data?.invoices) ? data.invoices : []).slice(0, 5);
     const cash = acc ? (acc.balanceSheet.assets.find(a => a.code === '1000')?.amount || 0) : 0;
     const quick = [
       ['acct-reports', '📈', 'דוחות ומע"מ'], ['acct-journal', '📒', 'יומן חשבונאי'],
@@ -442,39 +444,65 @@
     `;
   }
 
-  // Render finance view
+  // ממיר סכום ותדירות לסכום חודשי. תדירות לא מוכרת נחשבת חודשית (ברירת המחדל של השירות).
+  const MONTHLY_FACTOR = { monthly: 1, yearly: 1 / 12, annual: 1 / 12, weekly: 52 / 12, daily: 365 / 12 };
+  function monthlyAmount(amount, frequency) {
+    const factor = MONTHLY_FACTOR[String(frequency || 'monthly').toLowerCase()] ?? 1;
+    return (Number(amount) || 0) * factor;
+  }
+
+  // תכנון פיננסי — תמונת מצב מחושבת: סיכומים, תזרים חודשי נטו ותחזית השקעות.
+  // (התוכנית הגולמית — שם, מטבע ורשימת הפריטים — מוצגת ונערכת בתצוגת "התוכנית הפיננסית".)
   function renderFinance(data) {
     const finance = data || {};
-    const incomes = finance.incomes || [];
-    const expenses = finance.expenses || [];
-    const investments = finance.investments || [];
+    const incomes = Array.isArray(finance.incomes) ? finance.incomes : [];
+    const expenses = Array.isArray(finance.expenses) ? finance.expenses : [];
+    const investments = Array.isArray(finance.investments) ? finance.investments : [];
+
+    if (incomes.length === 0 && expenses.length === 0 && investments.length === 0) {
+      return renderEmpty('אין נתונים בתכנון הפיננסי עדיין — הזן הכנסות והוצאות ב"התוכנית הפיננסית" כדי לראות כאן את התמונה הכוללת');
+    }
+
+    // סיכומים חודשיים — מנרמלים תדירויות שונות לבסיס חודשי אחד.
+    // מעוגל לאגורות בדיוק כמו שאר המערכת.
+    const round2 = (n) => Math.round(n * 100) / 100;
+    const incomeMonthly = incomes.reduce((s, i) => s + monthlyAmount(i.amount, i.frequency), 0);
+    const expenseMonthly = expenses.reduce((s, e) => s + monthlyAmount(e.amount, e.frequency), 0);
+    const netMonthly = incomeMonthly - expenseMonthly;
+    const fixedMonthly = expenses.filter(e => e.isFixed !== false).reduce((s, e) => s + monthlyAmount(e.amount, e.frequency), 0);
 
     return `
       <div class="finance">
+        <div class="kpis">
+          <div class="kpi pos"><small>הכנסות בחודש</small><strong>${money(round2(incomeMonthly))}</strong></div>
+          <div class="kpi neg"><small>הוצאות בחודש</small><strong>${money(round2(expenseMonthly))}</strong></div>
+          <div class="kpi ${netMonthly < 0 ? 'neg' : 'pos'}"><small>תזרים חודשי נטו</small><strong>${money(round2(netMonthly))}</strong></div>
+          <div class="kpi"><small>הוצאות קבועות</small><strong>${money(round2(fixedMonthly))}</strong></div>
+        </div>
         <div class="section">
           <h3>הכנסות (${incomes.length})</h3>
-          ${incomes.map(i => `
+          ${incomes.length === 0 ? '<div class="acct-row muted">אין הכנסות רשומות</div>' : incomes.map(i => `
             <div class="item">
               <span>${esc(i.source)}</span>
-              <span>₪${i.amount} / ${esc(i.frequency)}</span>
+              <span>${money(i.amount)} / ${esc(FREQ_LABELS[i.frequency] || 'חודשי')}</span>
             </div>
           `).join('')}
         </div>
         <div class="section">
           <h3>הוצאות (${expenses.length})</h3>
-          ${expenses.map(e => `
+          ${expenses.length === 0 ? '<div class="acct-row muted">אין הוצאות רשומות</div>' : expenses.map(e => `
             <div class="item">
-              <span>${esc(e.category)}</span>
-              <span>₪${e.amount} / ${esc(e.frequency)}</span>
+              <span>${esc(e.category)}${e.isFixed === false ? ' <small class="muted">(משתנה)</small>' : ''}</span>
+              <span>${money(e.amount)} / ${esc(FREQ_LABELS[e.frequency] || 'חודשי')}</span>
             </div>
           `).join('')}
         </div>
         <div class="section">
           <h3>השקעות (${investments.length})</h3>
-          ${investments.map(inv => `
+          ${investments.length === 0 ? '<div class="acct-row muted">אין השקעות רשומות</div>' : investments.map(inv => `
             <div class="item">
               <span>${esc(inv.name)}</span>
-              <span>₪${inv.principal} @ ${inv.annualRate}%</span>
+              <span>${money(inv.principal)} @ ${esc(inv.annualRate)}%</span>
             </div>
           `).join('')}
         </div>
@@ -482,9 +510,12 @@
     `;
   }
 
+  // תדירויות בעברית לתצוגה
+  const FREQ_LABELS = { monthly: 'חודשי', yearly: 'שנתי', annual: 'שנתי', weekly: 'שבועי', daily: 'יומי' };
+
   // Render business view
   function renderBusiness(data) {
-    const plans = data?.plans || [];
+    const plans = Array.isArray(data?.plans) ? data.plans : [];
     return `
       <div class="business">
         <h3>תוכניות עסקיות (${plans.length})</h3>
@@ -503,7 +534,7 @@
 
   // Render market intelligence view
   function renderMarketIntel(data) {
-    const entries = data?.entries || [];
+    const entries = Array.isArray(data?.entries) ? data.entries : [];
     return `
       <div class="market-intel">
         <h3>מודיעין שוק (${entries.length})</h3>
@@ -522,7 +553,7 @@
 
   // Render mortgage view
   function renderMortgage(data) {
-    const scenarios = data?.scenarios || [];
+    const scenarios = Array.isArray(data?.scenarios) ? data.scenarios : [];
     return `
       <div class="mortgage">
         <h3>משכנתאות והלוואות (${scenarios.length})</h3>
@@ -538,18 +569,61 @@
     `;
   }
 
-  // Render personal finance view
+  // התוכנית הפיננסית — הגדרת התוכנית והפריטים הגולמית (התמונה המחושבת נמצאת ב"תכנון פיננסי")
   function renderPersonalFinance(data) {
     const finance = data || {};
+    const incomes = Array.isArray(finance.incomes) ? finance.incomes : [];
+    const expenses = Array.isArray(finance.expenses) ? finance.expenses : [];
+    const investments = Array.isArray(finance.investments) ? finance.investments : [];
+    const cashFlow = Array.isArray(finance.cashFlowEntries) ? finance.cashFlowEntries : [];
+    const empty = incomes.length === 0 && expenses.length === 0 && investments.length === 0 && cashFlow.length === 0;
+
     return `
       <div class="personal-finance">
-        <h3>${esc(finance.planName || 'התוכנית הפיננסית')}</h3>
-        <p>מטבע: ${esc(finance.currency || 'ILS')}</p>
-        <div class="section">
-          <h4>הכנסות: ${finance.incomes?.length || 0}</h4>
-          <h4>הוצאות: ${finance.expenses?.length || 0}</h4>
-          <h4>השקעות: ${finance.investments?.length || 0}</h4>
+        <div class="acct-header">
+          <div>
+            <h3>${esc(finance.planName || 'התוכנית הפיננסית')}</h3>
+            <small>מטבע: ${esc(finance.currency || 'ILS')} · ${incomes.length} הכנסות · ${expenses.length} הוצאות · ${investments.length} השקעות</small>
+          </div>
         </div>
+        ${empty ? renderEmpty('התוכנית הפיננסית ריקה עדיין — הוסף הכנסות והוצאות כדי להתחיל') : ''}
+        <div class="section">
+          <h3>הכנסות (${incomes.length})</h3>
+          ${incomes.length === 0 ? '<div class="acct-row muted">אין הכנסות רשומות</div>' : incomes.map(i => `
+            <div class="item">
+              <span>${esc(i.source)}${i.category ? ` <small class="muted">· ${esc(i.category)}</small>` : ''}</span>
+              <span>${money(i.amount)} / ${esc(FREQ_LABELS[i.frequency] || 'חודשי')}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="section">
+          <h3>הוצאות (${expenses.length})</h3>
+          ${expenses.length === 0 ? '<div class="acct-row muted">אין הוצאות רשומות</div>' : expenses.map(e => `
+            <div class="item">
+              <span>${esc(e.category)}${e.description ? ` <small class="muted">· ${esc(e.description)}</small>` : ''}</span>
+              <span>${money(e.amount)} / ${esc(FREQ_LABELS[e.frequency] || 'חודשי')}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="section">
+          <h3>השקעות (${investments.length})</h3>
+          ${investments.length === 0 ? '<div class="acct-row muted">אין השקעות רשומות</div>' : investments.map(inv => `
+            <div class="item">
+              <span>${esc(inv.name)}${inv.years ? ` <small class="muted">· ${esc(inv.years)} שנים</small>` : ''}</span>
+              <span>${money(inv.principal)} @ ${esc(inv.annualRate)}%</span>
+            </div>
+          `).join('')}
+        </div>
+        ${cashFlow.length ? `
+        <div class="section">
+          <h3>תזרים מזומנים (${cashFlow.length})</h3>
+          ${cashFlow.map(c => `
+            <div class="item">
+              <span>${esc(c.description || c.category || 'תנועה')} <small class="muted">${esc(c.date)}</small></span>
+              <span class="${c.type === 'expense' ? 'neg' : 'pos'}">${c.type === 'expense' ? '−' : '+'}${money(c.amount)}</span>
+            </div>
+          `).join('')}
+        </div>` : ''}
       </div>
     `;
   }
@@ -665,7 +739,7 @@
 
   // Render voice notes view
   function renderVoiceNotes(data) {
-    const notes = data?.notes || [];
+    const notes = Array.isArray(data?.notes) ? data.notes : [];
     return `
       <div class="voice-notes">
         <h3>הערות קוליות (${notes.length})</h3>
@@ -685,7 +759,7 @@
 
   // Render canvas view
   function renderCanvas(data) {
-    const boards = data?.boards || [];
+    const boards = Array.isArray(data?.boards) ? data.boards : [];
     return `
       <div class="canvas">
         <h3>לוחות (${boards.length})</h3>
@@ -787,6 +861,9 @@
         ]}
       ],
       create: (data) => window.systemAPI.updateMarketIntel(data),
+      // עריכת רשומת מודיעין בודדת — הערוץ marketIntel:updateEntry קיים ב-ipc.js
+      // ובשירות (מיזוג שדות), אך ה-UI מעולם לא חיבר אליו כפתור עריכה.
+      update: (id, data) => window.systemAPI.updateMarketIntelEntry(id, data),
       remove: (id) => window.systemAPI.deleteMarketIntelEntry(id)
     },
     'mortgage': {
@@ -901,9 +978,43 @@
     return (chart || []).map(a => ({ value: a.code, label: `${a.code} · ${a.name}` }));
   }
 
-  function renderAcctReports(r) {
-    if (!r) return renderEmpty('אין נתונים להצגה');
-    const rows = (list) => list.map(x => `<div class="acct-row"><span>${esc(x.code)} ${esc(x.name)}</span><span>${money(x.amount)}</span></div>`).join('') || '<div class="acct-row muted">אין תנועות</div>';
+  // הגנת עומק לדוחות: דוח חלקי (גרסת נתונים ישנה / תקופה בלי תנועות) לא מפיל את התצוגה.
+  // כל שדה נדרש מנורמל כאן, ורק מכאן והלאה הרינדור יכול להניח צורה מלאה.
+  function normalizeAcctReports(r) {
+    const num = (v) => Number(v) || 0;
+    const list = (v) => (Array.isArray(v) ? v : []);
+    const o = (v) => (v && typeof v === 'object' ? v : {});
+    const summary = o(r.summary), analytics = o(r.analytics),
+          incomeStatement = o(r.incomeStatement), balanceSheet = o(r.balanceSheet),
+          vat = o(r.vat), aged = o(r.aged), trialBalance = o(r.trialBalance);
+    return {
+      period: o(r.period),
+      lockDate: r.lockDate,
+      vatRate: num(r.vatRate),
+      openInvoices: num(r.openInvoices),
+      summary: { income: num(summary.income), expenses: num(summary.expenses),
+                 vatPayable: num(summary.vatPayable), profit: num(summary.profit) },
+      analytics: { totalInvoices: num(analytics.totalInvoices), totalRevenue: num(analytics.totalRevenue),
+                   customers: num(analytics.customers), repeatShare: num(analytics.repeatShare),
+                   repeatCustomers: list(analytics.repeatCustomers), monthly: list(analytics.monthly) },
+      incomeStatement: { revenue: list(incomeStatement.revenue), expenses: list(incomeStatement.expenses),
+                         totalRevenue: num(incomeStatement.totalRevenue), totalExpenses: num(incomeStatement.totalExpenses),
+                         netProfit: num(incomeStatement.netProfit) },
+      balanceSheet: { balanced: !!balanceSheet.balanced, assets: list(balanceSheet.assets),
+                      liabilities: list(balanceSheet.liabilities), equity: list(balanceSheet.equity),
+                      totalAssets: num(balanceSheet.totalAssets), totalLiabilities: num(balanceSheet.totalLiabilities),
+                      totalEquity: num(balanceSheet.totalEquity) },
+      vat: { outputVat: num(vat.outputVat), inputVat: num(vat.inputVat), netPayable: num(vat.netPayable) },
+      aged: { buckets: list(aged.buckets) },
+      trialBalance: { rows: list(trialBalance.rows), balanced: !!trialBalance.balanced,
+                      totalDebit: num(trialBalance.totalDebit), totalCredit: num(trialBalance.totalCredit) }
+    };
+  }
+
+  function renderAcctReports(raw) {
+    if (!raw) return renderEmpty('אין נתונים להצגה');
+    const r = normalizeAcctReports(raw);
+    const rows = (list) => (list || []).map(x => `<div class="acct-row"><span>${esc(x.code)} ${esc(x.name)}</span><span>${money(x.amount)}</span></div>`).join('') || '<div class="acct-row muted">אין תנועות</div>';
     const tbRows = r.trialBalance.rows.map(x => `<tr><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${money(x.debit)}</td><td>${money(x.credit)}</td><td>${money(x.balance)}</td></tr>`).join('');
     return `
       <div class="acct-header">
@@ -971,7 +1082,7 @@
   }
 
   function renderAcctJournal(d) {
-    const entries = d?.entries || [];
+    const entries = Array.isArray(d?.entries) ? d.entries : [];
     const names = Object.fromEntries((d?.chart || []).map(a => [a.code, a.name]));
     return `
       <div class="acct-header"><h3>רשומות יומן (${entries.length})</h3><button class="secondary" id="acctCsvJournal">ייצוא יומן ל-Excel</button></div>
@@ -980,20 +1091,20 @@
         <div class="card ${e.reversedBy || e.reversalOf ? 'muted-card' : ''}">
           <h4>${esc(e.description || 'ללא תיאור')}</h4>
           <small>${esc(e.date)}${e.reversalOf ? ' · רשומת ביטול' : ''}${e.reversedBy ? ' · בוטלה' : ''}</small>
-          <div class="acct-lines">${e.lines.map(l => `<div class="acct-row"><span>${esc(l.account)} ${esc(names[l.account] || '')}</span><span>${l.debit ? 'חובה ' + money(l.debit) : 'זכות ' + money(l.credit)}</span></div>`).join('')}</div>
+          <div class="acct-lines">${(Array.isArray(e.lines) ? e.lines : []).map(l => `<div class="acct-row"><span>${esc(l.account)} ${esc(names[l.account] || '')}</span><span>${l.debit ? 'חובה ' + money(l.debit) : 'זכות ' + money(l.credit)}</span></div>`).join('')}</div>
           ${!e.reversedBy && !e.reversalOf ? renderCardActions(e.id) : ''}
         </div>`).join('')}`;
   }
 
   function renderAcctInvoices(d) {
-    const invoices = d?.invoices || [];
+    const invoices = Array.isArray(d?.invoices) ? d.invoices : [];
     return `
       <h3>חשבוניות מס (${invoices.length})</h3>
       ${invoices.length === 0 ? renderEmpty('אין חשבוניות עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל') : ''}
       ${invoices.map(i => `
         <div class="card ${i.status === 'paid' ? 'done' : ''} ${i.status === 'cancelled' ? 'muted-card' : ''}">
           <h4>חשבונית ${esc(i.number)} · ${esc(i.customer)}</h4>
-          <p>${i.items.map(it => esc(it.description)).join(', ')}</p>
+          <p>${(Array.isArray(i.items) ? i.items : []).map(it => esc(it.description)).join(', ')}</p>
           <small>${esc(i.date)} · נטו ${money(i.net)} · מע"מ ${money(i.vat)}${i.vatExempt ? ' (פטור)' : ''}</small>
           <div class="acct-row acct-big"><span>${ACCT_STATUS[i.status] || i.status}</span><span>${money(i.total)}</span></div>
           <div class="card-actions">
@@ -1020,6 +1131,8 @@
     if (!st) return renderEmpty('אין נתונים להצגה');
     const b = st.business || {};
     const row = (k, v) => `<div class="acct-row"><span>${esc(k)}</span><span>${esc(v || '—')}</span></div>`;
+    // שיעור מע"מ חסר/לא מספרי — מציגים "—" ולא "NaN%"
+    const vatPct = Number.isFinite(Number(st.vatRate)) ? (Number(st.vatRate) * 100).toFixed(2) + '%' : null;
     return `
       <div class="acct-grid">
         <div class="card">
@@ -1028,7 +1141,7 @@
         </div>
         <div class="card">
           <h3>הגדרות חשבונאות</h3>
-          ${row('שיעור מע"מ', (st.vatRate * 100).toFixed(2) + '%')}
+          ${row('שיעור מע"מ', vatPct)}
           ${row('תקופה נעולה עד', st.lockDate)}
           <p class="muted">אחרי נעילת תקופה לא ניתן לרשום, לבטל או לגבות בתאריך שלפני הנעילה.</p>
         </div>
@@ -1050,18 +1163,22 @@
       <div class="acct-header"><h3>מחירון (${list.length})</h3>
         <div class="acct-actions"><button class="secondary" id="acctImportCsv">ייבוא מחירון מ-CSV</button></div></div>
       ${list.length === 0 ? renderEmpty('אין מוצרים או שירותים עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל') : ''}
-      ${list.map(p => `
+      ${list.map(p => {
+        // מוצר ישן שנשמר בלי בלוק תמחור מחושב — לא מפיל את כל המחירון
+        const pr = (p && typeof p.pricing === 'object' && p.pricing) || {};
+        return `
         <div class="card">
           <h4>${esc(p.name)}</h4>
           <small>${p.kind === 'service' ? 'שירות' : 'מוצר'}${p.vatExempt ? ' · פטור ממע"מ' : ''}</small>
           <div class="acct-lines">
-            <div class="acct-row"><span>עלות</span><span>${money(p.pricing.cost)}</span></div>
-            <div class="acct-row"><span>רווח (${esc(p.markupPct)}%)</span><span>${money(p.pricing.profit)}</span></div>
-            <div class="acct-row"><span>מחיר לפני מע"מ</span><span>${money(p.pricing.priceEx)}</span></div>
-            <div class="acct-row acct-big"><span>מחיר לצרכן</span><span>${money(p.pricing.priceInc)}</span></div>
+            <div class="acct-row"><span>עלות</span><span>${money(pr.cost)}</span></div>
+            <div class="acct-row"><span>רווח (${esc(p.markupPct)}%)</span><span>${money(pr.profit)}</span></div>
+            <div class="acct-row"><span>מחיר לפני מע"מ</span><span>${money(pr.priceEx)}</span></div>
+            <div class="acct-row acct-big"><span>מחיר לצרכן</span><span>${money(pr.priceInc)}</span></div>
           </div>
           ${renderCardActions(p.id)}
-        </div>`).join('')}`;
+        </div>`;
+      }).join('')}`;
   }
 
   async function refreshCalculator() {
@@ -1330,6 +1447,33 @@
   };
   Object.assign(formSchemas, acctFormSchemas);
 
+  // ============================================================
+  // התוכנית הפיננסית — טופס עריכת פרטי התוכנית.
+  // טופס "עריכה" במהותו: טוען את התוכנית הקיימת ומעדכן אותה.
+  // (ראו TODO-FIXES.md — איחוד תצוגות הכפילות "תכנון פיננסי"/"התוכנית הפיננסית".)
+  // ============================================================
+  formSchemas['personal-finance'] = {
+    title: 'עריכת התוכנית הפיננסית',
+    prepare: async (schema) => {
+      const plan = await window.systemAPI.getPersonalFinance() || {};
+      const values = { planName: plan.planName || 'התוכנית הפיננסית שלי', currency: plan.currency || 'ILS' };
+      for (const f of schema.fields) f.value = values[f.name] ?? '';
+    },
+    fields: [
+      { name: 'planName', label: 'שם התוכנית', type: 'text', required: true },
+      { name: 'currency', label: 'מטבע', type: 'select', options: [
+        { value: 'ILS', label: 'שקל (₪)' },
+        { value: 'USD', label: 'דולר ($)' },
+        { value: 'EUR', label: 'אירו (€)' }
+      ]}
+    ],
+    create: async (d) => {
+      // עדכון פרטי התוכנית בלבד — הפריטים (הכנסות/הוצאות/השקעות) נשמרים כמו שהם
+      const plan = await window.systemAPI.getPersonalFinance() || {};
+      return window.systemAPI.updatePersonalFinance({ ...plan, planName: d.planName, currency: d.currency });
+    }
+  };
+
   // תצוגות ללא טופס הוספה — מחושבות/מצטברות בלבד.
   // נגזר מ-formSchemas כדי שלא ייווצר פער בין הרשימה לסכימות בפועל.
   const hasForm = (viewName) => !!formSchemas[viewName];
@@ -1346,10 +1490,10 @@
 
     // כפתורי עריכה בכרטיסים
     document.querySelectorAll('[data-action="edit"]').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
         const record = findRecordById(id);
-        if (record) handleEdit(id, record);
+        if (record) await handleEdit(id, record);
       });
     });
 
@@ -1627,21 +1771,41 @@
     }
   }
 
-  // Handle edit — פותח טופס עם הנתונים הקיימים
-  function handleEdit(id, record) {
+  // Handle edit — פותח טופס עם הנתונים הקיימים.
+  // שדות הטופס אינם שמות הרשומה בהכרח: סכימות מסוימות (למשל הגדרות מע"מ) שומרות
+  // vatRate (0.17) בעוד שהשדה הוא vatPercent (17). לכן המילוי עובר דרך prepare של
+  // הסכימה — בדיוק כמו בפתיחת טופס "הוספה" — ולא בהעתקה עיוורת של שדות הרשומה.
+  async function handleEdit(id, record) {
     const schema = formSchemas[state.currentView];
     if (!schema || !schema.update) {
       showToast('בתצוגה זו אין עריכה');
       return;
     }
     state.editingId = id;
+    // שמירת ערכי הטופס שהיו לסכימה לפני העריכה — כדי שטופס "הוספה" הבא
+    // לא ייפתח מלא בנתונים של הרשומה האחרונה שערכנו.
+    state.fieldValuesBackup = schema.fields.map(f => f.value);
+    try {
+      if (typeof schema.prepare === 'function') {
+        await schema.prepare(schema);
+      } else {
+        for (const f of schema.fields) {
+          const v = record ? record[f.name] : undefined;
+          if (v !== undefined && v !== null) f.value = v;
+        }
+      }
+    } catch (error) {
+      showError('שגיאה בטעינת הרשומה לעריכה: ' + errMsg(error));
+      state.editingId = null;
+      state.fieldValuesBackup = null;
+      return;
+    }
     showModal('עריכת ' + schema.title.replace(' חדשה', ''), buildFormHtml(schema.fields));
     for (const f of schema.fields) {
       const el = document.getElementById('f_' + f.name);
-      if (el && record[f.name] !== undefined && record[f.name] !== null) {
-        el.value = record[f.name];
-      }
+      if (el && f.value !== undefined && f.value !== null) el.value = f.value;
     }
+    if (typeof schema.afterRender === 'function') schema.afterRender();
   }
 
   // חיפוש בתצוגות נתמכות
@@ -1830,6 +1994,15 @@
   // Close modal
   function closeModal() {
     elements.modal.classList.add('hidden');
+    elements.modalForm.innerHTML = '';
+    // עריכת רשומה דרסה את ערכי השדות שבסכימה; מחזירים אותם כדי שטופס "הוספה"
+    // הבא ייפתח נקי. כל יציאה מהחלון (ביטול / × / שמירה) עוברת כאן.
+    const schema = formSchemas[state.currentView];
+    if (schema && state.fieldValuesBackup) {
+      schema.fields.forEach((f, i) => { f.value = state.fieldValuesBackup[i]; });
+    }
+    state.fieldValuesBackup = null;
+    state.editingId = null;
   }
 
   // Show modal

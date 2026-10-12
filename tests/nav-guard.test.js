@@ -93,3 +93,37 @@ test('התנהגות: ה-API של econ לא חושף גיבוי גלוי', () =>
   const { exposed } = loadPreload('modules/econ/preload.js');
   assert.equal('backupData' in exposed.systemAPI, false);
 });
+
+// --- רגרסיה: כל ערוץ IPC שרשום ב-ipc.js חייב להיות נגיש דרך ה-preload ---
+// ארבעה ערוצים של personalFinance (addIncome/addExpense/addInvestment/
+// addCashFlowEntry) היו רשומים ומיושמים ב-ipc.js אך ללא עטיפה ב-preload.js,
+// ולכן ה-UI לא יכול היה לקרוא להם כלל — קוד מת שהתחזה ליכולת.
+test('רגרסיה: כל ערוץ personalFinance שב-ipc.js חשוף דרך ה-preload', () => {
+  const ipc = read('modules/econ/ipc.js');
+  const channels = [...ipc.matchAll(/handle\(\s*'(personalFinance:[A-Za-z]+)'/g)].map(m => m[1]);
+  assert.equal(channels.length, 7, `נמצאו ${channels.length} ערוצי personalFinance`);
+
+  const { exposed } = loadPreload('modules/econ/preload.js');
+  const source = read('modules/econ/preload.js');
+  for (const ch of channels) {
+    assert.match(source, new RegExp(`'${ch}'`), `הערוץ ${ch} חשוף ב-preload`);
+  }
+  // ונגישים בפועל דרך ה-API החשוף
+  for (const fn of ['addPersonalIncome', 'addPersonalExpense', 'addPersonalInvestment', 'addPersonalCashFlowEntry']) {
+    assert.equal(typeof exposed.systemAPI[fn], 'function', `${fn} חשוף כפונקציה`);
+  }
+});
+
+test('התנהגות: addPersonalIncome שולח לערוץ הנכון עם הנתונים', async () => {
+  const { exposed, calls } = loadPreload('modules/econ/preload.js');
+  await exposed.systemAPI.addPersonalIncome({ source: 'משכורת', amount: 12000 });
+  assert.deepEqual(calls.at(-1), ['personalFinance:addIncome', { source: 'משכורת', amount: 12000 }]);
+});
+
+test('התנהגות: addPersonalExpense ו-addPersonalCashFlowEntry שולחים לערוצים הנכונים', async () => {
+  const { exposed, calls } = loadPreload('modules/econ/preload.js');
+  await exposed.systemAPI.addPersonalExpense({ category: 'שכירות', amount: 3500 });
+  assert.deepEqual(calls.at(-1), ['personalFinance:addExpense', { category: 'שכירות', amount: 3500 }]);
+  await exposed.systemAPI.addPersonalCashFlowEntry({ type: 'income', amount: 500 });
+  assert.deepEqual(calls.at(-1), ['personalFinance:addCashFlowEntry', { type: 'income', amount: 500 }]);
+});
