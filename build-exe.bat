@@ -12,8 +12,14 @@ if errorlevel 1 (
   pause
   exit /b 0
 )
-call npm install || (echo npm install failed & pause & exit /b 1)
-call npm run dist || (echo build failed & pause & exit /b 1)
+rem אם node_modules כבר קיים — אין צורך בהתקנה ואין לפנות לרשת.
+rem אם הוא חסר, מנסים התקנה לא-רשתית מהמטמון של npm; אם גם זה נכשל, עוצרים.
+if not exist "node_modules\electron-builder" (
+  echo node_modules is missing. Trying an offline install from the npm cache...
+  call npm install --offline || (echo Offline install failed - cannot build without network & pause & exit /b 1)
+)
+rem בנייה מהמטמון המקומי — בלי הורדות רשת. ראו build-local.js
+call node build-local.js || (echo build failed & pause & exit /b 1)
 echo.
 echo Done! Opening the folder with your installer: dist\SuperSuite-Setup.exe
 explorer dist

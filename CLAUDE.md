@@ -26,9 +26,24 @@
 npm start          # הרצת האפליקציה בפיתוח (electron .)
 npm test           # הרצת 114 בדיקות (node --test)
 npm run dist       # בניית מתקין NSIS + portable ל-Windows
+npm run dist:local # בנייה מהמטמון המקומי בלבד (בלי הורדות) — מומלץ בסביבה מסוננת
+npm run dist:check # בדיקה מה קיים מקומית לבנייה, בלי לבנות
 ```
 
-בנייה למשתמש קצה: `build-exe.bat` (מתקין Node אוטומטית אם חסר), או GitHub Actions → `Build Windows installer`.
+בנייה למשתמש קצה: `build-exe.bat` (מתקין Node אוטומטית אם חסר, ואז בונה דרך `build-local.js`), או GitHub Actions → `Build Windows installer`.
+
+**בנייה בסביבה מסוננת:** `build-local.js` מאתר את מה שכבר קיים במחשב ומגיש אותו
+ל-electron-builder:
+- **ארכיון ה-Electron** — זה החלק הקריטי. electron-builder מחפש את ה-**zip** של Electron
+  (`electron-v<version>-win32-x64.zip`), ולא משתמש ב-`node_modules/electron/dist`. אם
+  ה-zip קיים במטמון (`%LOCALAPPDATA%\electron\Cache\`), הסקריפט מעביר את תיקייתו
+  דרך `-c.electronDist=<dir>` (הגדרה רשמית: "folder of electron zips") — וכך האריזה
+  מקומית לגמרי. **בלי זה, electron-builder מוריד את ה-zip ונתקע ב-418 של NetFree.**
+- **מטמון כלי האריזה** — `ELECTRON_BUILDER_CACHE` מפנה ל-`...\electron-builder\Cache`
+  (nsis, winCodeSign, 7zip).
+- הרצה: `npm run dist:local` (או `dist:check` לבדיקה בלבד).
+- ה-spawn נעשה בקריאה ישירה ל-`out/cli/cli.js` דרך `process.execPath`, **בלי** `shell:true`:
+  נתיב הפרויקט מכיל רווח ("bunim seller"), ו-shell היה מפרק את הפקודה על הרווח.
 
 ### כלי עזר ב-Python (אופציונלי)
 
@@ -144,6 +159,7 @@ TODO-FIXES.md            — רשימת תיקונים מתועדת (רוב הס
 README.md                — תיעוד משתמש + יומן גרסאות
 CLAUDE.md                — הקובץ הזה
 build-exe.bat            — בנייה למשתמש קצה
+build-local.js           — בנייה מהמטמון המקומי (בלי הורדות; בסביבה מסוננת)
 run-dev.bat              — הרצה בפיתוח
 .github/workflows/       — CI: בנייה אוטומטית ל-Windows
 build/                   — icon.ico (לבנייה) + icon.png (לזמן ריצה)
