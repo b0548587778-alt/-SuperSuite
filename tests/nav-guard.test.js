@@ -49,8 +49,15 @@ test('הרגרסיה: ב-main.js אין עוד נתיב עוקף ב-shell:switch
   assert.match(block, /canShellNavigate\(e\.sender\.id, win\.webContents\.id\)/);
 });
 
-test('econ מפעיל מודולים רק דרך הערוץ החדש', () => {
-  assert.match(read('modules/econ/preload.js'), /openModule: \(id\) => ipcRenderer\.invoke\('shell:open-module', id\)/);
+test('econ מפעיל מודולים רק דרך הערוץ החדש (בדיקת התנהגות)', async () => {
+  // בדיקת התנהגות במקום סריקת מחרוזת: ה-API של econ חושף openModule שעובר לערוץ
+  // החדש, ואינו חושף כל נתיב לניווט ישיר (shell:switch) שעוקף את האימות.
+  const { exposed, calls } = loadPreload('modules/econ/preload.js');
+  assert.equal(typeof exposed.systemAPI.openModule, 'function', 'openModule חשוף');
+  await exposed.systemAPI.openModule('trainer');
+  assert.deepEqual(calls.at(-1), ['shell:open-module', 'trainer'], 'הניווט עובר בערוץ המאומת');
+  assert.ok(!calls.some(c => c[0] === 'shell:switch'), 'אין נתיב עוקף ל-shell:switch');
+  assert.equal('switchTo' in exposed.systemAPI, false, 'אין API לניווט ישיר מהמודול');
 });
 
 test('כלל 6: שמאי לא שולח בקשות רשת לשירותים חיצוניים', () => {
