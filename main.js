@@ -9,6 +9,7 @@ const { canShellNavigate, canModuleOpen, EDITING_CHECK_JS } = require('./shell/n
 const AutoBk = require('./shell/auto-backup');
 const Catalog = require('./shell/catalog');
 const Hebcal = require('./shell/hebcal');
+const NavHistory = require('./shell/history');
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
   try { return Catalog.extrasFromHtml(fs.readFileSync(path.join(__dirname, 'modules', 'econ', 'views', 'index.html'), 'utf8')); }
@@ -17,6 +18,9 @@ const ECON_EXTRAS = (() => {
 const ECON_VIEWS = [...Catalog.ECON_VIEWS, ...ECON_EXTRAS.map(x => x.view)];
 
 const SIDEBAR = 264;
+// היסטוריית ניווט (אחורה/קדימה). replaying: מעבר שמקורו בהיסטוריה עצמה לא נרשם כצעד חדש
+const history = NavHistory.create();
+let replaying = false;
 const MODS = ['econ', 'shamai', 'trainer', 'tools'];
 const LS_MODS = ['shamai', 'trainer', 'tools'];
 const ENTRY = {
@@ -86,6 +90,9 @@ function handleShortcut(input, wc) {
   if (input.control && input.key === '-') { setZoom(zoom - ZOOM_STEP); return true; }
   if (input.control && input.key === '0') { setZoom(1); return true; }
   if (input.key === 'F1') { sendCmd('help'); return true; }
+  // אחורה/קדימה כמו בדפדפן: Alt+חצים, ומקשי Back/Forward של מקלדות ועכברים
+  if ((input.alt && input.key === 'ArrowLeft') || input.key === 'BrowserBack') { navigateHistory(-1); return true; }
+  if ((input.alt && input.key === 'ArrowRight') || input.key === 'BrowserForward') { navigateHistory(1); return true; }
   if (input.control && !input.shift && (input.key === 'k' || input.key === 'K')) {
     // החיפוש יושב בסרגל של המעטפת: מעבירים אליה את הפוקוס של המקלדת
     if (win && !win.isDestroyed()) win.webContents.focus();
@@ -95,6 +102,24 @@ function handleShortcut(input, wc) {
   if (input.control && input.shift && (input.key === 'B' || input.key === 'b')) { sendCmd('backup'); return true; }
   if (input.control && input.shift && (input.key === 'R' || input.key === 'r')) { sendCmd('restore'); return true; }
   return false;
+}
+
+function recordNav(loc) {
+  if (!replaying) history.push(loc);
+  if (win && !win.isDestroyed()) win.webContents.send('shell:history', history.state());
+}
+
+// ביצוע מעבר שמקורו בהיסטוריה: מודול + תצוגה פנימית, או מסך הבית
+function navigateHistory(delta) {
+  const loc = history.go(delta);
+  if (!loc) return false;
+  replaying = true;
+  try {
+    if (!loc.mod) goHome();
+    else { switchTo(loc.mod); if (loc.view) openEconView(loc.view); }
+  } finally { replaying = false; }
+  if (win && !win.isDestroyed()) win.webContents.send('shell:history', history.state());
+  return true;
 }
 
 function sendCmd(cmd) {
@@ -109,6 +134,14 @@ function wireView(id, wc) {
     if (isExternal(url)) shell.openExternal(url);
   });
   wc.on('before-input-event', (e, input) => { if (handleShortcut(input, wc)) e.preventDefault(); });
+}
+
+// כפתורי העכבר הצדדיים (אחורה/קדימה) — Windows שולח אותם כ-app-command לחלון
+function wireAppCommand(w) {
+  w.on('app-command', (_e, cmd) => {
+    if (cmd === 'browser-backward') navigateHistory(-1);
+    if (cmd === 'browser-forward') navigateHistory(1);
+  });
 }
 
 function ensureView(id) {
@@ -133,6 +166,8 @@ function switchTo(id) {
   for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === id);
   v.webContents.focus();
   if (win && !win.isDestroyed()) win.webContents.send('shell:active', id);
+  // במודול הכלכלי התצוגה תדווח מיד (shell:econ-view) ותשלים את הרישום
+  recordNav({ mod: id, view: null });
 }
 
 // חזרה למסך הבית: מסתירים את כל התצוגות כך שהמעטפת נשארת לבדה.
@@ -142,6 +177,7 @@ function goHome() {
   active = null;
   overlay = false;
   if (win && !win.isDestroyed()) { win.webContents.focus(); win.webContents.send('shell:active', null); }
+  recordNav({ mod: null, view: null });
 }
 
 // פתיחת תצוגה פנימית במודול הכלכלי. נשלח אחרי הטעינה; ה-preload שומר את הבקשה עד שהממשק מוכן
@@ -212,6 +248,7 @@ function createWindow() {
   win.webContents.on('will-navigate', e => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('before-input-event', (e, input) => { if (handleShortcut(input, win.webContents)) e.preventDefault(); });
+  wireAppCommand(win);
   win.loadFile(path.join(__dirname, 'shell', 'shell.html'));
   // לא נכנסים לשום מודול אוטומטית: המשתמש בוחר מהמסך הראשי.
   // (קודם נכנסנו ל-'econ' מיד עם העלייה, וזה נעל את המשתמש בלי אפשרות לצאת.)
@@ -428,7 +465,12 @@ app.whenReady().then(async () => {
     if (!v || v.webContents.isDestroyed() || e.sender.id !== v.webContents.id) return false;
     if (!ECON_VIEWS.includes(view)) return false;
     if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view);
+    if (active === 'econ') recordNav({ mod: 'econ', view });
     return true;
+  });
+  ipcMain.handle('shell:history-go', (e, delta) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return false;
+    return navigateHistory(delta === 1 ? 1 : -1);
   });
   ipcMain.handle('shell:home', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; goHome(); return true; });
   ipcMain.handle('shell:quit', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; app.quit(); return true; });

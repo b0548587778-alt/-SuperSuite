@@ -235,3 +235,18 @@ test('הגדרות לוח: נשמרות מהמעטפת בלבד, קלט לא ת�
   fs.writeFileSync(ui, JSON.stringify({ ...before, zoom: 1.2 }));
   assert.equal((await handlers['shell:get-calendar'](shellSender())).city, 'haifa');
 });
+
+test('אחורה/קדימה: חזרה למודול הקודם ולמסך הבית; רק המעטפת רשאית', async () => {
+  await boot();
+  await handlers['shell:home'](shellSender());
+  await handlers['shell:switch'](shellSender(), 'tools');
+  await handlers['shell:switch'](shellSender(), 'shamai');
+  const visible = () => created.views.filter(v => v.visible).length;
+  assert.equal(await handlers['shell:history-go'](shellSender(), -1), true);
+  assert.equal(visible(), 1, 'חזר למודול הקודם');
+  assert.equal(await handlers['shell:history-go'](shellSender(), -1), true);
+  assert.equal(visible(), 0, 'חזר למסך הבית — כל המודולים מוסתרים');
+  assert.equal(await handlers['shell:history-go'](shellSender(), 1), true, 'קדימה');
+  assert.equal(visible(), 1);
+  assert.equal(await handlers['shell:history-go'](viewSender(created.views[0]), -1), false, 'מודול לא מנווט בהיסטוריה');
+});

@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('shellAPI', {
   getBackupStatus: () => ipcRenderer.invoke('shell:get-backup-status'),
   pickBackupTarget: () => ipcRenderer.invoke('shell:pick-backup-target'),
   goHome: () => ipcRenderer.invoke('shell:home'),
+  historyGo: (delta) => ipcRenderer.invoke('shell:history-go', delta),
+  onHistory: cb => ipcRenderer.on('shell:history', (_e, st) => cb(st)),
   quit: () => ipcRenderer.invoke('shell:quit'),
   onActive: cb => ipcRenderer.on('shell:active', (_e, id) => cb(id)),
   onCmd: cb => ipcRenderer.on('shell:cmd', (_e, cmd) => cb(cmd))

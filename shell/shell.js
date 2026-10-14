@@ -158,11 +158,12 @@ window.shellAPI.onActive(id => {
   ui.active = id || null;
   if (!id) renderHome();
   mark();
+  updateWhere();
 });
 if (window.shellAPI.onActiveView) {
   window.shellAPI.onActiveView(view => {
     ui.econView = view;
-    if (ui.active === 'econ') { pushRecent('econ:' + view); mark(); }
+    if (ui.active === 'econ') { pushRecent('econ:' + view); mark(); updateWhere(); }
   });
 }
 
@@ -231,6 +232,22 @@ $('rs').onclick = runRestore;
 $('hp').onclick = showGuide;
 $('guideOk').onclick = () => closeDialog($('guide'));
 $('hm').onclick = goHome;
+
+/* ---------- אחורה / קדימה ---------- */
+$('navBack').onclick = () => window.shellAPI.historyGo && window.shellAPI.historyGo(-1);
+$('navFwd').onclick = () => window.shellAPI.historyGo && window.shellAPI.historyGo(1);
+if (window.shellAPI.onHistory) {
+  window.shellAPI.onHistory(st => {
+    $('navBack').disabled = !(st && st.canBack);
+    $('navFwd').disabled = !(st && st.canForward);
+  });
+}
+// "איפה אני": שם המסך הנוכחי ליד הכפתורים
+function updateWhere() {
+  const key = currentKey();
+  const it = key && key !== 'home' ? BY_KEY.get(key) : null;
+  $('navWhere').textContent = key === 'home' ? 'מסך הבית' : it ? it.name : '';
+}
 $('qt').onclick = () => {
   if (confirm('לצאת מהמערכת ולסגור את החלון?')) window.shellAPI.quit();
 };
