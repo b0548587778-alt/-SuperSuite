@@ -117,13 +117,22 @@ async function main() {
   // הנתון הקריטי: האם יש ארכיון Electron מקומי. זה מה שמונע את ההורדה בזמן האריזה.
   const version = electronVersion();
   const localZip = findLocalElectronZip(version);
+  // חלופה בלי zip: electron-builder 26 מקבל גם תיקיית Electron פרוסה (electronDist=<dir> בלי zip בתוכה).
+  // משתמשים בה רק אם הגרסה בתיקייה זהה לגרסה שהפרויקט מצהיר עליה.
+  const unpackedDist = path.join(electronPkg, 'dist');
+  const unpackedVersion = (() => { try { return fs.readFileSync(path.join(unpackedDist, 'version'), 'utf8').trim().replace(/^v/, ''); } catch { return null; } })();
+  const useUnpacked = !localZip && exists(electronExe) && unpackedVersion && unpackedVersion === version;
   if (localZip) {
     ok(`ארכיון Electron מקומי נמצא (v${version}) — הבנייה לא תוריד אותו`);
     info(localZip);
+  } else if (useUnpacked) {
+    ok(`אין ארכיון zip, אבל Electron v${version} פרוס ב-node_modules — הבנייה תשתמש בו ולא תוריד דבר`);
+    info(unpackedDist);
   } else {
     bad(`ארכיון Electron (electron-v${version || '?'}-win32-x64.zip) לא נמצא במחשב`);
     info('בלעדיו, electron-builder ינסה להוריד אותו — וזה עלול להיחסם בסינון.');
     info('הארכיון נשמר בדרך כלל ב: ' + path.join(localAppData(), 'electron', 'Cache'));
+    if (unpackedVersion && unpackedVersion !== version) info(`ב-node_modules/electron/dist יש גרסה ${unpackedVersion}, שאינה תואמת ל-${version}.`);
     missing++;
   }
 
@@ -202,6 +211,9 @@ async function main() {
     const zipDir = path.dirname(localZip);
     builderArgs.push('-c.electronDist=' + zipDir);
     console.log('  שימוש בארכיון Electron מקומי: ' + localZip);
+  } else if (useUnpacked) {
+    builderArgs.push('-c.electronDist=' + unpackedDist);
+    console.log('  שימוש ב-Electron הפרוס מקומית: ' + unpackedDist);
   } else {
     console.log('  אין ארכיון מקומי — electron-builder ינסה להוריד (עלול להיחסם).');
   }
