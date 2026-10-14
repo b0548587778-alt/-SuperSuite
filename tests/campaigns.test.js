@@ -104,3 +104,35 @@ test('IPC: תרומה ידנית וייבוא משויכים לקמפיין, ש�
   AuthService.getSession(99).permissions = ['data.view'];
   await assert.rejects(handlers['npo:saveCampaign'](ev(99), null, base), /אין הרשאה/);
 });
+
+test('שגרירים: פענוח שורות, קודים ייחודיים, מזהה נשמר בעריכה, שגריר עם תרומות לא מוסר', () => {
+  assert.deepEqual(C.parseAmbassadorsText('יוסי, Y1, 5000\nדוד'), [{ name: 'יוסי', code: 'Y1', goal: '5000' }, { name: 'דוד', code: '', goal: '' }]);
+  assert.throws(() => C.validateAmbassadors([{ name: 'א', code: 'A' }, { name: 'ב', code: 'a' }]), /פעמיים/);
+  assert.throws(() => C.validateAmbassadors([{ name: 'א', code: 'a b' }]), /אותיות/);
+  let n = 0;
+  const first = C.validateAmbassadors(C.parseAmbassadorsText('יוסי, Y1, 5000\nדוד, D2'), [], new Set(), () => 'id' + (++n));
+  assert.deepEqual(first.map(a => [a.id, a.code, a.goal]), [['id1', 'Y1', 5000], ['id2', 'D2', 0]]);
+  const again = C.validateAmbassadors(C.parseAmbassadorsText('יוסי פרידמן, Y1, 6000'), first, new Set(), () => 'new');
+  assert.equal(again[0].id, 'id1', 'אותו קוד — אותו מזהה');
+  assert.throws(() => C.validateAmbassadors([], first, new Set(['id2'])), /דוד.*תרומות/);
+  const c = { ambassadors: first };
+  assert.equal(C.findAmbassador(c, 'd2').id, 'id2');
+  assert.equal(C.findAmbassador(c, 'יוסי').id, 'id1');
+  assert.equal(C.findAmbassador(c, 'אחר'), null);
+});
+
+test('IPC: תרומה וייבוא עם שגריר; שגריר לא מוכר בייבוא — אזהרה; טבלת שגרירים', async () => {
+  AuthService.getSession(99).permissions = ['data.view', 'data.edit', 'data.delete'];
+  const c = await handlers['npo:saveCampaign'](ev(99), null, { ...base, name: 'קמפיין שגרירים', ambassadorsText: 'יוסי, Y1, 1000\nדוד, D2' });
+  const yossi = c.ambassadors.find(a => a.code === 'Y1');
+  await handlers['npo:addDonation'](ev(99), { donorName: 'חיים', amount: 200, date: '2026-10-05', campaignId: c.id, ambassadorId: yossi.id });
+  await assert.rejects(handlers['npo:addDonation'](ev(99), { donorName: 'חיים', amount: 1, date: '2026-10-05', campaignId: c.id, ambassadorId: 'x' }), /אינו שייך/);
+  const csv = 'תאריך,שם,סכום,שגריר\n06/10/2026,נחום,300,y1\n06/10/2026,ברוך,50,זלמן';
+  const r = await handlers['npo:importDonations'](ev(99), csv, { source: 'other', mapping: { date: 'תאריך', donorName: 'שם', amount: 'סכום', ambassador: 'שגריר' }, campaignId: c.id });
+  assert.equal(r.imported, 2);
+  assert.deepEqual(r.errors.map(e => [e.line, !!e.warning]), [[3, true]]);
+  const ov = await handlers['npo:getOverview'](ev(99), 2026);
+  const rows = ov.campaigns.find(x => x.id === c.id).ambassadorRows;
+  assert.deepEqual(rows.map(a => [a.code, a.raised, a.percent]), [['Y1', 500, 50], ['D2', 0, null]]);
+  await assert.rejects(handlers['npo:saveCampaign'](ev(99), c.id, { ambassadorsText: 'דוד, D2' }), /יוסי.*תרומות/);
+});

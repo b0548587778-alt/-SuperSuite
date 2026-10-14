@@ -1726,6 +1726,8 @@
       const o = await window.systemAPI.getNpoOverview(npoYear());
       schema.fields.find(f => f.name === 'fundId').options = npoFundOptions(o);
       schema.fields.find(f => f.name === 'campaignId').options = openCampaignOptions(o);
+      schema.fields.find(f => f.name === 'ambassadorId').options = [{ value: '', label: '— ללא —' }, ...(o.campaigns || []).filter(x => !x.closed && x.status !== 'ended')
+        .flatMap(x => (x.ambassadors || []).map(a => ({ value: a.id, label: `${a.name} (${x.name})` })))];
       schema.fields.find(f => f.name === 'date').value = today();
     },
     fields: [
@@ -1736,6 +1738,7 @@
       { name: 'method', label: 'אמצעי תשלום', type: 'select', options: opts(NPO_METHODS) },
       { name: 'fundId', label: 'קרן', type: 'select', options: [] },
       { name: 'campaignId', label: 'קמפיין', type: 'select', options: [] },
+      { name: 'ambassadorId', label: 'שגריר בקמפיין', type: 'select', options: [] },
       { name: 'purpose', label: 'ייעוד / הערה לקבלה', type: 'text' },
       { name: 'reference', label: 'אסמכתא (מס\' המחאה / העברה)', type: 'text' },
       { name: 'donorAddress', label: 'כתובת התורם', type: 'text' },
@@ -1841,6 +1844,7 @@
       { name: 'matchDonor', label: 'תורם מכפיל (לא חובה)', type: 'text' },
       { name: 'matchRatio', label: 'יחס הכפלה (1 = כל שקל מוכפל, 2 = משולש; ריק = בלי)', type: 'number' },
       { name: 'matchCap', label: 'תקרת ההכפלה — הסכום שהמכפיל התחייב אליו (₪)', type: 'number' },
+      { name: 'ambassadorsText', label: 'שגרירים — שורה לכל שגריר: שם, קוד, יעד אישי (קוד ויעד לא חובה)', type: 'textarea' },
       { name: 'closed', label: 'מצב', type: 'select', options: [{ value: 'false', label: 'פתוח לשיוך תרומות' }, { value: 'true', label: 'סגור' }] },
       { name: 'notes', label: 'הערות', type: 'textarea' }
     ],
@@ -1849,7 +1853,7 @@
   };
   function campaignInput(d) {
     const out = { ...d };
-    for (const k of ['matchDonor', 'matchRatio', 'matchCap', 'notes']) if (out[k] === undefined) out[k] = '';
+    for (const k of ['matchDonor', 'matchRatio', 'matchCap', 'notes', 'ambassadorsText']) if (out[k] === undefined) out[k] = '';
     return out;
   }
   const openCampaignOptions = (o) => [{ value: '', label: '— ללא —' },
@@ -1873,6 +1877,7 @@
           </div>
           ${bar(c.percent)}
           <small class="muted">${Number(c.donationsCount)} תרומות · ${Number(c.donorsCount)} תורמים · נאסף ${money(c.raised)}${c.matchRatio ? ` · הכפלה${c.matchDonor ? ' של ' + esc(c.matchDonor) : ''}: ${money(c.matched)} (נותרו ${money(c.matchLeft)} מתוך ${money(c.matchCap)})` : ''}${c.remaining ? ' · חסר ' + money(c.remaining) : ' · היעד הושג ✓'}</small>
+          ${c.ambassadorRows && c.ambassadorRows.length ? `<details><summary><small>שגרירים (${c.ambassadorRows.length})</small></summary>${c.ambassadorRows.map(a => `<div class="acct-row"><span>${esc(a.name)} <small class="muted">קוד ${esc(a.code)} · ${Number(a.count)} תרומות</small></span><span>${money(a.raised)}${a.goal ? ` / ${money(a.goal)} <small>(${Number(a.percent)}%)</small>` : ''}</span></div>`).join('')}</details>` : ''}
           ${c.topDonors && c.topDonors.length ? `<div><small class="muted">מובילים: ${c.topDonors.map(t => esc(t.name) + ' ' + money(t.amount)).join(' · ')}</small></div>` : ''}
         </div>`).join('')}
     </div>`;
@@ -1884,7 +1889,8 @@
     if (add) add.addEventListener('click', () => openSubForm(campaignSchema, { closed: 'false' }));
     document.querySelectorAll('[data-cmp-edit]').forEach(b => b.addEventListener('click', () => {
       const c = list.find(x => x.id === b.dataset.cmpEdit);
-      if (c) openSubForm(campaignSchema, { ...c, closed: c.closed ? 'true' : 'false', matchRatio: c.matchRatio || '', matchCap: c.matchCap || '' }, c.id);
+      if (c) openSubForm(campaignSchema, { ...c, closed: c.closed ? 'true' : 'false', matchRatio: c.matchRatio || '', matchCap: c.matchCap || '',
+        ambassadorsText: (c.ambassadors || []).map(a => [a.name, a.code, a.goal || ''].join(', ').replace(/, $/, '')).join('\n') }, c.id);
     }));
     document.querySelectorAll('[data-cmp-del]').forEach(b => b.addEventListener('click', async () => {
       if (!(await askConfirm('למחוק את הקמפיין?'))) return;

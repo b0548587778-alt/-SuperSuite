@@ -95,7 +95,8 @@ class NpoService {
     const prev = campaignId ? list.find(x => x.id === campaignId) : null;
     if (campaignId && !prev) throw new Error('הקמפיין לא נמצא');
     const fundIds = N.allFunds(data.npo.settings).filter(f => !f.archived || (prev && prev.fundId === f.id)).map(f => f.id);
-    const clean = CMP.validateCampaign({ ...(prev || {}), ...input }, { count: prev ? 0 : list.length, fundIds });
+    const usedAmbassadorIds = new Set(prev ? data.npo.donations.filter(d => d.campaignId === prev.id && d.ambassadorId).map(d => d.ambassadorId) : []);
+    const clean = CMP.validateCampaign({ ...(prev || {}), ...input }, { count: prev ? 0 : list.length, fundIds, prev, usedAmbassadorIds, newId: () => crypto.randomUUID() });
     if (prev) {
       // שינוי תקופה לא יכול "להוציא" תרומות שכבר שויכו
       const out = data.npo.donations.filter(d => d.campaignId === prev.id && d.status !== 'cancelled' && (d.date < clean.startDate || d.date > clean.endDate));
@@ -223,7 +224,11 @@ class NpoService {
     const data = await this._load();
     if (!data.npo.settings.orgName) throw new Error('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
     const clean = N.validateDonation(input, data.npo.settings, data.npo.donations.length);
-    if (clean.campaignId) CMP.assertCanAssign(this._campaignFor(data, clean.campaignId), clean.date);
+    if (clean.campaignId) {
+      const cmp = this._campaignFor(data, clean.campaignId);
+      CMP.assertCanAssign(cmp, clean.date);
+      if (clean.ambassadorId && !(cmp.ambassadors || []).some(a => a.id === clean.ambassadorId)) throw new Error('השגריר שנבחר אינו שייך לקמפיין');
+    }
     const { receipt, settings } = N.issueReceipt(clean, data.npo.settings);
     const donation = { id: crypto.randomUUID(), ...clean, receipt, status: 'active', createdAt: new Date().toISOString() };
     data.npo.donations.push(donation);

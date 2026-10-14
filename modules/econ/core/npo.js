@@ -115,7 +115,8 @@ function validateDonation(input, settings, count = 0) {
     amount: fromAg(toAg(amount)), method, fundId,
     purpose: str(input.purpose, 300, 'ייעוד התרומה'),
     reference: str(input.reference, 60, 'אסמכתא'),
-    campaignId: str(input.campaignId, 60, 'הקמפיין')
+    campaignId: str(input.campaignId, 60, 'הקמפיין'),
+    ambassadorId: input.campaignId ? str(input.ambassadorId, 60, 'השגריר') : ''
   };
 }
 

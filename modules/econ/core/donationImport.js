@@ -18,6 +18,7 @@ const FIELDS = {
   externalReceipt: { label: 'מספר קבלה במקור', required: false, hints: ['מספרקבלה', 'קבלה', 'receipt', 'receiptnumber'] },
   donorPhone:      { label: 'טלפון', required: false, hints: ['טלפון', 'נייד', 'פלאפון', 'phone', 'mobile', 'tel'] },
   donorAddress:    { label: 'כתובת', required: false, hints: ['כתובת', 'עיר', 'address', 'city'] },
+  ambassador:      { label: 'שגריר (קוד או שם)', required: false, hints: ['שגריר', 'קודשגריר', 'מתרים', 'ambassador', 'fundraiser', 'team', 'referral'] },
   purpose:         { label: 'ייעוד / הערה', required: false, hints: ['ייעוד', 'הערה', 'הערות', 'הקדשה', 'purpose', 'note', 'notes', 'comment', 'dedication'] }
 };
 
@@ -111,12 +112,19 @@ function buildRecords(csvText, options, existing, settings) {
       // ת.ז שגויה מהערוץ לא חוסמת את הייבוא — נשמרת ריקה, והשורה מסומנת לבדיקה
       let donorId = parseId(get('donorId'));
       let note = '';
+      // שגריר לא מוכר לא חוסם — התרומה נשמרת בקמפיין בלי שגריר, והשורה מסומנת
+      let ambassadorId = '';
+      let ambNote = '';
+      if (campaign && get('ambassador')) {
+        const a = CMP.findAmbassador(campaign, get('ambassador'));
+        if (a) ambassadorId = a.id; else ambNote = `שגריר "${get('ambassador')}" לא מוגדר בקמפיין — נשמר בלי שגריר`;
+      }
       if (donorId) {
         try { N.validateDonation({ donorName: 'x', donorId, amount: 1, date }, settings); }
         catch { note = `ת.ז "${donorId}" שגויה — לא נשמרה`; donorId = ''; }
       }
       const clean = N.validateDonation({
-        date, amount, donorId, fundId, campaignId: campaign ? campaign.id : '', method: source === 'bank' ? 'transfer' : 'card',
+        date, amount, donorId, fundId, campaignId: campaign ? campaign.id : '', ambassadorId, method: source === 'bank' ? 'transfer' : 'card',
         donorName: get('donorName'), donorPhone: get('donorPhone').slice(0, 30), donorAddress: get('donorAddress').slice(0, 300),
         purpose: get('purpose').slice(0, 300), reference: externalId.slice(0, 60)
       }, settings);
@@ -129,6 +137,7 @@ function buildRecords(csvText, options, existing, settings) {
       seen.add(dk);
       records.push(rec);
       if (note) errors.push({ line, message: note, warning: true });
+      if (ambNote) errors.push({ line, message: ambNote, warning: true });
     } catch (e) {
       errors.push({ line, message: e.message });
     }

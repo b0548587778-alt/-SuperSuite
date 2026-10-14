@@ -1,6 +1,43 @@
 // קמפיינים לעמותה: יעד, תקופה, ותורם מכפיל אופציונלי (יחס ותקרה). תרומה משויכת לקמפיין בשדה campaignId.
 // ההכפלה היא חישוב תצוגה בלבד — הכסף של התורם המכפיל נרשם כתרומה רגילה (עם קבלה) כשהוא מתקבל בפועל.
 const MAX_CAMPAIGNS = 500;
+const MAX_AMBASSADORS = 300;
+
+// שגרירים: שורה לכל שגריר — "שם, קוד, יעד אישי" (קוד ויעד לא חובה). שגריר קיים נשמר לפי הקוד (או השם),
+// כדי שהמזהה שלו — והשיוך בתרומות — לא ישתנה בעריכה. שגריר שהוסר ויש לו תרומות לא נמחק.
+function parseAmbassadorsText(text) {
+  return String(text ?? '').split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(line => {
+    const [name = '', code = '', goal = ''] = line.split(',').map(s => s.trim());
+    return { name, code, goal };
+  });
+}
+
+function validateAmbassadors(list, prev = [], usedIds = new Set(), newId = () => Math.random().toString(36).slice(2)) {
+  const arr = Array.isArray(list) ? list : [];
+  if (arr.length > MAX_AMBASSADORS) throw new Error(`ניתן להגדיר עד ${MAX_AMBASSADORS} שגרירים`);
+  const codes = new Set();
+  const out = arr.map((a, i) => {
+    const name = str(a && a.name, 120, 'שם השגריר');
+    if (!name) throw new Error(`שורה ${i + 1} ברשימת השגרירים: חסר שם`);
+    let code = str(a.code, 30, 'קוד השגריר') || String(i + 1);
+    if (!/^[\w\u0590-\u05FF-]+$/.test(code)) throw new Error(`קוד השגריר "${code}" יכול להכיל אותיות, ספרות ומקף בלבד`);
+    if (codes.has(code.toLowerCase())) throw new Error(`הקוד "${code}" מופיע פעמיים ברשימת השגרירים`);
+    codes.add(code.toLowerCase());
+    const goal = num(a.goal, `היעד של ${name}`);
+    const old = prev.find(p => p.code.toLowerCase() === code.toLowerCase()) || prev.find(p => p.name === name);
+    return { id: (a.id || (old && old.id)) || newId(), name, code, goal: fromAg(toAg(goal)) };
+  });
+  const kept = new Set(out.map(a => a.id));
+  for (const p of prev) if (!kept.has(p.id) && usedIds.has(p.id)) throw new Error(`לשגריר "${p.name}" יש תרומות משויכות — לא ניתן להסיר אותו מהרשימה`);
+  return out;
+}
+
+function findAmbassador(c, value) {
+  const v = String(value ?? '').trim().toLowerCase();
+  if (!c || !v) return null;
+  const list = c.ambassadors || [];
+  return list.find(a => a.id === value) || list.find(a => a.code.toLowerCase() === v) || list.find(a => a.name.trim().toLowerCase() === v) || null;
+}
 const toAg = (n) => Math.round(Number(n || 0) * 100);
 const fromAg = (a) => a / 100;
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) && !isNaN(Date.parse(s + 'T00:00:00Z'));
@@ -16,7 +53,7 @@ const num = (v, label, { min = 0, max = 1e9 } = {}) => {
   return n;
 };
 
-function validateCampaign(input, { count = 0, fundIds } = {}) {
+function validateCampaign(input, { count = 0, fundIds, prev, usedAmbassadorIds, newId } = {}) {
   if (!input || typeof input !== 'object') throw new Error('קמפיין לא תקין');
   if (count >= MAX_CAMPAIGNS) throw new Error('הגעת למספר המקסימלי של קמפיינים');
   const name = str(input.name, 120, 'שם הקמפיין');
@@ -38,7 +75,9 @@ function validateCampaign(input, { count = 0, fundIds } = {}) {
     name, goal: fromAg(toAg(goal)), startDate, endDate, fundId,
     matchDonor: matchRatio ? matchDonor : '', matchRatio: matchRatio ? Math.round(matchRatio * 100) / 100 : 0, matchCap: matchRatio ? fromAg(toAg(matchCap)) : 0,
     closed: input.closed === true || input.closed === 'true' || input.closed === '1',
-    notes: str(input.notes, 500, 'הערות')
+    notes: str(input.notes, 500, 'הערות'),
+    ambassadors: validateAmbassadors(input.ambassadorsText !== undefined ? parseAmbassadorsText(input.ambassadorsText) : input.ambassadors,
+      (prev && prev.ambassadors) || [], usedAmbassadorIds, newId)
   };
 }
 
@@ -72,6 +111,11 @@ function progress(c, donations, today) {
     matchLeft: c.matchRatio ? fromAg(Math.max(0, toAg(c.matchCap) - matchedAg)) : 0,
     donationsCount: rows.length, donorsCount: donors.size,
     daysLeft: status === 'active' ? Math.round((day(c.endDate) - day(today)) / 86400000) : null,
+    ambassadorRows: (c.ambassadors || []).map(a => {
+      const ag = rows.filter(d => d.ambassadorId === a.id).reduce((t, d) => t + toAg(d.amount), 0);
+      return { id: a.id, name: a.name, code: a.code, goal: a.goal, raised: fromAg(ag), count: rows.filter(d => d.ambassadorId === a.id).length,
+        percent: a.goal ? Math.round((ag / toAg(a.goal)) * 1000) / 10 : null };
+    }).sort((a, b) => b.raised - a.raised),
     topDonors: [...top.values()].sort((a, b) => b.ag - a.ag).slice(0, 5).map(x => ({ name: x.name, amount: fromAg(x.ag) }))
   };
 }
@@ -82,4 +126,4 @@ function summarize(campaigns, donations, today) {
     .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.startDate.localeCompare(a.startDate));
 }
 
-module.exports = { MAX_CAMPAIGNS, validateCampaign, assertCanAssign, progress, summarize };
+module.exports = { MAX_AMBASSADORS, parseAmbassadorsText, validateAmbassadors, findAmbassador, MAX_CAMPAIGNS, validateCampaign, assertCanAssign, progress, summarize };
