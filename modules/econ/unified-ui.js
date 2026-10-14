@@ -43,6 +43,8 @@
     'mortgage-advisor': 'ייעוץ משכנתאות — תיקי לקוחות',
     'mortgage-lab': 'מעבדת תמהיל — סימולטור, סלים, מחזור ואופטימייזר',
     'npo': 'עמותה — תרומות, קרנות ותמיכות',
+    'gemach': 'גמ"ח — הלוואות, ערבים והפקדות',
+    'chesed': 'חסד וחלוקות — נזקקים, מתנדבים וסבבי חלוקה',
     'settings': 'הגדרות מתקדמות, משתמשים וייבוא/ייצוא',
     'personal-finance': 'התוכנית הפיננסית — הגדרה ופריטים',
     'tasks': 'משימות',
@@ -62,6 +64,18 @@
   // Initialize application
   async function init() {
     try {
+      // בתוך התוכנה המאוחדת: הניווט כולו בסרגל של המעטפת, והסרגל הפנימי מוסתר
+      if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('embedded') === '1') {
+        document.documentElement.classList.add('embedded');
+      }
+      // בקשת מעבר מהסרגל האחיד. לפני כניסה — נשמרת ונפתחת מיד אחרי הכניסה
+      if (typeof window.systemAPI.onGoto === 'function') {
+        window.systemAPI.onGoto(view => {
+          if (!Object.prototype.hasOwnProperty.call(viewTitles, view)) return;
+          if (state.user) switchView(view); else state.requestedView = view;
+        });
+      }
+
       elements.today.textContent = new Date().toLocaleDateString('he-IL', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
       });
@@ -91,6 +105,8 @@
 
       let start = 'dashboard';
       try { const adv = await window.systemAPI.getAdvancedSettings(); if (adv && adv.startView) start = adv.startView; } catch { /* ברירת מחדל */ }
+      // תצוגה שנבחרה בסרגל האחיד לפני הכניסה גוברת על מסך הפתיחה
+      if (state.requestedView) { start = state.requestedView; state.requestedView = null; }
       await switchView(start);
       showToast('מערכת מאוחדת נטענה בהצלחה');
     } catch (error) {
@@ -112,6 +128,11 @@
 
       // Update title
       elements.pageTitle.textContent = viewTitles[viewName] || viewName;
+
+      // סימון התצוגה בסרגל האחיד (גם כשהמעבר התחיל מקישור פנימי בלוח הבקרה)
+      if (typeof window.systemAPI.reportView === 'function') {
+        Promise.resolve(window.systemAPI.reportView(viewName)).catch(() => {});
+      }
 
       // Clear view
       elements.view.innerHTML = '<div class="loading">טוען...</div>';
@@ -160,6 +181,13 @@
           break;
         case 'npo':
           state.data.npo = await window.systemAPI.getNpoOverview(npoYear());
+          break;
+        case 'gemach':
+          state.data.gemach = await window.systemAPI.getGemachOverview();
+          state.data.gemachFull = [];
+          break;
+        case 'chesed':
+          state.data.chesed = await window.systemAPI.getChesedOverview();
           break;
         case 'settings': {
           const adv = await window.systemAPI.getAdvancedSettings();
@@ -258,6 +286,8 @@
     'mortgage-advisor': 'mortgageAdvisor',
     'mortgage-lab': 'mortgageLab',
     'npo': 'npo',
+    'gemach': 'gemach',
+    'chesed': 'chesed',
     'settings': 'settings',
     'personal-finance': 'personalFinance',
     'tasks': 'tasks',
@@ -307,6 +337,12 @@
         break;
       case 'npo':
         html = renderNpo(data);
+        break;
+      case 'gemach':
+        html = renderGemach(data);
+        break;
+      case 'chesed':
+        html = renderChesed(data);
         break;
       case 'settings':
         html = renderSettings(data);
@@ -1730,11 +1766,29 @@
       { name: 'received', label: 'סכום שהתקבל (₪)', type: 'number' },
       { name: 'fundId', label: 'קרן', type: 'select', options: [] },
       { name: 'reference', label: 'מספר תיק / בקשה', type: 'text' },
+      { name: 'deadline', label: 'מועד אחרון להגשה', type: 'date' },
+      { name: 'matchingPercent', label: 'מימון תואם נדרש (% מהסכום שאושר)', type: 'number' },
+      { name: 'documentsText', label: 'מסמכים נדרשים — שורה לכל מסמך', type: 'textarea' },
       { name: 'notes', label: 'הערות', type: 'textarea' }
     ],
-    create: (d) => window.systemAPI.addNpoGrant(d),
-    update: (id, d) => window.systemAPI.updateNpoGrant(id, d)
+    // רשימת המסמכים נשלחת תמיד — ריקון השדה פירושו "אין מסמכים נדרשים"
+    create: (d) => window.systemAPI.addNpoGrant({ ...d, documentsText: d.documentsText || '' }),
+    update: (id, d) => window.systemAPI.updateNpoGrant(id, { ...d, documentsText: d.documentsText || '' })
   };
+  const NPO_TAX = { pending: 'ממתין לדיווח', reported: 'דווח', 'cancel-pending': 'ביטול ממתין', 'cancel-reported': 'ביטול דווח', 'not-required': '—' };
+  function npoTaxSchema(d) {
+    const cancel = d.taxStatus === 'cancel-pending';
+    return {
+      title: cancel ? `אישור דיווח ביטול — קבלה ${d.receipt.number}` : `רישום דיווח ל"תרומות ישראל" — קבלה ${d.receipt.number}`,
+      fields: cancel
+        ? [{ name: 'confirm', label: 'הביטול דווח במערכת רשות המסים (הקלד "כן")', type: 'text', required: true }]
+        : [{ name: 'registrationNumber', label: 'מספר הרישום שהתקבל מרשות המסים', type: 'text', required: true }],
+      create: (v) => {
+        if (cancel && String(v.confirm).trim() !== 'כן') throw new Error('יש להקליד "כן" לאישור');
+        return window.systemAPI.recordNpoTaxReport(d.id, cancel ? {} : { registrationNumber: v.registrationNumber });
+      }
+    };
+  }
 
   function renderNpo(o) {
     if (!o || typeof o !== 'object') return renderEmpty('אין נתונים להצגה');
@@ -1746,6 +1800,8 @@
     const grants = (Array.isArray(o.grants) ? o.grants : []).filter(g => Number(g.year) === Number(year));
     const donors = Array.isArray(o.donors) ? o.donors : [];
     const funds = Object.fromEntries((Array.isArray(o.funds) ? o.funds : []).map(f => [f.id, f.name]));
+    const alerts = Array.isArray(o.grantAlerts) ? o.grantAlerts : [];
+    const tax = o.tax && typeof o.tax === 'object' ? o.tax : { counts: {}, toReport: 0 };
     const s46Expired = s.sec46Number && s.sec46ValidUntil && s.sec46ValidUntil < today();
     const s46 = !s.sec46Number ? '<span class="bad">אין אישור סעיף 46</span>'
       : s46Expired ? `<span class="bad">אישור סעיף 46 פג ב-${esc(s.sec46ValidUntil)}</span>`
@@ -1773,7 +1829,23 @@
           <div class="kpi"><small>קרנות ייעודיות</small><strong>${money(fs.restrictedTotal)}</strong></div>
           <div class="kpi"><small>כללי</small><strong>${money(fs.generalTotal)}</strong></div>
           <div class="kpi"><small>תורמים בשנה</small><strong>${Number(r.donorsCount) || 0}</strong></div>
+          <div class="kpi${tax.toReport ? ' neg' : ''}"><small>ממתינים לדיווח לרשות המסים</small><strong>${Number(tax.toReport) || 0}</strong></div>
         </div>
+        ${alerts.length ? `<div class="card">
+          <h3>תמיכות — מועדים ומסמכים</h3>
+          ${alerts.map(a => `<div class="acct-row"><span>${esc(a.source)}${a.program ? ' · ' + esc(a.program) : ''}
+            <small class="${a.overdue ? 'bad' : 'muted'}">${a.overdue ? 'מועד ההגשה עבר' : a.deadline ? 'הגשה עד ' + esc(a.deadline) : ''}${a.missingDocuments ? ' · ' + a.missingDocuments + ' מסמכים חסרים' : ''}</small></span>
+            <span>${a.matchingRequired ? 'מימון תואם ' + money(a.matchingRequired) : ''}</span></div>`).join('')}
+        </div>` : ''}
+        ${tax.toReport || tax.counts && tax.counts.reported ? `<div class="card">
+          <h3>דיווח ל"תרומות ישראל"</h3>
+          <p class="muted">עמותה עם אישור סעיף 46 מדווחת לרשות המסים על כל תרומה, כולל ביטולים. כאן נשמר מעקב בלבד — הדיווח עצמו נעשה במערכת רשות המסים, ואת מספר הרישום שמתקבל רושמים בטבלת התרומות (כפתור 🏛).</p>
+          <div class="acct-row"><span>ממתינות לדיווח</span><span>${Number(tax.counts && tax.counts.pending) || 0}</span></div>
+          <div class="acct-row"><span>ביטולים שממתינים לדיווח</span><span>${Number(tax.counts && tax.counts['cancel-pending']) || 0}</span></div>
+          ${tax.missingDonorId ? `<div class="acct-row"><span class="bad">תרומות ממתינות בלי ת.ז/ח.פ של התורם (נדרש לשיוך הזיכוי)</span><span>${Number(tax.missingDonorId)}</span></div>` : ''}
+          ${tax.invalidDonorId ? `<div class="acct-row"><span class="bad">תרומות ממתינות עם ת.ז/ח.פ שגוי (ספרת ביקורת) — השיוך ייכשל</span><span>${Number(tax.invalidDonorId)}</span></div>` : ''}
+          <div class="acct-actions"><button class="secondary" data-npo-export="tax">ייצוא רשימת עבודה לדיווח</button></div>
+        </div>` : ''}
         <div class="acct-grid">
           <div class="card">
             <h3>הכנסות לפי קרן</h3>
@@ -1795,13 +1867,15 @@
             <h3>תרומות וקבלות (${donations.length})</h3>
             ${donations.length === 0 ? renderEmpty('אין תרומות בשנה זו — לחץ "＋ הוספת רשומה" כדי לרשום תרומה ולהפיק קבלה') : `
             <div class="acct-scroll"><table class="acct-table">
-              <thead><tr><th>קבלה</th><th>תאריך</th><th>תורם</th><th>סכום</th><th>אמצעי</th><th>קרן</th><th>סעיף 46</th><th></th></tr></thead>
+              <thead><tr><th>קבלה</th><th>תאריך</th><th>תורם</th><th>סכום</th><th>אמצעי</th><th>קרן</th><th>סעיף 46</th><th>דיווח</th><th></th></tr></thead>
               <tbody>${donations.map(d => `
                 <tr class="${d.status === 'cancelled' ? 'muted' : ''}">
                   <td>${esc(d.receipt && d.receipt.number)}</td><td>${esc(d.date)}</td>
                   <td>${esc(d.donorName)}</td><td>${money(d.amount)}</td>
                   <td>${esc(NPO_METHODS[d.method] || d.method)}</td><td>${esc(funds[d.fundId] || 'כללי')}</td>
                   <td>${d.receipt && d.receipt.sec46 ? '✓' : '—'}</td>
+                  <td><small class="${d.taxStatus === 'pending' || d.taxStatus === 'cancel-pending' ? 'bad' : 'muted'}">${esc(NPO_TAX[d.taxStatus] || '')}${d.taxReport && d.taxReport.registrationNumber ? ' · ' + esc(d.taxReport.registrationNumber) : ''}</small>
+                    ${d.taxStatus === 'pending' || d.taxStatus === 'cancel-pending' ? `<button class="icon-btn" data-npo-tax="${esc(d.id)}" title="רישום דיווח לרשות המסים">🏛</button>` : ''}</td>
                   <td>${d.status === 'cancelled' ? 'מבוטלת' : ''}
                     <button class="icon-btn" data-npo-pdf="${esc(d.id)}" title="קבלה ל-PDF">📄</button>
                     ${d.status === 'cancelled' ? '' : `<button class="icon-btn danger" data-npo-cancel="${esc(d.id)}" title="ביטול קבלה">✖</button>`}
@@ -1813,7 +1887,8 @@
             <h3>תמיכות ומענקים (${grants.length})</h3>
             ${grants.map(g => `
               <div class="acct-row">
-                <span>${esc(g.source)}${g.program ? ' · ' + esc(g.program) : ''} <small class="muted">${esc(NPO_GRANT_STATUS[g.status] || '')}</small></span>
+                <span>${esc(g.source)}${g.program ? ' · ' + esc(g.program) : ''} <small class="muted">${esc(NPO_GRANT_STATUS[g.status] || '')}${g.deadline ? ' · הגשה עד ' + esc(g.deadline) : ''}${Number(g.matchingPercent) ? ' · מימון תואם ' + Number(g.matchingPercent) + '%' : ''}</small>
+                  ${(Array.isArray(g.documents) ? g.documents : []).map((doc, i) => `<button class="secondary small" data-npo-doc="${esc(g.id)}" data-doc-index="${i}" title="סימון הוגש / לא הוגש">${doc.done ? '✓' : '○'} ${esc(doc.name)}</button>`).join(' ')}</span>
                 <span>${money(g.received)} / ${money(g.approved)}
                   <button class="icon-btn" data-npo-grant-edit="${esc(g.id)}" title="עריכה">✎</button>
                   <button class="icon-btn danger" data-npo-grant-del="${esc(g.id)}" title="מחיקה">🗑</button>
@@ -1830,6 +1905,14 @@
 
   function attachNpoHandlers() {
     const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    document.querySelectorAll('[data-npo-doc]').forEach(btn => btn.addEventListener('click', async () => {
+      try { await window.systemAPI.toggleNpoGrantDocument(btn.dataset.npoDoc, Number(btn.dataset.docIndex)); await switchView('npo'); }
+      catch (error) { showError('שגיאה בעדכון המסמך: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-npo-tax]').forEach(btn => btn.addEventListener('click', () => {
+      const d = ((state.data.npo && state.data.npo.donations) || []).find(x => x.id === btn.dataset.npoTax);
+      if (d) openSubForm(npoTaxSchema(d));
+    }));
     on('npoPrevYear', () => { state.npoYear = npoYear() - 1; switchView('npo'); });
     on('npoNextYear', () => { state.npoYear = npoYear() + 1; switchView('npo'); });
     on('npoSettingsBtn', () => {
@@ -1840,7 +1923,7 @@
     on('npoGrantBtn', () => openSubForm(npoGrantSchema));
     document.querySelectorAll('[data-npo-grant-edit]').forEach(btn => btn.addEventListener('click', () => {
       const g = ((state.data.npo && state.data.npo.grants) || []).find(x => x.id === btn.dataset.npoGrantEdit);
-      if (g) openSubForm(npoGrantSchema, g, g.id);
+      if (g) openSubForm(npoGrantSchema, { ...g, documentsText: (Array.isArray(g.documents) ? g.documents : []).map(x => x.name).join('\n') }, g.id);
     }));
     document.querySelectorAll('[data-npo-grant-del]').forEach(btn => btn.addEventListener('click', async () => {
       if (!(await askConfirm('למחוק את רשומת התמיכה?'))) return;
@@ -1860,6 +1943,411 @@
       try { const r = await window.systemAPI.exportNpoCsv(btn.dataset.npoExport, npoYear()); if (r && r.ok) showToast('הקובץ נשמר'); }
       catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
     }));
+  }
+
+  // ============================================================
+  // גמ"ח — קופת גמילות חסדים: הלוואות ללא ריבית, ערבים, לוח סילוקין, הפקדות ופיגורים.
+  // נפרד לחלוטין מהעמותה (npo) ומהיומן העסקי: הלוואת גמ"ח אינה תרומה ואינה עסקה.
+  // ============================================================
+  const GEMACH_LOAN_STATUS = { active: 'פעילה', closed: 'נפרעה', cancelled: 'בוטלה' };
+  const GEMACH_TIER_LABEL = {
+    exempt: 'מתחת לסף הרישוי — ללא חובת רישוי',
+    basic: 'מעל סף הרישוי הבסיסי — נדרש רישוי בסיסי (יש לאמת מול הרשות לשוק ההון)',
+    extended: 'מעל סף הרישוי המורחב — נדרש רישוי מורחב (יש לאמת מול הרשות לשוק ההון)'
+  };
+
+  formSchemas['gemach'] = {
+    title: 'בקשת הלוואה חדשה',
+    prepare: (schema) => {
+      schema.fields.find(f => f.name === 'issueDate').value = today();
+    },
+    fields: [
+      { name: 'borrowerName', label: 'שם הלווה', type: 'text', required: true },
+      { name: 'borrowerId', label: 'ת.ז של הלווה', type: 'text' },
+      { name: 'borrowerPhone', label: 'טלפון הלווה', type: 'tel' },
+      { name: 'borrowerAddress', label: 'כתובת הלווה', type: 'text' },
+      { name: 'amount', label: 'סכום ההלוואה (₪)', type: 'number', required: true },
+      { name: 'installments', label: 'מספר תשלומים חודשיים', type: 'number', required: true },
+      { name: 'issueDate', label: 'תאריך מתן ההלוואה', type: 'date', required: true },
+      { name: 'guarantorsText', label: 'ערבים — שורה לכל ערב: שם, ת.ז, טלפון', type: 'textarea' },
+      { name: 'purpose', label: 'מטרת ההלוואה', type: 'text' },
+      { name: 'notes', label: 'הערות', type: 'textarea' }
+    ],
+    create: (d) => window.systemAPI.addGemachLoan(d)
+  };
+
+  const gemachSettingsSchema = {
+    title: 'הגדרות קופת הגמ"ח',
+    fields: [
+      { name: 'fundName', label: 'שם הקופה', type: 'text' },
+      { name: 'notes', label: 'הערות כלליות', type: 'textarea' }
+    ],
+    create: (d) => window.systemAPI.saveGemachSettings(d)
+  };
+
+  const gemachDepositSchema = {
+    title: 'הפקדה חדשה לקופה',
+    prepare: (schema) => { schema.fields.find(f => f.name === 'date').value = today(); },
+    fields: [
+      { name: 'date', label: 'תאריך', type: 'date', required: true },
+      { name: 'depositorName', label: 'שם המפקיד', type: 'text', required: true },
+      { name: 'amount', label: 'סכום (₪)', type: 'number', required: true },
+      { name: 'notes', label: 'הערות', type: 'text' }
+    ],
+    create: (d) => window.systemAPI.addGemachDeposit(d)
+  };
+
+  // טופס תשלום: נבנה בכל פתיחה עם loanId/seq/יתרה סגורים בלולאה, כדי שהשמירה תדע על איזה תשלום מדובר
+  function gemachPaymentSchema(loanId, seq, remaining) {
+    return {
+      title: `רישום תשלום — תשלום מס' ${seq}`,
+      prepare: (schema) => {
+        schema.fields.find(f => f.name === 'amount').value = remaining;
+        schema.fields.find(f => f.name === 'date').value = today();
+      },
+      fields: [
+        { name: 'date', label: 'תאריך התשלום', type: 'date', required: true },
+        { name: 'amount', label: `סכום (עד ${money(remaining)})`, type: 'number', required: true }
+      ],
+      create: (d) => window.systemAPI.recordGemachPayment(loanId, seq, d)
+    };
+  }
+
+  function renderGemach(o) {
+    if (!o || typeof o !== 'object') return renderEmpty('אין נתונים להצגה');
+    const s = o.settings || {};
+    const ov = o.overview || {};
+    const loans = Array.isArray(o.loans) ? o.loans : [];
+    const deposits = Array.isArray(o.deposits) ? o.deposits : [];
+    const fullLoans = Object.fromEntries((state.data.gemachFull || []).map(l => [l.id, l]));
+    return `
+      <div class="gemach">
+        <div class="acct-header">
+          <div>
+            <h3>${esc(s.fundName || 'קופת הגמ"ח')}</h3>
+            <small class="muted">${esc(GEMACH_TIER_LABEL[ov.licenseTier] || GEMACH_TIER_LABEL.exempt)} · הסכומים להערכה בלבד — יש לאמת מול הרשות לשוק ההון</small>
+          </div>
+          <div class="acct-actions">
+            <button class="secondary" id="gemachSettingsBtn">הגדרות קופה</button>
+            <button class="secondary" id="gemachDepositBtn">＋ הפקדה</button>
+          </div>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><small>יתרת קופה</small><strong>${money(ov.balance)}</strong></div>
+          <div class="kpi"><small>הפקדות (סה"כ)</small><strong>${money(ov.depositsTotal)}</strong></div>
+          <div class="kpi"><small>יתרת חוב פתוחה</small><strong>${money(ov.outstandingTotal)}</strong></div>
+          <div class="kpi"><small>הלוואות פעילות</small><strong>${Number(ov.activeLoansCount) || 0}</strong></div>
+          <div class="kpi${ov.lateLoansCount ? ' neg' : ''}"><small>הלוואות בפיגור</small><strong>${Number(ov.lateLoansCount) || 0}</strong></div>
+          <div class="kpi${ov.lateTotal ? ' neg' : ''}"><small>סכום בפיגור</small><strong>${money(ov.lateTotal)}</strong></div>
+        </div>
+        <div class="acct-grid">
+          <div class="card acct-wide">
+            <h3>הלוואות (${loans.length})</h3>
+            <div class="acct-actions">
+              <button class="secondary" data-gemach-export="loans">ייצוא הלוואות</button>
+              <button class="secondary" data-gemach-export="arrears">ייצוא פיגורים</button>
+            </div>
+            ${loans.length === 0 ? renderEmpty('אין הלוואות עדיין — לחץ "＋ הוספת רשומה" לבקשת הלוואה חדשה') : loans.map(l => `
+              <details class="gemach-loan">
+                <summary>
+                  <span>${esc(l.borrowerName)} ${l.borrowerId ? `<small class="muted">ת.ז ${esc(l.borrowerId)}</small>` : ''}
+                    <small class="muted">${esc(GEMACH_LOAN_STATUS[l.status] || l.status)}${l.lateCount ? ` · ${l.lateCount} תשלומים בפיגור` : ''}</small>
+                  </span>
+                  <span>${money(l.outstanding)} / ${money(l.amount)}
+                    ${l.status === 'active' && !l.totalPaid ? `<button class="icon-btn danger" data-gemach-cancel="${esc(l.id)}" title="ביטול הלוואה">✖</button>` : ''}
+                  </span>
+                </summary>
+                ${renderGemachSchedule(fullLoans[l.id], l.id)}
+              </details>`).join('')}
+          </div>
+          <div class="card">
+            <h3>הפקדות (${deposits.length})</h3>
+            <div class="acct-actions"><button class="secondary" data-gemach-export="deposits">ייצוא הפקדות</button></div>
+            ${deposits.map(d => `
+              <div class="acct-row">
+                <span>${esc(d.depositorName)} <small class="muted">${esc(d.date)}${d.notes ? ' · ' + esc(d.notes) : ''}</small></span>
+                <span>${money(d.amount)}
+                  <button class="icon-btn danger" data-gemach-deposit-del="${esc(d.id)}" title="מחיקה">🗑</button>
+                </span>
+              </div>`).join('') || '<div class="acct-row muted">אין הפקדות עדיין</div>'}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // לוח סילוקין מלא לא מגיע בסקירה הראשית (כדי לא לטעון את כולה בכל הלוואה) — נטען לפי בקשה כש-<details> נפתח לראשונה
+  function renderGemachSchedule(full, loanId) {
+    if (!full) return `<div class="acct-scroll" data-gemach-schedule-for="${esc(loanId)}"><button class="secondary" data-gemach-load-schedule="${esc(loanId)}">טעינת לוח סילוקין</button></div>`;
+    const rows = (full.schedule || []).map(row => `
+      <tr class="${row.status === 'paid' ? 'muted' : ''}">
+        <td>${row.seq}</td><td>${esc(row.dueDate)}</td><td>${money(row.amountAg / 100)}</td>
+        <td>${money(row.paidAg / 100)}</td>
+        <td>${row.status === 'paid' ? '✓ נפרע' : row.status === 'partial' ? 'חלקי' : 'ממתין'}</td>
+        <td>${row.status !== 'paid' ? `<button class="icon-btn" data-gemach-pay="${esc(loanId)}" data-gemach-pay-seq="${row.seq}" data-gemach-pay-remaining="${(row.amountAg - row.paidAg) / 100}" title="רישום תשלום">💵</button>` : ''}</td>
+      </tr>`).join('');
+    const guarantors = (full.guarantors || []).map(g => esc(g.name)).join(', ');
+    return `
+      ${guarantors ? `<p class="muted">ערבים: ${guarantors}</p>` : ''}
+      ${full.purpose ? `<p class="muted">מטרה: ${esc(full.purpose)}</p>` : ''}
+      <div class="acct-scroll"><table class="acct-table">
+        <thead><tr><th>#</th><th>מועד</th><th>סכום</th><th>שולם</th><th>סטטוס</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+
+  function attachGemachHandlers() {
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    on('gemachSettingsBtn', () => openSubForm(gemachSettingsSchema, (state.data.gemach && state.data.gemach.settings) || {}));
+    on('gemachDepositBtn', () => openSubForm(gemachDepositSchema));
+    document.querySelectorAll('[data-gemach-deposit-del]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!(await askConfirm('למחוק את ההפקדה?'))) return;
+      try { await window.systemAPI.deleteGemachDeposit(btn.dataset.gemachDepositDel); showToast('ההפקדה נמחקה'); await switchView('gemach'); }
+      catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-gemach-cancel]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!(await askConfirm('לבטל את ההלוואה?'))) return;
+      try { await window.systemAPI.cancelGemachLoan(btn.dataset.gemachCancel); showToast('ההלוואה בוטלה'); await switchView('gemach'); }
+      catch (error) { showError('שגיאה בביטול: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-gemach-export]').forEach(btn => btn.addEventListener('click', async () => {
+      try { const r = await window.systemAPI.exportGemachCsv(btn.dataset.gemachExport); if (r && r.ok) showToast('הקובץ נשמר'); }
+      catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-gemach-load-schedule]').forEach(btn => btn.addEventListener('click', async () => {
+      try {
+        const loan = await window.systemAPI.getGemachLoan(btn.dataset.gemachLoadSchedule);
+        state.data.gemachFull = [...(state.data.gemachFull || []).filter(l => l.id !== loan.id), loan];
+        renderView('gemach');
+      } catch (error) { showError('שגיאה בטעינת לוח הסילוקין: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-gemach-pay]').forEach(btn => btn.addEventListener('click', () => {
+      openSubForm(gemachPaymentSchema(btn.dataset.gemachPay, Number(btn.dataset.gemachPaySeq), Number(btn.dataset.gemachPayRemaining)));
+    }));
+  }
+
+  // ============================================================
+  // חסד וחלוקות — נזקקים (כולל חסויים), מתנדבים וסבבי חלוקה: שיוך, שיבוץ מתנדב ומסירה.
+  // פרטי נזקק חסוי מוסתרים כבר בצד השרת למי שאינו מנהל; המסך רק מציג את מה שקיבל.
+  // ============================================================
+  const CHESED_TIERS = { regular: 'רגיל', confidential: 'חסוי (מתן בסתר)' };
+  const CHESED_DIVISIONS = { none: 'ללא הפרדה', men: 'מחלקת גברים', women: 'מחלקת נשים' };
+  const CHESED_RULES = { perFamily: 'מנה אחת לכל משפחה', bySize: 'לפי גודל המשפחה' };
+  const CHESED_ACTIVE = { yes: 'פעיל', no: 'לא פעיל' };
+  const activeVal = (r) => (r && r.active === false ? 'no' : 'yes');
+
+  const chesedBeneficiaryFields = [
+    { name: 'familyName', label: 'שם המשפחה', type: 'text', required: true },
+    { name: 'headName', label: 'שם ראש המשפחה', type: 'text' },
+    { name: 'idNumber', label: 'ת.ז', type: 'text' },
+    { name: 'familySize', label: 'מספר נפשות', type: 'number' },
+    { name: 'phone', label: 'טלפון', type: 'tel' },
+    { name: 'address', label: 'כתובת', type: 'text' },
+    { name: 'area', label: 'אזור / שכונה (לחלוקה לפי מסלולים)', type: 'text' },
+    { name: 'tier', label: 'רמת חיסיון', type: 'select', options: opts(CHESED_TIERS) },
+    { name: 'active', label: 'סטטוס', type: 'select', options: opts(CHESED_ACTIVE) },
+    { name: 'notes', label: 'הערות', type: 'textarea' }
+  ];
+
+  formSchemas['chesed'] = {
+    title: 'נזקק חדש',
+    fields: chesedBeneficiaryFields,
+    create: (d) => window.systemAPI.addChesedBeneficiary(d)
+  };
+
+  const chesedBeneficiaryEditSchema = {
+    title: 'נזקק חדש',
+    editTitle: 'עריכת נזקק',
+    fields: chesedBeneficiaryFields,
+    create: (d) => window.systemAPI.addChesedBeneficiary(d),
+    update: (id, d) => window.systemAPI.updateChesedBeneficiary(id, d)
+  };
+
+  const chesedVolunteerSchema = {
+    title: 'מתנדב חדש',
+    editTitle: 'עריכת מתנדב',
+    fields: [
+      { name: 'name', label: 'שם המתנדב', type: 'text', required: true },
+      { name: 'phone', label: 'טלפון', type: 'tel' },
+      { name: 'division', label: 'מחלקה', type: 'select', options: opts(CHESED_DIVISIONS) },
+      { name: 'area', label: 'אזור', type: 'text' },
+      { name: 'availability', label: 'זמינות (למשל: ערבי חמישי)', type: 'text' },
+      { name: 'active', label: 'סטטוס', type: 'select', options: opts(CHESED_ACTIVE) },
+      { name: 'notes', label: 'הערות', type: 'text' }
+    ],
+    create: (d) => window.systemAPI.addChesedVolunteer(d),
+    update: (id, d) => window.systemAPI.updateChesedVolunteer(id, d)
+  };
+
+  const chesedRoundSchema = {
+    title: 'סבב חלוקה חדש',
+    prepare: (schema) => { schema.fields.find(f => f.name === 'date').value = today(); },
+    fields: [
+      { name: 'name', label: 'שם הסבב (למשל: קמחא דפסחא)', type: 'text', required: true },
+      { name: 'date', label: 'תאריך החלוקה', type: 'date', required: true },
+      { name: 'item', label: 'מה מחלקים (תיאור המנה)', type: 'text' },
+      { name: 'unitValue', label: 'שווי מנה (₪)', type: 'number' },
+      { name: 'rule', label: 'כלל שיוך', type: 'select', options: opts(CHESED_RULES) },
+      { name: 'personsPerUnit', label: 'נפשות למנה (בכלל "לפי גודל")', type: 'number', value: 4 },
+      { name: 'division', label: 'שיבוץ מתנדבים מתוך', type: 'select', options: opts(CHESED_DIVISIONS) },
+      { name: 'notes', label: 'הערות', type: 'textarea' }
+    ],
+    create: (d) => window.systemAPI.addChesedRound(d)
+  };
+
+  function renderChesedRound(r, benById, volunteers) {
+    const s = r.summary || {};
+    const closed = r.status === 'closed';
+    const div = r.division && r.division !== 'none' ? r.division : '';
+    const pool = volunteers.filter(v => v.active !== false && (!div || v.division === div));
+    const rows = (r.allocations || []).map(a => {
+      const b = benById[a.beneficiaryId] || { familyName: '(נמחק)', area: '', address: '' };
+      const volOpts = ['<option value="">— לא שובץ —</option>']
+        .concat(pool.map(v => `<option value="${esc(v.id)}"${v.id === a.volunteerId ? ' selected' : ''}>${esc(v.name)}</option>`));
+      // מתנדב ששובץ ואינו במאגר הנוכחי (לא פעיל) — עדיין מוצג כדי לא להיעלם מהרשימה
+      if (a.volunteerId && !pool.some(v => v.id === a.volunteerId)) {
+        const v = volunteers.find(x => x.id === a.volunteerId);
+        volOpts.push(`<option value="${esc(a.volunteerId)}" selected>${esc(v ? v.name + ' (לא פעיל)' : '(נמחק)')}</option>`);
+      }
+      return `
+        <tr>
+          <td>${esc(b.familyName)}${b.masked ? ' <small class="muted">🔒</small>' : ''}</td>
+          <td>${esc(b.area || '')}</td><td>${esc(b.address || '')}</td><td>${Number(a.units) || 0}</td>
+          <td><select data-chesed-assign="${esc(r.id)}" data-ben="${esc(a.beneficiaryId)}"${closed ? ' disabled' : ''}>${volOpts.join('')}</select></td>
+          <td><label><input type="checkbox" data-chesed-deliver="${esc(r.id)}" data-ben="${esc(a.beneficiaryId)}"${a.delivered ? ' checked' : ''}${closed ? ' disabled' : ''}> ${a.delivered ? esc(a.deliveredAt) : ''}</label></td>
+        </tr>`;
+    }).join('');
+    return `
+      <details class="chesed-round" data-chesed-round="${esc(r.id)}"${state.chesedOpenRound === r.id ? ' open' : ''}>
+        <summary>
+          <span>${esc(r.name)} <small class="muted">${esc(r.date)}${r.item ? ' · ' + esc(r.item) : ''}${div ? ' · ' + esc(CHESED_DIVISIONS[div]) : ''} · ${closed ? 'סגור' : 'פתוח'}</small></span>
+          <span>${Number(s.delivered) || 0}/${Number(s.families) || 0} נמסרו · ${Number(s.units) || 0} מנות${s.totalValue ? ' · ' + money(s.totalValue) : ''}</span>
+        </summary>
+        <div class="acct-actions">
+          ${closed ? '' : `<button class="secondary" data-chesed-allocate="${esc(r.id)}">שיוך כל הנזקקים הפעילים</button>`}
+          <button class="secondary" data-chesed-export-round="${esc(r.id)}">ייצוא רשימת חלוקה למתנדבים</button>
+          ${closed ? '' : `<button class="secondary" data-chesed-close="${esc(r.id)}">סגירת הסבב</button>`}
+          ${s.delivered ? '' : `<button class="icon-btn danger" data-chesed-round-del="${esc(r.id)}" title="מחיקת הסבב">🗑</button>`}
+        </div>
+        ${s.unassigned && !closed ? `<p class="muted">${s.unassigned} משפחות עדיין לא שובצו למתנדב</p>` : ''}
+        ${rows ? `<div class="acct-scroll"><table class="acct-table">
+          <thead><tr><th>משפחה</th><th>אזור</th><th>כתובת</th><th>מנות</th><th>מתנדב</th><th>נמסר</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>` : '<p class="muted">עדיין לא שויכו נזקקים — לחץ "שיוך כל הנזקקים הפעילים"</p>'}
+      </details>`;
+  }
+
+  function renderChesed(o) {
+    if (!o || typeof o !== 'object') return renderEmpty('אין נתונים להצגה');
+    const bens = Array.isArray(o.beneficiaries) ? o.beneficiaries : [];
+    const vols = Array.isArray(o.volunteers) ? o.volunteers : [];
+    const rounds = Array.isArray(o.rounds) ? o.rounds : [];
+    const benById = Object.fromEntries(bens.map(b => [b.id, b]));
+    const activeBens = bens.filter(b => b.active !== false);
+    const openRounds = rounds.filter(r => r.status !== 'closed');
+    const pending = openRounds.reduce((t, r) => t + ((r.summary && r.summary.families) || 0) - ((r.summary && r.summary.delivered) || 0), 0);
+    return `
+      <div class="chesed">
+        <div class="acct-header">
+          <div>
+            <h3>חסד וחלוקות</h3>
+            <small class="muted">${o.canSeeConfidential ? 'מוצגים כל הפרטים, כולל נזקקים חסויים' : 'פרטי נזקקים חסויים מוסתרים (מוצגים למנהל בלבד)'}</small>
+          </div>
+          <div class="acct-actions">
+            <button class="secondary" id="chesedRoundBtn">＋ סבב חלוקה</button>
+            <button class="secondary" id="chesedVolunteerBtn">＋ מתנדב</button>
+          </div>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><small>נזקקים פעילים</small><strong>${activeBens.length}</strong></div>
+          <div class="kpi"><small>מתוכם חסויים</small><strong>${activeBens.filter(b => b.tier === 'confidential').length}</strong></div>
+          <div class="kpi"><small>מתנדבים פעילים</small><strong>${vols.filter(v => v.active !== false).length}</strong></div>
+          <div class="kpi"><small>סבבים פתוחים</small><strong>${openRounds.length}</strong></div>
+          <div class="kpi${pending ? ' neg' : ''}"><small>משפחות שטרם קיבלו</small><strong>${pending}</strong></div>
+        </div>
+        <div class="acct-grid">
+          <div class="card acct-wide">
+            <h3>סבבי חלוקה (${rounds.length})</h3>
+            ${rounds.length ? rounds.map(r => renderChesedRound(r, benById, vols)).join('') : renderEmpty('אין סבבי חלוקה — לחץ "＋ סבב חלוקה"')}
+          </div>
+          <div class="card">
+            <div class="acct-header"><h3>נזקקים (${bens.length})</h3><button class="secondary small" data-chesed-export="beneficiaries">ייצוא</button></div>
+            ${bens.map(b => `
+              <div class="acct-row${b.active === false ? ' muted' : ''}">
+                <span>${esc(b.familyName)}${b.headName ? ' · ' + esc(b.headName) : ''}${b.masked ? ' 🔒' : ''}
+                  <small class="muted">${Number(b.familySize) || 1} נפשות${b.area ? ' · ' + esc(b.area) : ''}${b.tier === 'confidential' && !b.masked ? ' · חסוי' : ''}${b.active === false ? ' · לא פעיל' : ''}</small></span>
+                <span>
+                  ${b.masked ? '' : `<button class="icon-btn" data-chesed-ben-edit="${esc(b.id)}" title="עריכה">✎</button>`}
+                  <button class="icon-btn danger" data-chesed-ben-del="${esc(b.id)}" title="מחיקה">🗑</button>
+                </span>
+              </div>`).join('') || '<div class="acct-row muted">אין נזקקים — לחץ "＋ הוספת רשומה"</div>'}
+          </div>
+          <div class="card">
+            <div class="acct-header"><h3>מתנדבים (${vols.length})</h3><button class="secondary small" data-chesed-export="volunteers">ייצוא</button></div>
+            ${vols.map(v => `
+              <div class="acct-row${v.active === false ? ' muted' : ''}">
+                <span>${esc(v.name)} <small class="muted">${esc(CHESED_DIVISIONS[v.division] || '')}${v.area ? ' · ' + esc(v.area) : ''}${v.availability ? ' · ' + esc(v.availability) : ''}${v.phone ? ' · ' + esc(v.phone) : ''}</small></span>
+                <span>
+                  <button class="icon-btn" data-chesed-vol-edit="${esc(v.id)}" title="עריכה">✎</button>
+                  <button class="icon-btn danger" data-chesed-vol-del="${esc(v.id)}" title="מחיקה">🗑</button>
+                </span>
+              </div>`).join('') || '<div class="acct-row muted">אין מתנדבים עדיין</div>'}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function attachChesedHandlers() {
+    const data = state.data.chesed || {};
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    const all = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, () => fn(el)));
+    // פעולה שמרעננת את התצוגה — שומרים איזה סבב היה פתוח כדי שלא ייסגר אחרי כל סימון
+    const act = async (fn, okMsg, errPrefix) => {
+      try { await fn(); if (okMsg) showToast(okMsg); await switchView('chesed'); }
+      catch (error) { showError(errPrefix + errMsg(error)); await switchView('chesed'); }
+    };
+    on('chesedRoundBtn', () => openSubForm(chesedRoundSchema));
+    on('chesedVolunteerBtn', () => openSubForm(chesedVolunteerSchema));
+    all('[data-chesed-round]', 'toggle', (el) => { if (el.open) state.chesedOpenRound = el.dataset.chesedRound; else if (state.chesedOpenRound === el.dataset.chesedRound) state.chesedOpenRound = null; });
+    all('[data-chesed-ben-edit]', 'click', (el) => {
+      const b = (data.beneficiaries || []).find(x => x.id === el.dataset.chesedBenEdit);
+      if (b) openSubForm(chesedBeneficiaryEditSchema, { ...b, active: activeVal(b) }, b.id);
+    });
+    all('[data-chesed-ben-del]', 'click', async (el) => {
+      if (!(await askConfirm('למחוק את הנזקק?'))) return;
+      act(() => window.systemAPI.deleteChesedBeneficiary(el.dataset.chesedBenDel), 'הנזקק נמחק', 'שגיאה במחיקה: ');
+    });
+    all('[data-chesed-vol-edit]', 'click', (el) => {
+      const v = (data.volunteers || []).find(x => x.id === el.dataset.chesedVolEdit);
+      if (v) openSubForm(chesedVolunteerSchema, { ...v, active: activeVal(v) }, v.id);
+    });
+    all('[data-chesed-vol-del]', 'click', async (el) => {
+      if (!(await askConfirm('למחוק את המתנדב?'))) return;
+      act(() => window.systemAPI.deleteChesedVolunteer(el.dataset.chesedVolDel), 'המתנדב נמחק', 'שגיאה במחיקה: ');
+    });
+    all('[data-chesed-allocate]', 'click', (el) => act(async () => {
+      const r = await window.systemAPI.allocateChesedRound(el.dataset.chesedAllocate);
+      showToast(r.added ? `שויכו ${r.added} משפחות` : 'כל הנזקקים הפעילים כבר משויכים');
+    }, '', 'שגיאה בשיוך: '));
+    all('[data-chesed-assign]', 'change', (el) => act(
+      () => window.systemAPI.assignChesedVolunteer(el.dataset.chesedAssign, el.dataset.ben, el.value), '', 'שגיאה בשיבוץ: '));
+    all('[data-chesed-deliver]', 'change', (el) => act(
+      () => window.systemAPI.markChesedDelivered(el.dataset.chesedDeliver, el.dataset.ben, el.checked, today()), '', 'שגיאה בעדכון מסירה: '));
+    all('[data-chesed-close]', 'click', async (el) => {
+      if (!(await askConfirm('לסגור את הסבב? לאחר הסגירה לא ניתן לשנות שיבוצים ומסירות.'))) return;
+      act(() => window.systemAPI.closeChesedRound(el.dataset.chesedClose), 'הסבב נסגר', 'שגיאה בסגירה: ');
+    });
+    all('[data-chesed-round-del]', 'click', async (el) => {
+      if (!(await askConfirm('למחוק את סבב החלוקה?'))) return;
+      act(() => window.systemAPI.deleteChesedRound(el.dataset.chesedRoundDel), 'הסבב נמחק', 'שגיאה במחיקה: ');
+    });
+    all('[data-chesed-export]', 'click', async (el) => {
+      try { const r = await window.systemAPI.exportChesedCsv(el.dataset.chesedExport); if (r && r.ok) showToast('הקובץ נשמר'); }
+      catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
+    });
+    all('[data-chesed-export-round]', 'click', async (el) => {
+      try { const r = await window.systemAPI.exportChesedCsv('round', el.dataset.chesedExportRound); if (r && r.ok) showToast('רשימת החלוקה נשמרה'); }
+      catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
+    });
   }
 
   // ============================================================
@@ -2626,7 +3114,7 @@
   // ============================================================
   const ROLE_LABELS = { admin: 'מנהל — הכל כולל משתמשים', editor: 'עורך — צפייה, הזנה, ייצוא וגיבוי', viewer: 'צופה — קריאה בלבד' };
   const START_LABELS = { dashboard: 'לוח בקרה', 'acct-reports': 'דוחות ומע"מ', 'acct-invoices': 'חשבוניות מס', 'acct-journal': 'יומן חשבונאי',
-    'personal-finance': 'התוכנית הפיננסית', finance: 'תכנון פיננסי', contacts: 'אנשי קשר', tasks: 'משימות', npo: 'עמותה ותרומות', 'mortgage-advisor': 'ייעוץ משכנתאות', 'mortgage-lab': 'מעבדת תמהיל' };
+    'personal-finance': 'התוכנית הפיננסית', finance: 'תכנון פיננסי', contacts: 'אנשי קשר', tasks: 'משימות', npo: 'עמותה ותרומות', gemach: 'גמ"ח', chesed: 'חסד וחלוקות', 'mortgage-advisor': 'ייעוץ משכנתאות', 'mortgage-lab': 'מעבדת תמהיל' };
 
   const advGeneralSchema = {
     title: 'הגדרות כלליות',
@@ -2701,7 +3189,7 @@
           <div class="acct-header"><h3>יומן ביקורת</h3>
             <div class="acct-actions">
               <select id="auditFilter">
-                ${[['', 'הכל'], ['acct', 'הנהלת חשבונות'], ['npo', 'עמותה'], ['madv', 'ייעוץ משכנתאות'], ['users', 'משתמשים'], ['ports', 'ייבוא/ייצוא'], ['data', 'גיבוי ושחזור'], ['settings', 'הגדרות']]
+                ${[['', 'הכל'], ['acct', 'הנהלת חשבונות'], ['npo', 'עמותה'], ['gemach', 'גמ"ח'], ['chesed', 'חסד וחלוקות'], ['madv', 'ייעוץ משכנתאות'], ['users', 'משתמשים'], ['ports', 'ייבוא/ייצוא'], ['data', 'גיבוי ושחזור'], ['settings', 'הגדרות']]
                   .map(([v, l]) => `<option value="${v}"${(state.auditFilter || '') === v ? ' selected' : ''}>${l}</option>`).join('')}
               </select>
               <button class="secondary" id="auditExportBtn">ייצוא יומן</button>
@@ -2803,6 +3291,8 @@
     });
 
     if (viewName === 'npo') attachNpoHandlers();
+    if (viewName === 'gemach') attachGemachHandlers();
+    if (viewName === 'chesed') attachChesedHandlers();
     if (viewName === 'personal-finance') attachPersonalFinanceHandlers();
     if (viewName === 'settings') attachSettingsHandlers();
     attachPortsHandlers();
@@ -3327,4 +3817,4 @@
   } else {
     init();
   }
-})();
+})();

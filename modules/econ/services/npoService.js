@@ -30,11 +30,13 @@ class NpoService {
       year: y,
       settings: npo.settings,
       funds: N.allFunds(npo.settings),
-      donations: [...npo.donations].sort((a, b) => b.receipt.number - a.receipt.number),
+      donations: [...npo.donations].sort((a, b) => b.receipt.number - a.receipt.number).map(d => ({ ...d, taxStatus: N.taxStatus(d) })),
       grants: [...npo.grants].sort((a, b) => b.year - a.year || a.source.localeCompare(b.source, 'he')),
       donors: N.donorSummary(npo.donations),
       fundSummary: N.fundSummary(npo.donations, npo.grants, npo.settings, y),
-      report: N.annualReport(npo.donations, npo.grants, npo.settings, y)
+      report: N.annualReport(npo.donations, npo.grants, npo.settings, y),
+      grantAlerts: N.grantAlerts(npo.grants, new Date().toISOString().slice(0, 10)),
+      tax: N.taxSummary(npo.donations)
     };
   }
 
@@ -93,11 +95,34 @@ class NpoService {
     const data = await this._load();
     const i = data.npo.grants.findIndex(g => g.id === grantId);
     if (i < 0) throw new Error('התמיכה לא נמצאה');
-    const clean = N.validateGrant({ ...data.npo.grants[i], ...input });
+    const clean = N.validateGrant({ ...data.npo.grants[i], ...input }, data.npo.grants[i].documents);
     if (!N.allFunds(data.npo.settings).some(f => f.id === clean.fundId)) throw new Error('הקרן שנבחרה אינה קיימת');
     data.npo.grants[i] = { ...data.npo.grants[i], ...clean, updatedAt: new Date().toISOString() };
     await this.db.save(data);
     return data.npo.grants[i];
+  }
+
+  async toggleGrantDocument(grantId, index) {
+    const data = await this._load();
+    const g = data.npo.grants.find(x => x.id === grantId);
+    if (!g) throw new Error('התמיכה לא נמצאה');
+    const docs = Array.isArray(g.documents) ? g.documents : [];
+    const i = Number(index);
+    if (!Number.isInteger(i) || !docs[i]) throw new Error('המסמך לא נמצא');
+    docs[i] = { ...docs[i], done: !docs[i].done };
+    g.documents = docs;
+    await this.db.save(data);
+    return g;
+  }
+
+  // מעקב דיווח ל"תרומות ישראל": מספר רישום לתרומה, או אישור שביטול דווח
+  async recordTaxReport(donationId, input = {}) {
+    const data = await this._load();
+    const i = data.npo.donations.findIndex(x => x.id === donationId);
+    if (i < 0) throw new Error('התרומה לא נמצאה');
+    data.npo.donations[i] = N.recordTaxReport(data.npo.donations[i], input);
+    await this.db.save(data);
+    return { ...data.npo.donations[i], taxStatus: N.taxStatus(data.npo.donations[i]) };
   }
 
   async deleteGrant(grantId) {

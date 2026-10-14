@@ -6,19 +6,23 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ארגז כלים</title>
 <style>
-:root{--bg:#f5f7fb;--card:#fff;--ink:#1c2433;--mut:#6b7587;--line:#e2e6ef;--acc:#2b5fd9;--acc2:#e8efff}
+:root{--bg:#f4f6fb;--card:#fff;--ink:#14213d;--mut:#5d6b85;--line:#e3e7f0;--acc:#24479e;--acc2:#eaf0fb;--navy:#13264a;--gold:#b8860b}
 *{box-sizing:border-box}
-body{margin:0;font-family:"Segoe UI",Heebo,Arial,sans-serif;background:var(--bg);color:var(--ink);padding:20px}
-h1{margin:0 0 4px;font-size:26px}
+body{margin:0;font-family:"Segoe UI",Heebo,Arial,sans-serif;background:var(--bg);color:var(--ink);padding:24px 28px 40px;-webkit-font-smoothing:antialiased}
+h1{margin:0 0 4px;font-size:28px;font-family:"David","Frank Ruhl Libre",serif;color:var(--navy)}
 .sub{color:var(--mut);margin:0 0 18px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
-.card h2{margin:0 0 4px;font-size:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 1px 2px rgba(20,33,61,.05),0 8px 24px rgba(20,33,61,.06);transition:box-shadow .15s,border-color .15s}
+.card:hover{border-color:#d3dae8;box-shadow:0 2px 4px rgba(20,33,61,.06),0 14px 32px rgba(20,33,61,.09)}
+.card h2{margin:0 0 4px;font-size:17px;color:var(--navy);display:flex;align-items:center;gap:8px}
+.card h2::before{content:"";width:4px;height:16px;border-radius:2px;background:var(--gold)}
 .card p.d{margin:0 0 12px;color:var(--mut);font-size:13px}
 input,select,textarea,button{font:inherit}
-input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}
+input,select,textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:#fbfcfe;color:var(--ink);outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(36,71,158,.14)}
 textarea{min-height:110px;resize:vertical}
-button{padding:8px 12px;border:1px solid var(--line);background:#fff;border-radius:8px;cursor:pointer}
+button{padding:8px 12px;border:1px solid var(--line);background:#fff;border-radius:10px;cursor:pointer;color:var(--ink);transition:background .12s,border-color .12s}
+button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 button:hover{background:var(--acc2)}
 button.p{background:var(--acc);color:#fff;border-color:var(--acc)}
 button.p:hover{filter:brightness(1.1)}
@@ -27,7 +31,7 @@ button.p:hover{filter:brightness(1.1)}
 .row>.fix{flex:0 0 auto}
 .out{background:var(--acc2);border-radius:8px;padding:10px;margin-top:8px;word-break:break-all;direction:ltr;text-align:left;min-height:20px}
 .calc{direction:ltr}
-.calc .disp{background:#111a2e;color:#fff;border-radius:10px;padding:12px;text-align:right;font-size:28px;min-height:56px;overflow:auto}
+.calc .disp{background:linear-gradient(135deg,#13264a,#1b3260);color:#fff;border-radius:10px;padding:12px;text-align:right;font-size:28px;min-height:56px;overflow:auto}
 .calc .keys{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
 .calc .keys button{padding:12px 0;font-size:18px}
 .hist{font-size:12px;color:var(--mut);direction:ltr;text-align:right;margin-top:6px;max-height:60px;overflow:auto}
@@ -43,7 +47,7 @@ button.p:hover{filter:brightness(1.1)}
 .lbl{font-size:12px;color:var(--mut)}
 label.c{display:inline-flex;gap:4px;align-items:center;font-size:14px;flex:0 0 auto}
 label.c input{width:auto}
-.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#111a2e;color:#fff;padding:8px 16px;border-radius:20px;opacity:0;transition:.25s;pointer-events:none}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#13264a;color:#fff;padding:8px 16px;border-radius:20px;opacity:0;transition:.25s;pointer-events:none}
 .toast.on{opacity:1}
 </style>
 </head>

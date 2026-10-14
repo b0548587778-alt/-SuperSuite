@@ -7,12 +7,21 @@ const fs = require('fs');
 const { pathToFileURL } = require('url');
 const { canShellNavigate, canModuleOpen, EDITING_CHECK_JS } = require('./shell/nav-guard');
 const AutoBk = require('./shell/auto-backup');
+const Catalog = require('./shell/catalog');
+const Hebcal = require('./shell/hebcal');
+// תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
+const ECON_EXTRAS = (() => {
+  try { return Catalog.extrasFromHtml(fs.readFileSync(path.join(__dirname, 'modules', 'econ', 'views', 'index.html'), 'utf8')); }
+  catch { return []; }
+})();
+const ECON_VIEWS = [...Catalog.ECON_VIEWS, ...ECON_EXTRAS.map(x => x.view)];
 
-const SIDEBAR = 200;
+const SIDEBAR = 264;
 const MODS = ['econ', 'shamai', 'trainer', 'tools'];
 const LS_MODS = ['shamai', 'trainer', 'tools'];
 const ENTRY = {
-  econ: 'app://econ/views/index.html',
+  // embedded=1: הסרגל הפנימי של המודול מוסתר — הניווט כולו בסרגל האחיד של המעטפת
+  econ: 'app://econ/views/index.html?embedded=1',
   shamai: 'app://shamai/index.html',
   trainer: 'app://trainer/index.html',
   tools: 'app://tools/index.html'
@@ -30,6 +39,8 @@ let econ;
 const views = {};
 let active = null;
 let zoom = 1;
+// דיאלוג פתוח במעטפת: התצוגות מוסתרות כדי שלא יכסו אותו
+let overlay = false;
 
 function modulesRoot() { return path.join(__dirname, 'modules'); }
 
@@ -75,6 +86,12 @@ function handleShortcut(input, wc) {
   if (input.control && input.key === '-') { setZoom(zoom - ZOOM_STEP); return true; }
   if (input.control && input.key === '0') { setZoom(1); return true; }
   if (input.key === 'F1') { sendCmd('help'); return true; }
+  if (input.control && !input.shift && (input.key === 'k' || input.key === 'K')) {
+    // החיפוש יושב בסרגל של המעטפת: מעבירים אליה את הפוקוס של המקלדת
+    if (win && !win.isDestroyed()) win.webContents.focus();
+    sendCmd('search');
+    return true;
+  }
   if (input.control && input.shift && (input.key === 'B' || input.key === 'b')) { sendCmd('backup'); return true; }
   if (input.control && input.shift && (input.key === 'R' || input.key === 'r')) { sendCmd('restore'); return true; }
   return false;
@@ -112,8 +129,8 @@ function ensureView(id) {
 function switchTo(id) {
   if (!MODS.includes(id)) return;
   const v = ensureView(id);
-  for (const k of Object.keys(views)) views[k].setVisible(k === id);
   active = id;
+  for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === id);
   v.webContents.focus();
   if (win && !win.isDestroyed()) win.webContents.send('shell:active', id);
 }
@@ -123,13 +140,45 @@ function switchTo(id) {
 function goHome() {
   for (const k of Object.keys(views)) views[k].setVisible(false);
   active = null;
+  overlay = false;
   if (win && !win.isDestroyed()) { win.webContents.focus(); win.webContents.send('shell:active', null); }
+}
+
+// פתיחת תצוגה פנימית במודול הכלכלי. נשלח אחרי הטעינה; ה-preload שומר את הבקשה עד שהממשק מוכן
+function openEconView(view) {
+  if (!ECON_VIEWS.includes(view)) return false;
+  const v = ensureView('econ');
+  waitLoaded(v.webContents).then(() => {
+    if (!v.webContents.isDestroyed()) v.webContents.send('econ:goto', view);
+  });
+  return true;
+}
+
+// דיאלוג במעטפת: מסתירים את המודול הפעיל בזמן שהדיאלוג פתוח, ומחזירים אותו בסגירה
+function setOverlay(on) {
+  overlay = !!on;
+  for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === active);
+  if (!overlay && active && views[active]) views[active].webContents.focus();
 }
 
 function setZoom(z) {
   zoom = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)) * 10) / 10;
   for (const id of Object.keys(views)) views[id].webContents.setZoomFactor(zoom);
-  saveJson(uiFile(), { zoom });
+  // מיזוג: הקובץ מחזיק גם את הגדרות הלוח העברי — אסור לדרוס אותן
+  saveJson(uiFile(), { ...loadJson(uiFile()), zoom });
+}
+
+/* ---------- לוח עברי ושבת ---------- */
+function calendarSettings() { return Hebcal.resolveSettings(loadJson(uiFile()).calendar || {}); }
+// מנקה קלט מהמעטפת: עיר מהרשימה, דקות הדלקה 0–60, דגלים בוליאניים
+function sanitizeCalendar(input) {
+  const s = input && typeof input === 'object' ? input : {};
+  const out = {};
+  if (Hebcal.CITIES.some(c => c.id === s.city)) out.city = s.city;
+  if (s.candles === null || (Number.isInteger(s.candles) && s.candles >= 0 && s.candles <= 60)) out.candles = s.candles;
+  if (typeof s.shabbatMode === 'boolean') out.shabbatMode = s.shabbatMode;
+  if (typeof s.diaspora === 'boolean') out.diaspora = s.diaspora;
+  return out;
 }
 
 const stateFile = () => path.join(app.getPath('userData'), 'window-state.json');
@@ -152,7 +201,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: st.width || 1500, height: st.height || 940, x: st.x, y: st.y, minWidth: 1100, minHeight: 700,
     icon: path.join(__dirname, 'build', 'icon.png'),
-    backgroundColor: '#111a2e', title: 'SuperSuite', autoHideMenuBar: true,
+    backgroundColor: '#0f1a30', title: 'SuperSuite', autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'shell', 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
   win.removeMenu();
@@ -203,6 +252,9 @@ function autoBackupKey(create = true) {
    אם הכונן לא מחובר — מדלגים (לא כותבים למקום אחר בשקט). הסטטוס נשמר ומוצג במעטפת. */
 async function autoBackup() {
   let status;
+  // בשבת וביום טוב התוכנה לא מבצעת פעולות אוטומטיות; הגיבוי יתבצע בסבב הבא אחרי הצאת
+  const cal = calendarSettings();
+  if (cal.shabbatMode && Hebcal.shabbatStatus(Date.now(), cal).active) return { ok: false, reason: 'shabbat', at: new Date().toISOString() };
   try {
     status = await AutoBk.runAutoBackup({
       encryptionAvailable: safeStorage.isEncryptionAvailable(),
@@ -336,6 +388,46 @@ app.whenReady().then(async () => {
     const moduleViewIds = Object.values(views).map(v => v.webContents.id);
     if (!win || win.isDestroyed() || !canModuleOpen(e.sender.id, moduleViewIds, id, MODS)) return false;
     switchTo(id);
+    return true;
+  });
+  // פתיחת פריט מהקטלוג האחיד: מודול, ובמודול הכלכלי גם תצוגה פנימית מאומתת
+  ipcMain.handle('shell:open', (e, id, view) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return false;
+    if (!MODS.includes(id)) return false;
+    if (view != null && (id !== 'econ' || !ECON_VIEWS.includes(view))) return false;
+    switchTo(id);
+    if (view) openEconView(view);
+    return true;
+  });
+  // תצוגות חדשות במודול הכלכלי שעוד לא נכנסו לקטלוג — המעטפת מציגה אותן תחת "נוספו לאחרונה"
+  ipcMain.handle('shell:catalog-extras', (e) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return [];
+    return ECON_EXTRAS.map(x => ({ ...x }));
+  });
+  // הגדרות לוח עברי (עיר, דקות הדלקה, מצב שבת, חוץ לארץ) — קריאה ושמירה מהמעטפת בלבד
+  ipcMain.handle('shell:get-calendar', (e) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return null;
+    const { cityObj, ...s } = calendarSettings();
+    return s;
+  });
+  ipcMain.handle('shell:save-calendar', (e, input) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return null;
+    const ui = loadJson(uiFile());
+    saveJson(uiFile(), { ...ui, calendar: { ...(ui.calendar || {}), ...sanitizeCalendar(input) } });
+    const { cityObj, ...s } = calendarSettings();
+    return s;
+  });
+  ipcMain.handle('shell:overlay', (e, on) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return false;
+    setOverlay(on);
+    return true;
+  });
+  // המודול הכלכלי מדווח על התצוגה הפעילה, כדי שהסרגל האחיד יסמן אותה
+  ipcMain.handle('shell:econ-view', (e, view) => {
+    const v = views.econ;
+    if (!v || v.webContents.isDestroyed() || e.sender.id !== v.webContents.id) return false;
+    if (!ECON_VIEWS.includes(view)) return false;
+    if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view);
     return true;
   });
   ipcMain.handle('shell:home', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; goHome(); return true; });

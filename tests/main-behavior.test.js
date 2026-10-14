@@ -178,3 +178,60 @@ test('גיבוי ידני ליעד שנכשל בכתיבה (USB מלא/מנות�
   await assert.rejects(handlers['shell:backup-all'](shellSender(), 'long-pass-123', 'econ'), /שמירת הגיבוי נכשלה/);
   dialogPlan.save = { canceled: true };
 });
+
+test('shell:open: פותח פריט מהקטלוג האחיד ומאמת מודול ותצוגה', async () => {
+  await boot();
+  const econView = created.views[0];
+  assert.equal(await handlers['shell:open'](shellSender(), 'econ', 'acct-invoices'), true);
+  assert.equal(econView.visible, true, 'המודול הכלכלי מוצג');
+  assert.equal(await handlers['shell:open'](shellSender(), 'econ', 'no-such-view'), false, 'תצוגה לא מוכרת נחסמת');
+  assert.equal(await handlers['shell:open'](shellSender(), 'shamai', 'acct-invoices'), false, 'תצוגה פנימית רק במודול הכלכלי');
+  assert.equal(await handlers['shell:open'](shellSender(), 'evil'), false, 'מודול לא מוכר נחסם');
+  assert.equal(await handlers['shell:open'](viewSender(econView), 'tools'), false, 'מודול לא מנווט דרך ערוץ המעטפת');
+  assert.equal(await handlers['shell:open'](shellSender(), 'tools'), true);
+});
+
+test('shell:overlay: דיאלוג במעטפת מסתיר את המודול הפעיל ומחזיר אותו בסגירה', async () => {
+  await boot();
+  const econView = created.views[0];
+  await handlers['shell:open'](shellSender(), 'econ', 'dashboard');
+  assert.equal(await handlers['shell:overlay'](viewSender(econView), true), false, 'רק המעטפת רשאית');
+  assert.equal(econView.visible, true);
+  await handlers['shell:overlay'](shellSender(), true);
+  assert.equal(econView.visible, false, 'המודול מוסתר בזמן הדיאלוג');
+  await handlers['shell:switch'](shellSender(), 'econ');
+  assert.equal(econView.visible, false, 'מעבר בזמן דיאלוג לא מכסה אותו');
+  await handlers['shell:overlay'](shellSender(), false);
+  assert.equal(econView.visible, true, 'בסגירה המודול חוזר');
+});
+
+test('shell:econ-view: רק המודול הכלכלי מדווח, ורק על תצוגה מוכרת', async () => {
+  await boot();
+  const econView = created.views[0];
+  const otherView = created.views[1];
+  assert.equal(await handlers['shell:econ-view'](viewSender(econView), 'tasks'), true);
+  assert.equal(await handlers['shell:econ-view'](viewSender(econView), 'evil'), false);
+  assert.equal(await handlers['shell:econ-view'](viewSender(otherView), 'tasks'), false);
+  assert.equal(await handlers['shell:econ-view'](shellSender(), 'tasks'), false);
+});
+
+test('shell:catalog-extras: רק המעטפת מקבלת את רשימת המסכים החדשים', async () => {
+  await boot();
+  const r = await handlers['shell:catalog-extras'](shellSender());
+  assert.ok(Array.isArray(r));
+  assert.deepEqual(await handlers['shell:catalog-extras'](viewSender(created.views[0])), []);
+});
+
+test('הגדרות לוח: נשמרות מהמעטפת בלבד, קלט לא תקין מסונן, והזום לא מוחק אותן', async () => {
+  await boot();
+  assert.equal(await handlers['shell:save-calendar'](viewSender(created.views[0]), { city: 'haifa' }), null);
+  const s = await handlers['shell:save-calendar'](shellSender(), { city: 'haifa', candles: 99, shabbatMode: 'x', evil: 1 });
+  assert.equal(s.city, 'haifa');
+  assert.equal(s.candles, 30, 'ערך מחוץ לטווח נפסל ונשאר ברירת המחדל של העיר');
+  assert.equal(s.shabbatMode, true);
+  assert.equal('evil' in s, false);
+  const ui = path.join(userData, 'ui-settings.json');
+  const before = JSON.parse(fs.readFileSync(ui, 'utf8'));
+  fs.writeFileSync(ui, JSON.stringify({ ...before, zoom: 1.2 }));
+  assert.equal((await handlers['shell:get-calendar'](shellSender())).city, 'haifa');
+});

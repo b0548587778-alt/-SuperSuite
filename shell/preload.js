@@ -1,6 +1,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('shellAPI', {
   switchTo: id => ipcRenderer.invoke('shell:switch', id),
+  // פתיחת פריט מהסרגל האחיד (מודול + תצוגה פנימית אופציונלית)
+  open: (id, view) => ipcRenderer.invoke('shell:open', id, view),
+  setOverlay: on => ipcRenderer.invoke('shell:overlay', !!on),
+  getCatalogExtras: () => ipcRenderer.invoke('shell:catalog-extras'),
+  getCalendar: () => ipcRenderer.invoke('shell:get-calendar'),
+  saveCalendar: (s) => ipcRenderer.invoke('shell:save-calendar', s),
+  onActiveView: cb => ipcRenderer.on('shell:active-view', (_e, view) => cb(view)),
   backupAll: (passphrase, scope) => ipcRenderer.invoke('shell:backup-all', passphrase, scope),
   restoreAll: (passphrase) => ipcRenderer.invoke('shell:restore-all', passphrase),
   isLoggedIn: () => ipcRenderer.invoke('shell:is-logged-in'),

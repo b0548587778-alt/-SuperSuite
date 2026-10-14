@@ -777,8 +777,14 @@ button.secondary:disabled {
 /* עמותה וייעוץ משכנתאות */
 .doc-check { display: flex; align-items: center; gap: .5rem; padding: .2rem 0; font-size: .92rem; cursor: pointer; }
 .mortgage-advisor .acct-table input { width: 100%; min-width: 6rem; }
-.mortgage-advisor details, .npo details { margin-top: .6rem; }
+.mortgage-advisor details, .npo details, .gemach details { margin-top: .6rem; }
 .mortgage-advisor summary { cursor: pointer; font-weight: 600; }
+.gemach summary { cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; font-weight: 600; }
+.gemach .gemach-loan { border-bottom: 1px dashed var(--border); padding: 6px 0; }
+.chesed details { margin-top: .6rem; }
+.chesed summary { cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; font-weight: 600; }
+.chesed .chesed-round { border-bottom: 1px dashed var(--border); padding: 6px 0; }
+.chesed .acct-table select { width: 100%; min-width: 8rem; }
 .acct-table tr.muted td { opacity: .55; text-decoration: line-through; }
 
 /* ייבוא/ייצוא והגדרות מתקדמות */
@@ -797,3 +803,102 @@ button.small { padding: .25rem .6rem; font-size: .85rem; }
 .mortgage-lab .warn { color:#b45309; }
 .mortgage-lab .warn-banner { border-inline-start:4px solid #b45309; background:#fffbeb; }
 .lab-assumptions { margin-top:10px; font-size:.82rem; line-height:1.6; }
+
+/* ==================================================================
+   שפת עיצוב אחידה (גרסה 3.0) — זהה למעטפת: נייבי עמוק, זהב ומשטחים בהירים.
+   שכבה זו בסוף הקובץ ודורסת את ערכי הבסיס בלבד; מבנה התצוגות לא משתנה.
+   ================================================================== */
+:root {
+    --primary: #24479e;
+    --primary-dark: #1a3678;
+    --secondary: #5d6b85;
+    --success: #13865b;
+    --warning: #c98a0c;
+    --danger: #c43c3c;
+    --light: #f4f6fb;
+    --dark: #14213d;
+    --gray: #8a96ad;
+    --border: #e3e7f0;
+    --radius: 12px;
+    --shadow: 0 1px 2px rgba(20,33,61,.05), 0 8px 24px rgba(20,33,61,.06);
+    --navy: #13264a;
+    --gold: #b8860b;
+    --gold-soft: #f6eccb;
+    --font-sans: "Segoe UI", "Heebo", "Arial", system-ui, sans-serif;
+}
+
+body { background: var(--light); color: var(--dark); -webkit-font-smoothing: antialiased; }
+
+/* מצב משולב: הסרגל הפנימי מוסתר — המעטפת מציגה סרגל אחד לכל התוכנה */
+.embedded aside { display: none; }
+.embedded main { width: 100%; }
+
+header {
+    padding: 18px 28px;
+    background: rgba(255,255,255,.86);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 5;
+}
+header h1 {
+    font-family: "David", "Frank Ruhl Libre", "Times New Roman", serif;
+    font-size: 1.65rem; color: var(--navy); letter-spacing: .2px; line-height: 1.2;
+}
+header p { color: var(--secondary); font-size: .9rem; }
+.status {
+    background: #e9f7f0; color: var(--success); border: 1px solid #c6ead8;
+    border-radius: 999px; padding: 4px 12px; font-size: .8rem; font-weight: 600;
+}
+#view { padding: 24px 28px 40px; }
+
+button.primary, .primary {
+    background: linear-gradient(180deg, #2c55b8, var(--primary));
+    border-radius: 10px; padding: .55rem 1.1rem; font-weight: 600;
+    box-shadow: 0 2px 6px rgba(36,71,158,.25);
+    transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+}
+button.primary:hover, .primary:hover { background: var(--primary-dark); box-shadow: 0 4px 12px rgba(36,71,158,.3); }
+button.primary:active { transform: translateY(1px); }
+button.secondary, .secondary {
+    background: #fff; color: var(--dark); border: 1px solid var(--border);
+    border-radius: 10px; padding: .55rem 1.1rem; font-weight: 500;
+}
+button.secondary:hover, .secondary:hover { background: #f0f3f9; border-color: #cfd6e4; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--gold); outline-offset: 2px;
+}
+
+.card, .panel {
+    background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease;
+}
+.card:hover { border-color: #d3dae8; box-shadow: 0 2px 4px rgba(20,33,61,.06), 0 14px 32px rgba(20,33,61,.09); }
+.panel h3 { color: var(--navy); }
+.card strong.green { color: var(--success); }
+.card strong.red { color: var(--danger); }
+.card strong.blue { color: var(--primary); }
+
+.table, .acct-table { background: #fff; border-radius: var(--radius); overflow: hidden; }
+.table th { background: #f3f5fa; color: var(--secondary); font-weight: 600; font-size: .85rem; }
+.table tbody tr:hover { background: #f7f9fd; }
+
+.modal { background: rgba(15,26,48,.55); backdrop-filter: blur(3px); }
+.modal-card { border-radius: 16px; box-shadow: 0 24px 64px rgba(15,26,48,.35); border: 1px solid var(--border); }
+.modal-card h2 { font-family: "David", "Frank Ruhl Libre", serif; color: var(--navy); padding-top: 1.25rem; }
+#modalForm .field input, #modalForm .field select, #modalForm .field textarea,
+.modal-form input, .modal-form select, .modal-form textarea,
+.form-group input, .form-group select, .form-group textarea {
+    border-radius: 10px; border-color: var(--border); background: #fbfcfe;
+}
+
+.toast { border-radius: 12px; box-shadow: 0 12px 32px rgba(15,26,48,.25); font-weight: 500; }
+.toast.success { background: var(--success); }
+.toast.danger { background: var(--danger); }
+
+.loading { color: var(--secondary); padding: 40px; text-align: center; }
+.empty { color: var(--gray); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #cdd4e2; border-radius: 10px; border: 2px solid var(--light); }
+::-webkit-scrollbar-thumb:hover { background: #b3bdd1; }

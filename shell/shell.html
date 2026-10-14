@@ -5,75 +5,208 @@
 <title>SuperSuite</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <style>
+:root{
+  --navy-0:#0b1426; --navy-1:#0f1a30; --navy-2:#13264a; --navy-3:#1b3260; --line:#22365e;
+  --ink:#e9eef8; --ink-2:#a9b5cc; --ink-3:#7584a0;
+  --gold:#d4a73a; --gold-2:#b8860b; --gold-soft:#f6eccb;
+  --bg:#f4f6fb; --surface:#fff; --text:#14213d; --muted:#5d6b85; --border:#e3e7f0;
+  --blue:#2c55b8; --green:#13865b; --amber:#b8860b; --purple:#6b4fbb; --teal:#0f8a8a; --slate:#5d6b85;
+}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
-/* המעטפת היא סרגל צד קבוע ברוחב 200px (זהה ל-SIDEBAR ב-main.js).
-   הגוף הוא שורה (row) עם שתי עמודות: הסרגל מימין, ושארית החלון משמאל.
-   שארית החלון נשארת ריקה — שם Electron מצייר את תצוגת המודול. */
-body{font-family:"Segoe UI",Heebo,Arial,sans-serif;background:#0d1526;color:#e8edf7;display:flex;flex-direction:row;user-select:none;height:100%}
-/* העמודה הצרה: כל תוכן המעטפת יושב בתוכה, ולא נמתח על כל החלון */
-.side{width:200px;flex:0 0 200px;display:flex;flex-direction:column;height:100%;
-      background:#16203a;border-inline-start:1px solid #243049;box-sizing:border-box}
-/* שארית החלון: ריקה בכוונה — מארחת את המודול. היא רק תופסת מקום ומאפשרת לחיצה. */
-.stage{flex:1 1 auto;min-width:0;background:#0d1526}
-.brand{padding:14px 12px 10px;border-bottom:1px solid #243049;flex:0 0 auto}
-.brand b{display:block;font-size:19px;color:#e6c35c;font-family:"David","Frank Ruhl Libre","Segoe UI",serif;letter-spacing:.3px}
-.brand small{color:#8e9bb5}
-nav{padding:8px;display:flex;flex-direction:column;gap:3px;flex:1 1 auto;min-height:0;overflow-y:auto}
-nav button{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border:0;border-radius:9px;background:transparent;color:inherit;font:inherit;font-size:14px;text-align:right;cursor:pointer;flex:0 0 auto}
-nav button:hover{background:#22304f}
-nav button.on{background:#2b5fd9;color:#fff;box-shadow:0 2px 10px rgba(43,95,217,.35)}
-nav button .i{font-size:18px;width:22px;text-align:center;flex:0 0 auto;line-height:1}
-nav button .t{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 auto}
-nav button .t small{font-size:11px;opacity:.68;line-height:1.2;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-nav button.on .t small{opacity:.85}
-nav button .k{font-size:10px;opacity:.5;flex:0 0 auto}
-/* אזור הכפתורים התחתון: גובה התוכן בלבד (לא נמתח), אחרת הוא "גונב" את רוב גובה הסרגל */
-.bot{padding:8px;border-top:1px solid #243049;display:flex;flex-direction:column;gap:4px;flex:0 0 auto}
-.bot button{padding:7px;border:1px solid #2b3956;border-radius:7px;background:transparent;color:#cfd7e8;font:inherit;font-size:12px;cursor:pointer;flex:0 0 auto;white-space:nowrap}
-.bot button:hover{background:#1c2845}
-.bot small{color:#7b88a3;font-size:10px;text-align:center;flex:0 0 auto;line-height:1.3}
-dialog{background:#1c2845;color:#e8edf7;border:1px solid #2b3956;border-radius:12px;padding:20px;width:340px}
-dialog::backdrop{background:rgba(5,10,20,.6)}
-dialog h3{margin:0 0 6px;font-size:16px}
-dialog p{margin:0 0 12px;color:#8e9bb5;font-size:13px;line-height:1.5}
-dialog input{width:100%;padding:10px;border-radius:8px;border:1px solid #2b3956;background:#111a2e;color:inherit;font:inherit;margin-bottom:10px}
-dialog .row{display:flex;gap:8px;justify-content:flex-start}
-dialog button{padding:9px 14px;border-radius:8px;border:1px solid #2b3956;background:transparent;color:inherit;font:inherit;cursor:pointer}
-dialog button.primary{background:#2b5fd9;border-color:#2b5fd9;color:#fff}
-dialog .err{color:#f87171;font-size:12px;min-height:16px}
-dialog select{width:100%;padding:10px;border-radius:8px;border:1px solid #2b3956;background:#111a2e;color:inherit;font:inherit;margin-bottom:10px}
-dialog.guide{width:460px;max-height:80vh;overflow:auto;line-height:1.7;font-size:14px}
-dialog.guide h4{margin:14px 0 4px;color:#e6c35c;font-size:14px}
-dialog.guide ul{margin:0;padding-inline-start:18px;color:#cfd7e8}
-dialog.guide kbd{background:#111a2e;border:1px solid #2b3956;border-radius:5px;padding:1px 6px;font-size:12px}
+/* המעטפת: סרגל צד ברוחב 264px (זהה ל-SIDEBAR ב-main.js) + במה.
+   כשמודול פעיל, Electron מצייר אותו מעל הבמה; כשאין — הבמה מציגה את מסך הבית. */
+body{font-family:"Segoe UI",Heebo,Arial,sans-serif;display:flex;flex-direction:row;height:100%;
+     background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+.side{width:264px;flex:0 0 264px;display:flex;flex-direction:column;height:100%;user-select:none;color:var(--ink);
+      background:linear-gradient(180deg,var(--navy-2) 0%,var(--navy-1) 55%,var(--navy-0) 100%);
+      border-inline-start:1px solid var(--line);position:relative}
+.side::before{content:"";position:absolute;inset:0;pointer-events:none;
+      background:radial-gradient(420px 220px at 100% 0%,rgba(212,167,58,.14),transparent 70%)}
+.stage{flex:1 1 auto;min-width:0;overflow-y:auto}
+
+/* ---- מותג ---- */
+.brand{display:flex;align-items:center;gap:11px;padding:18px 16px 14px;position:relative}
+.mark{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:19px;color:var(--navy-1);
+      background:linear-gradient(135deg,#f3d27a,var(--gold) 55%,var(--gold-2));box-shadow:0 4px 14px rgba(212,167,58,.35)}
+.brand b{display:block;font-size:18px;letter-spacing:.3px;font-family:"David","Frank Ruhl Libre","Segoe UI",serif;color:#fff}
+.brand small{display:block;color:var(--ink-3);font-size:11.5px;margin-top:1px}
+
+/* ---- חיפוש ---- */
+.search{margin:2px 14px 10px;position:relative}
+.search input{width:100%;padding:9px 34px 9px 54px;border-radius:10px;border:1px solid var(--line);
+      background:rgba(255,255,255,.06);color:var(--ink);font:inherit;font-size:13px;outline:none;transition:.15s}
+.search input::placeholder{color:var(--ink-3)}
+.search input:focus{border-color:var(--gold);background:rgba(255,255,255,.1);box-shadow:0 0 0 3px rgba(212,167,58,.18)}
+.search .glass{position:absolute;right:11px;top:50%;transform:translateY(-50%);color:var(--ink-3);font-size:14px;pointer-events:none}
+.search kbd{position:absolute;left:9px;top:50%;transform:translateY(-50%);font:600 10px "Segoe UI",sans-serif;color:var(--ink-3);
+      border:1px solid var(--line);border-radius:5px;padding:2px 5px;background:rgba(0,0,0,.15);pointer-events:none}
+
+/* ---- ניווט ---- */
+nav{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 10px 12px;position:relative}
+nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:6px}
+.grp{margin-top:12px}
+.grp-t{font-size:10.5px;font-weight:700;letter-spacing:.6px;color:var(--ink-3);padding:0 10px 5px}
+.it{position:relative;display:flex;align-items:center;gap:10px;width:100%;padding:7px 10px;margin:1px 0;border:0;border-radius:9px;
+    background:transparent;color:var(--ink-2);font:inherit;font-size:13.5px;text-align:right;cursor:pointer;transition:background .12s,color .12s}
+.it:hover{background:rgba(255,255,255,.06);color:#fff}
+.it .ic{width:26px;height:26px;flex:0 0 26px;border-radius:7px;display:grid;place-items:center;font-size:14px;background:rgba(255,255,255,.06)}
+.it .nm{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it.on{background:linear-gradient(270deg,rgba(212,167,58,.2),rgba(212,167,58,.05));color:#fff;font-weight:600}
+.it.on::before{content:"";position:absolute;right:-10px;top:7px;bottom:7px;width:3px;border-radius:3px 0 0 3px;background:var(--gold)}
+.it.on .ic{background:var(--gold);color:var(--navy-1)}
+.it.home{margin-top:2px}
+.none{color:var(--ink-3);font-size:12.5px;padding:18px 10px;text-align:center}
+
+/* ---- תחתית ---- */
+.bot{padding:10px 12px 12px;border-top:1px solid var(--line);position:relative;background:rgba(0,0,0,.12)}
+.tools{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+.tools button{height:34px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink-2);font-size:15px;cursor:pointer;transition:.12s}
+.tools button:hover{background:rgba(255,255,255,.08);color:#fff;border-color:var(--line)}
+.bot small{display:block;margin-top:8px;color:var(--ink-3);font-size:10.5px;text-align:center;line-height:1.4}
+
+/* ---- מסך הבית ---- */
+.hero{position:relative;padding:34px 44px 70px;color:#fff;overflow:hidden;
+      background:linear-gradient(135deg,var(--navy-2) 0%,var(--navy-3) 60%,#24447e 100%)}
+.hero::after{content:"";position:absolute;inset:0;pointer-events:none;
+      background:radial-gradient(520px 260px at 8% 120%,rgba(212,167,58,.28),transparent 70%),
+                 radial-gradient(380px 200px at 95% -30%,rgba(255,255,255,.10),transparent 70%)}
+.bsd{position:absolute;top:12px;left:18px;font-size:12px;color:rgba(255,255,255,.7);font-family:"David",serif}
+.hero h1{margin:0;font-family:"David","Frank Ruhl Libre",serif;font-weight:700;font-size:34px;letter-spacing:.3px;position:relative;z-index:1}
+.hero .dates{margin-top:6px;color:#c8d3ea;font-size:14px;position:relative;z-index:1}
+.hero .dates b{color:var(--gold);font-weight:600}
+.cta{margin-top:20px;display:flex;align-items:center;gap:10px;max-width:520px;padding:11px 14px;border-radius:12px;cursor:pointer;position:relative;z-index:1;
+     background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:#dfe6f5;font:inherit;font-size:14px;text-align:right;transition:.15s}
+.cta:hover{background:rgba(255,255,255,.16);border-color:rgba(212,167,58,.6)}
+.cta span{flex:1}
+.cta kbd{font:600 11px "Segoe UI",sans-serif;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:2px 7px;color:#fff}
+.body{padding:26px 44px 48px;max-width:1280px}
+.sec{margin-bottom:28px}
+.sec h2{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-size:15px;font-weight:700;color:var(--text)}
+.sec h2::before{content:"";width:4px;height:16px;border-radius:2px;background:var(--hue,var(--gold))}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(218px,1fr));gap:12px}
+.card{display:flex;align-items:flex-start;gap:12px;padding:14px;border-radius:14px;cursor:pointer;text-align:right;font:inherit;color:inherit;
+      background:var(--surface);border:1px solid var(--border);box-shadow:0 1px 2px rgba(20,33,61,.04);
+      transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease}
+.card:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--hue) 40%,var(--border));
+      box-shadow:0 2px 4px rgba(20,33,61,.05),0 14px 30px rgba(20,33,61,.10)}
+.card:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.card .ic{width:40px;height:40px;flex:0 0 40px;border-radius:11px;display:grid;place-items:center;font-size:19px;
+      background:color-mix(in srgb,var(--hue) 12%,#fff);color:var(--hue);border:1px solid color-mix(in srgb,var(--hue) 22%,#fff)}
+.card b{display:block;font-size:14.5px;font-weight:600}
+.card small{display:block;margin-top:2px;color:var(--muted);font-size:12.5px;line-height:1.45}
+.recent .cards{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.recent .card{padding:11px 12px;align-items:center}
+.recent .card .ic{width:32px;height:32px;flex-basis:32px;font-size:16px}
+.hue-blue{--hue:var(--blue)} .hue-green{--hue:var(--green)} .hue-gold{--hue:var(--amber)}
+.hue-purple{--hue:var(--purple)} .hue-teal{--hue:var(--teal)} .hue-slate{--hue:var(--slate)}
+.foot{color:var(--muted);font-size:12px;margin-top:8px}
+
+/* ---- תאריך עברי בסרגל ---- */
+.brand .hd{margin-inline-start:auto;font-size:11px;color:var(--gold);font-family:"David",serif;white-space:nowrap}
+
+/* ---- כרטיס "היום": מועדים, זמנים ושבת ---- */
+.day{position:relative;display:flex;gap:14px;flex-wrap:wrap;margin:-44px 0 26px;padding:16px 18px;border-radius:16px;z-index:2;
+     background:var(--surface);border:1px solid var(--border);box-shadow:0 2px 4px rgba(20,33,61,.05),0 18px 40px rgba(20,33,61,.10)}
+.day-col{flex:1 1 280px;min-width:0}
+.day-col.shab{border-inline-start:1px solid var(--border);padding-inline-start:16px}
+.day-t{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.3px;margin-bottom:8px}
+.shab .day-t{color:var(--gold-2)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chip{font-size:12.5px;padding:3px 10px;border-radius:999px;background:#f1f4fa;color:#33415e;border:1px solid var(--border)}
+.chip.yomtov,.chip.holiday{background:#fbf3dc;border-color:#ecd9a0;color:#7a5a09}
+.chip.fast{background:#f4f1fb;border-color:#ddd3f3;color:#563d9b}
+.chip.rosh-chodesh,.chip.chol-hamoed,.chip.erev{background:#eaf4ef;border-color:#cbe6d8;color:#13664a}
+.zm{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--muted)}
+.zm b{color:var(--text);font-variant-numeric:tabular-nums;margin-inline-start:4px}
+.zm.big b{font-size:15.5px;color:var(--navy-2)}
+.day-set{position:absolute;top:10px;left:10px;width:30px;height:30px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;font-size:15px}
+.day-set:hover{background:#f3f5fa;border-color:var(--border)}
+dialog label.chk{display:flex;align-items:center;gap:8px;font-size:13.5px;margin:4px 0 10px;cursor:pointer}
+dialog label.chk input{width:auto;margin:0}
+dialog .lbl{display:block;font-size:12.5px;color:var(--muted);margin-bottom:4px}
+
+/* ---- מצב שבת ---- */
+#shabbat{display:none}
+body.shabbat #shabbat{display:flex;position:fixed;inset:0;z-index:50;align-items:center;justify-content:center;flex-direction:column;text-align:center;
+     color:#f6eccb;background:radial-gradient(900px 500px at 50% 30%,#1d3567 0%,#0f1a30 60%,#0b1426 100%)}
+#shabbat .cnd{font-size:54px;letter-spacing:22px;margin-bottom:12px;filter:drop-shadow(0 0 18px rgba(212,167,58,.55))}
+#shabbat h1{margin:0;font-family:"David","Frank Ruhl Libre",serif;font-size:54px;font-weight:700;color:#f3d27a}
+#shabbat p{margin:10px 0 0;font-size:17px;color:#c8d3ea}
+#shabbat small{margin-top:34px;font-size:12.5px;color:#7584a0;max-width:420px;line-height:1.6}
+
+/* ---- דיאלוגים ---- */
+dialog{background:#fff;color:var(--text);border:1px solid var(--border);border-radius:16px;padding:24px;width:380px;
+       box-shadow:0 24px 64px rgba(15,26,48,.35)}
+dialog::backdrop{background:rgba(11,20,38,.55);backdrop-filter:blur(3px)}
+dialog h3{margin:0 0 6px;font-size:18px;font-family:"David","Frank Ruhl Libre",serif;color:var(--navy-2)}
+dialog p{margin:0 0 14px;color:var(--muted);font-size:13.5px;line-height:1.55}
+dialog input,dialog select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#fbfcfe;color:inherit;font:inherit;margin-bottom:10px;outline:none}
+dialog input:focus,dialog select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(44,85,184,.15)}
+dialog .row{display:flex;gap:8px;justify-content:flex-start;margin-top:4px}
+dialog button{padding:9px 16px;border-radius:10px;border:1px solid var(--border);background:#fff;color:inherit;font:inherit;cursor:pointer}
+dialog button:hover{background:#f3f5fa}
+dialog button.primary{background:linear-gradient(180deg,#2f5bc4,var(--blue));border-color:var(--blue);color:#fff;font-weight:600}
+dialog button.primary:hover{background:#24479e}
+dialog .err{color:#c43c3c;font-size:12.5px;min-height:16px}
+dialog.guide{width:520px;max-height:80vh;overflow:auto;line-height:1.75;font-size:14px}
+dialog.guide h4{margin:16px 0 4px;color:var(--gold-2);font-size:14px}
+dialog.guide ul{margin:0;padding-inline-start:18px;color:#33415e}
+dialog.guide kbd{background:#f3f5fa;border:1px solid var(--border);border-bottom-width:2px;border-radius:6px;padding:1px 6px;font-size:12px}
 </style>
 </head>
 <body>
 <div class="side">
-  <div class="brand"><b>✦ SuperSuite</b><small>הכול במקום אחד</small></div>
-  <nav id="nav"></nav>
+  <div class="brand">
+    <div class="mark">✦</div>
+    <div><b>SuperSuite</b><small>כל העבודה שלך — במקום אחד</small></div>
+    <span class="hd" id="sideDate"></span>
+  </div>
+  <div class="search">
+    <span class="glass">⌕</span>
+    <input id="q" type="search" placeholder="חיפוש מהיר..." autocomplete="off" aria-label="חיפוש בכל התוכנה">
+    <kbd>Ctrl K</kbd>
+  </div>
+  <nav id="nav" aria-label="ניווט ראשי"></nav>
   <div class="bot">
-    <button id="bk">⬇ גיבוי כל הנתונים</button>
-    <button id="rs">↥ שחזור מגיבוי</button>
-    <button id="tg">💾 יעד לגיבוי אוטומטי</button>
-    <button id="hp">❓ מדריך וקיצורים (F1)</button>
-    <button id="hm">⌂ חזרה למסך הראשי</button>
-    <button id="qt">⏻ יציאה מהמערכת</button>
+    <div class="tools">
+      <button id="hm" title="מסך הבית">⌂</button>
+      <button id="bk" title="גיבוי מוצפן (Ctrl+Shift+B)">⬇</button>
+      <button id="rs" title="שחזור מגיבוי (Ctrl+Shift+R)">↥</button>
+      <button id="tg" title="יעד לגיבוי אוטומטי (למשל USB)">💾</button>
+      <button id="hp" title="מדריך וקיצורים (F1)">?</button>
+      <button id="qt" title="יציאה מהמערכת">⏻</button>
+    </div>
     <small id="tgInfo">הנתונים נשמרים במחשב שלך בלבד</small>
   </div>
 </div>
-<!-- שארית החלון: Electron מצייר כאן את תצוגת המודול (main.js: layout) -->
-<div class="stage"></div>
+<!-- הבמה: מסך הבית. כשפריט פתוח, Electron מצייר אותו מעליה (main.js: layout) -->
+<main class="stage" id="home">
+  <section class="hero">
+    <div class="bsd">בס״ד</div>
+    <h1 id="greet">שלום</h1>
+    <div class="dates" id="dates"></div>
+    <button class="cta" id="cta" type="button"><span>⌕&nbsp; מה תרצה לעשות? חפש חשבונית, משכנתא, משימה...</span><kbd>Ctrl K</kbd></button>
+  </section>
+  <div class="body">
+    <section class="day" id="day" aria-label="היום"></section>
+    <section class="sec recent" id="recentSec" hidden>
+      <h2>המשך מאיפה שעצרת</h2>
+      <div class="cards" id="recent"></div>
+    </section>
+    <div id="groups"></div>
+    <div class="foot">כל הנתונים נשמרים במחשב שלך ומגובים בהצפנה. אין צורך בחיבור לרשת.</div>
+  </div>
+</main>
 <dialog id="pp">
   <form method="dialog" id="ppForm">
     <h3 id="ppTitle"></h3>
     <p id="ppText"></p>
     <select id="ppScope" hidden>
-      <option value="all">כל המערכת (כל המודולים)</option>
-      <option value="econ">המערכת הכלכלית בלבד</option>
-      <option value="shamai">שמאי בלבד</option>
-      <option value="trainer">TrainerPro בלבד</option>
+      <option value="all">כל התוכנה (מומלץ)</option>
+      <option value="econ">כספים, משכנתאות, ארגון ובריאות</option>
+      <option value="shamai">שמאות נכסים בלבד</option>
+      <option value="trainer">ניהול אימונים בלבד</option>
       <option value="tools">ארגז כלים בלבד</option>
     </select>
     <input id="ppInput" type="password" autocomplete="new-password">
@@ -86,8 +219,13 @@ dialog.guide kbd{background:#111a2e;border:1px solid #2b3956;border-radius:5px;p
 </dialog>
 <dialog id="guide" class="guide">
   <h3>מדריך מהיר</h3>
-  <h4>ניווט בין מודולים</h4>
-  <ul><li><kbd>Ctrl</kbd>+<kbd>1</kbd> עד <kbd>4</kbd> — מעבר בין המודולים</li></ul>
+  <h4>ניווט</h4>
+  <ul>
+    <li>כל הפעולות של התוכנה מופיעות בסרגל הימני, מחולקות לפי תחומים.</li>
+    <li><kbd>Ctrl</kbd>+<kbd>K</kbd> — חיפוש מהיר; הקלד כמה אותיות ולחץ <kbd>Enter</kbd>.</li>
+    <li><kbd>Esc</kbd> בתוך החיפוש — ניקוי.</li>
+    <li>⌂ בתחתית הסרגל — חזרה למסך הבית.</li>
+  </ul>
   <h4>תצוגה</h4>
   <ul>
     <li><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd> — הגדלה והקטנה של הטקסט</li>
@@ -95,19 +233,44 @@ dialog.guide kbd{background:#111a2e;border:1px solid #2b3956;border-radius:5px;p
   </ul>
   <h4>גיבוי ושחזור</h4>
   <ul>
-    <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> — גיבוי מוצפן (כל המערכת או מודול בודד)</li>
+    <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> — גיבוי מוצפן (כל התוכנה או חלק ממנה)</li>
     <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> — שחזור מגיבוי</li>
     <li>גיבוי אוטומטי יומי מוצפן ליעד שבחרת (למשל כונן USB). אם הכונן לא מחובר, הגיבוי מדולג.</li>
     <li>הגיבוי מוצפן בסיסמה שתבחר. בלי הסיסמה לא ניתן לשחזר — שמור אותה במקום בטוח.</li>
   </ul>
-  <h4>מערכת כלכלית</h4>
+  <h4>כספים</h4>
   <ul>
-    <li>כל פעולה דורשת כניסה. הכניסה מתנתקת אחרי 15 דקות ללא פעילות.</li>
-    <li>הוצאות אישיות/משפחתיות נשמרות בנפרד מהיומן העסקי ואינן נכנסות לדוחות העסק.</li>
+    <li>כל פעולה דורשת כניסה. הכניסה מתנתקת אחרי זמן ללא פעילות (ניתן לשנות בהגדרות).</li>
+    <li>הוצאות הבית נשמרות בנפרד מהיומן העסקי ואינן נכנסות לדוחות העסק.</li>
     <li>ייבוא מחירון מקובץ CSV: עמודות <b>name</b>, <b>kind</b>, <b>cost</b>, <b>markupPct</b>, <b>vatExempt</b>.</li>
   </ul>
   <div class="row"><button type="button" class="primary" id="guideOk">סגור</button></div>
 </dialog>
+<dialog id="calDlg">
+  <form method="dialog" id="calForm">
+    <h3>לוח עברי וזמני שבת</h3>
+    <p>הזמנים מחושבים במחשב לפי העיר, בלי חיבור לרשת. כדאי לוודא אותם מול לוח מקומי.</p>
+    <span class="lbl">עיר</span>
+    <select id="calCity"></select>
+    <span class="lbl">הדלקת נרות — דקות לפני השקיעה</span>
+    <input id="calCandles" type="number" min="0" max="60" step="1">
+    <label class="chk"><input type="checkbox" id="calShabbat"> מצב שבת: בשבת וביום טוב התוכנה מציגה מסך מנוחה ולא מבצעת פעולות אוטומטיות</label>
+    <label class="chk"><input type="checkbox" id="calDiaspora"> חוץ לארץ (יום טוב שני)</label>
+    <div class="row">
+      <button type="submit" class="primary">שמירה</button>
+      <button type="button" id="calCancel">ביטול</button>
+    </div>
+  </form>
+</dialog>
+<div id="shabbat" role="status" aria-live="polite">
+  <div class="cnd">🕯🕯</div>
+  <h1 id="shTitle">שבת שלום</h1>
+  <p id="shName"></p>
+  <p id="shEnd"></p>
+  <small>מצב שבת פעיל: התוכנה אינה מבצעת פעולות אוטומטיות. ניתן לכבות אותו בהגדרות הלוח (⚙ במסך הבית).</small>
+</div>
+<script src="hebcal.js"></script>
+<script src="catalog.js"></script>
 <script src="shell.js"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@
 
 ## מה זה הפרויקט
 
-**SuperSuite** — חבילת עבודה שולחנית (Electron) שמאחדת ארבעה מודולים תחת מעטפת אחת:
+**SuperSuite** — תוכנה שולחנית (Electron). למשתמש היא נראית כתוכנה אחת עם סרגל אחד; בפנים היא מורכבת מארבעה מודולים:
 
 | מזהה | מודול | תיאור |
 |------|-------|--------|
@@ -24,7 +24,7 @@
 
 ```bash
 npm start          # הרצת האפליקציה בפיתוח (run-electron.js — עובד גם בלי path.txt של electron)
-npm test           # הרצת 179 בדיקות (node --test)
+npm test           # הרצת כל הבדיקות בתיקיית tests (node --test "tests/*.test.js")
 npm run dist       # בניית מתקין NSIS + portable ל-Windows
 npm run dist:local # בנייה מהמטמון המקומי בלבד (בלי הורדות) — מומלץ בסביבה מסוננת
 npm run dist:check # בדיקה מה קיים מקומית לבנייה, בלי לבנות
@@ -65,17 +65,22 @@ python -m unittest test_encryption -v
 - **`MODS`** (שורה ~10) — רשימת המזהים המותרים. כל ניווט מאומת מולה.
 - **`shell/nav-guard.js`** — כללי ההרשאה למעבר בין מודולים (`shell:switch` למעטפת בלבד, `shell:open-module` לתצוגות מודול). נבדק בטסטים.
 - **`ENTRY`** — נתיבי הכניסה למודול (`app://econ/views/index.html` וכו').
-- **`SIDEBAR = 200`** — רוחב סרגל הצד. חייב להישאר מסונכרן עם `.side{width:200px}` ב-`shell/shell.html`.
+- **`SIDEBAR = 264`** — רוחב סרגל הצד. חייב להישאר מסונכרן עם `.side{width:264px}` ב-`shell/shell.html`.
+- **`shell/catalog.js`** — מקור אמת יחיד לכל פריטי הסרגל (תחום → פריט → מודול/תצוגה). `ECON_VIEWS` נגזר ממנו ו-`main.js` מאמת מולו. **תצוגה חדשה במודול הכלכלי חייבת להתווסף גם לקטלוג** (נבדק ב-`tests/catalog.test.js`).
+- **`shell:open`** (מעטפת בלבד) — פותח מודול ובמודול הכלכלי גם תצוגה (`econ:goto`). **`shell:overlay`** — מסתיר את המודול בזמן דיאלוג במעטפת. **`shell:econ-view`** — המודול הכלכלי מדווח על התצוגה הפעילה לסימון בסרגל.
+- המודול הכלכלי נטען עם `?embedded=1` ומסתיר את הסרגל הפנימי שלו (`.embedded aside`).
 - **`registerProtocol()`** — מגיש קבצים מ-`modules/<mod>/` בלבד. חוסם path traversal אחרי `path.normalize`.
 - **`ensureView(id)`** — יוצר `WebContentsView` עצלן עם `contextIsolation:true, nodeIntegration:false, sandbox:true`.
 - **`switchTo` / `goHome`** — ניווט בין מודולים. `goHome` מסתיר את כולם ומחזיר למסך הראשי.
-- **`handleShortcut()`** — Ctrl+1..4 (ניווט), Ctrl+=/-/0 (זום), F1 (מדריך), Ctrl+Shift+B/R (גיבוי/שחזור).
+- **`handleShortcut()`** — Ctrl+1..4 (ניווט), Ctrl+K (חיפוש), Ctrl+=/-/0 (זום), F1 (מדריך), Ctrl+Shift+B/R (גיבוי/שחזור).
 
 ### מעטפת — `shell/`
 | קובץ | תפקיד |
 |------|--------|
 | `shell.html` | סרגל צד, מסך ראשי, דיאלוגים (סיסמה, מדריך). כולל CSP מחמיר. |
-| `shell.js` | בניית רשימת המודולים, טיפול בגיבוי/שחזור, זיהוי יעד גיבוי |
+| `catalog.js` | קטלוג התחומים והפריטים — מקור הסרגל, מסך הבית והחיפוש |
+| `hebcal.js` | לוח עברי (ICU מובנה), מועדים ודחיית צומות, זמני היום לפי עיר, מצב שבת/יו"ט. משותף ל-main.js ולמעטפת. הגדרות ב-`ui-settings.json` → `calendar` (ערוצי `shell:get-calendar` / `shell:save-calendar`). **במצב שבת אין פעולות אוטומטיות** — הגיבוי האוטומטי נדחה (`reason: 'shabbat'`) |
+| `shell.js` | סרגל אחיד, מסך בית, חיפוש, אחרונים, גיבוי/שחזור, זיהוי יעד גיבוי |
 | `preload.js` | חשיפת `window.shellAPI` מעל `contextBridge` |
 
 ### מודול כלכלי — `modules/econ/`
@@ -90,6 +95,8 @@ python -m unittest test_encryption -v
 | `core/dataPorts.js` | ייבוא/ייצוא כללי (CSV + vCard) לכל סוגי הנתונים, ולידציה וכפילויות |
 | `services/*.js` | שירותים עסקיים — כל אחד מאותחל דרך `initializeAsync(db)` |
 | `core/npo.js` + `services/npoService.js` | עמותה: קבלות סעיף 46, קרנות, תמיכות, דוח שנתי. ערוצי `npo:*`. **נפרד מהיומן העסקי** |
+| `core/gemach.js` + `services/gemachService.js` | גמ"ח: הלוואות ללא ריבית, ערבים, לוח סילוקין באגורות (שארית לתשלום האחרון, תאריכים ב-UTC), תשלומים חלקיים, הפקדות, פיגורים ורמת רישוי להערכה. ערוצי `gemach:*`. אוסף `gemach`. **נפרד מהעמותה ומהיומן העסקי** |
+| `core/chesed.js` + `services/chesedService.js` | חסד וחלוקות: נזקקים (רמת חיסיון), מתנדבים (מחלקות none/men/women), סבבי חלוקה — שיוך לפי משפחה/גודל, שיבוץ לפי מחלקת הסבב, מסירה, סגירה. ערוצי `chesed:*`. אוסף `chesed`. **נזקק חסוי מוסתר בצד השרת (`maskBeneficiary`) לכל מי שאין לו `users.manage` — כולל בייצוא** |
 | `core/mortgageAdvisor.js` + `services/mortgageAdvisorService.js` | ייעוץ משכנתאות: תיקים, מסלולים ולוח סילוקין באגורות, השוואה, עמלה, מסמכים. ערוצי `madv:*` |
 | `core/mixEngine.js` + `core/mortgageRules.js` + `services/mortgageLabService.js` | מעבדת תמהיל (הועבר מ-tamhil): 7 סוגי מסלולים, פריים לפי מסלול ריבית, משתנה לפי עוגן, גרייס, בדיקות 329, סלים אחידים, כושר החזר, מחזור, השוואת אישורים, עמלת פירעון, אופטימייזר ושימור. ערוצי `mlab:*`. אוסף `mortgageLab`. אימות כלל — `users.manage` בלבד |
 
@@ -140,8 +147,8 @@ python -m unittest test_encryption -v
 ## בדיקות
 
 - מסגרת: `node --test`. אין Jest/Vitest — רק מודול `test` המובנה.
-- **179 בדיקות** ב-`tests/`, כולן חייבות לעבור לפני סיום עבודה.
-- קבצים עיקריים: `accounting`, `integration`, `ipc-guard`, `exports`, `backupCrypto`, `pricing`, `regressions`, `security`, `features`, `regressions-r2`, `tools-calc`, `nav-guard`, `main-behavior`, `shell-ui`, `ui-nav`, `fitness-view`.
+- **כל קובץ `tests/*.test.js` רץ אוטומטית** ב-`npm test` — אין צורך לרשום קובץ חדש ב-package.json. כולן חייבות לעבור לפני סיום עבודה.
+- קבצים עיקריים: `accounting`, `integration`, `ipc-guard`, `exports`, `backupCrypto`, `pricing`, `regressions`, `security`, `features`, `regressions-r2`, `tools-calc`, `nav-guard`, `main-behavior`, `shell-ui`, `ui-nav`, `fitness-view`, `catalog`, `npo`, `gemach`, `chesed`, `chesed-gemach-view`.
 - כל תיקון באג חייב לקבל בדיקת רגרסיה מלווה.
 - בדיקות ה-UI מריצות את הרינדור ב-Chromium עם API מדומה (ללא שגיאות JS).
 - `tests/main-behavior.test.js` טוען את `main.js` האמיתי עם Electron מדומה — הבדיקות שם בודקות התנהגות, לא טקסט.
@@ -189,6 +196,21 @@ tests/                   — בדיקות
 4. **שינוי ב-UI?** ודא שה-CSP לא נשבר ושה-RTL נשמר.
 5. **שינוי בגיבוי?** ודא שההצפנה לא נפגעת ואתה לא כותב טקסט גלוי.
 6. **commit** — היסטוריה בעברית, עם attribution של Claude Code בסוף ההודעה.
+
+---
+
+## הוספת מסך חדש — חובה לסנכרון (גם בעבודה מקבילה מכמה סשנים)
+
+התוכנה מוצגת למשתמש כ**תוכנה אחת** עם סרגל אחד (`shell/`). מסך חדש במודול הכלכלי:
+
+1. כפתור ב-`modules/econ/views/index.html` (`<button class="nav" data-view="...">אייקון <span>שם</span></button>`), כותרת ב-`viewTitles` וטעינה/רינדור ב-`unified-ui.js`.
+2. **פריט בקטלוג** `shell/catalog.js` בתחום המתאים (כספים / משק בית ותכנון / משכנתאות ונדל"ן / ארגון ועבודה / בריאות וכושר / מערכת), עם `icon`, `name`, `desc` בעברית.
+3. ערוצי IPC חדשים — דרך `handle()` ב-`ipc.js` בלבד, וחשיפה ב-`modules/econ/preload.js`.
+4. קובץ בדיקות `tests/<name>.test.js` — נאסף אוטומטית.
+
+**רשת ביטחון:** מסך ששלב 2 נשכח בו לא נעלם — `catalog.extrasFromHtml` מזהה אותו מהסרגל הפנימי ו-`main.js` מציג אותו בסרגל האחיד תחת "נוספו לאחרונה". אבל `tests/catalog.test.js` ייכשל עד שיתווסף לקטלוג במקומו הנכון — זו התזכורת.
+
+**עבודה מקבילה:** לפני עריכה של `shell/catalog.js`, `main.js`, `preload.js` או `unified-ui.js` — קרא את הגרסה העדכנית מהדיסק (ייתכן שסשן אחר שינה אותה), ערוך בעריכה נקודתית ולא בכתיבה מחדש של הקובץ כולו, והרץ `npm test` בסוף.
 
 ---
 

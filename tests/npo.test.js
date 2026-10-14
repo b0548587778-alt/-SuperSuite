@@ -80,8 +80,8 @@ test('קרן שהוסרה מההגדרות אך יש לה תנועות — נש�
 test('דוח שנתי: תורמים גדולים לפי סף, תמיכות לפי גורם, ותורם מזוהה לפי ת.ז', () => {
   const s = { ...SETTINGS, largeDonorThreshold: 1000 };
   const donations = [
-    { date: '2026-02-01', donorName: 'יעקב לוי', donorId: '123456789', amount: 600, method: 'transfer', fundId: 'general', receipt: { sec46: true } },
-    { date: '2026-05-01', donorName: 'יעקב לוי (שם מעודכן)', donorId: '123456789', amount: 600, method: 'cash', fundId: 'general', receipt: { sec46: false } },
+    { date: '2026-02-01', donorName: 'יעקב לוי', donorId: '123456782', amount: 600, method: 'transfer', fundId: 'general', receipt: { sec46: true } },
+    { date: '2026-05-01', donorName: 'יעקב לוי (שם מעודכן)', donorId: '123456782', amount: 600, method: 'cash', fundId: 'general', receipt: { sec46: false } },
     { date: '2026-06-01', donorName: 'אברהם שטרן', amount: 50, method: 'cash', fundId: 'general', receipt: { sec46: true } }
   ];
   const grants = [

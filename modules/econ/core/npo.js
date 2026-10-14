@@ -5,6 +5,7 @@
 const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
 const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+const { assertIsraeliId, isValidIsraeliId } = require('./israeliId');
 const str = (v, max, label) => {
   const s = String(v ?? '').trim();
   if (s.length > max) throw new Error(`${label} ארוך מדי (עד ${max} תווים)`);
@@ -100,7 +101,7 @@ function validateDonation(input, settings, count = 0) {
   const donorName = str(input.donorName, 200, 'שם התורם');
   if (!donorName) throw new Error('שם התורם חובה');
   const donorId = str(input.donorId, 12, 'מספר הזהות');
-  if (donorId && !/^\d{5,9}$/.test(donorId)) throw new Error('מספר זהות / ח"פ של התורם חייב להכיל 5–9 ספרות');
+  assertIsraeliId(donorId, 'מספר זהות / ח"פ של התורם');
   const amount = Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new Error('סכום התרומה אינו תקין');
   const method = METHODS[input.method] ? input.method : 'transfer';
@@ -136,7 +137,23 @@ function issueReceipt(donation, settings) {
   };
 }
 
-function validateGrant(input) {
+// רשימת מסמכים לתמיכה: שורה לכל מסמך. מסמך שכבר סומן כ"הוגש" שומר את הסימון לפי שמו
+function parseDocuments(text, prev = []) {
+  const done = new Map((Array.isArray(prev) ? prev : []).map(d => [d.name, !!d.done]));
+  const names = String(text ?? '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (names.length > 50) throw new Error('ניתן להגדיר עד 50 מסמכים לתמיכה');
+  const seen = new Set();
+  const out = [];
+  for (const name of names) {
+    if (name.length > 150) throw new Error('שם מסמך ארוך מדי');
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, done: done.get(name) || false });
+  }
+  return out;
+}
+
+function validateGrant(input, prevDocuments = []) {
   if (!input || typeof input !== 'object') throw new Error('רשומה לא תקינה');
   const source = str(input.source, 200, 'הגורם המממן');
   if (!source) throw new Error('הגורם המממן (משרד/רשות) חובה');
@@ -149,8 +166,15 @@ function validateGrant(input) {
     if (!Number.isFinite(v) || v < 0 || v > 1e10) throw new Error(`${label} אינו תקין`);
   }
   const status = GRANT_STATUSES[input.status] ? input.status : 'requested';
+  const deadline = str(input.deadline, 10, 'מועד ההגשה');
+  if (deadline && !isDate(deadline)) throw new Error('מועד ההגשה אינו תאריך תקין');
+  const matchingPercent = input.matchingPercent === '' || input.matchingPercent == null ? 0 : Number(input.matchingPercent);
+  if (!Number.isFinite(matchingPercent) || matchingPercent < 0 || matchingPercent > 100) throw new Error('אחוז המימון התואם חייב להיות בין 0 ל-100');
+  const documents = typeof input.documentsText === 'string'
+    ? parseDocuments(input.documentsText, prevDocuments)
+    : (Array.isArray(input.documents) ? input.documents.filter(d => d && d.name).map(d => ({ name: String(d.name).slice(0, 150), done: !!d.done })) : []);
   return {
-    source, program, year, status,
+    source, program, year, status, deadline, matchingPercent, documents,
     fundId: input.fundId || GENERAL_FUND.id,
     approved: fromAg(toAg(approved)), received: fromAg(toAg(received)),
     reference: str(input.reference, 60, 'מספר תיק'),
@@ -230,6 +254,72 @@ function annualReport(donations, grants, settings, year) {
   };
 }
 
+// ---------- תמיכות: התראות ומימון תואם ----------
+// מימון תואם = החלק שהעמותה צריכה לגייס בעצמה מתוך הסכום שאושר
+const matchingRequired = (g) => fromAg(Math.round(toAg(g.approved) * (Number(g.matchingPercent) || 0) / 100));
+
+function grantAlerts(grants, today, days = 30) {
+  const limit = new Date(Date.parse(today) + days * 86400000).toISOString().slice(0, 10);
+  return grants
+    .filter(g => g.status === 'requested' || g.status === 'approved')
+    .map(g => {
+      const docs = Array.isArray(g.documents) ? g.documents : [];
+      const missing = docs.filter(d => !d.done).length;
+      const overdue = !!(g.deadline && g.deadline < today && g.status === 'requested');
+      const soon = !!(g.deadline && g.deadline >= today && g.deadline <= limit);
+      return { id: g.id, source: g.source, program: g.program, deadline: g.deadline || '', overdue, soon, missingDocuments: missing, matchingRequired: matchingRequired(g) };
+    })
+    .filter(a => a.overdue || a.soon || (a.missingDocuments > 0 && a.deadline))
+    .sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
+}
+
+// ---------- דיווח לרשות המסים ("תרומות ישראל") ----------
+// מאז 1.1.2026 עמותה עם אישור סעיף 46 מדווחת על כל תרומה, כולל ביטולים, ומקבלת מספר רישום.
+// כאן נשמר רק מעקב: מה דווח, מה ממתין, ומה בוטל אחרי שדווח. הדיווח עצמו נעשה במערכת רשות המסים.
+const TAX_STATUSES = {
+  pending: 'ממתין לדיווח', reported: 'דווח', 'cancel-pending': 'ביטול ממתין לדיווח',
+  'cancel-reported': 'ביטול דווח', 'not-required': 'לא נדרש'
+};
+
+function taxStatus(d) {
+  const t = d.taxReport || {};
+  if (!(d.receipt && d.receipt.sec46)) return 'not-required';
+  if (d.status === 'cancelled') {
+    if (!t.registrationNumber) return 'not-required'; // בוטלה לפני שדווחה — אין מה לבטל
+    return t.cancelReportedAt ? 'cancel-reported' : 'cancel-pending';
+  }
+  return t.registrationNumber ? 'reported' : 'pending';
+}
+
+// רישום דיווח: לתרומה פעילה — מספר הרישום שהתקבל; לתרומה שבוטלה — אישור שהביטול דווח
+function recordTaxReport(d, input = {}, today) {
+  const st = taxStatus(d);
+  const date = today || new Date().toISOString().slice(0, 10);
+  if (st === 'pending') {
+    const reg = str(input.registrationNumber, 30, 'מספר הרישום');
+    if (!/^[0-9A-Za-z-]{3,30}$/.test(reg)) throw new Error('מספר הרישום מרשות המסים אינו תקין');
+    return { ...d, taxReport: { registrationNumber: reg, reportedAt: date } };
+  }
+  if (st === 'cancel-pending') {
+    return { ...d, taxReport: { ...d.taxReport, cancelReportedAt: date } };
+  }
+  throw new Error(st === 'not-required' ? 'התרומה אינה דורשת דיווח' : 'הדיווח כבר נרשם');
+}
+
+function taxSummary(donations) {
+  const counts = Object.fromEntries(Object.keys(TAX_STATUSES).map(k => [k, 0]));
+  let missingDonorId = 0;
+  let invalidDonorId = 0;
+  for (const d of donations) {
+    const st = taxStatus(d);
+    counts[st] += 1;
+    if (st === 'pending' && !d.donorId) missingDonorId += 1;
+    // נתונים ישנים שנשמרו לפני בדיקת ספרת הביקורת — השיוך ב"תרומות ישראל" ייכשל
+    if (st === 'pending' && d.donorId && !isValidIsraeliId(d.donorId)) invalidDonorId += 1;
+  }
+  return { counts, missingDonorId, invalidDonorId, toReport: counts.pending + counts['cancel-pending'] };
+}
+
 // טבלאות לייצוא CSV (הכותרות בעברית)
 function exportTable(kind, donations, grants, settings, year) {
   const r = annualReport(donations, grants, settings, year);
@@ -241,8 +331,17 @@ function exportTable(kind, donations, grants, settings, year) {
   }
   if (kind === 'grants') {
     const rows = grants.filter(g => Number(g.year) === Number(year))
-      .map(g => [g.year, g.source, g.program, GRANT_STATUSES[g.status] || g.status, g.approved, g.received, g.reference]);
-    return { name: `תמיכות-${year}`, headers: ['שנה', 'גורם מממן', 'תוכנית', 'סטטוס', 'אושר', 'התקבל', 'מס\' תיק'], rows };
+      .map(g => [g.year, g.source, g.program, GRANT_STATUSES[g.status] || g.status, g.approved, g.received, g.reference,
+        g.deadline || '', Number(g.matchingPercent) || 0, matchingRequired(g),
+        (g.documents || []).filter(x => !x.done).map(x => x.name).join('; ')]);
+    return { name: `תמיכות-${year}`, headers: ['שנה', 'גורם מממן', 'תוכנית', 'סטטוס', 'אושר', 'התקבל', 'מס\' תיק', 'מועד הגשה', 'מימון תואם %', 'מימון תואם ₪', 'מסמכים חסרים'], rows };
+  }
+  if (kind === 'tax') {
+    // רשימת עבודה לדיווח ידני — כל השנים, כי דיווח שלא נעשה אינו "נסגר" עם סוף השנה
+    const rows = donations.filter(d => ['pending', 'cancel-pending'].includes(taxStatus(d)))
+      .sort((a, b) => a.receipt.number - b.receipt.number)
+      .map(d => [taxStatus(d) === 'pending' ? 'דיווח תרומה' : 'דיווח ביטול', d.receipt.number, d.date, d.donorName, d.donorId || 'חסר', d.amount, (d.taxReport && d.taxReport.registrationNumber) || '']);
+    return { name: 'דיווח-תרומות-ישראל', headers: ['פעולה', 'מס\' קבלה', 'תאריך', 'תורם', 'ת.ז/ח.פ', 'סכום', 'מס\' רישום קודם'], rows };
   }
   if (kind === 'funds') {
     const rows = r.funds.funds.map(f => [f.name, f.restricted ? 'ייעודי' : 'כללי', f.donations, f.grants, f.total]);
@@ -263,7 +362,8 @@ function exportTable(kind, donations, grants, settings, year) {
 }
 
 module.exports = {
-  GENERAL_FUND, VAT_STATUSES, METHODS, GRANT_STATUSES, DEFAULT_SETTINGS, MAX_DONATIONS, MAX_GRANTS,
+  GENERAL_FUND, VAT_STATUSES, METHODS, GRANT_STATUSES, TAX_STATUSES, DEFAULT_SETTINGS, MAX_DONATIONS, MAX_GRANTS,
+  parseDocuments, matchingRequired, grantAlerts, taxStatus, recordTaxReport, taxSummary,
   normalizeSettings, allFunds, applySettings, sec46Eligible, validateDonation, issueReceipt,
   validateGrant, donorSummary, fundSummary, annualReport, exportTable
 };

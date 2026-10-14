@@ -16,6 +16,8 @@ const { FitnessService: fitnessService } = require('./services/fitnessService');
 const { VoiceNotesService: voiceNotesService } = require('./services/voiceNotesService');
 const { AccountingService: accountingService } = require('./services/accountingService');
 const { NpoService: npoService } = require('./services/npoService');
+const { GemachService: gemachService } = require('./services/gemachService');
+const { ChesedService: chesedService } = require('./services/chesedService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
 const { MortgageLabService: mortgageLabService } = require('./services/mortgageLabService');
 const BK = require('./core/backupCrypto');
@@ -39,6 +41,8 @@ async function initEcon(userDataPath) {
   voiceNotesService.initialize(db);
   accountingService.initialize(db);
   npoService.initialize(db);
+  gemachService.initialize(db);
+  chesedService.initialize(db);
   mortgageAdvisorService.initialize(db);
   mortgageLabService.initialize(db);
   authService.setIdleMinutes(((await db.load()).settings || {}).idleMinutes);
@@ -513,6 +517,16 @@ handle('auth:login', async (event, username, password) => {
     await auditEvent(event, 'npo.grant.update', { id });
     return g;
   });
+  handle('npo:toggleGrantDocument', async (event, id, index) => {
+    const g = await npoService.toggleGrantDocument(id, index);
+    await auditEvent(event, 'npo.grant.document', { id, index });
+    return g;
+  });
+  handle('npo:recordTaxReport', async (event, id, input) => {
+    const d = await npoService.recordTaxReport(id, input || {});
+    await auditEvent(event, 'npo.tax.report', { receipt: d.receipt.number, status: d.taxStatus });
+    return d;
+  });
   handle('npo:deleteGrant', async (event, id) => {
     await npoService.deleteGrant(id);
     await auditEvent(event, 'npo.grant.delete', { id });
@@ -527,6 +541,114 @@ handle('auth:login', async (event, username, password) => {
     const d = await npoService.getDonation(id);
     const r = await saveHtmlAsPdf(X.renderDonationReceiptHtml(d), `קבלה-${d.receipt.number}.pdf`);
     if (r.ok) await auditEvent(event, 'npo.receipt.pdf', { receipt: d.receipt.number });
+    return r;
+  });
+
+  // גמ"ח: הלוואות ללא ריבית, ערבים, לוח סילוקין, הפקדות ופיגורים — נפרד מהעמותה ומהיומן העסקי
+  handle('gemach:getOverview', async (event, asOf) => gemachService.getOverview(asOf));
+  handle('gemach:getLoan', async (event, id) => gemachService.getLoan(id));
+  handle('gemach:saveSettings', async (event, input) => {
+    const saved = await gemachService.saveSettings(input || {});
+    await auditEvent(event, 'gemach.settings.save', { fundName: saved.fundName });
+    return saved;
+  });
+  handle('gemach:addLoan', async (event, input) => {
+    const l = await gemachService.addLoan(input);
+    await auditEvent(event, 'gemach.loan.add', { id: l.id, amount: l.amount });
+    return l;
+  });
+  handle('gemach:recordPayment', async (event, loanId, seq, input) => {
+    const l = await gemachService.recordPayment(loanId, seq, input || {});
+    await auditEvent(event, 'gemach.loan.payment', { id: loanId, seq });
+    return l;
+  });
+  handle('gemach:cancelLoan', async (event, loanId) => {
+    const l = await gemachService.cancelLoan(loanId);
+    await auditEvent(event, 'gemach.loan.cancel', { id: loanId });
+    return l;
+  });
+  handle('gemach:addDeposit', async (event, input) => {
+    const d = await gemachService.addDeposit(input);
+    await auditEvent(event, 'gemach.deposit.add', { id: d.id, amount: d.amount });
+    return d;
+  });
+  handle('gemach:deleteDeposit', async (event, id) => {
+    await gemachService.deleteDeposit(id);
+    await auditEvent(event, 'gemach.deposit.delete', { id });
+    return true;
+  });
+  handle('gemach:exportCsv', async (event, kind) => {
+    const r = await saveCsv(await gemachService.getExportData(kind));
+    if (r.ok) await auditEvent(event, 'gemach.export.csv', { kind, rows: r.rows });
+    return r;
+  });
+
+  // חסד וחלוקות: נזקקים, מתנדבים וסבבי חלוקה. פרטי נזקק חסוי (מתן בסתר) — למנהל בלבד
+  const canSeeConfidential = (event) => authService.hasPermission(event.sender.id, 'users.manage');
+  handle('chesed:getOverview', async (event) => chesedService.getOverview(canSeeConfidential(event)));
+  handle('chesed:addBeneficiary', async (event, input) => {
+    const b = await chesedService.addBeneficiary(input, canSeeConfidential(event));
+    await auditEvent(event, 'chesed.beneficiary.add', { id: b.id, tier: b.tier });
+    return b;
+  });
+  handle('chesed:updateBeneficiary', async (event, id, input) => {
+    const b = await chesedService.updateBeneficiary(id, input || {}, canSeeConfidential(event));
+    await auditEvent(event, 'chesed.beneficiary.update', { id });
+    return b;
+  });
+  handle('chesed:deleteBeneficiary', async (event, id) => {
+    await chesedService.deleteBeneficiary(id);
+    await auditEvent(event, 'chesed.beneficiary.delete', { id });
+    return true;
+  });
+  handle('chesed:addVolunteer', async (event, input) => {
+    const v = await chesedService.addVolunteer(input);
+    await auditEvent(event, 'chesed.volunteer.add', { id: v.id });
+    return v;
+  });
+  handle('chesed:updateVolunteer', async (event, id, input) => {
+    const v = await chesedService.updateVolunteer(id, input || {});
+    await auditEvent(event, 'chesed.volunteer.update', { id });
+    return v;
+  });
+  handle('chesed:deleteVolunteer', async (event, id) => {
+    await chesedService.deleteVolunteer(id);
+    await auditEvent(event, 'chesed.volunteer.delete', { id });
+    return true;
+  });
+  handle('chesed:addRound', async (event, input) => {
+    const r = await chesedService.addRound(input);
+    await auditEvent(event, 'chesed.round.add', { id: r.id, name: r.name });
+    return r;
+  });
+  handle('chesed:allocateRound', async (event, roundId) => {
+    const r = await chesedService.allocateRound(roundId);
+    await auditEvent(event, 'chesed.round.allocate', { id: roundId, added: r.added });
+    return r;
+  });
+  handle('chesed:assignVolunteer', async (event, roundId, beneficiaryId, volunteerId) => {
+    const r = await chesedService.assignVolunteer(roundId, beneficiaryId, volunteerId || '');
+    await auditEvent(event, 'chesed.round.assign', { id: roundId, beneficiaryId, volunteerId: volunteerId || '' });
+    return r;
+  });
+  handle('chesed:markDelivered', async (event, roundId, beneficiaryId, delivered, date) => {
+    const s = await chesedService.markDelivered(roundId, beneficiaryId, !!delivered, date);
+    await auditEvent(event, 'chesed.round.deliver', { id: roundId, beneficiaryId, delivered: !!delivered });
+    return s;
+  });
+  handle('chesed:closeRound', async (event, roundId) => {
+    const r = await chesedService.closeRound(roundId);
+    await auditEvent(event, 'chesed.round.close', { id: roundId });
+    return r;
+  });
+  handle('chesed:deleteRound', async (event, roundId) => {
+    await chesedService.deleteRound(roundId);
+    await auditEvent(event, 'chesed.round.delete', { id: roundId });
+    return true;
+  });
+  handle('chesed:exportCsv', async (event, kind, roundId) => {
+    const r = await saveCsv(await chesedService.getExportData(kind, canSeeConfidential(event), roundId));
+    if (r.ok) await auditEvent(event, 'chesed.export.csv', { kind, roundId: roundId || '', rows: r.rows });
     return r;
   });
 
@@ -612,7 +734,7 @@ handle('auth:login', async (event, username, password) => {
   });
 
   // ---------- הגדרות מתקדמות ----------
-  const VIEWS_ALLOWED = ['dashboard', 'acct-reports', 'acct-invoices', 'acct-journal', 'personal-finance', 'finance', 'contacts', 'tasks', 'npo', 'mortgage-advisor', 'mortgage-lab'];
+  const VIEWS_ALLOWED = ['dashboard', 'acct-reports', 'acct-invoices', 'acct-journal', 'personal-finance', 'finance', 'contacts', 'tasks', 'npo', 'gemach', 'chesed', 'mortgage-advisor', 'mortgage-lab'];
   handle('settings:getAdvanced', async (event) => {
     const data = await db.load();
     const st = data.settings || {};

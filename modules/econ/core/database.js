@@ -33,6 +33,8 @@ const collections = [
   'products',          // Price list: products and services (מחירון)
   'personal',          // Personal/family income & expenses — נפרד לחלוטין מהיומן העסקי
   'npo',               // עמותה: תרומות וקבלות, קרנות, תמיכות — נפרד מהיומן העסקי
+  'gemach',            // קופת גמ"ח: הלוואות ללא ריבית, ערבים, הפקדות — נפרד מהעמותה ומהיומן העסקי
+  'chesed',            // חסד וחלוקות: נזקקים (כולל חסויים), מתנדבים וסבבי חלוקה
   'mortgageAdvisor',   // ייעוץ משכנתאות: תיקי לקוחות והצעות בנקים
   'mortgageLab'        // מעבדת תמהיל: תחזית, אימותי כללים ותרחישים שמורים
 ];
@@ -45,6 +47,8 @@ const objectCollections = new Set([
   'fitnessData',
   'voiceNotes',
   'npo',
+  'gemach',
+  'chesed',
   'mortgageAdvisor',
   'mortgageLab'
 ]);
@@ -79,6 +83,8 @@ const defaults = {
   products: [],
   personal: [],
   npo: { settings: {}, donations: [], grants: [] },
+  gemach: { settings: {}, loans: [], deposits: [] },
+  chesed: { beneficiaries: [], volunteers: [], rounds: [] },
   mortgageAdvisor: { clients: [], offers: [] },
   mortgageLab: { forecast: null, verifications: [], scenarios: [], rateConvention: 'NOMINAL' },
   settings: { currency: 'ILS', vatRate: 0.18 }

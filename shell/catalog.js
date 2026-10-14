@@ -1,0 +1,88 @@
+// קטלוג אחיד של כל מה שיש בתוכנה — מקור אמת יחיד לסרגל, למסך הבית, לחיפוש ולאימות ב-main.js.
+// המשתמש רואה "תוכנה אחת" עם תחומים; החלוקה הפנימית למודולים (econ/shamai/trainer/tools) נשארת שקופה.
+// כל פריט: mod = המודול שמארח אותו, view = תצוגה פנימית (במודול הכלכלי בלבד).
+(function (root) {
+  const GROUPS = [
+    {
+      id: 'money', title: 'כספים והנהלת חשבונות', hue: 'blue',
+      items: [
+        { mod: 'econ', view: 'dashboard',        icon: '◈',  name: 'לוח בקרה',            desc: 'תמונת מצב של העסק במבט אחד' },
+        { mod: 'econ', view: 'acct-invoices',    icon: '🧾', name: 'חשבוניות מס',          desc: 'הפקה, תשלום וביטול' },
+        { mod: 'econ', view: 'acct-reports',     icon: '📈', name: 'דוחות ומע"מ',          desc: 'רווח והפסד, מאזן בוחן ודוח מע"מ' },
+        { mod: 'econ', view: 'acct-journal',     icon: '📒', name: 'יומן חשבונאי',         desc: 'פקודות יומן בהנה"ח כפולה' },
+        { mod: 'econ', view: 'acct-chart',       icon: '🗂',  name: 'תוכנית חשבונות',       desc: 'מבנה החשבונות של העסק' },
+        { mod: 'econ', view: 'acct-pricing',     icon: '🏷',  name: 'מחירון ותמחור',        desc: 'מחשבון תמחור ורווחיות' },
+        { mod: 'econ', view: 'business',         icon: '▣',  name: 'עסקים ולקוחות',        desc: 'תוכניות עסקיות ולקוחות' },
+        { mod: 'econ', view: 'market-intel',     icon: '📊', name: 'מודיעין שוק',          desc: 'מתחרים, מחירים ומגמות' },
+        { mod: 'econ', view: 'acct-settings',    icon: '🏢', name: 'הגדרות עסק ומע"מ',     desc: 'פרטי העסק ושיעור המע"מ' }
+      ]
+    },
+    {
+      id: 'home', title: 'משק בית ותכנון', hue: 'green',
+      items: [
+        { mod: 'econ', view: 'personal-finance', icon: '💰', name: 'התוכנית הפיננסית',     desc: 'הכנסות, הוצאות והשקעות' },
+        { mod: 'econ', view: 'finance',          icon: '₪',  name: 'תמונת מצב פיננסית',    desc: 'מדדים מחושבים מהתוכנית' },
+        { mod: 'econ', view: 'acct-personal',    icon: '🏠', name: 'הוצאות הבית',          desc: 'הוצאות אישיות ומשפחתיות' },
+        { mod: 'econ', view: 'npo',              icon: '🤝', name: 'עמותה וצדקה',          desc: 'תרומות, קבלות סעיף 46 וקרנות' },
+        { mod: 'econ', view: 'gemach',           icon: '🫱', name: 'גמ"ח',                 desc: 'הלוואות, ערבים והפקדות' },
+        { mod: 'econ', view: 'chesed',           icon: '📦', name: 'חסד וחלוקות',          desc: 'נזקקים, מתנדבים וסבבי חלוקה' }
+      ]
+    },
+    {
+      id: 'realty', title: 'משכנתאות ונדל"ן', hue: 'gold',
+      items: [
+        { mod: 'econ', view: 'mortgage',         icon: '🏛',  name: 'משכנתאות והלוואות',    desc: 'תרחישים ולוחות סילוקין' },
+        { mod: 'econ', view: 'mortgage-advisor', icon: '🏦', name: 'ייעוץ משכנתאות',       desc: 'תיקי לקוחות ומסמכים' },
+        { mod: 'econ', view: 'mortgage-lab',     icon: '🧮', name: 'מעבדת תמהיל',          desc: 'סימולטור, סלים ואופטימייזר' },
+        { mod: 'shamai',                         icon: '💎', name: 'שמאות נכסים',          desc: 'הערכת שווי נכסים' }
+      ]
+    },
+    {
+      id: 'org', title: 'ארגון ועבודה', hue: 'purple',
+      items: [
+        { mod: 'econ', view: 'tasks',            icon: '📋', name: 'משימות',               desc: 'מה צריך לעשות ומתי' },
+        { mod: 'econ', view: 'contacts',         icon: '👥', name: 'אנשי קשר',             desc: 'ספר טלפונים וכרטיסי לקוח' },
+        { mod: 'econ', view: 'voice-notes',      icon: '🎙',  name: 'הערות קוליות',         desc: 'הקלטה ותזכורות' },
+        { mod: 'econ', view: 'canvas',           icon: '✏',  name: 'לוח לבן',              desc: 'שרטוט ורעיונות' },
+        { mod: 'tools',                          icon: '🧰', name: 'ארגז כלים',            desc: 'מחשבונים וכלי עזר' }
+      ]
+    },
+    {
+      id: 'health', title: 'בריאות וכושר', hue: 'teal',
+      items: [
+        { mod: 'econ', view: 'fitness',          icon: '💪', name: 'כושר ובריאות',         desc: 'מעקב אישי' },
+        { mod: 'trainer',                        icon: '🏋',  name: 'ניהול אימונים',        desc: 'מתאמנים, תוכניות ומעקב' }
+      ]
+    },
+    {
+      id: 'system', title: 'מערכת', hue: 'slate',
+      items: [
+        { mod: 'econ', view: 'settings',         icon: '⚙',  name: 'הגדרות ומשתמשים',      desc: 'הרשאות, ייבוא/ייצוא ויומן ביקורת' }
+      ]
+    }
+  ];
+
+  const keyOf = (it) => it.view ? it.mod + ':' + it.view : it.mod;
+  const ITEMS = GROUPS.flatMap(g => g.items.map(it => ({ ...it, key: keyOf(it), group: g.id, hue: g.hue })));
+  // תצוגות פנימיות שמותר לפתוח במודול הכלכלי (main.js מאמת מולן)
+  const ECON_VIEWS = ITEMS.filter(it => it.mod === 'econ').map(it => it.view);
+
+  // סנכרון אוטומטי: תצוגה שנוספה לסרגל הפנימי של המודול הכלכלי (views/index.html) ועדיין לא לקטלוג —
+  // מזוהה כאן ומוצגת בסרגל האחיד תחת "נוספו לאחרונה", כדי שלא תיעלם. main.js מריץ זאת בעלייה.
+  const NAV_RE = /<button[^>]*data-view="([a-z0-9-]+)"[^>]*>\s*([^<]*?)\s*<span>([^<]+)<\/span>/g;
+  function extrasFromHtml(html) {
+    const out = [];
+    for (const m of String(html).matchAll(NAV_RE)) {
+      const [, view, icon, name] = m;
+      if (ECON_VIEWS.includes(view) || out.some(x => x.view === view)) continue;
+      out.push({ mod: 'econ', view, icon: icon.trim() || '•', name: name.trim(), desc: 'מסך חדש',
+        key: 'econ:' + view, group: 'new', hue: 'gold' });
+    }
+    return out;
+  }
+  const NEW_GROUP = { id: 'new', title: 'נוספו לאחרונה', hue: 'gold' };
+
+  const api = { GROUPS, ITEMS, ECON_VIEWS, keyOf, extrasFromHtml, NEW_GROUP };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.SUITE_CATALOG = api;
+})(typeof window !== 'undefined' ? window : this);

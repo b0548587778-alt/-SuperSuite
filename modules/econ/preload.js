@@ -1,6 +1,14 @@
 // Preload script for Electron context bridging
 const { contextBridge, ipcRenderer } = require('electron');
 
+// בקשת ניווט מהסרגל האחיד של המעטפת. אם הגיעה לפני שהממשק נרשם — נשמרת ונמסרת ברישום
+let pendingGoto = null;
+let gotoListener = null;
+ipcRenderer.on('econ:goto', (_e, view) => {
+  if (typeof view !== 'string') return;
+  if (gotoListener) gotoListener(view); else pendingGoto = view;
+});
+
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('systemAPI', {
   // Authentication
@@ -84,6 +92,12 @@ contextBridge.exposeInMainWorld('systemAPI', {
   searchVoiceNotes: (query) => ipcRenderer.invoke('voiceNotes:search', query),
   // Modules: מעבר בין מודולי החבילה מתוך לוח הבקרה
   openModule: (id) => ipcRenderer.invoke('shell:open-module', id),
+  // סרגל אחיד: קבלת בקשות מעבר תצוגה, ודיווח על התצוגה הפעילה לסימון בסרגל
+  onGoto: (cb) => {
+    gotoListener = cb;
+    if (pendingGoto) { const v = pendingGoto; pendingGoto = null; cb(v); }
+  },
+  reportView: (view) => ipcRenderer.invoke('shell:econ-view', view),
 
   // Accounting
   getChart: () => ipcRenderer.invoke('acct:getChart'),
@@ -123,8 +137,37 @@ contextBridge.exposeInMainWorld('systemAPI', {
   addNpoGrant: (input) => ipcRenderer.invoke('npo:addGrant', input),
   updateNpoGrant: (id, input) => ipcRenderer.invoke('npo:updateGrant', id, input),
   deleteNpoGrant: (id) => ipcRenderer.invoke('npo:deleteGrant', id),
+  toggleNpoGrantDocument: (id, index) => ipcRenderer.invoke('npo:toggleGrantDocument', id, index),
+  recordNpoTaxReport: (id, input) => ipcRenderer.invoke('npo:recordTaxReport', id, input),
   exportNpoCsv: (kind, year) => ipcRenderer.invoke('npo:exportCsv', kind, year),
   exportNpoReceiptPdf: (id) => ipcRenderer.invoke('npo:exportReceiptPdf', id),
+
+  // גמ"ח
+  getGemachOverview: (asOf) => ipcRenderer.invoke('gemach:getOverview', asOf),
+  getGemachLoan: (id) => ipcRenderer.invoke('gemach:getLoan', id),
+  saveGemachSettings: (input) => ipcRenderer.invoke('gemach:saveSettings', input),
+  addGemachLoan: (input) => ipcRenderer.invoke('gemach:addLoan', input),
+  recordGemachPayment: (loanId, seq, input) => ipcRenderer.invoke('gemach:recordPayment', loanId, seq, input),
+  cancelGemachLoan: (loanId) => ipcRenderer.invoke('gemach:cancelLoan', loanId),
+  addGemachDeposit: (input) => ipcRenderer.invoke('gemach:addDeposit', input),
+  deleteGemachDeposit: (id) => ipcRenderer.invoke('gemach:deleteDeposit', id),
+  exportGemachCsv: (kind) => ipcRenderer.invoke('gemach:exportCsv', kind),
+
+  // חסד וחלוקות
+  getChesedOverview: () => ipcRenderer.invoke('chesed:getOverview'),
+  addChesedBeneficiary: (input) => ipcRenderer.invoke('chesed:addBeneficiary', input),
+  updateChesedBeneficiary: (id, input) => ipcRenderer.invoke('chesed:updateBeneficiary', id, input),
+  deleteChesedBeneficiary: (id) => ipcRenderer.invoke('chesed:deleteBeneficiary', id),
+  addChesedVolunteer: (input) => ipcRenderer.invoke('chesed:addVolunteer', input),
+  updateChesedVolunteer: (id, input) => ipcRenderer.invoke('chesed:updateVolunteer', id, input),
+  deleteChesedVolunteer: (id) => ipcRenderer.invoke('chesed:deleteVolunteer', id),
+  addChesedRound: (input) => ipcRenderer.invoke('chesed:addRound', input),
+  allocateChesedRound: (roundId) => ipcRenderer.invoke('chesed:allocateRound', roundId),
+  assignChesedVolunteer: (roundId, beneficiaryId, volunteerId) => ipcRenderer.invoke('chesed:assignVolunteer', roundId, beneficiaryId, volunteerId),
+  markChesedDelivered: (roundId, beneficiaryId, delivered, date) => ipcRenderer.invoke('chesed:markDelivered', roundId, beneficiaryId, delivered, date),
+  closeChesedRound: (roundId) => ipcRenderer.invoke('chesed:closeRound', roundId),
+  deleteChesedRound: (roundId) => ipcRenderer.invoke('chesed:deleteRound', roundId),
+  exportChesedCsv: (kind, roundId) => ipcRenderer.invoke('chesed:exportCsv', kind, roundId),
 
   // ייעוץ משכנתאות
   getMortgageAdvisor: () => ipcRenderer.invoke('madv:getOverview'),
