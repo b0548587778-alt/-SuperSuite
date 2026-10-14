@@ -2343,7 +2343,7 @@
             <td>${esc(p.idNumber)}</td><td><small>${esc(p.phones.join(', '))}</small></td>
             <td><small>${esc(p.roleLabels.join(' · '))}</small></td>
             <td>${p.donationsCount ? money(p.donationsTotal) : '—'}</td>
-            <td>${p.activeLoansOutstanding ? money(p.activeLoansOutstanding) : ''}${p.activeGuarantees ? ` <small class="muted">ערב ל-${Number(p.activeGuarantees)}</small>` : ''}${p.late ? ' <small class="bad">· פיגור</small>' : ''}</td>
+            <td>${p.activeLoansOutstanding ? money(p.activeLoansOutstanding) : ''}${p.activeGuarantees ? ` <small class="muted">ערב ל-${Number(p.activeGuarantees)}</small>` : ''}${p.late ? ' <small class="bad">· פיגור</small>' : ''}${p.itemsOut ? ` <small class="muted">· ${Number(p.itemsOut)} חפצים בהשאלה</small>` : ''}</td>
             <td><button class="icon-btn" data-person="${esc(p.key)}" title="כרטיס">👤</button></td>
           </tr>`).join('')}</tbody></table></div>`}
       </div>
@@ -2362,6 +2362,7 @@
         ${sec('הלוואות גמ"ח', c.loans, l => `<div class="acct-row"><span>${esc(l.issueDate)} · ${esc(l.status)}${l.lateCount ? ` <small class="bad">· ${Number(l.lateCount)} בפיגור</small>` : ''}${byName(l)}</span><span>${money(l.amount)}${l.active ? ' · נותר ' + money(l.outstanding) : ''}</span></div>`)}
         ${sec('ערבות בגמ"ח', c.guarantees, l => `<div class="acct-row"><span>ללווה ${esc(l.borrower)} · ${esc(l.status)}${l.lateCount ? ' <small class="bad">· בפיגור</small>' : ''}${byName(l)}</span><span>${money(l.amount)}</span></div>`)}
         ${sec('הפקדות בגמ"ח', c.deposits, d => `<div class="acct-row"><span>${esc(d.date)}${byName(d)}</span><span>${money(d.amount)}</span></div>`)}
+        ${sec('גמ"ח חפצים', c.lendings || [], l => `<div class="acct-row"><span>${esc(l.item)} · ${esc(l.date)}${byName(l)}</span><span>${l.returned ? '<small class="muted">הוחזר</small>' : l.overdue ? `<small class="bad">באיחור (עד ${esc(l.dueDate)})</small>` : `<small>בהשאלה${l.dueDate ? ' עד ' + esc(l.dueDate) : ''}</small>`}</span></div>`)}
         ${sec('חסד — נתמכים', c.beneficiary, b => `<div class="acct-row"><span>משפחת ${esc(b.family)}${b.confidential ? ' <small class="bad">· חסוי</small>' : ''}${b.active ? '' : ' · לא פעיל'}${byName(b)}</span><span></span></div>`)}
         ${sec('חסד — מתנדב', c.volunteer, v => `<div class="acct-row"><span>${esc(v.area || '—')}${v.active ? '' : ' · לא פעיל'}${byName(v)}</span><span></span></div>`)}
       </div>

@@ -107,3 +107,17 @@ test('IPC: חיפוש וכרטיס מנתונים אמיתיים; נזקק חס�
   AuthService.getSession(97).permissions = [];
   await assert.rejects(handlers['people:search'](ev(97), ''), /אין הרשאה/);
 });
+
+test('שואל חפץ בגמ"ח מופיע בכרטיס, עם חפצים שטרם הוחזרו', () => {
+  const data = structuredClone(DATA);
+  data.gemach.items = [{ id: 'i1', name: 'עגלת תינוק' }];
+  data.gemach.lendings = [
+    { id: 'x1', itemId: 'i1', borrowerName: 'משה לוי', date: '2026-10-01', dueDate: '2026-10-10', returnedAt: '' },
+    { id: 'x2', itemId: 'i1', borrowerName: 'משה לוי', date: '2026-08-01', dueDate: '', returnedAt: '2026-08-05' }
+  ];
+  const p = P.search(data, 'לוי', opts).rows[0];
+  assert.ok(p.roles.includes('itemBorrower'));
+  assert.equal(p.itemsOut, 1);
+  const c = P.card(data, p.key, opts);
+  assert.deepEqual(c.lendings.map(l => [l.item, l.overdue, l.returned]), [['עגלת תינוק', true, false], ['עגלת תינוק', false, true]]);
+});

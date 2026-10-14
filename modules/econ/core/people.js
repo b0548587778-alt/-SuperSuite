@@ -7,7 +7,7 @@ const G = require('./gemach');
 
 const ROLES = {
   donor: 'תורם', standing: 'הוראת קבע', memorial: 'קרוב משפחה (הנצחה)', borrower: 'לווה בגמ"ח',
-  guarantor: 'ערב בגמ"ח', depositor: 'מפקיד בגמ"ח', beneficiary: 'נתמך', volunteer: 'מתנדב'
+  guarantor: 'ערב בגמ"ח', depositor: 'מפקיד בגמ"ח', itemBorrower: 'שואל חפץ בגמ"ח', beneficiary: 'נתמך', volunteer: 'מתנדב'
 };
 const MAX_RESULTS = 200;
 
@@ -38,6 +38,8 @@ function collect(data, { canSeeConfidential = false, today } = {}) {
     add('borrower', l.borrowerName, l.borrowerId, l.borrowerPhone, ref);
     for (const g of l.guarantors || []) add('guarantor', g.name, g.id, g.phone, ref);
   }
+  const itemName = Object.fromEntries((gm.items || []).map(it => [it.id, it.name]));
+  for (const l of gm.lendings || []) add('itemBorrower', l.borrowerName, l.borrowerId, l.borrowerPhone, { kind: 'lending', id: l.id, item: itemName[l.itemId] || 'פריט', date: l.date, dueDate: l.dueDate || '', returned: !!l.returnedAt, overdue: !l.returnedAt && !!l.dueDate && l.dueDate < asOf });
   for (const d of gm.deposits || []) add('depositor', d.depositorName, '', '', { kind: 'deposit', id: d.id, date: d.date, amount: d.amount });
   const ch = data.chesed || {};
   for (const b of ch.beneficiaries || []) {
@@ -89,7 +91,8 @@ function summarize(p) {
     lastDonation: donations.map(h => h.ref.date).sort().pop() || '',
     activeLoansOutstanding: loans.reduce((t, h) => t + toAg(h.ref.outstanding), 0) / 100,
     activeGuarantees: guarantees.length,
-    late: loans.some(h => h.ref.lateCount > 0) || guarantees.some(h => h.ref.lateCount > 0)
+    late: loans.some(h => h.ref.lateCount > 0) || guarantees.some(h => h.ref.lateCount > 0),
+    itemsOut: p.hits.filter(h => h.role === 'itemBorrower' && !h.ref.returned).length
   };
 }
 
@@ -114,6 +117,7 @@ function card(data, key, opts = {}) {
     donations: by('donor').sort((a, b) => b.date.localeCompare(a.date)),
     standing: by('standing'), memorials: by('memorial'),
     loans: by('borrower'), guarantees: by('guarantor'), deposits: by('depositor').sort((a, b) => b.date.localeCompare(a.date)),
+    lendings: by('itemBorrower').sort((a, b) => b.date.localeCompare(a.date)),
     beneficiary: by('beneficiary'), volunteer: by('volunteer')
   };
 }
