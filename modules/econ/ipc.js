@@ -554,6 +554,23 @@ handle('auth:login', async (event, username, password) => {
     await auditEvent(event, 'npo.standing.delete', { id });
     return true;
   });
+  // הנצחות ויארצייטים — לפי תאריך עברי
+  handle('npo:getMemorials', async (event, today, days) => npoService.getMemorials(today, days));
+  handle('npo:saveMemorial', async (event, id, input) => {
+    const m = await npoService.saveMemorial(id || null, input);
+    await auditEvent(event, id ? 'npo.memorial.update' : 'npo.memorial.create', { id: m.id });
+    return m;
+  });
+  handle('npo:deleteMemorial', async (event, id) => {
+    await npoService.deleteMemorial(id);
+    await auditEvent(event, 'npo.memorial.delete', { id });
+    return true;
+  });
+  handle('npo:exportMemorialsCsv', async (event) => {
+    const r = await saveCsv(await npoService.getMemorialsExport());
+    if (r.ok) await auditEvent(event, 'npo.memorial.export', { rows: r.rows });
+    return r;
+  });
   // ייבוא תרומות מקובץ של ערוץ חיצוני (נדרים פלוס וכדומה) — קובץ בלבד, ללא חיבור לרשת
   handle('npo:previewImport', async (event, csvText, source) => npoService.previewImport(csvText, source));
   handle('npo:importDonations', async (event, csvText, options) => {

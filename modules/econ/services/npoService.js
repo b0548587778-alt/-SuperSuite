@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const N = require('../core/npo');
 const SO = require('../core/standingOrders');
 const DI = require('../core/donationImport');
+const MEM = require('../core/memorials');
 
 class NpoService {
   constructor(db) {
@@ -21,7 +22,8 @@ class NpoService {
       settings: N.normalizeSettings(npo.settings),
       donations: Array.isArray(npo.donations) ? npo.donations : [],
       grants: Array.isArray(npo.grants) ? npo.grants : [],
-      standingOrders: Array.isArray(npo.standingOrders) ? npo.standingOrders : []
+      standingOrders: Array.isArray(npo.standingOrders) ? npo.standingOrders : [],
+      memorials: Array.isArray(npo.memorials) ? npo.memorials : []
     };
     return data;
   }
@@ -82,6 +84,41 @@ class NpoService {
     data.npo.standingOrders = data.npo.standingOrders.filter(o => o.id !== orderId);
     await this.db.save(data);
     return true;
+  }
+
+  /* ---------- הנצחות ויארצייטים ---------- */
+  async getMemorials(today, days) {
+    const { npo } = await this._load();
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? today : new Date().toISOString().slice(0, 10);
+    const list = [...npo.memorials].sort((a, b) => a.name.localeCompare(b.name, 'he')).map(m => ({ ...m, hebrewLabel: MEM.hebrewLabel(m) }));
+    return { list, ...MEM.upcoming(npo.memorials, t, days) };
+  }
+
+  async saveMemorial(memorialId, input) {
+    const data = await this._load();
+    const list = data.npo.memorials;
+    const prev = memorialId ? list.find(m => m.id === memorialId) : null;
+    if (memorialId && !prev) throw new Error('רשומת ההנצחה לא נמצאה');
+    const clean = MEM.validateMemorial({ ...(prev || {}), ...input }, { count: prev ? 0 : list.length });
+    const now = new Date().toISOString();
+    const m = prev ? Object.assign(prev, clean, { updatedAt: now }) : { id: crypto.randomUUID(), ...clean, createdAt: now };
+    if (!prev) list.push(m);
+    await this.db.save(data);
+    return m;
+  }
+
+  async deleteMemorial(memorialId) {
+    const data = await this._load();
+    if (!data.npo.memorials.some(m => m.id === memorialId)) throw new Error('רשומת ההנצחה לא נמצאה');
+    data.npo.memorials = data.npo.memorials.filter(m => m.id !== memorialId);
+    await this.db.save(data);
+    return true;
+  }
+
+  async getMemorialsExport(today) {
+    const { npo } = await this._load();
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? today : new Date().toISOString().slice(0, 10);
+    return MEM.exportRows(npo.memorials, MEM.upcoming(npo.memorials, t, 400).rows);
   }
 
   /* ---------- ייבוא תרומות מקובץ של ערוץ חיצוני ---------- */

@@ -185,6 +185,8 @@
           if (state.data.npo && typeof state.data.npo === 'object') {
             try { state.data.npo.standing = window.systemAPI.getNpoStandingOrders ? await window.systemAPI.getNpoStandingOrders() : null; }
             catch { state.data.npo.standing = null; }
+            try { state.data.npo.memorials = window.systemAPI.getNpoMemorials ? await window.systemAPI.getNpoMemorials() : null; }
+            catch { state.data.npo.memorials = null; }
           }
           break;
         case 'gemach':
@@ -1810,6 +1812,84 @@
     update: (id, d) => window.systemAPI.saveNpoStandingOrder(id, { ...d, endMonth: d.endMonth || '' })
   };
 
+  // הנצחות ויארצייטים — רישום לפי תאריך פטירה אזרחי (מומר לעברי) או ישירות לפי תאריך עברי
+  const MEM_MONTHS = [['Tishri', 'תשרי'], ['Heshvan', 'חשוון'], ['Kislev', 'כסלו'], ['Tevet', 'טבת'], ['Shevat', 'שבט'],
+    ['Adar', 'אדר (שנה פשוטה)'], ['Adar I', 'אדר א׳'], ['Adar II', 'אדר ב׳'], ['Nisan', 'ניסן'], ['Iyar', 'אייר'],
+    ['Sivan', 'סיוון'], ['Tamuz', 'תמוז'], ['Av', 'אב'], ['Elul', 'אלול']];
+  const MEM_ADAR = { '': '—', adar1: 'באדר א׳', adar2: 'באדר ב׳', both: 'בשניהם' };
+  const memorialSchema = {
+    title: 'הנצחה חדשה',
+    editTitle: 'עריכת הנצחה',
+    fields: [
+      { name: 'name', label: 'שם הנפטר/ת', type: 'text', required: true },
+      { name: 'parentName', label: 'בן/בת (שם האב או האם)', type: 'text' },
+      { name: 'deathDate', label: 'תאריך פטירה לועזי (אם ידוע — התאריך העברי יחושב)', type: 'date' },
+      { name: 'afterSunset', label: 'הפטירה הייתה אחרי השקיעה?', type: 'select', options: [{ value: '0', label: 'לא' }, { value: '1', label: 'כן — היום העברי כבר התחלף' }] },
+      { name: 'hebrewDay', label: 'או: יום בחודש העברי (1–30)', type: 'number' },
+      { name: 'hebrewMonth', label: 'חודש עברי', type: 'select', options: [{ value: '', label: '—' }, ...MEM_MONTHS.map(([v, l]) => ({ value: v, label: l }))] },
+      { name: 'hebrewYear', label: 'שנה עברית (למשל 5786, לא חובה)', type: 'number' },
+      { name: 'adarRule', label: 'נפטר באדר של שנה פשוטה — בשנה מעוברת מציינים', type: 'select', options: Object.entries(MEM_ADAR).map(([v, l]) => ({ value: v, label: l })) },
+      { name: 'contactName', label: 'איש קשר במשפחה', type: 'text' },
+      { name: 'contactPhone', label: 'טלפון', type: 'tel' },
+      { name: 'contactId', label: 'ת.ז של איש הקשר', type: 'text' },
+      { name: 'plaque', label: 'מיקום הלוח / הנר', type: 'text' },
+      { name: 'notes', label: 'הערות', type: 'textarea' }
+    ],
+    create: (d) => window.systemAPI.saveNpoMemorial(null, memorialInput(d)),
+    update: (id, d) => window.systemAPI.saveNpoMemorial(id, memorialInput(d))
+  };
+  // שדה שרוקן בעריכה נשלח ריק במפורש, כדי שהערך הקודם לא יישאר
+  function memorialInput(d) {
+    const out = { ...d };
+    for (const k of ['deathDate', 'hebrewYear', 'adarRule', 'parentName', 'contactName', 'contactPhone', 'contactId', 'plaque', 'notes']) if (out[k] === undefined) out[k] = '';
+    return out;
+  }
+
+  function renderNpoMemorials(m) {
+    if (!m || !Array.isArray(m.list)) return '';
+    const soon = (m.rows || []).filter(r => r.daysLeft <= 30);
+    const when = (r) => r.daysLeft === 0 ? 'היום' : r.daysLeft === 1 ? 'מחר' : `בעוד ${Number(r.daysLeft)} ימים`;
+    return `<div class="card acct-wide">
+      <div class="hub-head"><h3>הנצחות ויארצייטים (${m.list.length})</h3>
+        <div class="acct-actions">
+          <button class="secondary" id="npoMemorialAdd">＋ הנצחה</button>
+          ${m.list.length ? '<button class="secondary" id="npoMemorialExport">ייצוא</button>' : ''}
+        </div></div>
+      ${m.available === false ? '<p class="bad">הלוח העברי אינו זמין במחשב זה — לא ניתן לחשב יארצייטים.</p>' : ''}
+      <h4>ב-30 הימים הקרובים</h4>
+      ${soon.length ? soon.map(r => `<div class="acct-row">
+          <span>${esc(r.name)}${r.parentName ? ' ' + esc(r.parentName) : ''} <small class="muted">${esc(r.hebrew)} · ${esc(r.date)}${r.years ? ' · ' + Number(r.years) + ' שנים' : ''}${r.plaque ? ' · ' + esc(r.plaque) : ''}</small>
+            ${r.uncertain ? '<small class="bad" title="אין יום ל׳ בחודש זה השנה — יש לברר עם המשפחה או עם הרב באיזה יום מציינים">· לבירור</small>' : ''}</span>
+          <span>${when(r)}${r.contactPhone ? ` <small class="muted">${esc(r.contactName)} ${esc(r.contactPhone)}</small>` : ''}</span>
+        </div>`).join('') : '<div class="acct-row muted">אין יארצייטים בחודש הקרוב</div>'}
+      ${m.list.length ? `<details><summary>כל הרשומות</summary>
+        ${m.list.map(x => `<div class="acct-row"><span>${esc(x.name)}${x.parentName ? ' ' + esc(x.parentName) : ''} <small class="muted">${esc(x.hebrewLabel)}</small></span>
+          <span><button class="icon-btn" data-mem-edit="${esc(x.id)}" title="עריכה">✎</button>
+            <button class="icon-btn danger" data-mem-del="${esc(x.id)}" title="מחיקה">🗑</button></span></div>`).join('')}
+      </details>` : ''}
+    </div>`;
+  }
+
+  function attachNpoMemorialHandlers() {
+    const m = state.data.npo && state.data.npo.memorials;
+    const add = document.getElementById('npoMemorialAdd');
+    if (add) add.addEventListener('click', () => openSubForm(memorialSchema, { afterSunset: '0' }));
+    const exp = document.getElementById('npoMemorialExport');
+    if (exp) exp.addEventListener('click', async () => {
+      try { const r = await window.systemAPI.exportNpoMemorialsCsv(); if (r && r.ok) showToast('הקובץ נשמר'); }
+      catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
+    });
+    document.querySelectorAll('[data-mem-edit]').forEach(b => b.addEventListener('click', () => {
+      const x = m && m.list.find(r => r.id === b.dataset.memEdit);
+      if (x) openSubForm(memorialSchema, { ...x, afterSunset: x.afterSunset ? '1' : '0', hebrewYear: x.hebrewYear ?? '' }, x.id);
+    }));
+    document.querySelectorAll('[data-mem-del]').forEach(b => b.addEventListener('click', async () => {
+      if (!(await askConfirm('למחוק את רשומת ההנצחה?'))) return;
+      try { await window.systemAPI.deleteNpoMemorial(b.dataset.memDel); showToast('הרשומה נמחקה'); await switchView('npo'); }
+      catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+    }));
+  }
+
   function renderNpoStanding(st) {
     if (!st || !Array.isArray(st.rows)) return '';
     const rows = st.rows;
@@ -1939,6 +2019,7 @@
         </div>` : ''}
         <div class="acct-grid">
           ${renderNpoStanding(o.standing)}
+          ${renderNpoMemorials(o.memorials)}
           <div class="card">
             <h3>הכנסות לפי קרן</h3>
             ${fs.funds.map(f => `<div class="acct-row"><span>${esc(f.name)} <small class="muted">${f.restricted ? 'ייעודי' : 'כללי'}${f.archived ? ' · ארכיון' : ''}</small></span><span>${money(f.total)}</span></div>`).join('') || '<div class="acct-row muted">אין קרנות</div>'}
@@ -2097,6 +2178,7 @@
   function attachNpoHandlers() {
     const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
     attachNpoStandingHandlers();
+    attachNpoMemorialHandlers();
     document.querySelectorAll('[data-npo-doc]').forEach(btn => btn.addEventListener('click', async () => {
       try { await window.systemAPI.toggleNpoGrantDocument(btn.dataset.npoDoc, Number(btn.dataset.docIndex)); await switchView('npo'); }
       catch (error) { showError('שגיאה בעדכון המסמך: ' + errMsg(error)); }
