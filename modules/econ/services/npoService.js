@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const N = require('../core/npo');
 const SO = require('../core/standingOrders');
+const DI = require('../core/donationImport');
 
 class NpoService {
   constructor(db) {
@@ -83,6 +84,36 @@ class NpoService {
     return true;
   }
 
+  /* ---------- ייבוא תרומות מקובץ של ערוץ חיצוני ---------- */
+  async previewImport(csvText, source) {
+    const { npo } = await this._load();
+    return DI.preview(csvText, source, npo.settings);
+  }
+
+  // כל השורות התקינות נשמרות יחד בשמירה אחת. קבלות מקומיות מופקות לפי סדר התאריכים;
+  // קבלה של הערוץ נשמרת כקבלה חיצונית ואינה צורכת מספר מהמספור הרץ.
+  async importDonations(csvText, options = {}) {
+    const data = await this._load();
+    if (!data.npo.settings.orgName) throw new Error('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
+    const { records, errors, skipped } = DI.buildRecords(csvText, options, data.npo.donations, data.npo.settings);
+    if (data.npo.donations.length + records.length > N.MAX_DONATIONS) throw new Error('הייבוא יחרוג מהמספר המקסימלי של תרומות');
+    const now = new Date().toISOString();
+    let settings = data.npo.settings;
+    const added = [];
+    for (const rec of [...records].sort((a, b) => a.date.localeCompare(b.date))) {
+      let receipt;
+      if (rec.import.receipts === 'issue') ({ receipt, settings } = N.issueReceipt(rec, settings));
+      else receipt = DI.externalReceipt(rec, settings);
+      added.push({ id: crypto.randomUUID(), ...rec, receipt, status: 'active', createdAt: now });
+    }
+    const mappings = { ...(settings.importMappings || {}), [options.source]: Object.fromEntries(Object.keys(DI.FIELDS).filter(k => options.mapping && options.mapping[k]).map(k => [k, String(options.mapping[k])])) };
+    data.npo.settings = { ...settings, importMappings: mappings };
+    data.npo.donations.push(...added);
+    await this.db.save(data);
+    const total = added.reduce((t, d) => t + Math.round(d.amount * 100), 0) / 100;
+    return { imported: added.length, total, skipped, errors };
+  }
+
   async getOverview(year) {
     const { npo } = await this._load();
     const y = Number(year) || new Date().getFullYear();
@@ -90,7 +121,7 @@ class NpoService {
       year: y,
       settings: npo.settings,
       funds: N.allFunds(npo.settings),
-      donations: [...npo.donations].sort((a, b) => b.receipt.number - a.receipt.number).map(d => ({ ...d, taxStatus: N.taxStatus(d) })),
+      donations: [...npo.donations].sort((a, b) => b.date.localeCompare(a.date) || N.byReceipt(b, a)).map(d => ({ ...d, taxStatus: N.taxStatus(d) })),
       grants: [...npo.grants].sort((a, b) => b.year - a.year || a.source.localeCompare(b.source, 'he')),
       donors: N.donorSummary(npo.donations),
       fundSummary: N.fundSummary(npo.donations, npo.grants, npo.settings, y),

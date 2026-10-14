@@ -1909,6 +1909,7 @@
             <button class="secondary" id="npoNextYear">${year + 1} ›</button>
             <button class="secondary" id="npoSettingsBtn">הגדרות עמותה</button>
             <button class="secondary" id="npoGrantBtn">＋ תמיכה / מענק</button>
+            <button class="secondary" id="npoImportBtn" title="ייבוא תרומות מקובץ של נדרים פלוס, קהילות, Charidy וכדומה">⬆ ייבוא תרומות</button>
           </div>
         </div>
         ${s.orgName ? '' : `<div class="card"><h4>כדי להפיק קבלות יש להגדיר תחילה את פרטי העמותה</h4><p class="muted">שם, מספר עמותה, אישור סעיף 46 ומעמד מע"מ — בכפתור "הגדרות עמותה".</p></div>`}
@@ -1961,14 +1962,14 @@
               <thead><tr><th>קבלה</th><th>תאריך</th><th>תורם</th><th>סכום</th><th>אמצעי</th><th>קרן</th><th>סעיף 46</th><th>דיווח</th><th></th></tr></thead>
               <tbody>${donations.map(d => `
                 <tr class="${d.status === 'cancelled' ? 'muted' : ''}">
-                  <td>${esc(d.receipt && d.receipt.number)}</td><td>${esc(d.date)}</td>
+                  <td>${d.receipt && d.receipt.external ? `<small class="muted" title="הקבלה הופקה בערוץ התרומה">${esc(NPO_IMPORT_SOURCES[d.receipt.source] || 'חיצונית')}${d.receipt.externalNumber ? ' ' + esc(d.receipt.externalNumber) : ''}</small>` : esc(d.receipt && d.receipt.number)}</td><td>${esc(d.date)}</td>
                   <td>${esc(d.donorName)}</td><td>${money(d.amount)}</td>
                   <td>${esc(NPO_METHODS[d.method] || d.method)}</td><td>${esc(funds[d.fundId] || 'כללי')}</td>
                   <td>${d.receipt && d.receipt.sec46 ? '✓' : '—'}</td>
                   <td><small class="${d.taxStatus === 'pending' || d.taxStatus === 'cancel-pending' ? 'bad' : 'muted'}">${esc(NPO_TAX[d.taxStatus] || '')}${d.taxReport && d.taxReport.registrationNumber ? ' · ' + esc(d.taxReport.registrationNumber) : ''}</small>
                     ${d.taxStatus === 'pending' || d.taxStatus === 'cancel-pending' ? `<button class="icon-btn" data-npo-tax="${esc(d.id)}" title="רישום דיווח לרשות המסים">🏛</button>` : ''}</td>
                   <td>${d.status === 'cancelled' ? 'מבוטלת' : ''}
-                    <button class="icon-btn" data-npo-pdf="${esc(d.id)}" title="קבלה ל-PDF">📄</button>
+                    ${d.receipt && d.receipt.external ? '' : `<button class="icon-btn" data-npo-pdf="${esc(d.id)}" title="קבלה ל-PDF">📄</button>`}
                     ${d.status === 'cancelled' ? '' : `<button class="icon-btn danger" data-npo-cancel="${esc(d.id)}" title="ביטול קבלה">✖</button>`}
                   </td>
                 </tr>`).join('')}</tbody>
@@ -1994,6 +1995,105 @@
       </div>`;
   }
 
+  // ייבוא תרומות מקובץ של ערוץ חיצוני. קבצים מאקסל בעברית שמורים לעתים ב-windows-1255 — מזהים לפי תקינות UTF-8
+  const NPO_IMPORT_SOURCES = { nedarim: 'נדרים פלוס', kehilot: 'קהילות', charidy: 'Charidy', causematch: 'CauseMatch', bank: 'דף בנק', other: 'אחר' };
+
+  function pickCsvAnyEncoding() {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.csv,text/csv';
+      input.addEventListener('change', async () => {
+        const file = input.files && input.files[0];
+        if (!file) return resolve(null);
+        if (file.size > 20 * 1024 * 1024) { showError('הקובץ גדול מדי (עד 20MB)'); return resolve(null); }
+        const buf = await file.arrayBuffer();
+        try { resolve(new TextDecoder('utf-8', { fatal: true }).decode(buf)); }
+        catch { resolve(new TextDecoder('windows-1255').decode(buf)); }
+      });
+      input.click();
+    });
+  }
+
+  async function importNpoDonations() {
+    const s = (state.data.npo && state.data.npo.settings) || {};
+    if (!s.orgName) return showError('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
+    const text = await pickCsvAnyEncoding();
+    if (!text) return;
+    let source = 'nedarim';
+    let pv;
+    try { pv = await window.systemAPI.previewNpoImport(text, source); }
+    catch (error) { return showError('לא ניתן לקרוא את הקובץ: ' + errMsg(error)); }
+    const funds = ((state.data.npo && state.data.npo.funds) || []).filter(fd => !fd.archived);
+
+    const options = await openDialog((card, finish) => {
+      card.style.maxWidth = '760px';
+      const opt = (v, label, sel) => `<option value="${esc(v)}"${sel ? ' selected' : ''}>${esc(label)}</option>`;
+      const draw = () => {
+        card.innerHTML = `
+          <h2>ייבוא תרומות מקובץ</h2>
+          <form class="modal-form" novalidate>
+            <p class="muted">${Number(pv.total)} שורות בקובץ. בדוק שכל שדה מותאם לעמודה הנכונה — ההתאמה תישמר לפעם הבאה מאותו ערוץ. תרומה שכבר יובאה (אותו מספר עסקה) תדולג.</p>
+            <label>ערוץ התרומה<select name="source">${Object.entries(NPO_IMPORT_SOURCES).map(([k, v]) => opt(k, v, k === source)).join('')}</select></label>
+            <label>קבלות<select name="receipts">
+              ${opt('external', 'הערוץ כבר הפיק קבלה לתורם — לא להפיק כאן', true)}
+              ${opt('issue', 'להפיק כאן קבלה רגילה לכל תרומה (מספור רץ)', false)}
+            </select></label>
+            <label>קרן<select name="fundId">${funds.map(fd => opt(fd.id, fd.name, fd.id === 'general')).join('')}</select></label>
+            <div class="acct-grid">${Object.entries(pv.fields).map(([k, fd]) => `
+              <label>${esc(fd.label)}${fd.required ? ' *' : ''}<select name="map_${esc(k)}">
+                ${opt('', '— ללא —', !pv.mapping[k])}${pv.headers.map(h => opt(h, h, pv.mapping[k] === h)).join('')}
+              </select></label>`).join('')}</div>
+            <div class="acct-scroll"><table class="acct-table">
+              <thead><tr>${pv.headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+              <tbody>${pv.sample.map(r => `<tr>${pv.headers.map((h, i) => `<td>${esc(r[i] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody>
+            </table></div>
+            <div class="npo-import-err" style="color:#b91c1c;font-size:.9rem"></div>
+            <div class="modal-actions"><button type="button" class="secondary" data-act="cancel">ביטול</button><button type="submit" class="primary">ייבוא</button></div>
+          </form>`;
+        const form = card.querySelector('form');
+        const err = card.querySelector('.npo-import-err');
+        form.querySelector('[data-act="cancel"]').addEventListener('click', () => finish(null));
+        form.elements.source.addEventListener('change', async () => {
+          source = form.elements.source.value;
+          try { pv = await window.systemAPI.previewNpoImport(text, source); draw(); }
+          catch (error) { err.textContent = errMsg(error); }
+        });
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const mapping = {};
+          for (const k of Object.keys(pv.fields)) mapping[k] = form.elements['map_' + k].value;
+          const missing = Object.entries(pv.fields).find(([k, fd]) => fd.required && !mapping[k]);
+          if (missing) { err.textContent = 'יש לבחור עמודה עבור: ' + missing[1].label; return; }
+          finish({ source, mapping, receipts: form.elements.receipts.value, fundId: form.elements.fundId.value });
+        });
+      };
+      draw();
+    });
+    if (!options) return;
+    try {
+      const r = await window.systemAPI.importNpoDonations(text, options);
+      const failed = r.errors.filter(e => !e.warning);
+      const warned = r.errors.filter(e => e.warning);
+      const parts = [`יובאו ${r.imported} תרומות (${money(r.total)})`];
+      if (r.skipped) parts.push(`${r.skipped} כבר קיימות ודולגו`);
+      if (warned.length) parts.push(`${warned.length} נשמרו בלי ת.ז (מספר שגוי בקובץ)`);
+      if (failed.length) parts.push(`${failed.length} שורות נדחו`);
+      showToast(parts.join(' · '));
+      if (r.errors.length) {
+        await openDialog((card, finish) => {
+          card.innerHTML = `<h2>שורות לבדיקה</h2>
+            <div class="acct-scroll" style="max-height:50vh">${r.errors.map(e => `<div class="acct-row"><span>שורה ${Number(e.line)}</span><span class="${e.warning ? 'muted' : 'bad'}">${esc(e.message)}</span></div>`).join('')}</div>
+            <div class="modal-actions"><button type="button" class="primary">סגירה</button></div>`;
+          card.querySelector('button').addEventListener('click', () => finish(true));
+        });
+      }
+      await switchView('npo');
+    } catch (error) {
+      showError('שגיאה בייבוא: ' + errMsg(error));
+    }
+  }
+
   function attachNpoHandlers() {
     const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
     attachNpoStandingHandlers();
@@ -2013,6 +2113,7 @@
       openSubForm(npoSettingsSchema, { ...s, fundsText });
     });
     on('npoGrantBtn', () => openSubForm(npoGrantSchema));
+    on('npoImportBtn', () => importNpoDonations());
     document.querySelectorAll('[data-npo-grant-edit]').forEach(btn => btn.addEventListener('click', () => {
       const g = ((state.data.npo && state.data.npo.grants) || []).find(x => x.id === btn.dataset.npoGrantEdit);
       if (g) openSubForm(npoGrantSchema, { ...g, documentsText: (Array.isArray(g.documents) ? g.documents : []).map(x => x.name).join('\n') }, g.id);

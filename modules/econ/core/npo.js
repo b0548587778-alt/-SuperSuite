@@ -118,6 +118,15 @@ function validateDonation(input, settings, count = 0) {
   };
 }
 
+// קבלה שהופקה בערוץ חיצוני (ייבוא) אין לה מספר מקומי — ממוינת אחרי הקבלות המקומיות ומוצגת לפי מספר המקור
+const receiptNo = d => (d.receipt && Number.isInteger(d.receipt.number) ? d.receipt.number : Number.MAX_SAFE_INTEGER);
+const byReceipt = (a, b) => receiptNo(a) - receiptNo(b);
+function receiptLabel(d) {
+  const r = d.receipt || {};
+  if (Number.isInteger(r.number)) return r.number;
+  return r.external ? `חיצונית${r.externalNumber ? ' ' + r.externalNumber : ''}` : '';
+}
+
 // הפקת קבלה: מספור רץ שאינו חוזר על עצמו גם אחרי ביטול. הקבלה "מקפיאה" את פרטי העמותה
 // ואת זכאות סעיף 46 ביום התרומה — שינוי הגדרות מאוחר לא משנה קבלה שכבר הופקה.
 function issueReceipt(donation, settings) {
@@ -212,7 +221,7 @@ function donorAnnualStatement(donations, settings, donorKey, year) {
   if (!Number.isInteger(y) || y < 2000 || y > 2100) throw new Error('שנה לא תקינה');
   const match = d => key.startsWith('id:') ? d.donorId === key.slice(3)
     : key.startsWith('name:') && !d.donorId && d.donorName.trim().toLowerCase() === key.slice(5);
-  const rows = live(donations).filter(d => inYear(d.date, y) && match(d)).sort((a, b) => a.date.localeCompare(b.date) || a.receipt.number - b.receipt.number);
+  const rows = live(donations).filter(d => inYear(d.date, y) && match(d)).sort((a, b) => a.date.localeCompare(b.date) || byReceipt(a, b));
   if (!rows.length) throw new Error('לא נמצאו תרומות לתורם בשנה זו');
   const last = rows[rows.length - 1];
   const totalAg = rows.reduce((t, d) => t + toAg(d.amount), 0);
@@ -222,7 +231,7 @@ function donorAnnualStatement(donations, settings, donorKey, year) {
     year: y,
     donor: { name: last.donorName, id: last.donorId || '', address: last.donorAddress || '' },
     org: { name: s.orgName, regNumber: s.regNumber, address: s.address, phone: s.phone, sec46Number: s.sec46Number, sec46ValidUntil: s.sec46ValidUntil },
-    receipts: rows.map(d => ({ number: d.receipt.number, date: d.date, amount: d.amount, method: d.method, sec46: !!(d.receipt && d.receipt.sec46), fundName: d.receipt.fundName || 'כללי' })),
+    receipts: rows.map(d => ({ number: receiptLabel(d), date: d.date, amount: d.amount, method: d.method, sec46: !!(d.receipt && d.receipt.sec46), fundName: d.receipt.fundName || 'כללי' })),
     total: fromAg(totalAg), sec46Total: fromAg(sec46Ag)
   };
 }
@@ -348,8 +357,8 @@ function exportTable(kind, donations, grants, settings, year) {
   const r = annualReport(donations, grants, settings, year);
   if (kind === 'donations') {
     const funds = Object.fromEntries(allFunds(settings).map(f => [f.id, f.name]));
-    const rows = donations.filter(d => inYear(d.date, year)).sort((a, b) => a.date.localeCompare(b.date) || a.receipt.number - b.receipt.number)
-      .map(d => [d.receipt.number, d.date, d.donorName, d.donorId, d.amount, METHODS[d.method] || d.method, funds[d.fundId] || '', d.receipt.sec46 ? 'כן' : 'לא', d.status === 'cancelled' ? 'בוטלה' : 'פעילה', d.purpose]);
+    const rows = donations.filter(d => inYear(d.date, year)).sort((a, b) => a.date.localeCompare(b.date) || byReceipt(a, b))
+      .map(d => [receiptLabel(d), d.date, d.donorName, d.donorId, d.amount, METHODS[d.method] || d.method, funds[d.fundId] || '', d.receipt.sec46 ? 'כן' : 'לא', d.status === 'cancelled' ? 'בוטלה' : 'פעילה', d.purpose]);
     return { name: `תרומות-${year}`, headers: ['מס\' קבלה', 'תאריך', 'תורם', 'ת.ז/ח.פ', 'סכום', 'אמצעי תשלום', 'קרן', 'סעיף 46', 'סטטוס', 'ייעוד'], rows };
   }
   if (kind === 'grants') {
@@ -362,8 +371,8 @@ function exportTable(kind, donations, grants, settings, year) {
   if (kind === 'tax') {
     // רשימת עבודה לדיווח ידני — כל השנים, כי דיווח שלא נעשה אינו "נסגר" עם סוף השנה
     const rows = donations.filter(d => ['pending', 'cancel-pending'].includes(taxStatus(d)))
-      .sort((a, b) => a.receipt.number - b.receipt.number)
-      .map(d => [taxStatus(d) === 'pending' ? 'דיווח תרומה' : 'דיווח ביטול', d.receipt.number, d.date, d.donorName, d.donorId || 'חסר', d.amount, (d.taxReport && d.taxReport.registrationNumber) || '']);
+      .sort(byReceipt)
+      .map(d => [taxStatus(d) === 'pending' ? 'דיווח תרומה' : 'דיווח ביטול', receiptLabel(d), d.date, d.donorName, d.donorId || 'חסר', d.amount, (d.taxReport && d.taxReport.registrationNumber) || '']);
     return { name: 'דיווח-תרומות-ישראל', headers: ['פעולה', 'מס\' קבלה', 'תאריך', 'תורם', 'ת.ז/ח.פ', 'סכום', 'מס\' רישום קודם'], rows };
   }
   if (kind === 'funds') {
@@ -388,5 +397,5 @@ module.exports = {
   GENERAL_FUND, VAT_STATUSES, METHODS, GRANT_STATUSES, TAX_STATUSES, DEFAULT_SETTINGS, MAX_DONATIONS, MAX_GRANTS,
   parseDocuments, matchingRequired, grantAlerts, taxStatus, recordTaxReport, taxSummary,
   normalizeSettings, allFunds, applySettings, sec46Eligible, validateDonation, issueReceipt,
-  validateGrant, donorSummary, donorAnnualStatement, fundSummary, annualReport, exportTable
+  validateGrant, donorSummary, receiptNo, byReceipt, receiptLabel, donorAnnualStatement, fundSummary, annualReport, exportTable
 };

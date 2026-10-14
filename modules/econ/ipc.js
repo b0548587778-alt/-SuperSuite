@@ -554,6 +554,13 @@ handle('auth:login', async (event, username, password) => {
     await auditEvent(event, 'npo.standing.delete', { id });
     return true;
   });
+  // ייבוא תרומות מקובץ של ערוץ חיצוני (נדרים פלוס וכדומה) — קובץ בלבד, ללא חיבור לרשת
+  handle('npo:previewImport', async (event, csvText, source) => npoService.previewImport(csvText, source));
+  handle('npo:importDonations', async (event, csvText, options) => {
+    const r = await npoService.importDonations(csvText, options || {});
+    await auditEvent(event, 'npo.donation.import', { source: options && options.source, receipts: options && options.receipts, imported: r.imported, total: r.total, skipped: r.skipped, errors: r.errors.length });
+    return r;
+  });
   handle('npo:exportDonorStatementPdf', async (event, donorKey, year) => {
     const st = await npoService.getDonorStatement(donorKey, year);
     const safe = String(st.donor.name).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'תורם';
@@ -563,6 +570,7 @@ handle('auth:login', async (event, username, password) => {
   });
   handle('npo:exportReceiptPdf', async (event, id) => {
     const d = await npoService.getDonation(id);
+    if (d.receipt && d.receipt.external) throw new Error('הקבלה לתרומה זו הופקה בערוץ התרומה עצמו — יש להפיק אותה משם');
     const r = await saveHtmlAsPdf(X.renderDonationReceiptHtml(d), `קבלה-${d.receipt.number}.pdf`);
     if (r.ok) await auditEvent(event, 'npo.receipt.pdf', { receipt: d.receipt.number });
     return r;
