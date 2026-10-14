@@ -1,0 +1,137 @@
+// רינדור הכרטיסים החדשים (קמפיינים, הנצחות, ייבוא, מאגר אנשים, פרטיות, הרחבות גמ"ח) ב-vm עם DOM מדומה.
+// הנתונים נבנים בפונקציות הליבה עצמן — כך שצורת הנתונים זהה למה שהשרת מחזיר בפועל.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const CMP = require('../modules/econ/core/campaigns');
+const MEM = require('../modules/econ/core/memorials');
+const P = require('../modules/econ/core/people');
+const PR = require('../modules/econ/core/privacy');
+const GX = require('../modules/econ/core/gemachExtra');
+
+const ROOT = path.join(__dirname, '..');
+const UI_SRC = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+const HTML = fs.readFileSync(path.join(ROOT, 'modules/econ/views/index.html'), 'utf8');
+const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]))];
+
+function fakeElement(id = '', extra = {}) {
+  const listeners = {};
+  return Object.assign({
+    id, textContent: '', value: '', innerHTML: '', style: {}, dataset: {}, disabled: false,
+    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    addEventListener(ev, fn) { (listeners[ev] ||= []).push(fn); }, _listeners: listeners,
+    appendChild() {}, append() {}, querySelector() { return fakeElement(); }, querySelectorAll() { return []; },
+    setAttribute() {}, focus() {}, remove() {}
+  }, extra);
+}
+const settle = async (n = 14) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
+
+async function render(view, responses) {
+  const elements = {};
+  const calls = [];
+  const systemAPI = new Proxy({}, {
+    get(_t, name) {
+      if (name === 'authStatus') return () => Promise.resolve({ user: { id: 'u1' }, configured: true });
+      return (...args) => { calls.push({ name, args }); return Promise.resolve(name in responses ? responses[name] : (/^get(Invoices|Products|Chart|Journal|PersonalEntries)$/.test(name) ? [] : {})); };
+    }
+  });
+  const navButtons = VIEWS.map(v => fakeElement('', { dataset: { view: v } }));
+  const document = {
+    readyState: 'complete',
+    getElementById(id) { return (elements[id] ||= fakeElement(id)); },
+    querySelector() { return fakeElement(); },
+    querySelectorAll(sel) { return sel === '.nav' ? navButtons : []; },
+    addEventListener() {}, createElement() { return fakeElement(); }, body: fakeElement()
+  };
+  const context = { document, console, setTimeout, clearTimeout, Date, Intl };
+  context.window = context;
+  context.window.systemAPI = systemAPI;
+  vm.createContext(context);
+  vm.runInContext(UI_SRC, context, { filename: 'unified-ui.js' });
+  await settle();
+  const i = VIEWS.indexOf(view);
+  assert.ok(i >= 0, 'התצוגה קיימת: ' + view);
+  navButtons[i]._listeners.click[0]();
+  await settle();
+  return { html: elements.view.innerHTML, calls };
+}
+
+const TODAY = '2026-10-14';
+const campaign = { id: 'c1', ...CMP.validateCampaign({ name: 'בניין בית המדרש', goal: 10000, startDate: '2026-10-01', endDate: '2026-10-31', matchDonor: 'קרן ברגר', matchRatio: 1, matchCap: 2000, ambassadorsText: 'יוסי, Y1, 3000' }, { newId: () => 'a1' }) };
+const donations = [
+  { id: 'd1', date: '2026-10-02', donorName: 'משה כהן', amount: 500, method: 'card', fundId: 'general', status: 'active', campaignId: 'c1', ambassadorId: 'a1', receipt: { number: 3, sec46: false } },
+  { id: 'd2', date: '2026-10-03', donorName: 'אהרן לוי', amount: 180, method: 'card', fundId: 'general', status: 'active', receipt: { number: null, external: true, source: 'nedarim', externalNumber: 'R-77', sec46: false }, import: { source: 'nedarim', externalId: 'A1' } }
+];
+const memorial = { id: 'm1', ...MEM.validateMemorial({ name: 'ר׳ יצחק', parentName: 'בן אברהם', hebrewDay: 30, hebrewMonth: 'Heshvan', contactName: 'יוסף', contactPhone: '050-1' }) };
+
+const NPO = {
+  year: 2026, settings: { orgName: 'עמותת תורה וחסד', funds: [] }, funds: [{ id: 'general', name: 'כללי' }],
+  donations, grants: [], donors: [], fundSummary: { funds: [], restrictedTotal: 0, generalTotal: 0 },
+  report: { donationsTotal: 680, largeDonors: [] }, tax: { counts: {}, toReport: 0 },
+  campaigns: CMP.summarize([campaign], donations, TODAY)
+};
+
+test('עמותה: קמפיין עם הכפלה ושגרירים, קבלה חיצונית בלי PDF, כפתור ייבוא, הנצחה "לבירור"', async () => {
+  const { html } = await render('npo', {
+    getNpoOverview: NPO,
+    getNpoStandingOrders: { month: '2026-10', rows: [] },
+    getNpoMemorials: { list: [{ ...memorial, hebrewLabel: MEM.hebrewLabel(memorial) }], ...MEM.upcoming([memorial], '2028-11-01', 30) }
+  });
+  assert.match(html, /בניין בית המדרש/);
+  assert.match(html, /הכפלה של קרן ברגר/);
+  assert.match(html, /יוסי/);
+  assert.match(html, /npoImportBtn/);
+  assert.match(html, /נדרים פלוס R-77/, 'קבלה חיצונית מוצגת לפי ערוץ ומספר מקור');
+  assert.doesNotMatch(html, /data-npo-pdf="d2"/, 'לקבלה חיצונית אין PDF מקומי');
+  assert.match(html, /data-npo-pdf="d1"/);
+  assert.match(html, /ר׳ יצחק/);
+  assert.match(html, /לבירור/);
+  assert.doesNotMatch(html, /data-cmp-del="c1"/, 'קמפיין עם תרומות — אין מחיקה');
+});
+
+test('מאגר אנשים: טבלה עם תפקידים וסימון "לפי שם"', async () => {
+  const data = { npo: { donations, standingOrders: [], memorials: [memorial] }, gemach: { loans: [], deposits: [] }, chesed: { beneficiaries: [], volunteers: [{ id: 'v', name: 'יוסף', phone: '050-1' }] } };
+  const { html, calls } = await render('people', { searchPeople: P.search(data, '', { today: TODAY }) });
+  assert.ok(calls.some(c => c.name === 'searchPeople'));
+  assert.match(html, /משה כהן/);
+  assert.match(html, /לפי שם/);
+  assert.match(html, /קרוב משפחה \(הנצחה\) · מתנדב|מתנדב · קרוב משפחה \(הנצחה\)/);
+});
+
+test('הגדרות: כרטיס הפרטיות למנהל, עם הסתייגות ומסנן צפייה בחסויים', async () => {
+  const privacy = { ...PR.dataMap({ chesed: { beneficiaries: [{ tier: 'confidential' }] } }, { admin: 1 }), checklist: PR.INCIDENT_CHECKLIST };
+  const { html } = await render('settings', { getAdvancedSettings: { isAdmin: true, kinds: [], counts: {}, me: { id: 'u1' } }, listUsers: [], listAudit: [], getPrivacyMap: privacy });
+  assert.match(html, /הגנת הפרטיות — מיפוי מאגרים/);
+  assert.match(html, /אינו ייעוץ משפטי/);
+  assert.match(html, /privacyRetentionBtn/);
+  assert.match(html, /צפייה בחסויים/);
+});
+
+test('גמ"ח: בקשות, חפצים באיחור ופיגורים לפי ערב', async () => {
+  const item = { id: 'i1', ...GX.validateItem({ name: 'עגלת תינוק', deposit: 200 }) };
+  const lending = { id: 'l1', ...GX.validateLending({ borrowerName: 'רחל', date: '2026-10-01', dueDate: '2026-10-10' }, item, []) };
+  const loan = { id: 'L', borrowerName: 'שמעון', status: 'active', schedule: [{ seq: 1, dueDate: '2026-09-01', amountAg: 10000, paidAg: 0 }], guarantors: [{ name: 'דוד', id: '', phone: '052' }] };
+  const { html } = await render('gemach', {
+    getGemachOverview: {
+      settings: {}, overview: {}, loans: [], deposits: [],
+      applications: [{ id: 'ap', borrowerName: 'יעקב', requestDate: TODAY, amount: 1000, installments: 2, guarantors: [], status: 'verified', statusLabel: 'ערבים אומתו' }],
+      guarantorArrears: GX.arrearsByGuarantor([loan], TODAY),
+      items: GX.itemsOverview([item], [lending], TODAY)
+    }
+  });
+  assert.match(html, /data-gx-move="ap" data-to="approved"/);
+  assert.match(html, /עגלת תינוק/);
+  assert.match(html, /באיחור/);
+  assert.match(html, /data-gx-return="i1"/);
+  assert.match(html, /פיגורים לפי ערב/);
+  assert.match(html, /דוד/);
+});
+
+test('נתונים חסרים בכרטיסים החדשים לא מפילים את המסכים', async () => {
+  for (const [view, r] of [['npo', { getNpoOverview: { ...NPO, campaigns: null }, getNpoMemorials: null }], ['people', { searchPeople: null }], ['gemach', { getGemachOverview: { settings: {}, overview: {} } }]]) {
+    const { html } = await render(view, r);
+    assert.doesNotMatch(html, /^<div class="loading">/, view);
+  }
+});
