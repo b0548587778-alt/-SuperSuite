@@ -140,6 +140,8 @@ contextBridge.exposeInMainWorld('systemAPI', {
   toggleNpoGrantDocument: (id, index) => ipcRenderer.invoke('npo:toggleGrantDocument', id, index),
   recordNpoTaxReport: (id, input) => ipcRenderer.invoke('npo:recordTaxReport', id, input),
   exportNpoDonorStatementPdf: (donorKey, year) => ipcRenderer.invoke('npo:exportDonorStatementPdf', donorKey, year),
+  saveNpoCampaign: (id, input) => ipcRenderer.invoke('npo:saveCampaign', id, input),
+  deleteNpoCampaign: (id) => ipcRenderer.invoke('npo:deleteCampaign', id),
   getNpoMemorials: (today, days) => ipcRenderer.invoke('npo:getMemorials', today, days),
   saveNpoMemorial: (id, input) => ipcRenderer.invoke('npo:saveMemorial', id, input),
   deleteNpoMemorial: (id) => ipcRenderer.invoke('npo:deleteMemorial', id),

@@ -556,6 +556,17 @@ handle('auth:login', async (event, username, password) => {
     await auditEvent(event, 'npo.standing.delete', { id });
     return true;
   });
+  // קמפיינים — יעד, תקופה ותורם מכפיל; ההתקדמות מגיעה עם getOverview
+  handle('npo:saveCampaign', async (event, id, input) => {
+    const cmp = await npoService.saveCampaign(id || null, input);
+    await auditEvent(event, id ? 'npo.campaign.update' : 'npo.campaign.create', { id: cmp.id, goal: cmp.goal });
+    return cmp;
+  });
+  handle('npo:deleteCampaign', async (event, id) => {
+    await npoService.deleteCampaign(id);
+    await auditEvent(event, 'npo.campaign.delete', { id });
+    return true;
+  });
   // הנצחות ויארצייטים — לפי תאריך עברי
   handle('npo:getMemorials', async (event, today, days) => npoService.getMemorials(today, days));
   handle('npo:saveMemorial', async (event, id, input) => {

@@ -5,6 +5,7 @@ const N = require('../core/npo');
 const SO = require('../core/standingOrders');
 const DI = require('../core/donationImport');
 const MEM = require('../core/memorials');
+const CMP = require('../core/campaigns');
 
 class NpoService {
   constructor(db) {
@@ -23,7 +24,8 @@ class NpoService {
       donations: Array.isArray(npo.donations) ? npo.donations : [],
       grants: Array.isArray(npo.grants) ? npo.grants : [],
       standingOrders: Array.isArray(npo.standingOrders) ? npo.standingOrders : [],
-      memorials: Array.isArray(npo.memorials) ? npo.memorials : []
+      memorials: Array.isArray(npo.memorials) ? npo.memorials : [],
+      campaigns: Array.isArray(npo.campaigns) ? npo.campaigns : []
     };
     return data;
   }
@@ -86,6 +88,43 @@ class NpoService {
     return true;
   }
 
+  /* ---------- קמפיינים ---------- */
+  async saveCampaign(campaignId, input) {
+    const data = await this._load();
+    const list = data.npo.campaigns;
+    const prev = campaignId ? list.find(x => x.id === campaignId) : null;
+    if (campaignId && !prev) throw new Error('הקמפיין לא נמצא');
+    const fundIds = N.allFunds(data.npo.settings).filter(f => !f.archived || (prev && prev.fundId === f.id)).map(f => f.id);
+    const clean = CMP.validateCampaign({ ...(prev || {}), ...input }, { count: prev ? 0 : list.length, fundIds });
+    if (prev) {
+      // שינוי תקופה לא יכול "להוציא" תרומות שכבר שויכו
+      const out = data.npo.donations.filter(d => d.campaignId === prev.id && d.status !== 'cancelled' && (d.date < clean.startDate || d.date > clean.endDate));
+      if (out.length) throw new Error(`${out.length} תרומות משויכות לקמפיין מחוץ לתקופה החדשה — יש להרחיב את התקופה`);
+    }
+    const now = new Date().toISOString();
+    const cmp = prev ? Object.assign(prev, clean, { updatedAt: now }) : { id: crypto.randomUUID(), ...clean, createdAt: now };
+    if (!prev) list.push(cmp);
+    await this.db.save(data);
+    return cmp;
+  }
+
+  // קמפיין עם תרומות לא נמחק — נסגר, כדי שהשיוך בקבלות יישמר
+  async deleteCampaign(campaignId) {
+    const data = await this._load();
+    if (!data.npo.campaigns.some(x => x.id === campaignId)) throw new Error('הקמפיין לא נמצא');
+    if (data.npo.donations.some(d => d.campaignId === campaignId)) throw new Error('לקמפיין יש תרומות משויכות. במקום למחוק — סמן אותו כסגור');
+    data.npo.campaigns = data.npo.campaigns.filter(x => x.id !== campaignId);
+    await this.db.save(data);
+    return true;
+  }
+
+  _campaignFor(data, campaignId) {
+    if (!campaignId) return null;
+    const c = data.npo.campaigns.find(x => x.id === campaignId);
+    if (!c) throw new Error('הקמפיין לא נמצא');
+    return c;
+  }
+
   /* ---------- הנצחות ויארצייטים ---------- */
   async getMemorials(today, days) {
     const { npo } = await this._load();
@@ -132,7 +171,9 @@ class NpoService {
   async importDonations(csvText, options = {}) {
     const data = await this._load();
     if (!data.npo.settings.orgName) throw new Error('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
-    const { records, errors, skipped } = DI.buildRecords(csvText, options, data.npo.donations, data.npo.settings);
+    const campaign = this._campaignFor(data, options.campaignId);
+    if (campaign && campaign.closed) throw new Error(`הקמפיין "${campaign.name}" סגור`);
+    const { records, errors, skipped } = DI.buildRecords(csvText, { ...options, campaign }, data.npo.donations, data.npo.settings);
     if (data.npo.donations.length + records.length > N.MAX_DONATIONS) throw new Error('הייבוא יחרוג מהמספר המקסימלי של תרומות');
     const now = new Date().toISOString();
     let settings = data.npo.settings;
@@ -164,7 +205,8 @@ class NpoService {
       fundSummary: N.fundSummary(npo.donations, npo.grants, npo.settings, y),
       report: N.annualReport(npo.donations, npo.grants, npo.settings, y),
       grantAlerts: N.grantAlerts(npo.grants, new Date().toISOString().slice(0, 10)),
-      tax: N.taxSummary(npo.donations)
+      tax: N.taxSummary(npo.donations),
+      campaigns: CMP.summarize(npo.campaigns, npo.donations, new Date().toISOString().slice(0, 10))
     };
   }
 
@@ -181,6 +223,7 @@ class NpoService {
     const data = await this._load();
     if (!data.npo.settings.orgName) throw new Error('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
     const clean = N.validateDonation(input, data.npo.settings, data.npo.donations.length);
+    if (clean.campaignId) CMP.assertCanAssign(this._campaignFor(data, clean.campaignId), clean.date);
     const { receipt, settings } = N.issueReceipt(clean, data.npo.settings);
     const donation = { id: crypto.randomUUID(), ...clean, receipt, status: 'active', createdAt: new Date().toISOString() };
     data.npo.donations.push(donation);

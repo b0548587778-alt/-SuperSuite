@@ -114,7 +114,8 @@ function validateDonation(input, settings, count = 0) {
     donorPhone: str(input.donorPhone, 30, 'טלפון התורם'),
     amount: fromAg(toAg(amount)), method, fundId,
     purpose: str(input.purpose, 300, 'ייעוד התרומה'),
-    reference: str(input.reference, 60, 'אסמכתא')
+    reference: str(input.reference, 60, 'אסמכתא'),
+    campaignId: str(input.campaignId, 60, 'הקמפיין')
   };
 }
 

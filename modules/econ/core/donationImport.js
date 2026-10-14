@@ -3,6 +3,7 @@
 // המשתמש מאשר/מתקן את ההתאמה, וההתאמה נשמרת לכל ערוץ לפעם הבאה.
 const { parseCsv } = require('./features');
 const N = require('./npo');
+const CMP = require('./campaigns');
 
 const SOURCES = { nedarim: 'נדרים פלוס', kehilot: 'קהילות', charidy: 'Charidy', causematch: 'CauseMatch', bank: 'דף בנק', other: 'אחר' };
 const MAX_ROWS = 5000;
@@ -82,10 +83,10 @@ const dupKeyOf = (d) => d.import && d.import.externalId
   : `r|${d.date}|${String(d.donorName).trim().toLowerCase()}|${Math.round(Number(d.amount) * 100)}`;
 
 /* המרת הקובץ לרשומות תרומה. options:
-   source — הערוץ; fundId — קרן לכל השורות (ברירת מחדל: כללית); mapping — {שדה: כותרת}; receipts — 'external' (הערוץ כבר הפיק קבלה) או 'issue' (להפיק כאן)
+   source — הערוץ; campaign — קמפיין לשיוך (אובייקט שהשירות שלף מהנתונים); fundId — קרן לכל השורות (ברירת מחדל: כללית); mapping — {שדה: כותרת}; receipts — 'external' (הערוץ כבר הפיק קבלה) או 'issue' (להפיק כאן)
    מחזיר { records, errors, skipped } — records עדיין בלי מזהה וקבלה (השירות משלים בשמירה). */
 function buildRecords(csvText, options, existing, settings) {
-  const { source, mapping = {}, receipts = 'external', fundId } = options || {};
+  const { source, mapping = {}, receipts = 'external', fundId, campaign } = options || {};
   if (!SOURCES[source]) throw new Error('ערוץ לא מוכר');
   if (receipts !== 'external' && receipts !== 'issue') throw new Error('יש לבחור מי מפיק את הקבלות');
   const { headers, rows } = readFile(csvText);
@@ -105,6 +106,7 @@ function buildRecords(csvText, options, existing, settings) {
       if (!date) throw new Error(`תאריך לא מזוהה: "${get('date')}"`);
       const amount = parseAmount(get('amount'));
       if (amount === null) throw new Error(`סכום לא תקין: "${get('amount')}"`);
+      if (campaign) CMP.assertCanAssign(campaign, date);
       const externalId = get('externalId').slice(0, 80);
       // ת.ז שגויה מהערוץ לא חוסמת את הייבוא — נשמרת ריקה, והשורה מסומנת לבדיקה
       let donorId = parseId(get('donorId'));
@@ -114,7 +116,7 @@ function buildRecords(csvText, options, existing, settings) {
         catch { note = `ת.ז "${donorId}" שגויה — לא נשמרה`; donorId = ''; }
       }
       const clean = N.validateDonation({
-        date, amount, donorId, fundId, method: source === 'bank' ? 'transfer' : 'card',
+        date, amount, donorId, fundId, campaignId: campaign ? campaign.id : '', method: source === 'bank' ? 'transfer' : 'card',
         donorName: get('donorName'), donorPhone: get('donorPhone').slice(0, 30), donorAddress: get('donorAddress').slice(0, 300),
         purpose: get('purpose').slice(0, 300), reference: externalId.slice(0, 60)
       }, settings);

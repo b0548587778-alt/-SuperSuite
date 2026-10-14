@@ -1725,6 +1725,7 @@
     prepare: async (schema) => {
       const o = await window.systemAPI.getNpoOverview(npoYear());
       schema.fields.find(f => f.name === 'fundId').options = npoFundOptions(o);
+      schema.fields.find(f => f.name === 'campaignId').options = openCampaignOptions(o);
       schema.fields.find(f => f.name === 'date').value = today();
     },
     fields: [
@@ -1734,6 +1735,7 @@
       { name: 'amount', label: 'סכום (₪)', type: 'number', required: true },
       { name: 'method', label: 'אמצעי תשלום', type: 'select', options: opts(NPO_METHODS) },
       { name: 'fundId', label: 'קרן', type: 'select', options: [] },
+      { name: 'campaignId', label: 'קמפיין', type: 'select', options: [] },
       { name: 'purpose', label: 'ייעוד / הערה לקבלה', type: 'text' },
       { name: 'reference', label: 'אסמכתא (מס\' המחאה / העברה)', type: 'text' },
       { name: 'donorAddress', label: 'כתובת התורם', type: 'text' },
@@ -1819,6 +1821,77 @@
     create: (d) => window.systemAPI.saveNpoStandingOrder(null, { ...d, endMonth: d.endMonth || '' }),
     update: (id, d) => window.systemAPI.saveNpoStandingOrder(id, { ...d, endMonth: d.endMonth || '' })
   };
+
+  // קמפיינים — יעד, תקופה ותורם מכפיל. ההכפלה מוצגת כחישוב; כסף המכפיל נרשם כתרומה רגילה כשהוא מתקבל
+  const CMP_STATUS = { active: 'פעיל', upcoming: 'טרם התחיל', ended: 'הסתיים', closed: 'סגור' };
+  const campaignSchema = {
+    title: 'קמפיין חדש',
+    editTitle: 'עריכת קמפיין',
+    prepare: async (schema) => {
+      const o = await window.systemAPI.getNpoOverview(npoYear());
+      schema.fields.find(f => f.name === 'fundId').options = npoFundOptions(o);
+      schema.fields.find(f => f.name === 'startDate').value = today();
+    },
+    fields: [
+      { name: 'name', label: 'שם הקמפיין', type: 'text', required: true },
+      { name: 'goal', label: 'יעד (₪)', type: 'number', required: true },
+      { name: 'startDate', label: 'תאריך התחלה', type: 'date', required: true },
+      { name: 'endDate', label: 'תאריך סיום', type: 'date', required: true },
+      { name: 'fundId', label: 'קרן', type: 'select', options: [] },
+      { name: 'matchDonor', label: 'תורם מכפיל (לא חובה)', type: 'text' },
+      { name: 'matchRatio', label: 'יחס הכפלה (1 = כל שקל מוכפל, 2 = משולש; ריק = בלי)', type: 'number' },
+      { name: 'matchCap', label: 'תקרת ההכפלה — הסכום שהמכפיל התחייב אליו (₪)', type: 'number' },
+      { name: 'closed', label: 'מצב', type: 'select', options: [{ value: 'false', label: 'פתוח לשיוך תרומות' }, { value: 'true', label: 'סגור' }] },
+      { name: 'notes', label: 'הערות', type: 'textarea' }
+    ],
+    create: (d) => window.systemAPI.saveNpoCampaign(null, campaignInput(d)),
+    update: (id, d) => window.systemAPI.saveNpoCampaign(id, campaignInput(d))
+  };
+  function campaignInput(d) {
+    const out = { ...d };
+    for (const k of ['matchDonor', 'matchRatio', 'matchCap', 'notes']) if (out[k] === undefined) out[k] = '';
+    return out;
+  }
+  const openCampaignOptions = (o) => [{ value: '', label: '— ללא —' },
+    ...(Array.isArray(o && o.campaigns) ? o.campaigns : []).filter(c => !c.closed && c.status !== 'ended')
+      .map(c => ({ value: c.id, label: `${c.name} (${c.startDate} – ${c.endDate})` }))];
+
+  function renderNpoCampaigns(list) {
+    if (!Array.isArray(list)) return '';
+    const bar = (p) => `<div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden"><div style="width:${Math.min(100, Math.max(0, Number(p) || 0))}%;height:100%;background:var(--accent, #0f766e)"></div></div>`;
+    return `<div class="card acct-wide">
+      <div class="hub-head"><h3>קמפיינים (${list.length})</h3>
+        <div class="acct-actions"><button class="secondary" id="npoCampaignAdd">＋ קמפיין</button></div></div>
+      ${list.length === 0 ? renderEmpty('אין קמפיינים. קמפיין מרכז תרומות סביב יעד ותקופה — אפשר גם עם תורם מכפיל.') : list.map(c => `
+        <div class="acct-row" style="display:block">
+          <div style="display:flex;justify-content:space-between;gap:1rem">
+            <span><strong>${esc(c.name)}</strong> <small class="${c.status === 'active' ? 'ok' : 'muted'}">${esc(CMP_STATUS[c.status] || c.status)}${c.daysLeft !== null && c.daysLeft !== undefined ? ' · עוד ' + Number(c.daysLeft) + ' ימים' : ''}</small>
+              <small class="muted">· ${esc(c.startDate)} – ${esc(c.endDate)}</small></span>
+            <span>${money(c.total)} / ${money(c.goal)} <small>(${Number(c.percent)}%)</small>
+              <button class="icon-btn" data-cmp-edit="${esc(c.id)}" title="עריכה">✎</button>
+              ${c.donationsCount ? '' : `<button class="icon-btn danger" data-cmp-del="${esc(c.id)}" title="מחיקה">🗑</button>`}</span>
+          </div>
+          ${bar(c.percent)}
+          <small class="muted">${Number(c.donationsCount)} תרומות · ${Number(c.donorsCount)} תורמים · נאסף ${money(c.raised)}${c.matchRatio ? ` · הכפלה${c.matchDonor ? ' של ' + esc(c.matchDonor) : ''}: ${money(c.matched)} (נותרו ${money(c.matchLeft)} מתוך ${money(c.matchCap)})` : ''}${c.remaining ? ' · חסר ' + money(c.remaining) : ' · היעד הושג ✓'}</small>
+          ${c.topDonors && c.topDonors.length ? `<div><small class="muted">מובילים: ${c.topDonors.map(t => esc(t.name) + ' ' + money(t.amount)).join(' · ')}</small></div>` : ''}
+        </div>`).join('')}
+    </div>`;
+  }
+
+  function attachNpoCampaignHandlers() {
+    const list = (state.data.npo && state.data.npo.campaigns) || [];
+    const add = document.getElementById('npoCampaignAdd');
+    if (add) add.addEventListener('click', () => openSubForm(campaignSchema, { closed: 'false' }));
+    document.querySelectorAll('[data-cmp-edit]').forEach(b => b.addEventListener('click', () => {
+      const c = list.find(x => x.id === b.dataset.cmpEdit);
+      if (c) openSubForm(campaignSchema, { ...c, closed: c.closed ? 'true' : 'false', matchRatio: c.matchRatio || '', matchCap: c.matchCap || '' }, c.id);
+    }));
+    document.querySelectorAll('[data-cmp-del]').forEach(b => b.addEventListener('click', async () => {
+      if (!(await askConfirm('למחוק את הקמפיין?'))) return;
+      try { await window.systemAPI.deleteNpoCampaign(b.dataset.cmpDel); showToast('הקמפיין נמחק'); await switchView('npo'); }
+      catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+    }));
+  }
 
   // הנצחות ויארצייטים — רישום לפי תאריך פטירה אזרחי (מומר לעברי) או ישירות לפי תאריך עברי
   const MEM_MONTHS = [['Tishri', 'תשרי'], ['Heshvan', 'חשוון'], ['Kislev', 'כסלו'], ['Tevet', 'טבת'], ['Shevat', 'שבט'],
@@ -2026,6 +2099,7 @@
           <div class="acct-actions"><button class="secondary" data-npo-export="tax">ייצוא רשימת עבודה לדיווח</button></div>
         </div>` : ''}
         <div class="acct-grid">
+          ${renderNpoCampaigns(o.campaigns)}
           ${renderNpoStanding(o.standing)}
           ${renderNpoMemorials(o.memorials)}
           <div class="card">
@@ -2129,6 +2203,7 @@
               ${opt('issue', 'להפיק כאן קבלה רגילה לכל תרומה (מספור רץ)', false)}
             </select></label>
             <label>קרן<select name="fundId">${funds.map(fd => opt(fd.id, fd.name, fd.id === 'general')).join('')}</select></label>
+            <label>קמפיין (לכל השורות)<select name="campaignId">${openCampaignOptions(state.data.npo).map(x => opt(x.value, x.label, !x.value)).join('')}</select></label>
             <div class="acct-grid">${Object.entries(pv.fields).map(([k, fd]) => `
               <label>${esc(fd.label)}${fd.required ? ' *' : ''}<select name="map_${esc(k)}">
                 ${opt('', '— ללא —', !pv.mapping[k])}${pv.headers.map(h => opt(h, h, pv.mapping[k] === h)).join('')}
@@ -2154,7 +2229,7 @@
           for (const k of Object.keys(pv.fields)) mapping[k] = form.elements['map_' + k].value;
           const missing = Object.entries(pv.fields).find(([k, fd]) => fd.required && !mapping[k]);
           if (missing) { err.textContent = 'יש לבחור עמודה עבור: ' + missing[1].label; return; }
-          finish({ source, mapping, receipts: form.elements.receipts.value, fundId: form.elements.fundId.value });
+          finish({ source, mapping, receipts: form.elements.receipts.value, fundId: form.elements.fundId.value, campaignId: form.elements.campaignId.value });
         });
       };
       draw();
@@ -2186,6 +2261,7 @@
   function attachNpoHandlers() {
     const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
     attachNpoStandingHandlers();
+    attachNpoCampaignHandlers();
     attachNpoMemorialHandlers();
     document.querySelectorAll('[data-npo-doc]').forEach(btn => btn.addEventListener('click', async () => {
       try { await window.systemAPI.toggleNpoGrantDocument(btn.dataset.npoDoc, Number(btn.dataset.docIndex)); await switchView('npo'); }
