@@ -254,3 +254,85 @@ test('אנשי קשר: פס ייבוא/ייצוא כולל vCard מוצג מעל
   assert.match(html, /data-port-import="contacts"/);
   assert.match(html, /data-vcard-import/);
 });
+
+// ---------- מעבדת תמהיל ----------
+const LAB = {
+  forecast: { isDemo: true, id: 'demo-2026-10', source: 'נתוני הדגמה בלבד', publishedAt: '2026-10-01', boiPct: [4.25, 4], inflationAnnualPct: 2.5, anchors: { GOV_BOND_5Y: { first: 3, last: 3.25, months: 61 } } },
+  anchorKeys: ['GOV_BOND_5Y'], rulesVersion: '2026.10.1', engineVersion: '1.0.0',
+  rules: [
+    { id: 'boi.prime.spread', description: 'מרווח פריים מעל ריבית בנק ישראל', source: 'מקור', value: 0.015, needsVerification: true },
+    { id: 'boi.329.maxLtv', description: 'שיעור מימון מקסימלי', source: 'מקור', value: { SINGLE_HOME: 0.75 }, needsVerification: false, verifiedAt: '2026-10-10T08:00:00Z', verifiedNote: 'נבדק מול 329' }
+  ],
+  clients: [{ id: 'c1', name: 'משפחת גולדברג' }],
+  scenarios: [{ id: 's1', name: 'תמהיל שנחתם', clientName: 'משפחת גולדברג', startDate: '2022-01-15', rulesVersion: '2026.10.1', forecastId: 'demo', summary: { principal: 1200000, firstPayment: 6654.81, totalPayments: 2201230.66 }, tracks: [{ type: 'PRIME', amount: 1200000, termMonths: 300, spreadPct: -0.5 }] }],
+  retention: [{ kind: 'RATE_RESET', label: 'נקודת שינוי ריבית במסלול 3 — הזדמנות למחזור', date: '2027-01-15', days: 93, clientName: 'משפחת גולדברג', scenarioName: 'תמהיל שנחתם' }]
+};
+const LAB_RESULT = {
+  summary: { principal: 1200000, firstPayment: 6654.81, maxPayment: 7100.5, maxPaymentMonth: 61, totalInterest: 900000, totalIndexation: 100000, totalCost: 1001230.66, totalPayments: 2201230.66, irrAnnual: 0.05 },
+  yearly: [{ year: 1, payments: 79857.72, interest: 50000, principal: 29857.72, indexation: 1000, closingBalance: 1171142.28 }],
+  tracks: [{ label: 'פריים', principal: 400000, termMonths: 300, initialRate: 0.0525, isCpiLinked: false, summary: { firstPayment: 2400, maxPayment: 2400, totalPayments: 720000 } }],
+  warnings: [{ code: 'PTI_WARNING', label: 'יחס ההחזר להכנסה גבוה', actual: 0.44, limit: 0.4, needsVerification: true }],
+  assumptions: { forecastSource: 'נתוני הדגמה בלבד', forecastPublishedAt: '2026-10-01', forecastNeedsVerification: true, boiRateAtStart: 0.0425, primeSpread: 0.015, primeSpreadNeedsVerification: true, firstYearInflation: 0.025, rateConvention: 'NOMINAL', rulesVersion: '2026.10.1', engineVersion: '1.0.0' }
+};
+
+function labTabButton(tab) { return fakeElement('', { dataset: { labTab: tab } }); }
+
+test('מעבדת תמהיל: נפתחת עם באנר הדגמה/אימות, לשוניות ועורך מסלולים ברירת מחדל', async () => {
+  const h = await makeHarness({ responses: { getMortgageLab: LAB } });
+  await goTo(h, 'mortgage-lab');
+  const html = h.elements.view.innerHTML;
+  assert.match(html, /התחזית היא נתוני הדגמה/);
+  assert.match(html, /1 כללים רגולטוריים טרם אומתו/);
+  assert.match(html, /data-lab-tab="opt"/);
+  assert.equal((html.match(/data-f="type"/g) || []).length, 3, 'שלושה מסלולים בעורך');
+  assert.match(html, /value="GOV_BOND_5Y" selected/, 'העוגן מהתחזית נבחר');
+  assert.equal(h.elements.addBtn.disabled, true, 'אין טופס הוספה במעבדה');
+});
+
+test('מעבדת תמהיל: "חשב" שולח את המסלולים ומציג סיכום, אזהרות והנחות', async () => {
+  const h = await makeHarness({ responses: { getMortgageLab: LAB, calcLabMix: LAB_RESULT } });
+  await goTo(h, 'mortgage-lab');
+  await h.elements.labCalcMix._listeners.click[0]();
+  await settle();
+  const call = h.calls.find(c => c.name === 'calcLabMix');
+  assert.ok(call);
+  assert.equal(call.args[0].tracks.length, 3);
+  assert.equal(call.args[0].tracks[1].type, 'PRIME');
+  const html = h.elements.view.innerHTML;
+  assert.match(html, /6,654\.81/);
+  assert.match(html, /יחס ההחזר להכנסה גבוה/);
+  assert.match(html, /הנחות החישוב/);
+  assert.match(html, /שמירה כתרחיש/, 'אחרי חישוב אפשר לשמור');
+});
+
+test('מעבדת תמהיל: לשוניות שימור, תרחישים ותחזית וכללים', async () => {
+  const tabs = ['retention', 'scenarios', 'settings'].map(labTabButton);
+  const h = await makeHarness({ responses: { getMortgageLab: LAB }, buttons: { '[data-lab-tab]': tabs } });
+  await goTo(h, 'mortgage-lab');
+  tabs[0]._listeners.click.at(-1)();
+  assert.match(h.elements.view.innerHTML, /נקודת שינוי ריבית במסלול 3/);
+  assert.match(h.elements.view.innerHTML, /93 ימים/);
+  tabs[1]._listeners.click.at(-1)();
+  assert.match(h.elements.view.innerHTML, /data-lab-export="s1"/);
+  assert.match(h.elements.view.innerHTML, /data-lab-load="s1"/);
+  tabs[2]._listeners.click.at(-1)();
+  const html = h.elements.view.innerHTML;
+  assert.match(html, /data-lab-verify="boi.prime.spread"/, 'כלל שלא אומת — כפתור אימות');
+  assert.doesNotMatch(html, /data-lab-verify="boi.329.maxLtv"/);
+  assert.match(html, /נבדק מול 329/);
+  assert.match(html, /מוצגים נתוני הדגמה בלבד/);
+});
+
+test('מעבדת תמהיל: נתונים חסרים או פגומים לא מפילים את התצוגה', async () => {
+  for (const lab of [null, {}, { rules: 'x', scenarios: null, retention: {}, forecast: {} }]) {
+    const h = await makeHarness({ responses: { getMortgageLab: lab } });
+    await goTo(h, 'mortgage-lab');
+    assert.match(h.elements.view.innerHTML, /lab-tabs/, 'התצוגה רונדרה');
+  }
+});
+
+test('ייעוץ משכנתאות מפנה למעבדת התמהיל המלאה', async () => {
+  const h = await makeHarness({ madv: { clients: [] } });
+  await goTo(h, 'mortgage-advisor');
+  assert.match(h.elements.view.innerHTML, /data-goto="mortgage-lab"/);
+});

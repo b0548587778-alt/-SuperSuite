@@ -17,6 +17,7 @@ const { VoiceNotesService: voiceNotesService } = require('./services/voiceNotesS
 const { AccountingService: accountingService } = require('./services/accountingService');
 const { NpoService: npoService } = require('./services/npoService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
+const { MortgageLabService: mortgageLabService } = require('./services/mortgageLabService');
 const BK = require('./core/backupCrypto');
 const DP = require('./core/dataPorts');
 const { IDLE_MIN_RANGE } = require('./services/authService');
@@ -39,6 +40,7 @@ async function initEcon(userDataPath) {
   accountingService.initialize(db);
   npoService.initialize(db);
   mortgageAdvisorService.initialize(db);
+  mortgageLabService.initialize(db);
   authService.setIdleMinutes(((await db.load()).settings || {}).idleMinutes);
   registerIpcHandlers();
   return db;
@@ -61,6 +63,8 @@ function permissionFor(channel) {
   const name = channel.includes(':') ? channel.split(':')[1] : channel;
   if (channel.startsWith('auth:')) return null;
   if (channel.startsWith('users:') || channel.startsWith('audit:') || channel === 'settings:saveAdvanced') return 'users.manage';
+  // אימות כלל רגולטורי משנה את האזהרות לכל המשתמשים — מנהל בלבד
+  if (channel === 'mlab:verifyRule' || channel === 'mlab:unverifyRule') return 'users.manage';
   if (/backup/i.test(name)) return 'data.backup';
   if (/restore/i.test(name)) return 'data.restore';
   if (/export/i.test(name)) return 'data.export';
@@ -561,8 +565,54 @@ handle('auth:login', async (event, username, password) => {
     return r;
   });
 
+  // מעבדת תמהיל: מנוע התמהיל המלא, סלים אחידים, כושר החזר, מחזור, אישורים, עמלת פירעון ואופטימייזר
+  handle('mlab:getOverview', async () => mortgageLabService.getOverview());
+  handle('mlab:calcMix', async (event, input) => mortgageLabService.calcMix(input || {}));
+  handle('mlab:calcBaskets', async (event, input) => mortgageLabService.calcBaskets(input || {}));
+  handle('mlab:calcAffordability', async (event, input) => mortgageLabService.calcAffordability(input || {}));
+  handle('mlab:calcRefinance', async (event, input) => mortgageLabService.calcRefinance(input || {}));
+  handle('mlab:calcApprovals', async (event, input) => mortgageLabService.calcApprovals(input || {}));
+  handle('mlab:calcPrepayment', async (event, input) => mortgageLabService.calcPrepayment(input || {}));
+  handle('mlab:calcOptimize', async (event, input) => mortgageLabService.calcOptimize(input || {}));
+  handle('mlab:saveForecast', async (event, input) => {
+    const r = await mortgageLabService.saveForecast(input || {});
+    await auditEvent(event, 'mlab.forecast.save', { id: r.id });
+    return r;
+  });
+  handle('mlab:resetForecast', async (event) => {
+    const r = await mortgageLabService.resetForecast();
+    await auditEvent(event, 'mlab.forecast.reset', {});
+    return r;
+  });
+  handle('mlab:verifyRule', async (event, ruleId, note) => {
+    const me = authService.getSession(event.sender.id);
+    await mortgageLabService.verifyRule(ruleId, note, me && me.id);
+    await auditEvent(event, 'mlab.rule.verify', { ruleId, note });
+    return true;
+  });
+  handle('mlab:unverifyRule', async (event, ruleId) => {
+    await mortgageLabService.unverifyRule(ruleId);
+    await auditEvent(event, 'mlab.rule.unverify', { ruleId });
+    return true;
+  });
+  handle('mlab:saveScenario', async (event, input) => {
+    const sc = await mortgageLabService.saveScenario(input || {});
+    await auditEvent(event, 'mlab.scenario.save', { id: sc.id, clientId: sc.clientId });
+    return sc;
+  });
+  handle('mlab:deleteScenario', async (event, id) => {
+    await mortgageLabService.deleteScenario(id);
+    await auditEvent(event, 'mlab.scenario.delete', { id });
+    return true;
+  });
+  handle('mlab:exportScenario', async (event, id) => {
+    const r = await saveCsv(await mortgageLabService.getScenarioExport(id));
+    if (r.ok) await auditEvent(event, 'mlab.export.schedule', { id });
+    return r;
+  });
+
   // ---------- הגדרות מתקדמות ----------
-  const VIEWS_ALLOWED = ['dashboard', 'acct-reports', 'acct-invoices', 'acct-journal', 'personal-finance', 'finance', 'contacts', 'tasks', 'npo', 'mortgage-advisor'];
+  const VIEWS_ALLOWED = ['dashboard', 'acct-reports', 'acct-invoices', 'acct-journal', 'personal-finance', 'finance', 'contacts', 'tasks', 'npo', 'mortgage-advisor', 'mortgage-lab'];
   handle('settings:getAdvanced', async (event) => {
     const data = await db.load();
     const st = data.settings || {};

@@ -786,3 +786,14 @@ button.secondary:disabled {
 .ports-group { display: inline-flex; gap: .3rem; align-items: center; }
 button.small { padding: .25rem .6rem; font-size: .85rem; }
 .card-actions.inline { display: inline-flex; margin-inline-start: .5rem; position: static; }
+
+/* מעבדת תמהיל */
+.lab-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+.lab-tabs button { padding:6px 12px; }
+.mortgage-lab .acct-table input, .mortgage-lab .acct-table select { width:100%; min-width:5.5rem; }
+.mortgage-lab .acct-actions label { display:flex; flex-direction:column; gap:2px; font-size:.85rem; }
+.mortgage-lab details { margin-top:.6rem; }
+.mortgage-lab summary { cursor:pointer; font-weight:600; }
+.mortgage-lab .warn { color:#b45309; }
+.mortgage-lab .warn-banner { border-inline-start:4px solid #b45309; background:#fffbeb; }
+.lab-assumptions { margin-top:10px; font-size:.82rem; line-height:1.6; }

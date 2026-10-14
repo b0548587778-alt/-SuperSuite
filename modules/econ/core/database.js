@@ -33,7 +33,8 @@ const collections = [
   'products',          // Price list: products and services (מחירון)
   'personal',          // Personal/family income & expenses — נפרד לחלוטין מהיומן העסקי
   'npo',               // עמותה: תרומות וקבלות, קרנות, תמיכות — נפרד מהיומן העסקי
-  'mortgageAdvisor'    // ייעוץ משכנתאות: תיקי לקוחות והצעות בנקים
+  'mortgageAdvisor',   // ייעוץ משכנתאות: תיקי לקוחות והצעות בנקים
+  'mortgageLab'        // מעבדת תמהיל: תחזית, אימותי כללים ותרחישים שמורים
 ];
 
 const objectCollections = new Set([
@@ -44,7 +45,8 @@ const objectCollections = new Set([
   'fitnessData',
   'voiceNotes',
   'npo',
-  'mortgageAdvisor'
+  'mortgageAdvisor',
+  'mortgageLab'
 ]);
 
 const defaults = {
@@ -78,6 +80,7 @@ const defaults = {
   personal: [],
   npo: { settings: {}, donations: [], grants: [] },
   mortgageAdvisor: { clients: [], offers: [] },
+  mortgageLab: { forecast: null, verifications: [], scenarios: [], rateConvention: 'NOMINAL' },
   settings: { currency: 'ILS', vatRate: 0.18 }
 };
 
