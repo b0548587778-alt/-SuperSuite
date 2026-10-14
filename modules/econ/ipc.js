@@ -18,6 +18,7 @@ const { AccountingService: accountingService } = require('./services/accountingS
 const { NpoService: npoService } = require('./services/npoService');
 const { GemachService: gemachService } = require('./services/gemachService');
 const { ChesedService: chesedService } = require('./services/chesedService');
+const { PeopleService: peopleService } = require('./services/peopleService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
 const { MortgageLabService: mortgageLabService } = require('./services/mortgageLabService');
 const BK = require('./core/backupCrypto');
@@ -43,6 +44,7 @@ async function initEcon(userDataPath) {
   npoService.initialize(db);
   gemachService.initialize(db);
   chesedService.initialize(db);
+  peopleService.initialize(db);
   mortgageAdvisorService.initialize(db);
   mortgageLabService.initialize(db);
   authService.setIdleMinutes(((await db.load()).settings || {}).idleMinutes);
@@ -634,6 +636,9 @@ handle('auth:login', async (event, username, password) => {
 
   // חסד וחלוקות: נזקקים, מתנדבים וסבבי חלוקה. פרטי נזקק חסוי (מתן בסתר) — למנהל בלבד
   const canSeeConfidential = (event) => authService.hasPermission(event.sender.id, 'users.manage');
+  // מאגר אנשים — קריאה בלבד. נזקק חסוי נכלל רק למי שמורשה לראות חסויים (כמו במסך החסד)
+  handle('people:search', async (event, query) => peopleService.search(query, canSeeConfidential(event)));
+  handle('people:getCard', async (event, key) => peopleService.getCard(key, canSeeConfidential(event)));
   handle('chesed:getOverview', async (event) => chesedService.getOverview(canSeeConfidential(event)));
   handle('chesed:addBeneficiary', async (event, input) => {
     const b = await chesedService.addBeneficiary(input, canSeeConfidential(event));
@@ -783,7 +788,7 @@ handle('auth:login', async (event, username, password) => {
   });
 
   // ---------- הגדרות מתקדמות ----------
-  const VIEWS_ALLOWED = ['dashboard', 'acct-reports', 'acct-invoices', 'acct-journal', 'personal-finance', 'finance', 'contacts', 'tasks', 'npo', 'gemach', 'chesed', 'mortgage-advisor', 'mortgage-lab'];
+  const VIEWS_ALLOWED = ['dashboard', 'acct-reports', 'acct-invoices', 'acct-journal', 'personal-finance', 'finance', 'contacts', 'tasks', 'npo', 'gemach', 'chesed', 'people', 'mortgage-advisor', 'mortgage-lab'];
   handle('settings:getAdvanced', async (event) => {
     const data = await db.load();
     const st = data.settings || {};

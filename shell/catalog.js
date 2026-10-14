@@ -25,7 +25,8 @@
         { mod: 'econ', view: 'acct-personal',    icon: '🏠', name: 'הוצאות הבית',          desc: 'הוצאות אישיות ומשפחתיות' },
         { mod: 'econ', view: 'npo',              icon: '🤝', name: 'עמותה וצדקה',          desc: 'תרומות, קבלות סעיף 46 וקרנות' },
         { mod: 'econ', view: 'gemach',           icon: '🫱', name: 'גמ"ח',                 desc: 'הלוואות, ערבים והפקדות' },
-        { mod: 'econ', view: 'chesed',           icon: '📦', name: 'חסד וחלוקות',          desc: 'נזקקים, מתנדבים וסבבי חלוקה' }
+        { mod: 'econ', view: 'chesed',           icon: '📦', name: 'חסד וחלוקות',          desc: 'נזקקים, מתנדבים וסבבי חלוקה' },
+        { mod: 'econ', view: 'people',           icon: '👥', name: 'מאגר אנשים',           desc: 'כרטיס אחד: תרומות, גמ"ח וחסד' }
       ]
     },
     {
