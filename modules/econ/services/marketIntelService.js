@@ -25,11 +25,11 @@ class MarketIntelService {
 
   async updateIntel(senderId, intelData) {
     if (!intelData) {
-      throw new Error('Invalid market intelligence data');
+      throw new Error('נתוני מודיעין השוק אינם תקינים');
     }
     // המערכת שולחת ערך בודד (title + sourceType) — לא רשימת entries
     if (!intelData.title || !intelData.sourceType) {
-      throw new Error('Entry title and source type are required');
+      throw new Error('יש להזין כותרת וסוג מקור');
     }
 
     const now = new Date().toISOString();
@@ -63,7 +63,7 @@ class MarketIntelService {
     const entryIndex = existing.entries.findIndex(e => e.id === entryId);
     
     if (entryIndex === -1) {
-      throw new Error('Entry not found');
+      throw new Error('הרשומה לא נמצאה');
     }
     
     const updatedEntries = existing.entries.filter(e => e.id !== entryId);
@@ -77,7 +77,7 @@ class MarketIntelService {
     const entryIndex = existing.entries.findIndex(e => e.id === entryId);
     
     if (entryIndex === -1) {
-      throw new Error('Entry not found');
+      throw new Error('הרשומה לא נמצאה');
     }
     
     const entry = { ...existing.entries[entryIndex], ...updates, updatedAt: new Date().toISOString() };

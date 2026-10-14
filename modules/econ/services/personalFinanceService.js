@@ -2,6 +2,10 @@
 const crypto = require('crypto');
 const { calculateLoan } = require('../utils/calculations');
 
+const FREQUENCIES = ['monthly', 'yearly', 'weekly', 'daily'];
+const MAX_ITEMS = 2000;
+const ITEM_KINDS = ['incomes', 'expenses', 'investments', 'cashFlowEntries'];
+
 class PersonalFinanceService {
   constructor(db) {
     this.db = db;
@@ -58,7 +62,7 @@ class PersonalFinanceService {
 
   async updateFinance(senderId, financeData) {
     if (!financeData) {
-      throw new Error('Financial data is required');
+      throw new Error('חסרים נתוני התוכנית');
     }
     
     // Validate required fields
@@ -79,7 +83,7 @@ class PersonalFinanceService {
 
   async calculateLoan(loanData) {
     if (!loanData) {
-      throw new Error('Loan data is required');
+      throw new Error('חסרים נתוני ההלוואה');
     }
     
     const { principal, annualRate, years } = loanData;
@@ -88,7 +92,7 @@ class PersonalFinanceService {
     if (principal === undefined || principal === null ||
         annualRate === undefined || annualRate === null ||
         years === undefined || years === null) {
-      throw new Error('Principal, annual rate, and years are required');
+      throw new Error('יש להזין סכום, ריבית ותקופה');
     }
     
     const principalNum = Number(principal);
@@ -96,7 +100,7 @@ class PersonalFinanceService {
     const yearsNum = Number(years);
     
     if (principalNum <= 0 || annualRateNum < 0 || yearsNum <= 0) {
-      throw new Error('Invalid loan parameters');
+      throw new Error('נתוני ההלוואה אינם תקינים (סכום ותקופה חיוביים, ריבית לא שלילית)');
     }
     
     // Use the core calculation function
@@ -107,96 +111,87 @@ class PersonalFinanceService {
     });
   }
 
-  async addIncome(senderId, incomeData) {
-    if (!incomeData || !incomeData.source || !incomeData.amount) {
-      throw new Error('Income source and amount are required');
-    }
-    
-    const income = {
-      id: crypto.randomUUID(),
-      source: incomeData.source,
-      category: incomeData.category || 'salary',
-      amount: Number(incomeData.amount),
-      frequency: incomeData.frequency || 'monthly',
-      notes: incomeData.notes || '',
-      createdAt: new Date().toISOString()
+  // ---------- פריטי התוכנית: הוספה, עריכה ומחיקה לכל ארבעת הסוגים ----------
+  // סוג הפריט → שם המערך בתוכנית. ולידציה אחת לכל סוג, בעברית, וסכומים מעוגלים לאגורה.
+  _validateItem(kind, input) {
+    const d = input && typeof input === 'object' ? input : {};
+    const text = (v, max, label, required) => {
+      const t = String(v ?? '').trim();
+      if (required && !t) throw new Error(`${label} חובה`);
+      if (t.length > max) throw new Error(`${label} ארוך מדי (עד ${max} תווים)`);
+      return t;
     };
-    
-    const shape = await this._loadShape(senderId);
-    shape.incomes.push(income);
-    await this._saveShape(senderId, shape);
-
-    return income;
+    const num = (v, label, { min = 0, max = 1e10, positive = false, integer = false } = {}) => {
+      const n = Number(v);
+      if (v === '' || v === null || v === undefined || !Number.isFinite(n) || n < min || n > max || (positive && n <= 0) || (integer && !Number.isInteger(n))) {
+        throw new Error(`${label} אינו תקין`);
+      }
+      return n;
+    };
+    const money = (v, label) => Math.round(num(v, label, { positive: true }) * 100) / 100;
+    const freq = FREQUENCIES.includes(d.frequency) ? d.frequency : 'monthly';
+    if (kind === 'incomes') {
+      return { source: text(d.source, 200, 'מקור ההכנסה', true), category: text(d.category, 100, 'הקטגוריה') || 'salary',
+        amount: money(d.amount, 'סכום ההכנסה'), frequency: freq, notes: text(d.notes, 1000, 'ההערות') };
+    }
+    if (kind === 'expenses') {
+      const isFixed = !(d.isFixed === false || d.isFixed === 'false' || d.isFixed === 'variable');
+      return { category: text(d.category, 100, 'קטגוריית ההוצאה', true), description: text(d.description, 300, 'התיאור'),
+        amount: money(d.amount, 'סכום ההוצאה'), frequency: freq, isFixed, notes: text(d.notes, 1000, 'ההערות') };
+    }
+    if (kind === 'investments') {
+      return { name: text(d.name, 200, 'שם ההשקעה', true), type: text(d.type, 50, 'סוג ההשקעה') || 'stocks-etf',
+        principal: money(d.principal, 'סכום ההשקעה'),
+        monthlyContribution: Math.round(num(d.monthlyContribution || 0, 'הפקדה חודשית') * 100) / 100,
+        annualRate: Math.round(num(d.annualRate, 'התשואה השנתית', { min: -50, max: 100 }) * 1000) / 1000,
+        years: num(d.years, 'מספר השנים', { positive: true, max: 100, integer: true }), notes: text(d.notes, 1000, 'ההערות') };
+    }
+    if (kind === 'cashFlowEntries') {
+      const date = d.date || new Date().toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) throw new Error('תאריך לא תקין');
+      if (!['income', 'expense'].includes(d.type)) throw new Error('סוג התנועה חייב להיות הכנסה או הוצאה');
+      return { date, type: d.type, amount: money(d.amount, 'סכום התנועה'),
+        description: text(d.description, 300, 'התיאור'), category: text(d.category, 100, 'הקטגוריה') };
+    }
+    throw new Error('סוג פריט לא מוכר');
   }
 
-  async addExpense(senderId, expenseData) {
-    if (!expenseData || !expenseData.category || !expenseData.amount) {
-      throw new Error('Expense category and amount are required');
-    }
-    
-    const expense = {
-      id: crypto.randomUUID(),
-      category: expenseData.category,
-      description: expenseData.description || '',
-      amount: Number(expenseData.amount),
-      frequency: expenseData.frequency || 'monthly',
-      isFixed: expenseData.isFixed !== undefined ? expenseData.isFixed : true,
-      notes: expenseData.notes || '',
-      createdAt: new Date().toISOString()
-    };
-    
+  async addItem(senderId, kind, input) {
+    const clean = this._validateItem(kind, input);
     const shape = await this._loadShape(senderId);
-    shape.expenses.push(expense);
+    if (shape[kind].length >= MAX_ITEMS) throw new Error('הגעת למספר המקסימלי של פריטים בתוכנית');
+    const item = { id: crypto.randomUUID(), ...clean, createdAt: new Date().toISOString() };
+    shape[kind].push(item);
     await this._saveShape(senderId, shape);
-
-    return expense;
+    return item;
   }
 
-  async addInvestment(senderId, investmentData) {
-    if (!investmentData || !investmentData.name || !investmentData.principal || !investmentData.annualRate || !investmentData.years) {
-      throw new Error('Investment name, principal, annual rate, and years are required');
-    }
-    
-    const investment = {
-      id: crypto.randomUUID(),
-      name: investmentData.name,
-      type: investmentData.type || 'stocks-etf',
-      principal: Number(investmentData.principal),
-      monthlyContribution: Number(investmentData.monthlyContribution) || 0,
-      annualRate: Number(investmentData.annualRate),
-      years: Number(investmentData.years),
-      notes: investmentData.notes || '',
-      createdAt: new Date().toISOString()
-    };
-    
+  async updateItem(senderId, kind, itemId, input) {
     const shape = await this._loadShape(senderId);
-    shape.investments.push(investment);
+    if (!Array.isArray(shape[kind])) throw new Error('סוג פריט לא מוכר');
+    const i = shape[kind].findIndex(x => x.id === itemId);
+    if (i < 0) throw new Error('הפריט לא נמצא');
+    const clean = this._validateItem(kind, { ...shape[kind][i], ...input });
+    shape[kind][i] = { ...shape[kind][i], ...clean, updatedAt: new Date().toISOString() };
     await this._saveShape(senderId, shape);
-
-    return investment;
+    return shape[kind][i];
   }
 
-  async addCashFlowEntry(senderId, cashFlowData) {
-    if (!cashFlowData || !cashFlowData.type || !cashFlowData.amount) {
-      throw new Error('Cash flow type and amount are required');
-    }
-    
-    const entry = {
-      id: crypto.randomUUID(),
-      date: cashFlowData.date || new Date().toISOString().split('T')[0],
-      type: cashFlowData.type, // income or expense
-      amount: Number(cashFlowData.amount),
-      description: cashFlowData.description || '',
-      category: cashFlowData.category || '',
-      createdAt: new Date().toISOString()
-    };
-    
+  async deleteItem(senderId, kind, itemId) {
     const shape = await this._loadShape(senderId);
-    shape.cashFlowEntries.push(entry);
+    if (!Array.isArray(shape[kind])) throw new Error('סוג פריט לא מוכר');
+    const before = shape[kind].length;
+    shape[kind] = shape[kind].filter(x => x.id !== itemId);
+    if (shape[kind].length === before) throw new Error('הפריט לא נמצא');
     await this._saveShape(senderId, shape);
-
-    return entry;
+    return true;
   }
+
+  // הערוצים הישנים נשמרים לתאימות — עוברים כעת באותה ולידציה
+  async addIncome(senderId, data) { return this.addItem(senderId, 'incomes', data); }
+  async addExpense(senderId, data) { return this.addItem(senderId, 'expenses', data); }
+  async addInvestment(senderId, data) { return this.addItem(senderId, 'investments', data); }
+  async addCashFlowEntry(senderId, data) { return this.addItem(senderId, 'cashFlowEntries', data); }
 }
 
-module.exports = { PersonalFinanceService: new PersonalFinanceService() };
+module.exports = { PersonalFinanceService: new PersonalFinanceService(), ITEM_KINDS };

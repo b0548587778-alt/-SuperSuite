@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('systemAPI', {
   addPersonalExpense: (expenseData) => ipcRenderer.invoke('personalFinance:addExpense', expenseData),
   addPersonalInvestment: (investmentData) => ipcRenderer.invoke('personalFinance:addInvestment', investmentData),
   addPersonalCashFlowEntry: (cashFlowData) => ipcRenderer.invoke('personalFinance:addCashFlowEntry', cashFlowData),
+  addFinanceItem: (kind, data) => ipcRenderer.invoke('personalFinance:addItem', kind, data),
+  updateFinanceItem: (kind, id, data) => ipcRenderer.invoke('personalFinance:updateItem', kind, id, data),
+  deleteFinanceItem: (kind, id) => ipcRenderer.invoke('personalFinance:deleteItem', kind, id),
 
   // Mortgage
   getMortgageScenarios: () => ipcRenderer.invoke('mortgage:getScenarios'),
@@ -133,6 +136,24 @@ contextBridge.exposeInMainWorld('systemAPI', {
   addMortgageOffer: (input) => ipcRenderer.invoke('madv:addOffer', input),
   deleteMortgageOffer: (id) => ipcRenderer.invoke('madv:deleteOffer', id),
   exportMortgageSchedule: (offerId) => ipcRenderer.invoke('madv:exportSchedule', offerId),
+
+  // הגדרות מתקדמות, משתמשים ויומן ביקורת
+  getAdvancedSettings: () => ipcRenderer.invoke('settings:getAdvanced'),
+  saveAdvancedSettings: (input) => ipcRenderer.invoke('settings:saveAdvanced', input),
+  listUsers: () => ipcRenderer.invoke('users:list'),
+  createUser: (input) => ipcRenderer.invoke('users:create', input),
+  updateUser: (id, input) => ipcRenderer.invoke('users:update', id, input),
+  resetUserPassword: (id, password) => ipcRenderer.invoke('users:resetPassword', id, password),
+  listAudit: (filter) => ipcRenderer.invoke('audit:list', filter),
+  exportAudit: (filter) => ipcRenderer.invoke('audit:export', filter),
+
+  // ייבוא וייצוא
+  listDataKinds: () => ipcRenderer.invoke('ports:listKinds'),
+  exportData: (kind) => ipcRenderer.invoke('ports:export', kind),
+  exportDataTemplate: (kind) => ipcRenderer.invoke('ports:exportTemplate', kind),
+  importData: (kind, csvText) => ipcRenderer.invoke('ports:import', kind, csvText),
+  importContactsVcard: (text) => ipcRenderer.invoke('ports:importVcard', text),
+  exportContactsVcard: () => ipcRenderer.invoke('ports:exportVcard'),
 
   // Backup and Restore — רק טקסט מוצפן (SSBK1:) עובר לממשק; גיבוי גלוי לא קיים
   backupEncrypted: (passphrase) => ipcRenderer.invoke('data:backupEncrypted', passphrase),

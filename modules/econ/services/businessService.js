@@ -25,7 +25,7 @@ class BusinessService {
 
   async saveBusinessPlan(senderId, planData) {
     if (!planData || !planData.name) {
-      throw new Error('Business plan name is required');
+      throw new Error('שם התוכנית העסקית חובה');
     }
     
     const plan = {
@@ -33,6 +33,10 @@ class BusinessService {
       name: planData.name,
       description: planData.description || '',
       industry: planData.industry || '',
+      // שדות הטופס שנזרקו קודם בשמירה: שוק יעד, עלות הקמה, הכנסה צפויה (מעוגל לאגורה)
+      targetMarket: String(planData.targetMarket || '').trim(),
+      startupCost: Math.round((Number(planData.startupCost) || 0) * 100) / 100,
+      projectedRevenue: Math.round((Number(planData.projectedRevenue) || 0) * 100) / 100,
       goals: planData.goals || [],
       financialProjections: planData.financialProjections || [],
       createdAt: new Date().toISOString()
@@ -53,7 +57,7 @@ class BusinessService {
     const planIndex = existing.plans.findIndex(p => p.id === planId);
     
     if (planIndex === -1) {
-      throw new Error('Business plan not found');
+      throw new Error('התוכנית העסקית לא נמצאה');
     }
     
     const updatedPlans = existing.plans.filter(p => p.id !== planId);
@@ -72,7 +76,7 @@ class BusinessService {
     const planIndex = existing.plans.findIndex(p => p.id === planId);
     
     if (planIndex === -1) {
-      throw new Error('Business plan not found');
+      throw new Error('התוכנית העסקית לא נמצאה');
     }
     
     const plan = { 

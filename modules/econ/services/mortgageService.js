@@ -26,7 +26,7 @@ class MortgageService {
 
   async saveScenario(senderId, scenarioData) {
     if (!scenarioData || !scenarioData.name || !scenarioData.principal || !scenarioData.annualRate || !scenarioData.years) {
-      throw new Error('Scenario name, principal, annual rate, and years are required');
+      throw new Error('יש להזין שם תרחיש, סכום, ריבית ותקופה');
     }
     
     const scenario = {
@@ -54,7 +54,7 @@ class MortgageService {
     const scenarioIndex = existing.scenarios.findIndex(s => s.id === scenarioId);
 
     if (scenarioIndex === -1) {
-      throw new Error('Scenario not found');
+      throw new Error('התרחיש לא נמצא');
     }
 
     const updatedScenarios = existing.scenarios.filter(s => s.id !== scenarioId);
@@ -73,7 +73,7 @@ class MortgageService {
     const scenarioIndex = existing.scenarios.findIndex(s => s.id === scenarioId);
     
     if (scenarioIndex === -1) {
-      throw new Error('Scenario not found');
+      throw new Error('התרחיש לא נמצא');
     }
     
     const scenario = { 
@@ -98,7 +98,7 @@ class MortgageService {
 
   async calculateLoan(loanData) {
     if (!loanData) {
-      throw new Error('Loan data is required');
+      throw new Error('חסרים נתוני ההלוואה');
     }
     
     const { principal, annualRate, years } = loanData;
@@ -106,7 +106,7 @@ class MortgageService {
     if (principal === undefined || principal === null ||
         annualRate === undefined || annualRate === null ||
         years === undefined || years === null) {
-      throw new Error('Principal, annual rate, and years are required');
+      throw new Error('יש להזין סכום, ריבית ותקופה');
     }
 
     const principalNum = Number(principal);
@@ -114,7 +114,7 @@ class MortgageService {
     const yearsNum = Number(years);
 
     if (principalNum <= 0 || annualRateNum < 0 || yearsNum <= 0) {
-      throw new Error('Invalid loan parameters');
+      throw new Error('נתוני ההלוואה אינם תקינים (סכום ותקופה חיוביים, ריבית לא שלילית)');
     }
     
     // Use the core calculation function

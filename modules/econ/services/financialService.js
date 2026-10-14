@@ -55,12 +55,12 @@ class FinancialService {
 
   async exportToCSV(data, filename = 'export.csv') {
     if (!Array.isArray(data) || data.length === 0) {
-      throw new Error('Data is missing or empty');
+      throw new Error('אין נתונים לייצוא');
     }
     
     // Validate data structure
     if (!validateCSVData(data)) {
-      throw new Error('Invalid data format for CSV export');
+      throw new Error('מבנה הנתונים אינו מתאים לייצוא');
     }
     
     return exportToCSV(data, filename);

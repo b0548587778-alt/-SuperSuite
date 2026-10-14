@@ -36,7 +36,7 @@ class FitnessService {
 
   async createWorkout(senderId, workoutData) {
     if (!workoutData || !workoutData.type || !workoutData.durationMinutes) {
-      throw new Error('Workout type and duration are required');
+      throw new Error('יש להזין סוג אימון ומשך');
     }
     
     const workout = {
@@ -58,7 +58,7 @@ class FitnessService {
 
   async createNutrition(senderId, nutritionData) {
     if (!nutritionData || !nutritionData.mealType || !nutritionData.calories) {
-      throw new Error('Meal type and calories are required');
+      throw new Error('יש להזין סוג ארוחה וקלוריות');
     }
     
     const nutrition = {
@@ -80,7 +80,7 @@ class FitnessService {
 
   async createMetric(senderId, metricData) {
     if (!metricData || !metricData.date) {
-      throw new Error('Metric date is required');
+      throw new Error('תאריך המדד חובה');
     }
     
     const metric = {

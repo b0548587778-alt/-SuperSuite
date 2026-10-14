@@ -25,7 +25,7 @@ class CanvasService {
 
   async saveBoard(senderId, boardData) {
     if (!boardData || !boardData.boardName) {
-      throw new Error('Board name is required');
+      throw new Error('שם הלוח חובה');
     }
     
     const board = {
@@ -51,7 +51,7 @@ class CanvasService {
     const boardIndex = existing.boards.findIndex(b => b.id === boardId);
     
     if (boardIndex === -1) {
-      throw new Error('Board not found');
+      throw new Error('הלוח לא נמצא');
     }
     
     const updatedBoards = existing.boards.filter(b => b.id !== boardId);
@@ -70,7 +70,7 @@ class CanvasService {
     const boardIndex = existing.boards.findIndex(b => b.id === boardId);
     
     if (boardIndex === -1) {
-      throw new Error('Board not found');
+      throw new Error('הלוח לא נמצא');
     }
     
     const board = { 

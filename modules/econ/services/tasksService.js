@@ -25,7 +25,7 @@ class TasksService {
 
   async createTask(senderId, taskData) {
     if (!taskData || !taskData.title) {
-      throw new Error('Task title is required');
+      throw new Error('כותרת המשימה חובה');
     }
 
     const task = {
@@ -54,7 +54,7 @@ class TasksService {
     const taskIndex = existing.tasks.findIndex(t => t.id === taskId);
     
     if (taskIndex === -1) {
-      throw new Error('Task not found');
+      throw new Error('המשימה לא נמצאה');
     }
     
     const task = { 
@@ -89,7 +89,7 @@ class TasksService {
     const taskIndex = existing.tasks.findIndex(t => t.id === taskId);
     
     if (taskIndex === -1) {
-      throw new Error('Task not found');
+      throw new Error('המשימה לא נמצאה');
     }
     
     const updatedTasks = existing.tasks.filter(t => t.id !== taskId);

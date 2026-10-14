@@ -25,7 +25,7 @@ class VoiceNotesService {
 
   async createVoiceNote(senderId, noteData) {
     if (!noteData || !noteData.title) {
-      throw new Error('Voice note title is required');
+      throw new Error('כותרת ההערה חובה');
     }
     
     const note = {
@@ -55,7 +55,7 @@ class VoiceNotesService {
     const noteIndex = existing.notes.findIndex(n => n.id === noteId);
     
     if (noteIndex === -1) {
-      throw new Error('Voice note not found');
+      throw new Error('ההערה לא נמצאה');
     }
     
     const note = { 
@@ -83,7 +83,7 @@ class VoiceNotesService {
     const noteIndex = existing.notes.findIndex(n => n.id === noteId);
     
     if (noteIndex === -1) {
-      throw new Error('Voice note not found');
+      throw new Error('ההערה לא נמצאה');
     }
     
     const updatedNotes = existing.notes.filter(n => n.id !== noteId);

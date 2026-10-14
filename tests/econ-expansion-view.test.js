@@ -24,13 +24,14 @@ function fakeElement(id = '', extra = {}) {
 
 async function settle(n = 14) { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); }
 
-async function makeHarness({ npo, madv, calls = [], buttons = {} }) {
+async function makeHarness({ npo, madv, calls = [], buttons = {}, responses = {} }) {
   const elements = {};
   const systemAPI = new Proxy({}, {
     get(_t, name) {
       if (name === 'authStatus') return () => Promise.resolve({ user: { id: 'u1' }, configured: true });
       return (...args) => {
         calls.push({ name, args });
+        if (name in responses) return Promise.resolve(responses[name]);
         if (name === 'getNpoOverview') return Promise.resolve(npo);
         if (name === 'getMortgageAdvisor') return Promise.resolve(madv);
         if (/^get(Invoices|Products|Chart|Journal|PersonalEntries)$/.test(name)) return Promise.resolve([]);
@@ -216,4 +217,40 @@ test('תצוגת המשכנתא הקיימת מפנה לכלי הייעוץ המ
   const h = await makeHarness({});
   await goTo(h, 'mortgage');
   assert.match(h.elements.view.innerHTML, /data-goto="mortgage-advisor"/);
+});
+
+const ADV = {
+  idleMinutes: 30, startView: 'dashboard', isAdmin: true, me: { id: 'u1', username: 'admin_one' },
+  kinds: [{ id: 'contacts', label: 'אנשי קשר' }, { id: 'tasks', label: 'משימות' }], counts: { contacts: 3, tasks: 0 }
+};
+const USERS = [{ id: 'u1', username: 'admin_one', role: 'admin', active: true }, { id: 'u2', username: 'editor_one', role: 'editor', active: true }];
+
+test('הגדרות מתקדמות: מנהל רואה משתמשים, יומן ומרכז ייבוא/ייצוא', async () => {
+  const h = await makeHarness({ responses: { getAdvancedSettings: ADV, listUsers: USERS, listAudit: [{ at: '2026-10-14T09:00', user: 'admin_one', action: 'users:create', details: 'editor_one' }] } });
+  await goTo(h, 'settings');
+  const html = h.elements.view.innerHTML;
+  assert.match(html, /30 דקות/);
+  assert.match(html, /editor_one/);
+  assert.match(html, /users:create/);
+  assert.match(html, /data-port-export="contacts"/);
+  assert.match(html, /data-vcard-export/);
+  // המשתמש המחובר אינו יכול לחסום את עצמו
+  assert.doesNotMatch(html, /data-user-toggle="u1"/);
+  assert.match(html, /data-user-toggle="u2"/);
+});
+
+test('הגדרות מתקדמות: משתמש שאינו מנהל — לא נשלחת בקשה לרשימת משתמשים או ליומן', async () => {
+  const calls = [];
+  const h = await makeHarness({ calls, responses: { getAdvancedSettings: { ...ADV, isAdmin: false } } });
+  await goTo(h, 'settings');
+  assert.ok(!calls.some(c => c.name === 'listUsers' || c.name === 'listAudit'));
+  assert.doesNotMatch(h.elements.view.innerHTML, /משתמשים ותפקידים/);
+});
+
+test('אנשי קשר: פס ייבוא/ייצוא כולל vCard מוצג מעל התצוגה', async () => {
+  const h = await makeHarness({ responses: { getContacts: [] } });
+  await goTo(h, 'contacts');
+  const html = h.elements.view.innerHTML;
+  assert.match(html, /data-port-import="contacts"/);
+  assert.match(html, /data-vcard-import/);
 });

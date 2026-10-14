@@ -18,6 +18,8 @@ const { AccountingService: accountingService } = require('./services/accountingS
 const { NpoService: npoService } = require('./services/npoService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
 const BK = require('./core/backupCrypto');
+const DP = require('./core/dataPorts');
+const { IDLE_MIN_RANGE } = require('./services/authService');
 
 let db;
 
@@ -37,6 +39,7 @@ async function initEcon(userDataPath) {
   accountingService.initialize(db);
   npoService.initialize(db);
   mortgageAdvisorService.initialize(db);
+  authService.setIdleMinutes(((await db.load()).settings || {}).idleMinutes);
   registerIpcHandlers();
   return db;
 }
@@ -57,6 +60,7 @@ function enqueue(task) {
 function permissionFor(channel) {
   const name = channel.includes(':') ? channel.split(':')[1] : channel;
   if (channel.startsWith('auth:')) return null;
+  if (channel.startsWith('users:') || channel.startsWith('audit:') || channel === 'settings:saveAdvanced') return 'users.manage';
   if (/backup/i.test(name)) return 'data.backup';
   if (/restore/i.test(name)) return 'data.restore';
   if (/export/i.test(name)) return 'data.export';
@@ -73,18 +77,33 @@ function assertAccess(senderId, permission) {
   return authService.getSession(senderId);
 }
 
+// רשת ביטחון לכלל 8: שגיאה שאינה בעברית (SQLite, מערכת קבצים, באג) לא מוצגת למשתמש כמו שהיא.
+// המקור נרשם ללוג, והמשתמש מקבל הודעה בעברית.
+const HEBREW = /[֐-׿]/;
+function toUserError(e) {
+  const msg = String((e && e.message) || e || '');
+  if (HEBREW.test(msg)) return e instanceof Error ? e : new Error(msg);
+  console.error('econ: internal error', e);
+  return new Error('הפעולה נכשלה עקב שגיאה פנימית. אם התקלה חוזרת — יש לבצע גיבוי ולפנות לתמיכה.');
+}
+
 function handle(channel, fn) {
   ipcMain.handle(channel, (event, ...args) => enqueue(async () => {
-    if (PUBLIC_CHANNELS.has(channel)) return fn(event, ...args);
-    if (!authService.getSession(event.sender.id)) {
-      throw new Error('נדרשת כניסה למערכת (או שהפגישה פגה לאחר חוסר פעילות)');
-    }
-    const perm = permissionFor(channel);
-    if (perm && !authService.hasPermission(event.sender.id, perm)) {
-      throw new Error('אין הרשאה לפעולה זו');
-    }
-    return fn(event, ...args);
+    try { return await runGuarded(channel, fn, event, args); }
+    catch (e) { throw toUserError(e); }
   }));
+}
+
+async function runGuarded(channel, fn, event, args) {
+  if (PUBLIC_CHANNELS.has(channel)) return fn(event, ...args);
+  if (!authService.getSession(event.sender.id)) {
+    throw new Error('נדרשת כניסה למערכת (או שהפגישה פגה לאחר חוסר פעילות)');
+  }
+  const perm = permissionFor(channel);
+  if (perm && !authService.hasPermission(event.sender.id, perm)) {
+    throw new Error('אין הרשאה לפעולה זו');
+  }
+  return fn(event, ...args);
 }
 
 // רישום ביקורת: מי עשה מה ומתי (נשמר בטבלת audit_events)
@@ -185,6 +204,15 @@ handle('auth:login', async (event, username, password) => {
   
   handle('personalFinance:addCashFlowEntry', async (event, cashFlowData) => {
     return await personalFinanceService.addCashFlowEntry(event.sender.id, cashFlowData);
+  });
+
+  // פריטי התוכנית הפיננסית: הוספה / עריכה / מחיקה לפי סוג (incomes/expenses/investments/cashFlowEntries)
+  handle('personalFinance:addItem', async (event, kind, data) => personalFinanceService.addItem(event.sender.id, kind, data));
+  handle('personalFinance:updateItem', async (event, kind, id, data) => personalFinanceService.updateItem(event.sender.id, kind, id, data));
+  handle('personalFinance:deleteItem', async (event, kind, id) => {
+    await personalFinanceService.deleteItem(event.sender.id, kind, id);
+    await auditEvent(event, 'personalFinance.item.delete', { kind, id });
+    return true;
   });
 
   // Mortgage handlers
@@ -533,6 +561,94 @@ handle('auth:login', async (event, username, password) => {
     return r;
   });
 
+  // ---------- הגדרות מתקדמות ----------
+  const VIEWS_ALLOWED = ['dashboard', 'acct-reports', 'acct-invoices', 'acct-journal', 'personal-finance', 'finance', 'contacts', 'tasks', 'npo', 'mortgage-advisor'];
+  handle('settings:getAdvanced', async (event) => {
+    const data = await db.load();
+    const st = data.settings || {};
+    const me = authService.getSession(event.sender.id);
+    const counts = {};
+    for (const k of DP.listKinds()) counts[k.id] = DP.KINDS[k.id].store.get(data).length;
+    return {
+      idleMinutes: Math.round(authService.idleMs / 60000), idleRange: IDLE_MIN_RANGE,
+      startView: VIEWS_ALLOWED.includes(st.startView) ? st.startView : 'dashboard',
+      views: VIEWS_ALLOWED, isAdmin: !!(me && me.permissions.includes('users.manage')),
+      me: me ? { id: me.id, username: me.username, roles: me.roles } : null,
+      kinds: DP.listKinds(), counts
+    };
+  });
+  handle('settings:saveAdvanced', async (event, input = {}) => {
+    const data = await db.load();
+    const idle = Number(input.idleMinutes);
+    if (!Number.isInteger(idle) || idle < IDLE_MIN_RANGE[0] || idle > IDLE_MIN_RANGE[1]) throw new Error(`זמן הניתוק חייב להיות בין ${IDLE_MIN_RANGE[0]} ל-${IDLE_MIN_RANGE[1]} דקות`);
+    const startView = VIEWS_ALLOWED.includes(input.startView) ? input.startView : 'dashboard';
+    data.settings = { ...(data.settings || {}), idleMinutes: idle, startView };
+    await db.save(data);
+    authService.setIdleMinutes(idle);
+    await auditEvent(event, 'settings.advanced.save', { idleMinutes: idle, startView });
+    return { idleMinutes: idle, startView };
+  });
+
+  // ---------- משתמשים ותפקידים (מנהל בלבד) ----------
+  handle('users:list', async () => db.listUsers());
+  handle('users:create', async (event, input = {}) => {
+    const u = await db.createUser(String(input.username || '').trim(), String(input.password || ''), input.role);
+    await auditEvent(event, 'users.create', { username: u.username, role: u.role });
+    return u;
+  });
+  handle('users:update', async (event, id, input = {}) => {
+    const me = authService.getSession(event.sender.id);
+    if (me && me.id === id && (input.active === false || (input.role && input.role !== 'admin'))) throw new Error('לא ניתן לחסום או להוריד את ההרשאות של המשתמש המחובר עצמו');
+    const u = await db.updateUser(id, { role: input.role, active: input.active });
+    authService.dropUser(id);
+    await auditEvent(event, 'users.update', { username: u.username, role: u.role, active: u.active });
+    return u;
+  });
+  handle('users:resetPassword', async (event, id, password) => {
+    await db.resetPassword(id, String(password || ''));
+    authService.dropUser(id);
+    await auditEvent(event, 'users.resetPassword', { id });
+    return true;
+  });
+  handle('audit:list', async (event, filter = {}) => db.listAudit(filter || {}));
+  handle('audit:export', async (event, filter = {}) => {
+    const rows = await db.listAudit({ ...(filter || {}), limit: 5000 });
+    return saveCsv({ name: 'יומן-ביקורת-' + new Date().toISOString().slice(0, 10), headers: ['מועד', 'משתמש', 'פעולה', 'פרטים'], rows: rows.map(r => [r.at, r.user, r.action, r.details]) });
+  });
+
+  // ---------- ייבוא וייצוא לכל סוגי הנתונים ----------
+  handle('ports:listKinds', async () => DP.listKinds());
+  handle('ports:export', async (event, kind) => {
+    const r = await saveCsv(DP.exportTable(kind, await db.load()));
+    if (r.ok) await auditEvent(event, 'ports.export', { kind, rows: r.rows });
+    return r;
+  });
+  handle('ports:exportTemplate', async (event, kind) => saveCsv(DP.templateTable(kind)));
+  handle('ports:import', async (event, kind, csvText) => {
+    if (typeof csvText !== 'string' || csvText.length > 20 * 1024 * 1024) throw new Error('קובץ הייבוא אינו תקין או גדול מדי (עד 20MB)');
+    const data = await db.load();
+    const r = DP.parseImport(kind, csvText, data);
+    if (r.records.length) await db.save(DP.applyImport(kind, data, r.records));
+    await auditEvent(event, 'ports.import', { kind, added: r.records.length, skipped: r.skipped, errors: r.errors.length });
+    return { added: r.records.length, skipped: r.skipped, errors: r.errors.slice(0, 50) };
+  });
+  handle('ports:importVcard', async (event, vcfText) => {
+    if (typeof vcfText !== 'string' || vcfText.length > 20 * 1024 * 1024) throw new Error('קובץ אנשי הקשר אינו תקין או גדול מדי');
+    const data = await db.load();
+    const r = DP.importContactsVcard(vcfText, data);
+    if (r.records.length) await db.save(DP.applyImport('contacts', data, r.records));
+    await auditEvent(event, 'ports.import', { kind: 'contacts-vcard', added: r.records.length, skipped: r.skipped });
+    return { added: r.records.length, skipped: r.skipped, errors: r.errors.slice(0, 50) };
+  });
+  handle('ports:exportVcard', async (event) => {
+    const text = DP.contactsToVcard(await db.load());
+    const res = await dialog.showSaveDialog({ defaultPath: 'אנשי-קשר.vcf', filters: [{ name: 'vCard', extensions: ['vcf'] }] });
+    if (res.canceled || !res.filePath) return { ok: false };
+    fs.writeFileSync(res.filePath, text, 'utf8');
+    await auditEvent(event, 'ports.export', { kind: 'contacts-vcard' });
+    return { ok: true, path: res.filePath };
+  });
+
   // גיבוי ושחזור: ההצפנה נעשית כאן, והממשק מקבל ומחזיר רק טקסט מוצפן (SSBK1:)
   handle('data:backupEncrypted', async (event, passphrase) => {
     const plain = JSON.stringify(await db.backup());
@@ -553,4 +669,4 @@ handle('auth:login', async (event, username, password) => {
     return await db.restore(backupData);
   });
 }
-module.exports = { initEcon, getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess };
+module.exports = { toUserError, initEcon, getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess };

@@ -25,7 +25,7 @@ class ContactsService {
 
   async createContact(senderId, contactData) {
     if (!contactData || !contactData.name) {
-      throw new Error('Contact name is required');
+      throw new Error('שם איש הקשר חובה');
     }
     
     const contact = {
@@ -56,7 +56,7 @@ class ContactsService {
     const contactIndex = existing.contacts.findIndex(c => c.id === contactId);
     
     if (contactIndex === -1) {
-      throw new Error('Contact not found');
+      throw new Error('איש הקשר לא נמצא');
     }
     
     const contact = { 
@@ -84,7 +84,7 @@ class ContactsService {
     const contactIndex = existing.contacts.findIndex(c => c.id === contactId);
     
     if (contactIndex === -1) {
-      throw new Error('Contact not found');
+      throw new Error('איש הקשר לא נמצא');
     }
     
     const updatedContacts = existing.contacts.filter(c => c.id !== contactId);

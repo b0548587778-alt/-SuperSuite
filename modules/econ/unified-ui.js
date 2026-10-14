@@ -42,6 +42,7 @@
     'mortgage': 'משכנתאות והלוואות',
     'mortgage-advisor': 'ייעוץ משכנתאות — תיקי לקוחות',
     'npo': 'עמותה — תרומות, קרנות ותמיכות',
+    'settings': 'הגדרות מתקדמות, משתמשים וייבוא/ייצוא',
     'personal-finance': 'התוכנית הפיננסית — הגדרה ופריטים',
     'tasks': 'משימות',
     'contacts': 'אנשי קשר',
@@ -87,7 +88,9 @@
         }
       }
 
-      await switchView('dashboard');
+      let start = 'dashboard';
+      try { const adv = await window.systemAPI.getAdvancedSettings(); if (adv && adv.startView) start = adv.startView; } catch { /* ברירת מחדל */ }
+      await switchView(start);
       showToast('מערכת מאוחדת נטענה בהצלחה');
     } catch (error) {
       showError('שגיאה באתחול המערכת: ' + errMsg(error));
@@ -154,6 +157,15 @@
         case 'npo':
           state.data.npo = await window.systemAPI.getNpoOverview(npoYear());
           break;
+        case 'settings': {
+          const adv = await window.systemAPI.getAdvancedSettings();
+          // ניהול משתמשים ויומן ביקורת — למנהל בלבד; למשתמש רגיל לא מבקשים כלל (השרת היה דוחה)
+          const [users, audit] = adv && adv.isAdmin
+            ? await Promise.all([window.systemAPI.listUsers(), window.systemAPI.listAudit({ limit: 100, action: state.auditFilter || '' })])
+            : [[], []];
+          state.data.settings = { ...adv, users, audit };
+          break;
+        }
         case 'tasks':
           state.data.tasks = await window.systemAPI.getTasks();
           break;
@@ -241,6 +253,7 @@
     'mortgage': 'mortgage',
     'mortgage-advisor': 'mortgageAdvisor',
     'npo': 'npo',
+    'settings': 'settings',
     'personal-finance': 'personalFinance',
     'tasks': 'tasks',
     'contacts': 'contacts',
@@ -287,6 +300,9 @@
       case 'npo':
         html = renderNpo(data);
         break;
+      case 'settings':
+        html = renderSettings(data);
+        break;
       case 'tasks':
         html = renderTasks(data);
         break;
@@ -327,6 +343,8 @@
         html = '<div class="empty">לא נמצאו נתונים</div>';
     }
 
+    const ports = PORT_VIEWS[viewName];
+    if (ports) html = renderPortsBar(ports) + html;
     elements.view.innerHTML = html;
     attachViewHandlers(viewName);
   }
@@ -478,16 +496,28 @@
     const investments = Array.isArray(finance.investments) ? finance.investments : [];
 
     if (incomes.length === 0 && expenses.length === 0 && investments.length === 0) {
-      return renderEmpty('אין נתונים בתכנון הפיננסי עדיין — הזן הכנסות והוצאות ב"התוכנית הפיננסית" כדי לראות כאן את התמונה הכוללת');
+      return renderEmpty('אין נתונים בתכנון הפיננסי עדיין — הזן הכנסות והוצאות ב"התוכנית הפיננסית" כדי לראות כאן את התמונה הכוללת') +
+        '<div class="acct-actions"><button class="secondary" data-goto="personal-finance">להזנת הכנסות והוצאות ←</button></div>';
     }
 
     // סיכומים חודשיים — מנרמלים תדירויות שונות לבסיס חודשי אחד.
     // מעוגל לאגורות בדיוק כמו שאר המערכת.
-    const round2 = (n) => Math.round(n * 100) / 100;
-    const incomeMonthly = incomes.reduce((s, i) => s + monthlyAmount(i.amount, i.frequency), 0);
-    const expenseMonthly = expenses.reduce((s, e) => s + monthlyAmount(e.amount, e.frequency), 0);
+    // כל פריט מומר לסכום חודשי בשלמי אגורות, והסיכום נעשה על שלמים (כלל 1)
+    const agMonthly = (x) => Math.round(monthlyAmount(x.amount, x.frequency) * 100);
+    const round2 = (ag) => ag / 100;
+    const incomeMonthly = incomes.reduce((s, i) => s + agMonthly(i), 0);
+    const expenseMonthly = expenses.reduce((s, e) => s + agMonthly(e), 0);
     const netMonthly = incomeMonthly - expenseMonthly;
-    const fixedMonthly = expenses.filter(e => e.isFixed !== false).reduce((s, e) => s + monthlyAmount(e.amount, e.frequency), 0);
+    const fixedMonthly = expenses.filter(e => e.isFixed !== false).reduce((s, e) => s + agMonthly(e), 0);
+    // תחזית השקעה: ריבית דריבית חודשית עם הפקדה, מעוגלת לאגורה בכל חודש
+    const projectAg = (inv) => {
+      let bal = Math.round((Number(inv.principal) || 0) * 100);
+      const dep = Math.round((Number(inv.monthlyContribution) || 0) * 100);
+      const r = (Number(inv.annualRate) || 0) / 100 / 12;
+      const months = Math.min(1200, Math.max(0, Math.round((Number(inv.years) || 0) * 12)));
+      for (let m = 0; m < months; m++) bal = Math.round(bal * (1 + r)) + dep;
+      return bal;
+    };
 
     return `
       <div class="finance">
@@ -519,11 +549,12 @@
           <h3>השקעות (${investments.length})</h3>
           ${investments.length === 0 ? '<div class="acct-row muted">אין השקעות רשומות</div>' : investments.map(inv => `
             <div class="item">
-              <span>${esc(inv.name)}</span>
-              <span>${money(inv.principal)} @ ${esc(inv.annualRate)}%</span>
+              <span>${esc(inv.name)} <small class="muted">· ${money(inv.principal)} · ${esc(inv.annualRate)}% · ${esc(inv.years || 0)} שנים</small></span>
+              <span>שווי צפוי: ${money(projectAg(inv) / 100)}</span>
             </div>
           `).join('')}
         </div>
+        <div class="acct-actions"><button class="secondary" data-goto="personal-finance">עריכת הפריטים בתוכנית ←</button></div>
       </div>
     `;
   }
@@ -542,7 +573,8 @@
           <div class="card">
             <h4>${esc(p.name)}</h4>
             <p>${esc(p.description || 'ללא תיאור')}</p>
-            <small>תעשייה: ${esc(p.industry || 'לא צוין')}</small>
+            <small>תעשייה: ${esc(p.industry || 'לא צוין')}${p.targetMarket ? ' · שוק יעד: ' + esc(p.targetMarket) : ''}</small>
+            ${p.startupCost || p.projectedRevenue ? `<div class="acct-row"><span>עלות הקמה ${money(p.startupCost)}</span><span>הכנסה צפויה ${money(p.projectedRevenue)}</span></div>` : ''}
             ${renderCardActions(p.id)}
           </div>
         `).join('')}
@@ -561,7 +593,7 @@
           <div class="card">
             <h4>${esc(e.title)}</h4>
             <p>${esc(e.description || '')}</p>
-            <small>מקור: ${esc(e.sourceType)} | אמינות: ${esc(e.credibility)} | כיוון: ${esc(e.impactDirection)}</small>
+            <small>מקור: ${esc(INTEL_LABELS.sourceType[e.sourceType] || e.sourceType)} | אמינות: ${esc(INTEL_LABELS.credibility[e.credibility] || e.credibility)} | כיוון: ${esc(INTEL_LABELS.impactDirection[e.impactDirection] || e.impactDirection)}</small>
             ${renderCardActions(e.id)}
           </div>
         `).join('')}
@@ -587,7 +619,17 @@
     `;
   }
 
-  // התוכנית הפיננסית — הגדרת התוכנית והפריטים הגולמית (התמונה המחושבת נמצאת ב"תכנון פיננסי")
+  // התוכנית הפיננסית — הגדרת התוכנית והפריטים. כל פריט ניתן לעריכה ולמחיקה;
+  // "＋ הוספת רשומה" פותח טופס עם בחירת סוג (הכנסה / הוצאה / השקעה / תנועת תזרים).
+  const PF_KINDS = { incomes: 'הכנסה', expenses: 'הוצאה', investments: 'השקעה', cashFlowEntries: 'תנועת תזרים' };
+  const PF_INCOME_CATS = { salary: 'משכורת', business: 'עסק', rent: 'שכירות', allowance: 'קצבה', other: 'אחר' };
+  const PF_INVEST_TYPES = { 'stocks-etf': 'קרן מחקה / מניות', bonds: 'אג"ח', deposit: 'פיקדון', pension: 'פנסיה / השתלמות', 'real-estate': 'נדל"ן', other: 'אחר' };
+  const pfItemActions = (kind, id) => `
+    <span class="card-actions inline">
+      <button class="icon-btn" data-pf-edit="${esc(kind)}" data-id="${esc(id)}" title="עריכה">✎</button>
+      <button class="icon-btn danger" data-pf-del="${esc(kind)}" data-id="${esc(id)}" title="מחיקה">🗑</button>
+    </span>`;
+
   function renderPersonalFinance(data) {
     const finance = data || {};
     const incomes = Array.isArray(finance.incomes) ? finance.incomes : [];
@@ -601,16 +643,20 @@
         <div class="acct-header">
           <div>
             <h3>${esc(finance.planName || 'התוכנית הפיננסית')}</h3>
-            <small>מטבע: ${esc(finance.currency || 'ILS')} · ${incomes.length} הכנסות · ${expenses.length} הוצאות · ${investments.length} השקעות</small>
+            <small>מטבע: ${esc(CURRENCY_LABELS[finance.currency] || finance.currency || 'שקל')} · ${incomes.length} הכנסות · ${expenses.length} הוצאות · ${investments.length} השקעות · ${cashFlow.length} תנועות</small>
+          </div>
+          <div class="acct-actions">
+            <button class="secondary" id="pfPlanBtn">עריכת פרטי התוכנית</button>
+            <button class="secondary" data-goto="finance">לתמונת המצב ←</button>
           </div>
         </div>
-        ${empty ? renderEmpty('התוכנית הפיננסית ריקה עדיין — הוסף הכנסות והוצאות כדי להתחיל') : ''}
+        ${empty ? renderEmpty('התוכנית הפיננסית ריקה עדיין — לחץ "＋ הוספת רשומה" ובחר הכנסה, הוצאה, השקעה או תנועת תזרים') : ''}
         <div class="section">
           <h3>הכנסות (${incomes.length})</h3>
           ${incomes.length === 0 ? '<div class="acct-row muted">אין הכנסות רשומות</div>' : incomes.map(i => `
             <div class="item">
-              <span>${esc(i.source)}${i.category ? ` <small class="muted">· ${esc(i.category)}</small>` : ''}</span>
-              <span>${money(i.amount)} / ${esc(FREQ_LABELS[i.frequency] || 'חודשי')}</span>
+              <span>${esc(i.source)}${i.category ? ` <small class="muted">· ${esc(PF_INCOME_CATS[i.category] || i.category)}</small>` : ''}</span>
+              <span>${money(i.amount)} / ${esc(FREQ_LABELS[i.frequency] || 'חודשי')}${pfItemActions('incomes', i.id)}</span>
             </div>
           `).join('')}
         </div>
@@ -618,8 +664,8 @@
           <h3>הוצאות (${expenses.length})</h3>
           ${expenses.length === 0 ? '<div class="acct-row muted">אין הוצאות רשומות</div>' : expenses.map(e => `
             <div class="item">
-              <span>${esc(e.category)}${e.description ? ` <small class="muted">· ${esc(e.description)}</small>` : ''}</span>
-              <span>${money(e.amount)} / ${esc(FREQ_LABELS[e.frequency] || 'חודשי')}</span>
+              <span>${esc(e.category)}${e.description ? ` <small class="muted">· ${esc(e.description)}</small>` : ''}${e.isFixed === false ? ' <small class="muted">(משתנה)</small>' : ''}</span>
+              <span>${money(e.amount)} / ${esc(FREQ_LABELS[e.frequency] || 'חודשי')}${pfItemActions('expenses', e.id)}</span>
             </div>
           `).join('')}
         </div>
@@ -627,24 +673,36 @@
           <h3>השקעות (${investments.length})</h3>
           ${investments.length === 0 ? '<div class="acct-row muted">אין השקעות רשומות</div>' : investments.map(inv => `
             <div class="item">
-              <span>${esc(inv.name)}${inv.years ? ` <small class="muted">· ${esc(inv.years)} שנים</small>` : ''}</span>
-              <span>${money(inv.principal)} @ ${esc(inv.annualRate)}%</span>
+              <span>${esc(inv.name)} <small class="muted">· ${esc(PF_INVEST_TYPES[inv.type] || inv.type || '')}${inv.years ? ` · ${esc(inv.years)} שנים` : ''}</small></span>
+              <span>${money(inv.principal)} · ${esc(inv.annualRate)}%${inv.monthlyContribution ? ` · +${money(inv.monthlyContribution)} לחודש` : ''}${pfItemActions('investments', inv.id)}</span>
             </div>
           `).join('')}
         </div>
-        ${cashFlow.length ? `
         <div class="section">
           <h3>תזרים מזומנים (${cashFlow.length})</h3>
-          ${cashFlow.map(c => `
+          ${cashFlow.length === 0 ? '<div class="acct-row muted">אין תנועות תזרים</div>' : [...cashFlow].sort((x, y) => String(y.date).localeCompare(String(x.date))).map(c => `
             <div class="item">
               <span>${esc(c.description || c.category || 'תנועה')} <small class="muted">${esc(c.date)}</small></span>
-              <span class="${c.type === 'expense' ? 'neg' : 'pos'}">${c.type === 'expense' ? '−' : '+'}${money(c.amount)}</span>
+              <span class="${c.type === 'expense' ? 'neg' : 'pos'}">${c.type === 'expense' ? '−' : '+'}${money(c.amount)}${pfItemActions('cashFlowEntries', c.id)}</span>
             </div>
           `).join('')}
-        </div>` : ''}
+        </div>
       </div>
     `;
   }
+
+  const CURRENCY_LABELS = { ILS: 'שקל (₪)', USD: 'דולר ($)', EUR: 'אירו (€)' };
+
+  const TASK_LABELS = {
+    category: { work: 'עבודה', personal: 'אישי', finance: 'כספים', other: 'אחר' },
+    priority: { low: 'נמוכה', medium: 'בינונית', high: 'גבוהה' },
+    status: { todo: 'לביצוע', 'in-progress': 'בתהליך', done: 'הושלם' }
+  };
+  const INTEL_LABELS = {
+    sourceType: { news: 'חדשות', report: 'דוח', social: 'רשתות', internal: 'פנימי', other: 'אחר' },
+    credibility: { low: 'נמוכה', medium: 'בינונית', high: 'גבוהה' },
+    impactDirection: { positive: 'חיובי', neutral: 'ניטרלי', negative: 'שלילי' }
+  };
 
   // Render tasks view
   function renderTasks(data) {
@@ -657,7 +715,7 @@
           <div class="card ${t.status === 'done' ? 'done' : ''}">
             <h4>${esc(t.title)}</h4>
             <p>${esc(t.description || '')}</p>
-            <small>קטגוריה: ${esc(t.category)} | עדיפות: ${esc(t.priority)} | סטטוס: ${esc(t.status)}</small>
+            <small>קטגוריה: ${esc(TASK_LABELS.category[t.category] || t.category)} | עדיפות: ${esc(TASK_LABELS.priority[t.priority] || t.priority)} | סטטוס: ${esc(TASK_LABELS.status[t.status] || t.status)}${t.dueDate ? ' | יעד: ' + esc(t.dueDate) : ''}</small>
             ${t.isOverdue ? '<span class="overdue">דחוי!</span>' : ''}
             ${renderCardActions(t.id)}
           </div>
@@ -1470,27 +1528,103 @@
   // טופס "עריכה" במהותו: טוען את התוכנית הקיימת ומעדכן אותה.
   // (ראו TODO-FIXES.md — איחוד תצוגות הכפילות "תכנון פיננסי"/"התוכנית הפיננסית".)
   // ============================================================
+  const pfOpts = (map) => Object.entries(map).map(([value, label]) => ({ value, label }));
   formSchemas['personal-finance'] = {
-    title: 'עריכת התוכנית הפיננסית',
-    prepare: async (schema) => {
-      const plan = await window.systemAPI.getPersonalFinance() || {};
-      const values = { planName: plan.planName || 'התוכנית הפיננסית שלי', currency: plan.currency || 'ILS' };
-      for (const f of schema.fields) f.value = values[f.name] ?? '';
+    title: 'פריט חדש בתוכנית הפיננסית',
+    editTitle: 'עריכת פריט בתוכנית',
+    dynamic: true,
+    fields: [
+      { name: 'pfKind', label: 'סוג הפריט', type: 'select', required: true, options: pfOpts(PF_KINDS) },
+      // הכנסה
+      { name: 'source', label: 'מקור ההכנסה', type: 'text', required: true, kinds: ['incomes'] },
+      { name: 'incomeCategory', label: 'קטגוריה', type: 'select', kinds: ['incomes'], options: pfOpts(PF_INCOME_CATS) },
+      // הוצאה
+      { name: 'category', label: 'קטגוריית ההוצאה', type: 'text', required: true, kinds: ['expenses'] },
+      { name: 'isFixed', label: 'סוג ההוצאה', type: 'select', kinds: ['expenses'], options: [{ value: 'fixed', label: 'קבועה' }, { value: 'variable', label: 'משתנה' }] },
+      // השקעה
+      { name: 'name', label: 'שם ההשקעה', type: 'text', required: true, kinds: ['investments'] },
+      { name: 'investType', label: 'סוג ההשקעה', type: 'select', kinds: ['investments'], options: pfOpts(PF_INVEST_TYPES) },
+      { name: 'principal', label: 'סכום התחלתי (₪)', type: 'number', required: true, kinds: ['investments'] },
+      { name: 'monthlyContribution', label: 'הפקדה חודשית (₪)', type: 'number', kinds: ['investments'] },
+      { name: 'annualRate', label: 'תשואה שנתית צפויה (%)', type: 'number', required: true, kinds: ['investments'] },
+      { name: 'years', label: 'מספר שנים', type: 'number', required: true, kinds: ['investments'] },
+      // תנועת תזרים
+      { name: 'date', label: 'תאריך', type: 'date', required: true, kinds: ['cashFlowEntries'] },
+      { name: 'type', label: 'כיוון', type: 'select', kinds: ['cashFlowEntries'], options: [{ value: 'income', label: 'הכנסה' }, { value: 'expense', label: 'הוצאה' }] },
+      // משותף
+      { name: 'amount', label: 'סכום (₪)', type: 'number', required: true, kinds: ['incomes', 'expenses', 'cashFlowEntries'] },
+      { name: 'frequency', label: 'תדירות', type: 'select', kinds: ['incomes', 'expenses'], options: [{ value: 'monthly', label: 'חודשי' }, { value: 'yearly', label: 'שנתי' }, { value: 'weekly', label: 'שבועי' }, { value: 'daily', label: 'יומי' }] },
+      { name: 'description', label: 'תיאור', type: 'text', kinds: ['expenses', 'cashFlowEntries'] },
+      { name: 'notes', label: 'הערות', type: 'textarea', kinds: ['incomes', 'expenses', 'investments'] }
+    ],
+    // שמות השדות בטופס ייחודיים לכל סוג (incomeCategory/investType) — ממופים כאן לשמות ברשומה
+    toItem: (d) => {
+      const kind = d.pfKind;
+      const item = { ...d };
+      delete item.pfKind;
+      if (kind === 'incomes') { item.category = d.incomeCategory; delete item.incomeCategory; }
+      if (kind === 'investments') { item.type = d.investType; delete item.investType; }
+      if (kind === 'expenses') item.isFixed = d.isFixed !== 'variable';
+      return { kind, item };
     },
+    fromItem: (kind, r) => ({
+      ...r, pfKind: kind,
+      incomeCategory: kind === 'incomes' ? r.category : undefined,
+      investType: kind === 'investments' ? r.type : undefined,
+      isFixed: kind === 'expenses' ? (r.isFixed === false ? 'variable' : 'fixed') : r.isFixed,
+      type: kind === 'cashFlowEntries' ? r.type : undefined
+    }),
+    create: (d) => { const { kind, item } = formSchemas['personal-finance'].toItem(d); return window.systemAPI.addFinanceItem(kind, item); }
+  };
+
+  // עריכת פרטי התוכנית (שם ומטבע) — טופס משני בתצוגה
+  const pfPlanSchema = {
+    title: 'פרטי התוכנית הפיננסית',
     fields: [
       { name: 'planName', label: 'שם התוכנית', type: 'text', required: true },
-      { name: 'currency', label: 'מטבע', type: 'select', options: [
-        { value: 'ILS', label: 'שקל (₪)' },
-        { value: 'USD', label: 'דולר ($)' },
-        { value: 'EUR', label: 'אירו (€)' }
-      ]}
+      { name: 'currency', label: 'מטבע', type: 'select', options: pfOpts(CURRENCY_LABELS) }
     ],
     create: async (d) => {
-      // עדכון פרטי התוכנית בלבד — הפריטים (הכנסות/הוצאות/השקעות) נשמרים כמו שהם
+      // עדכון פרטי התוכנית בלבד — הפריטים נשמרים כמו שהם
       const plan = await window.systemAPI.getPersonalFinance() || {};
       return window.systemAPI.updatePersonalFinance({ ...plan, planName: d.planName, currency: d.currency });
     }
   };
+
+  function attachPersonalFinanceHandlers() {
+    const plan = document.getElementById('pfPlanBtn');
+    if (plan) plan.addEventListener('click', () => {
+      const p = state.data.personalFinance || {};
+      openSubForm(pfPlanSchema, { planName: p.planName || 'התוכנית הפיננסית שלי', currency: p.currency || 'ILS' });
+    });
+    document.querySelectorAll('[data-pf-edit]').forEach(btn => btn.addEventListener('click', async () => {
+      const kind = btn.dataset.pfEdit;
+      const list = (state.data.personalFinance || {})[kind];
+      const rec = Array.isArray(list) ? list.find(x => x.id === btn.dataset.id) : null;
+      if (!rec) return;
+      const base = formSchemas['personal-finance'];
+      // עריכה: אותו טופס, נעול לסוג הפריט, ושמירה דרך updateFinanceItem
+      const schema = {
+        ...base,
+        title: base.editTitle,
+        fields: base.fields.map(f => (f.name === 'pfKind' ? { ...f, options: [{ value: kind, label: PF_KINDS[kind] }] } : f)),
+        create: (d) => { const { item } = base.toItem({ ...d, pfKind: kind }); return window.systemAPI.updateFinanceItem(kind, rec.id, item); }
+      };
+      await openSubForm(schema, base.fromItem(kind, rec));
+      attachDynamicFields(schema);
+      // אחרי בניית השדות הדינמיים — ממלאים שוב את הערכים של הפריט
+      const values = base.fromItem(kind, rec);
+      for (const f of schema.fields) {
+        const el = document.getElementById('f_' + f.name);
+        if (el && values[f.name] !== undefined && values[f.name] !== null) el.value = String(values[f.name]);
+      }
+    }));
+    document.querySelectorAll('[data-pf-del]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!(await askConfirm('למחוק את הפריט מהתוכנית?'))) return;
+      try { await window.systemAPI.deleteFinanceItem(btn.dataset.pfDel, btn.dataset.id); showToast('הפריט נמחק'); await switchView('personal-finance'); }
+      catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+    }));
+  }
 
   // ============================================================
   // טפסים משניים: תצוגה עם יותר מטופס אחד (למשל "הגדרות עמותה" או "הצעת בנק").
@@ -1908,6 +2042,201 @@
     }));
   }
 
+
+  // ============================================================
+  // ייבוא וייצוא — פס בכל תצוגת נתונים, ומרכז מלא בהגדרות המתקדמות
+  // ============================================================
+  const PORT_VIEWS = {"contacts":["contacts"],"tasks":["tasks"],"business":["businessPlans"],"market-intel":["marketIntel"],"acct-personal":["personal"],"personal-finance":["financeIncomes","financeExpenses"],"mortgage-advisor":["mortgageClients"]};
+  const PORT_LABELS = {
+    contacts: 'אנשי קשר', tasks: 'משימות', businessPlans: 'תוכניות עסקיות', marketIntel: 'מודיעין שוק',
+    personal: 'הוצאות אישיות', financeIncomes: 'הכנסות', financeExpenses: 'הוצאות', mortgageClients: 'תיקי לקוחות',
+    npoGrants: 'תמיכות', products: 'מחירון'
+  };
+  function renderPortsBar(kinds) {
+    const multi = kinds.length > 1;
+    return `<div class="ports-bar">${kinds.map(k => `
+      <span class="ports-group">${multi ? `<small class="muted">${esc(PORT_LABELS[k] || k)}:</small>` : ''}
+        <button class="secondary small" data-port-export="${esc(k)}">⬇ ייצוא ל-Excel</button>
+        <button class="secondary small" data-port-import="${esc(k)}">⬆ ייבוא מ-CSV</button>
+        <button class="secondary small" data-port-template="${esc(k)}">תבנית</button>
+      </span>`).join('')}
+      ${kinds.includes('contacts') ? '<button class="secondary small" data-vcard-import>⬆ ייבוא vCard</button><button class="secondary small" data-vcard-export>⬇ ייצוא vCard</button>' : ''}
+    </div>`;
+  }
+
+  function pickFileText(accept) {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = accept;
+      input.addEventListener('change', async () => {
+        const file = input.files && input.files[0];
+        if (!file) return resolve(null);
+        if (file.size > 20 * 1024 * 1024) { showError('הקובץ גדול מדי (עד 20MB)'); return resolve(null); }
+        resolve(await file.text());
+      });
+      input.click();
+    });
+  }
+
+  function importSummary(r) {
+    const parts = [`יובאו ${r.added}`];
+    if (r.skipped) parts.push(`${r.skipped} כפולים דולגו`);
+    if (r.errors && r.errors.length) parts.push(`${r.errors.length} שורות נדחו (${r.errors.slice(0, 3).map(e => 'שורה ' + e.line + ': ' + e.message).join('; ')})`);
+    return parts.join(' · ');
+  }
+
+  function attachPortsHandlers() {
+    document.querySelectorAll('[data-port-export]').forEach(b => b.addEventListener('click', async () => {
+      try { const r = await window.systemAPI.exportData(b.dataset.portExport); if (r && r.ok) showToast(`הקובץ נשמר (${r.rows} שורות)`); }
+      catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-port-template]').forEach(b => b.addEventListener('click', async () => {
+      try { const r = await window.systemAPI.exportDataTemplate(b.dataset.portTemplate); if (r && r.ok) showToast('התבנית נשמרה — מלא אותה ב-Excel וייבא'); }
+      catch (error) { showError('שגיאה: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-port-import]').forEach(b => b.addEventListener('click', async () => {
+      const text = await pickFileText('.csv,text/csv');
+      if (text == null) return;
+      try { const r = await window.systemAPI.importData(b.dataset.portImport, text); showToast(importSummary(r)); await switchView(state.currentView); }
+      catch (error) { showError('שגיאה בייבוא: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-vcard-import]').forEach(b => b.addEventListener('click', async () => {
+      const text = await pickFileText('.vcf,text/vcard,text/x-vcard');
+      if (text == null) return;
+      try { const r = await window.systemAPI.importContactsVcard(text); showToast(importSummary(r)); await switchView(state.currentView); }
+      catch (error) { showError('שגיאה בייבוא: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-vcard-export]').forEach(b => b.addEventListener('click', async () => {
+      try { const r = await window.systemAPI.exportContactsVcard(); if (r && r.ok) showToast('אנשי הקשר נשמרו כ-vCard'); }
+      catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
+    }));
+  }
+
+  // ============================================================
+  // הגדרות מתקדמות: כללי, משתמשים ותפקידים, יומן ביקורת, מרכז ייבוא/ייצוא
+  // ============================================================
+  const ROLE_LABELS = { admin: 'מנהל — הכל כולל משתמשים', editor: 'עורך — צפייה, הזנה, ייצוא וגיבוי', viewer: 'צופה — קריאה בלבד' };
+  const START_LABELS = { dashboard: 'לוח בקרה', 'acct-reports': 'דוחות ומע"מ', 'acct-invoices': 'חשבוניות מס', 'acct-journal': 'יומן חשבונאי',
+    'personal-finance': 'התוכנית הפיננסית', finance: 'תכנון פיננסי', contacts: 'אנשי קשר', tasks: 'משימות', npo: 'עמותה ותרומות', 'mortgage-advisor': 'ייעוץ משכנתאות' };
+
+  const advGeneralSchema = {
+    title: 'הגדרות כלליות',
+    fields: [
+      { name: 'idleMinutes', label: 'ניתוק אוטומטי אחרי (דקות ללא פעילות, 5–240)', type: 'number', required: true },
+      { name: 'startView', label: 'מסך פתיחה אחרי כניסה', type: 'select', options: Object.entries(START_LABELS).map(([value, label]) => ({ value, label })) }
+    ],
+    create: (d) => window.systemAPI.saveAdvancedSettings(d)
+  };
+  const advUserSchema = {
+    title: 'משתמש חדש',
+    fields: [
+      { name: 'username', label: 'שם משתמש (אותיות לועזיות, ספרות, . _ -)', type: 'text', required: true },
+      { name: 'password', label: 'סיסמה ראשונית (לפחות 12 תווים)', type: 'password', required: true },
+      { name: 'role', label: 'תפקיד', type: 'select', options: Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label })) }
+    ],
+    create: (d) => window.systemAPI.createUser(d)
+  };
+
+  function renderSettings(d) {
+    const st = d && typeof d === 'object' ? d : {};
+    const users = Array.isArray(st.users) ? st.users : [];
+    const audit = Array.isArray(st.audit) ? st.audit : [];
+    const kinds = Array.isArray(st.kinds) ? st.kinds : [];
+    const counts = st.counts || {};
+    return `
+      <div class="settings">
+        <div class="acct-grid">
+          <div class="card">
+            <h3>כללי</h3>
+            <div class="acct-row"><span>ניתוק אוטומטי</span><span>${esc(st.idleMinutes || 15)} דקות</span></div>
+            <div class="acct-row"><span>מסך פתיחה</span><span>${esc(START_LABELS[st.startView] || 'לוח בקרה')}</span></div>
+            <div class="acct-row"><span>משתמש מחובר</span><span>${esc(st.me && st.me.username || '')}</span></div>
+            ${st.isAdmin ? '<button class="secondary" id="advGeneralBtn">עריכת הגדרות כלליות</button>' : '<p class="muted">שינוי הגדרות — למנהל בלבד.</p>'}
+          </div>
+          <div class="card">
+            <h3>גיבוי ושמירת נתונים</h3>
+            <p class="muted">כל הנתונים נשמרים במחשב בלבד ונכללים בגיבוי המוצפן. גיבוי ידני ושחזור — בכפתורים שבסרגל העליון. יעד גיבוי אוטומטי (כונן USB) נקבע במסך הראשי של החבילה.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>ייבוא וייצוא נתונים</h3>
+          <p class="muted">ייצוא לקובץ CSV שנפתח ב-Excel בעברית. בייבוא: שורה ראשונה = כותרות (כמו בתבנית); רשומות כפולות מדולגות ושורות שגויות מדווחות.</p>
+          <div class="acct-scroll"><table class="acct-table">
+            <thead><tr><th>סוג נתונים</th><th>רשומות</th><th></th></tr></thead>
+            <tbody>${kinds.map(k => `<tr><td>${esc(k.label)}</td><td>${Number(counts[k.id]) || 0}</td><td>
+              <button class="secondary small" data-port-export="${esc(k.id)}">ייצוא</button>
+              <button class="secondary small" data-port-import="${esc(k.id)}">ייבוא</button>
+              <button class="secondary small" data-port-template="${esc(k.id)}">תבנית</button>
+              ${k.id === 'contacts' ? '<button class="secondary small" data-vcard-import>ייבוא vCard</button><button class="secondary small" data-vcard-export>ייצוא vCard</button>' : ''}
+            </td></tr>`).join('')}</tbody>
+          </table></div>
+        </div>
+
+        ${st.isAdmin ? `
+        <div class="card">
+          <div class="acct-header"><h3>משתמשים ותפקידים (${users.length})</h3><button class="secondary" id="advAddUserBtn">＋ משתמש חדש</button></div>
+          <div class="acct-scroll"><table class="acct-table">
+            <thead><tr><th>משתמש</th><th>תפקיד</th><th>מצב</th><th></th></tr></thead>
+            <tbody>${users.map(u => `<tr class="${u.active ? '' : 'muted'}">
+              <td>${esc(u.username)}${st.me && st.me.id === u.id ? ' <small class="muted">(אתה)</small>' : ''}</td>
+              <td><select data-user-role="${esc(u.id)}"${st.me && st.me.id === u.id ? ' disabled' : ''}>${Object.keys(ROLE_LABELS).map(r => `<option value="${r}"${u.role === r ? ' selected' : ''}>${esc(ROLE_LABELS[r].split(' — ')[0])}</option>`).join('')}</select></td>
+              <td>${u.active ? (u.locked ? 'נעול זמנית' : 'פעיל') : 'חסום'}</td>
+              <td>${st.me && st.me.id === u.id ? '' : `<button class="secondary small" data-user-toggle="${esc(u.id)}" data-active="${u.active ? '1' : '0'}">${u.active ? 'חסימה' : 'הפעלה'}</button>`}
+                <button class="secondary small" data-user-reset="${esc(u.id)}">איפוס סיסמה</button></td>
+            </tr>`).join('')}</tbody>
+          </table></div>
+        </div>
+
+        <div class="card">
+          <div class="acct-header"><h3>יומן ביקורת</h3>
+            <div class="acct-actions">
+              <select id="auditFilter">
+                ${[['', 'הכל'], ['acct', 'הנהלת חשבונות'], ['npo', 'עמותה'], ['madv', 'ייעוץ משכנתאות'], ['users', 'משתמשים'], ['ports', 'ייבוא/ייצוא'], ['data', 'גיבוי ושחזור'], ['settings', 'הגדרות']]
+                  .map(([v, l]) => `<option value="${v}"${(state.auditFilter || '') === v ? ' selected' : ''}>${l}</option>`).join('')}
+              </select>
+              <button class="secondary" id="auditExportBtn">ייצוא יומן</button>
+            </div>
+          </div>
+          <div class="acct-scroll"><table class="acct-table">
+            <thead><tr><th>מועד</th><th>משתמש</th><th>פעולה</th><th>פרטים</th></tr></thead>
+            <tbody>${audit.map(a => `<tr><td>${esc(String(a.at).slice(0, 16).replace('T', ' '))}</td><td>${esc(a.user)}</td><td>${esc(a.action)}</td><td><small>${esc(String(a.details).slice(0, 120))}</small></td></tr>`).join('') || '<tr><td colspan="4" class="muted">אין אירועים</td></tr>'}</tbody>
+          </table></div>
+        </div>` : ''}
+      </div>`;
+  }
+
+  function attachSettingsHandlers() {
+    const st = state.data.settings || {};
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    on('advGeneralBtn', () => openSubForm(advGeneralSchema, { idleMinutes: st.idleMinutes, startView: st.startView }));
+    on('advAddUserBtn', () => openSubForm(advUserSchema, { role: 'editor' }));
+    on('auditExportBtn', async () => {
+      try { const r = await window.systemAPI.exportAudit({ action: state.auditFilter || '' }); if (r && r.ok) showToast('היומן נשמר'); }
+      catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
+    });
+    const filter = document.getElementById('auditFilter');
+    if (filter) filter.addEventListener('change', () => { state.auditFilter = filter.value; switchView('settings'); });
+    document.querySelectorAll('[data-user-role]').forEach(sel => sel.addEventListener('change', async () => {
+      try { await window.systemAPI.updateUser(sel.dataset.userRole, { role: sel.value }); showToast('התפקיד עודכן — המשתמש יידרש להתחבר מחדש'); }
+      catch (error) { showError('שגיאה: ' + errMsg(error)); }
+      await switchView('settings');
+    }));
+    document.querySelectorAll('[data-user-toggle]').forEach(b => b.addEventListener('click', async () => {
+      const activate = b.dataset.active !== '1';
+      if (!activate && !(await askConfirm('לחסום את המשתמש? הוא ינותק מיד ולא יוכל להתחבר.'))) return;
+      try { await window.systemAPI.updateUser(b.dataset.userToggle, { active: activate }); showToast(activate ? 'המשתמש הופעל' : 'המשתמש נחסם'); await switchView('settings'); }
+      catch (error) { showError('שגיאה: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-user-reset]').forEach(b => b.addEventListener('click', async () => {
+      const v = await askFields('איפוס סיסמה', [{ name: 'pass', label: 'סיסמה חדשה (לפחות 12 תווים)', type: 'password' }], 'איפוס');
+      if (!v) return;
+      try { await window.systemAPI.resetUserPassword(b.dataset.userReset, v.pass); showToast('הסיסמה אופסה'); }
+      catch (error) { showError('שגיאה: ' + errMsg(error)); }
+    }));
+  }
+
   // תצוגות ללא טופס הוספה — מחושבות/מצטברות בלבד.
   // נגזר מ-formSchemas כדי שלא ייווצר פער בין הרשימה לסכימות בפועל.
   const hasForm = (viewName) => !!formSchemas[viewName];
@@ -1966,6 +2295,9 @@
     });
 
     if (viewName === 'npo') attachNpoHandlers();
+    if (viewName === 'personal-finance') attachPersonalFinanceHandlers();
+    if (viewName === 'settings') attachSettingsHandlers();
+    attachPortsHandlers();
     if (viewName === 'mortgage-advisor') attachMadvHandlers();
 
     // תיבת חיפוש

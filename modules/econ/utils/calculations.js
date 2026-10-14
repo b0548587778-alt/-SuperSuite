@@ -13,7 +13,7 @@ function calculateLoan({ principal, annualRate, years }) {
   if (principal === undefined || principal === null ||
       annualRate === undefined || annualRate === null ||
       years === undefined || years === null) {
-    throw new Error('Principal, annual rate, and years are required');
+    throw new Error('יש להזין סכום, ריבית ותקופה');
   }
 
   const p = Number(principal);
@@ -21,7 +21,7 @@ function calculateLoan({ principal, annualRate, years }) {
   const y = Number(years);
 
   if (p <= 0 || r < 0 || y <= 0) {
-    throw new Error('Invalid loan parameters');
+    throw new Error('נתוני ההלוואה אינם תקינים (סכום ותקופה חיוביים, ריבית לא שלילית)');
   }
 
   // Monthly interest rate
@@ -93,7 +93,7 @@ function calculateCompoundInterest({ principal, annualRate, years, monthlyContri
   const m = Number(monthlyContribution) || 0;
 
   if (p < 0 || r < 0 || y < 0 || m < 0) {
-    throw new Error('Values cannot be negative');
+    throw new Error('ערכים אינם יכולים להיות שליליים');
   }
 
   // Future value with monthly compounding and contributions
@@ -133,7 +133,7 @@ function calculateROI(investment, returns) {
   const ret = Number(returns);
 
   if (inv <= 0) {
-    throw new Error('Investment must be greater than zero');
+    throw new Error('סכום ההשקעה חייב להיות גדול מאפס');
   }
 
   const roi = ((ret - inv) / inv) * 100;
@@ -158,7 +158,7 @@ function calculateNPV(initialInvestment, cashFlows, discountRate) {
   const flows = Array.isArray(cashFlows) ? cashFlows : [];
 
   if (inv < 0 || rate < 0) {
-    throw new Error('Invalid parameters');
+    throw new Error('הנתונים אינם תקינים');
   }
 
   let npv = -inv;
@@ -185,7 +185,7 @@ function calculateIRR(initialInvestment, cashFlows) {
   const flows = Array.isArray(cashFlows) ? cashFlows : [];
 
   if (inv <= 0 || flows.length === 0) {
-    throw new Error('Invalid parameters');
+    throw new Error('הנתונים אינם תקינים');
   }
 
   // Simple IRR approximation using binary search
@@ -232,7 +232,7 @@ function calculatePriceElasticity(price1, quantity1, price2, quantity2) {
   const q2 = Number(quantity2);
 
   if (p1 <= 0 || q1 <= 0 || p2 <= 0 || q2 <= 0) {
-    throw new Error('All values must be positive');
+    throw new Error('כל הערכים חייבים להיות חיוביים');
   }
 
   const percentChangeQuantity = ((q2 - q1) / q1) * 100;
@@ -274,11 +274,11 @@ function calculateBreakEven(fixedCosts, variableCostPerUnit, pricePerUnit) {
   const p = Number(pricePerUnit);
 
   if (fc < 0 || vc < 0 || p <= 0) {
-    throw new Error('Invalid parameters');
+    throw new Error('הנתונים אינם תקינים');
   }
 
   if (p <= vc) {
-    throw new Error('Price must be greater than variable cost per unit');
+    throw new Error('המחיר חייב להיות גבוה מהעלות המשתנה ליחידה');
   }
 
   const contributionMargin = p - vc;
@@ -308,7 +308,7 @@ function calculateConsumerSurplus(maxPrice, marketPrice, quantity) {
   const q = Number(quantity);
 
   if (maxP < 0 || marketP < 0 || q < 0) {
-    throw new Error('Values cannot be negative');
+    throw new Error('ערכים אינם יכולים להיות שליליים');
   }
 
   if (maxP < marketP) {
@@ -345,7 +345,7 @@ function calculateProducerSurplus(minPrice, marketPrice, quantity) {
   const q = Number(quantity);
 
   if (minP < 0 || marketP < 0 || q < 0) {
-    throw new Error('Values cannot be negative');
+    throw new Error('ערכים אינם יכולים להיות שליליים');
   }
 
   if (marketP < minP) {
@@ -376,7 +376,7 @@ function calculateProducerSurplus(minPrice, marketPrice, quantity) {
  */
 function calculateBudgetAllocation(budget) {
   if (!budget || typeof budget !== 'object') {
-    throw new Error('Budget object is required');
+    throw new Error('חסרים נתוני התקציב');
   }
 
   const total = Object.values(budget).reduce((sum, val) => sum + Number(val), 0);
