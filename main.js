@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const { canShellNavigate, canModuleOpen, EDITING_CHECK_JS } = require('./shell/nav-guard');
+const AutoBk = require('./shell/auto-backup');
 
 const SIDEBAR = 200;
 const MODS = ['econ', 'shamai', 'trainer', 'tools'];
@@ -169,6 +170,11 @@ function createWindow() {
 }
 
 /* ---------- גיבוי ושחזור ---------- */
+// ממתין לטעינת תצוגה. גם כשל טעינה משחרר — אחרת גיבוי/שחזור נתקעים לנצח על מודול שלא נטען
+function waitLoaded(wc) {
+  if (!wc.isLoading()) return Promise.resolve();
+  return new Promise(r => { wc.once('did-finish-load', r); wc.once('did-fail-load', r); });
+}
 // scope: 'all' או שם מודול בודד ('econ' | 'shamai' | 'trainer' | 'tools')
 async function collectBackup(scope = 'all') {
   const out = { suite: 'SuperSuite', version: 2, scope, createdAt: new Date().toISOString(), econ: null, localStorage: {} };
@@ -179,33 +185,40 @@ async function collectBackup(scope = 'all') {
   for (const id of LS_MODS) {
     if (scope !== 'all' && scope !== id) continue;
     const v = ensureView(id);
-    if (v.webContents.isLoading()) await new Promise(r => v.webContents.once('did-finish-load', r));
+    await waitLoaded(v.webContents);
     try { out.localStorage[id] = JSON.parse(await v.webContents.executeJavaScript(DUMP)); } catch { out.localStorage[id] = {}; }
   }
-  if (active) switchTo(active);
+  // ensureView יוצר תצוגות מוסתרות ואינו משנה את המודול הפעיל — אין צורך להחזיר פוקוס,
+  // אחרת הגיבוי האוטומטי גונב את הפוקוס מהמשתמש כל 6 שעות
   return out;
 }
 
 // מפתח גיבוי אוטומטי לכל התקנה: נשמר מוצפן על ידי מערכת ההפעלה (Windows DPAPI), כך שהגיבוי קריא רק לחשבון הזה
-function autoBackupKey() {
-  const f = path.join(app.getPath('userData'), 'autobackup.key');
-  if (fs.existsSync(f)) return safeStorage.decryptString(fs.readFileSync(f));
-  const k = crypto.randomBytes(32).toString('base64');
-  fs.writeFileSync(f, safeStorage.encryptString(k));
-  return k;
+const autoBackupKeyFile = () => path.join(app.getPath('userData'), 'autobackup.key');
+function autoBackupKey(create = true) {
+  return AutoBk.loadAutoBackupKey({ file: autoBackupKeyFile(), safeStorage, create });
 }
 
 /* גיבוי אוטומטי יומי — מוצפן בלבד. יעד: כונן חיצוני (USB) שהוגדר, ואם לא הוגדר — Documents\SuperSuite-Backups.
-   אם הכונן לא מחובר — מדלגים (לא כותבים למקום אחר בשקט). */
+   אם הכונן לא מחובר — מדלגים (לא כותבים למקום אחר בשקט). הסטטוס נשמר ומוצג במעטפת. */
 async function autoBackup() {
+  let status;
   try {
-    if (!safeStorage.isEncryptionAvailable()) return; // בלי הצפנת מערכת — לא כותבים גיבוי
-    const target = loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
-    if (!fs.existsSync(target)) { console.warn('auto-backup: target not available', target); return; }
-    const out = await collectBackup('all');
-    const r = AB.writeEncryptedAutoBackup({ dir: target, plainText: JSON.stringify(out), key: autoBackupKey(), keep: 14 });
-    if (!r.ok) console.warn('auto-backup skipped:', r.reason);
-  } catch (e) { console.error('auto-backup failed', e); }
+    status = await AutoBk.runAutoBackup({
+      encryptionAvailable: safeStorage.isEncryptionAvailable(),
+      customTarget: loadJson(backupSettingsFile()).targetDir || '',
+      defaultTarget: path.join(app.getPath('documents'), 'SuperSuite-Backups'),
+      collect: () => collectBackup('all'),
+      getKey: () => autoBackupKey(true),
+      write: AB.writeEncryptedAutoBackup
+    });
+  } catch (e) {
+    console.error('auto-backup failed', e);
+    status = { ok: false, reason: e.code || 'error', at: new Date().toISOString() };
+  }
+  if (!status.ok) console.warn('auto-backup skipped:', status.reason, status.target || '');
+  saveJson(backupSettingsFile(), { ...loadJson(backupSettingsFile()), lastAutoBackup: status });
+  return status;
 }
 
 async function backupAll(passphrase, scope = 'all') {
@@ -214,7 +227,8 @@ async function backupAll(passphrase, scope = 'all') {
   const stamp = new Date().toISOString().slice(0, 10);
   const r = await dialog.showSaveDialog(win, { title: 'שמירת גיבוי מוצפן', defaultPath: `SuperSuite-${scope}-${stamp}.ssbk`, filters: [{ name: 'גיבוי SuperSuite', extensions: ['ssbk'] }] });
   if (r.canceled || !r.filePath) return { ok: false };
-  fs.writeFileSync(r.filePath, BK.encryptBackup(JSON.stringify(out), passphrase), 'utf8');
+  try { fs.writeFileSync(r.filePath, BK.encryptBackup(JSON.stringify(out), passphrase), 'utf8'); }
+  catch (e) { throw new Error('שמירת הגיבוי נכשלה — ייתכן שהכונן מלא, מוגן מפני כתיבה או נותק (' + (e.code || 'שגיאה') + ')'); }
   dialog.showMessageBox(win, { type: 'info', message: 'הגיבוי נשמר ומוצפן', detail: r.filePath });
   return { ok: true };
 }
@@ -222,7 +236,13 @@ async function backupAll(passphrase, scope = 'all') {
 function openBackupText(text, passphrase) {
   if (!BK.isEncryptedBackup(text)) return text; // גיבוי ישן (JSON גלוי) — נקרא בלבד, לא נכתב
   if (passphrase) return BK.decryptBackup(text, passphrase);
-  try { return BK.decryptBackup(text, autoBackupKey()); } catch {
+  let key;
+  try { key = autoBackupKey(false); }
+  catch (e) {
+    // אין מפתח מקומי: ייתכן שזה גיבוי ידני (סיסמה) או גיבוי אוטומטי ממחשב אחר — אומרים את שתי האפשרויות
+    throw new Error('הקובץ מוצפן. אם זה גיבוי ידני — הזן את סיסמת הגיבוי. ' + e.message);
+  }
+  try { return BK.decryptBackup(text, key); } catch {
     throw new Error('הקובץ מוצפן בסיסמת גיבוי — הזן אותה כדי לשחזר');
   }
 }
@@ -256,7 +276,7 @@ async function restoreAll(passphrase) {
     }
     if (!Object.keys(clean).length) continue;
     const v = ensureView(id);
-    if (v.webContents.isLoading()) await new Promise(res => v.webContents.once('did-finish-load', res));
+    await waitLoaded(v.webContents);
     await v.webContents.executeJavaScript(`(()=>{const d=${JSON.stringify(clean)};localStorage.clear();for(const k in d)localStorage.setItem(k,d[k]);})()`);
   }
   for (const id of Object.keys(views)) views[id].webContents.reload();
@@ -331,6 +351,12 @@ app.whenReady().then(async () => {
     if (!win || e.sender.id !== win.webContents.id) throw new Error('הפעולה מותרת מתוך המעטפת בלבד');
     if (!econLoggedIn()) return null;
     return loadJson(backupSettingsFile()).targetDir || '';
+  });
+  // סטטוס הגיבוי האוטומטי האחרון (טקסט למשתמש) — כדי שכשל שקט (אין DPAPI / כונן מנותק) ייראה
+  ipcMain.handle('shell:get-backup-status', (e) => {
+    if (!win || e.sender.id !== win.webContents.id) throw new Error('הפעולה מותרת מתוך המעטפת בלבד');
+    if (!econLoggedIn()) return null;
+    return AutoBk.describeStatus(loadJson(backupSettingsFile()).lastAutoBackup);
   });
   ipcMain.handle('shell:pick-backup-target', async (e) => {
     shellGuard(e, 'data.backup');

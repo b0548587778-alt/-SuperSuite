@@ -3933,7 +3933,8 @@ async function init() {
   bindEvents();
 
   // Service worker
-  if ('serviceWorker' in navigator) {
+  // בתוך SuperSuite המודול נטען מ-app:// — שם Service Worker אינו נתמך ואינו נחוץ (הקבצים מקומיים)
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
     try {
       await navigator.serviceWorker.register('sw.js');
     } catch (e) {

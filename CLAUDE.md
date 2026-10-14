@@ -23,8 +23,8 @@
 ## פקודות
 
 ```bash
-npm start          # הרצת האפליקציה בפיתוח (electron .)
-npm test           # הרצת 114 בדיקות (node --test)
+npm start          # הרצת האפליקציה בפיתוח (run-electron.js — עובד גם בלי path.txt של electron)
+npm test           # הרצת 126 בדיקות (node --test)
 npm run dist       # בניית מתקין NSIS + portable ל-Windows
 npm run dist:local # בנייה מהמטמון המקומי בלבד (בלי הורדות) — מומלץ בסביבה מסוננת
 npm run dist:check # בדיקה מה קיים מקומית לבנייה, בלי לבנות
@@ -135,7 +135,7 @@ python -m unittest test_encryption -v
 ## בדיקות
 
 - מסגרת: `node --test`. אין Jest/Vitest — רק מודול `test` המובנה.
-- **114 בדיקות** ב-`tests/`, כולן חייבות לעבור לפני סיום עבודה.
+- **126 בדיקות** ב-`tests/`, כולן חייבות לעבור לפני סיום עבודה.
 - קבצים עיקריים: `accounting`, `integration`, `ipc-guard`, `exports`, `backupCrypto`, `pricing`, `regressions`, `security`, `features`, `regressions-r2`, `tools-calc`, `nav-guard`, `main-behavior`, `shell-ui`, `ui-nav`, `fitness-view`.
 - כל תיקון באג חייב לקבל בדיקת רגרסיה מלווה.
 - בדיקות ה-UI מריצות את הרינדור ב-Chromium עם API מדומה (ללא שגיאות JS).
@@ -168,6 +168,8 @@ modules/<mod>/           — מודול בודד, נטען כ-WebContentsView
 modules/econ/core/       — לוגיקת ליבה: db, accounting, crypto, exports
 modules/econ/services/   — שירותים עסקיים
 shell/nav-guard.js       — כללי מעבר מודולים (נבדקים ב-tests/nav-guard.test.js)
+shell/auto-backup.js     — לוגיקת הגיבוי האוטומטי, מפתח DPAPI וסטטוס (tests/auto-backup.test.js)
+run-electron.js          — הפעלת electron.exe ישירות (npm start)
 tools/passwords/         — כלי Python נפרד: הצפנה וערבול סיסמאות (לא חלק מהאפליקציה)
 tests/                   — בדיקות
 ```

@@ -78,6 +78,9 @@ async function refreshTargetIfLoggedIn() {
     const t = await window.shellAPI.getBackupTarget();
     targetShown = true;
     document.getElementById('tgInfo').textContent = t ? 'גיבוי אוטומטי ליעד: ' + t : 'גיבוי אוטומטי: תיקיית המסמכים';
+    // סטטוס הגיבוי האחרון: כשל שקט (אין הצפנת מערכת / כונן מנותק) חייב להיות גלוי למשתמש
+    const st = window.shellAPI.getBackupStatus ? await window.shellAPI.getBackupStatus() : '';
+    if (st) document.getElementById('tgInfo').textContent += ' · ' + st;
   } catch { /* נעדכן במעבר הבא */ }
 }
 window.shellAPI.onActive(id => { if (id === 'econ') refreshTargetIfLoggedIn(); });

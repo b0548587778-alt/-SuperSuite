@@ -154,8 +154,14 @@ function writeEncryptedAutoBackup({ dir, plainText, key, keep = 14, today }) {
   if (existing.includes(name)) return { ok: true, skipped: true, file: path.join(dir, name) };
   const file = path.join(dir, name);
   const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, BK.encryptBackup(plainText, key), 'utf8');
-  fs.renameSync(tmp, file);
+  // כונן מלא/מוגן מפני כתיבה: מנקים את הקובץ הזמני ומחזירים סיבה, במקום להשאיר שארית על הכונן
+  try {
+    fs.writeFileSync(tmp, BK.encryptBackup(plainText, key), 'utf8');
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+    return { ok: false, reason: 'write-failed', error: e.code || e.message };
+  }
   const all = existing.concat(name).sort();
   const removed = [];
   for (const f of all.slice(0, Math.max(0, all.length - keep))) { fs.unlinkSync(path.join(dir, f)); removed.push(f); }

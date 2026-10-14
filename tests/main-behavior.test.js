@@ -57,6 +57,8 @@ class BrowserWindowStub {
   maximize() {}
 }
 
+const dialogPlan = { save: { canceled: true } };
+
 const electronStub = {
   app: chainable({
     requestSingleInstanceLock: () => true,
@@ -70,7 +72,13 @@ const electronStub = {
   BrowserWindow: BrowserWindowStub,
   WebContentsView: WebContentsViewStub,
   ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } },
-  dialog: chainable(),
+  // dialog נשלט מהבדיקות: showSaveDialog מחזיר את הנתיב שהבדיקה קבעה
+  dialog: {
+    showSaveDialog: async () => dialogPlan.save,
+    showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+    showMessageBox: async () => ({ response: 1 }),
+    showErrorBox() {},
+  },
   protocol: chainable(),
   net: chainable(),
   session: chainable(),
@@ -158,4 +166,15 @@ test('שחזור מהמעטפת: מודול כלכלי מחובר בלי הרש�
   const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
   AuthService.getSession(econView.id).permissions = ['data.view'];
   assert.throws(() => handlers['shell:restore-all'](shellSender(), 'pass'));
+});
+
+test('גיבוי ידני ליעד שנכשל בכתיבה (USB מלא/מנותק) מחזיר שגיאה בעברית', async () => {
+  await boot();
+  const econView = created.views[0];
+  const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
+  AuthService.getSession(econView.id).permissions = ['data.view', 'data.backup'];
+  // נתיב בתיקייה שאינה קיימת — כמו כונן שנותק בין בחירת הקובץ לשמירה
+  dialogPlan.save = { canceled: false, filePath: path.join(userData, 'no-such-drive', 'b.ssbk') };
+  await assert.rejects(handlers['shell:backup-all'](shellSender(), 'long-pass-123', 'econ'), /שמירת הגיבוי נכשלה/);
+  dialogPlan.save = { canceled: true };
 });

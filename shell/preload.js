@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('shellAPI', {
   restoreAll: (passphrase) => ipcRenderer.invoke('shell:restore-all', passphrase),
   isLoggedIn: () => ipcRenderer.invoke('shell:is-logged-in'),
   getBackupTarget: () => ipcRenderer.invoke('shell:get-backup-target'),
+  getBackupStatus: () => ipcRenderer.invoke('shell:get-backup-status'),
   pickBackupTarget: () => ipcRenderer.invoke('shell:pick-backup-target'),
   goHome: () => ipcRenderer.invoke('shell:home'),
   quit: () => ipcRenderer.invoke('shell:quit'),
