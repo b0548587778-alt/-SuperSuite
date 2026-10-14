@@ -10,7 +10,8 @@
     loading: false,
     error: null,
     editingId: null,
-    fieldValuesBackup: null
+    fieldValuesBackup: null,
+    subForm: null
   };
 
   // DOM references
@@ -39,6 +40,8 @@
     'business': 'עסקים ולקוחות',
     'market-intel': 'מודיעין שוק',
     'mortgage': 'משכנתאות והלוואות',
+    'mortgage-advisor': 'ייעוץ משכנתאות — תיקי לקוחות',
+    'npo': 'עמותה — תרומות, קרנות ותמיכות',
     'personal-finance': 'התוכנית הפיננסית — הגדרה ופריטים',
     'tasks': 'משימות',
     'contacts': 'אנשי קשר',
@@ -145,6 +148,12 @@
         case 'personal-finance':
           state.data.personalFinance = await window.systemAPI.getPersonalFinance();
           break;
+        case 'mortgage-advisor':
+          state.data.mortgageAdvisor = await window.systemAPI.getMortgageAdvisor();
+          break;
+        case 'npo':
+          state.data.npo = await window.systemAPI.getNpoOverview(npoYear());
+          break;
         case 'tasks':
           state.data.tasks = await window.systemAPI.getTasks();
           break;
@@ -230,6 +239,8 @@
     'business': 'business',
     'market-intel': 'marketIntel',
     'mortgage': 'mortgage',
+    'mortgage-advisor': 'mortgageAdvisor',
+    'npo': 'npo',
     'personal-finance': 'personalFinance',
     'tasks': 'tasks',
     'contacts': 'contacts',
@@ -269,6 +280,12 @@
         break;
       case 'personal-finance':
         html = renderPersonalFinance(data);
+        break;
+      case 'mortgage-advisor':
+        html = renderMortgageAdvisor(data);
+        break;
+      case 'npo':
+        html = renderNpo(data);
         break;
       case 'tasks':
         html = renderTasks(data);
@@ -357,6 +374,7 @@
       'business': 'plans',
       'market-intel': 'entries',
       'mortgage': 'scenarios',
+      'mortgage-advisor': 'clients',
       'voice-notes': 'notes',
       'canvas': 'boards'
     };
@@ -556,7 +574,7 @@
     const scenarios = Array.isArray(data?.scenarios) ? data.scenarios : [];
     return `
       <div class="mortgage">
-        <h3>משכנתאות והלוואות (${scenarios.length})</h3>
+        <div class="acct-header"><h3>משכנתאות והלוואות (${scenarios.length})</h3><button class="secondary" data-goto="mortgage-advisor">כלי ייעוץ משכנתאות מלא ←</button></div>
         ${scenarios.length === 0 ? renderEmpty('אין תרחישי הלוואה עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל') : ''}
         ${scenarios.map(s => `
           <div class="card">
@@ -1474,6 +1492,422 @@
     }
   };
 
+  // ============================================================
+  // טפסים משניים: תצוגה עם יותר מטופס אחד (למשל "הגדרות עמותה" או "הצעת בנק").
+  // הטופס המשני עובר באותו מסלול של הטופס הראשי (בנייה, איסוף, שמירה, סגירה).
+  // ============================================================
+  const currentSchema = () => state.subForm || formSchemas[state.currentView];
+
+  async function openSubForm(schema, values = {}, editingId = null) {
+    try {
+      if (schema.prepare) await schema.prepare(schema, values);
+    } catch (error) {
+      showError('שגיאה בטעינת הטופס: ' + errMsg(error));
+      return;
+    }
+    state.subForm = schema;
+    state.editingId = editingId;
+    showModal(editingId && schema.editTitle ? schema.editTitle : schema.title, buildFormHtml(schema.fields));
+    for (const f of schema.fields) {
+      const el = document.getElementById('f_' + f.name);
+      const v = values[f.name] !== undefined && values[f.name] !== null ? values[f.name] : f.value;
+      if (el && v !== undefined && v !== null) el.value = String(v);
+    }
+  }
+
+  // ============================================================
+  // עמותה — תרומות וקבלות סעיף 46, קרנות ייעודיות/כללי, תמיכות ודוח שנתי.
+  // נפרד לחלוטין מהיומן העסקי: עמותה אינה עוסק, ותרומה אינה עסקה.
+  // ============================================================
+  const NPO_METHODS = { cash: 'מזומן', check: 'המחאה', transfer: 'העברה בנקאית', card: 'כרטיס אשראי', standing: 'הוראת קבע' };
+  const NPO_GRANT_STATUS = { requested: 'הוגשה בקשה', approved: 'אושרה', paid: 'שולמה', rejected: 'נדחתה' };
+  const NPO_VAT = { exempt: 'פטורה ממע"מ', malkar: 'מלכ"ר', osek: 'עוסק מורשה' };
+  const npoYear = () => state.npoYear || (state.npoYear = new Date().getFullYear());
+  const npoFundOptions = (o) => (Array.isArray(o && o.funds) ? o.funds : [{ id: 'general', name: 'כללי' }])
+    .filter(f => !f.archived).map(f => ({ value: f.id, label: f.name + (f.restricted ? ' (ייעודי)' : '') }));
+  const opts = (map) => Object.entries(map).map(([value, label]) => ({ value, label }));
+
+  formSchemas['npo'] = {
+    title: 'תרומה חדשה — הפקת קבלה',
+    prepare: async (schema) => {
+      const o = await window.systemAPI.getNpoOverview(npoYear());
+      schema.fields.find(f => f.name === 'fundId').options = npoFundOptions(o);
+      schema.fields.find(f => f.name === 'date').value = today();
+    },
+    fields: [
+      { name: 'date', label: 'תאריך התרומה', type: 'date', required: true },
+      { name: 'donorName', label: 'שם התורם', type: 'text', required: true },
+      { name: 'donorId', label: 'ת.ז / ח.פ של התורם', type: 'text' },
+      { name: 'amount', label: 'סכום (₪)', type: 'number', required: true },
+      { name: 'method', label: 'אמצעי תשלום', type: 'select', options: opts(NPO_METHODS) },
+      { name: 'fundId', label: 'קרן', type: 'select', options: [] },
+      { name: 'purpose', label: 'ייעוד / הערה לקבלה', type: 'text' },
+      { name: 'reference', label: 'אסמכתא (מס\' המחאה / העברה)', type: 'text' },
+      { name: 'donorAddress', label: 'כתובת התורם', type: 'text' },
+      { name: 'donorPhone', label: 'טלפון התורם', type: 'tel' }
+    ],
+    create: (d) => window.systemAPI.addNpoDonation(d)
+  };
+
+  const npoSettingsSchema = {
+    title: 'הגדרות עמותה',
+    fields: [
+      { name: 'orgName', label: 'שם העמותה', type: 'text', required: true },
+      { name: 'regNumber', label: 'מספר עמותה (ע"ר, 9 ספרות)', type: 'text' },
+      { name: 'address', label: 'כתובת', type: 'text' },
+      { name: 'phone', label: 'טלפון', type: 'tel' },
+      { name: 'sec46Number', label: 'מספר אישור סעיף 46', type: 'text' },
+      { name: 'sec46ValidUntil', label: 'תוקף אישור סעיף 46', type: 'date' },
+      { name: 'vatStatus', label: 'מעמד מע"מ', type: 'select', options: [
+        { value: 'exempt', label: 'עמותה פטורה ממע"מ (ברירת מחדל)' },
+        { value: 'malkar', label: 'מלכ"ר' },
+        { value: 'osek', label: 'עוסק מורשה' }
+      ]},
+      { name: 'vatNumber', label: 'מספר עוסק (רק לעוסק מורשה)', type: 'text' },
+      { name: 'largeDonorThreshold', label: 'סף "תורם גדול" לדוח השנתי (₪)', type: 'number' },
+      { name: 'fundsText', label: 'קרנות ייעודיות — שורה לכל קרן ("כללי" קיימת תמיד)', type: 'textarea' }
+    ],
+    // ריקון שדה הקרנות פירושו "אין קרנות ייעודיות" — לכן נשלח תמיד, גם כשהוא ריק
+    create: (d) => window.systemAPI.saveNpoSettings({ ...d, fundsText: d.fundsText || '' })
+  };
+
+  const npoGrantSchema = {
+    title: 'תמיכה / מענק חדש',
+    editTitle: 'עריכת תמיכה',
+    prepare: async (schema) => {
+      const o = await window.systemAPI.getNpoOverview(npoYear());
+      schema.fields.find(f => f.name === 'fundId').options = npoFundOptions(o);
+      schema.fields.find(f => f.name === 'year').value = npoYear();
+    },
+    fields: [
+      { name: 'source', label: 'גורם מממן (משרד / רשות)', type: 'text', required: true },
+      { name: 'program', label: 'שם התמיכה / התוכנית', type: 'text' },
+      { name: 'year', label: 'שנה', type: 'number', required: true },
+      { name: 'status', label: 'סטטוס', type: 'select', options: opts(NPO_GRANT_STATUS) },
+      { name: 'approved', label: 'סכום שאושר (₪)', type: 'number' },
+      { name: 'received', label: 'סכום שהתקבל (₪)', type: 'number' },
+      { name: 'fundId', label: 'קרן', type: 'select', options: [] },
+      { name: 'reference', label: 'מספר תיק / בקשה', type: 'text' },
+      { name: 'notes', label: 'הערות', type: 'textarea' }
+    ],
+    create: (d) => window.systemAPI.addNpoGrant(d),
+    update: (id, d) => window.systemAPI.updateNpoGrant(id, d)
+  };
+
+  function renderNpo(o) {
+    if (!o || typeof o !== 'object') return renderEmpty('אין נתונים להצגה');
+    const s = o.settings || {};
+    const r = o.report || {};
+    const fs = o.fundSummary && Array.isArray(o.fundSummary.funds) ? o.fundSummary : { funds: [], restrictedTotal: 0, generalTotal: 0 };
+    const year = o.year || npoYear();
+    const donations = (Array.isArray(o.donations) ? o.donations : []).filter(d => String(d.date).startsWith(String(year)));
+    const grants = (Array.isArray(o.grants) ? o.grants : []).filter(g => Number(g.year) === Number(year));
+    const donors = Array.isArray(o.donors) ? o.donors : [];
+    const funds = Object.fromEntries((Array.isArray(o.funds) ? o.funds : []).map(f => [f.id, f.name]));
+    const s46Expired = s.sec46Number && s.sec46ValidUntil && s.sec46ValidUntil < today();
+    const s46 = !s.sec46Number ? '<span class="bad">אין אישור סעיף 46</span>'
+      : s46Expired ? `<span class="bad">אישור סעיף 46 פג ב-${esc(s.sec46ValidUntil)}</span>`
+      : `<span class="ok">סעיף 46 · ${esc(s.sec46Number)}${s.sec46ValidUntil ? ' · עד ' + esc(s.sec46ValidUntil) : ''}</span>`;
+    return `
+      <div class="npo">
+        <div class="acct-header">
+          <div>
+            <h3>${esc(s.orgName || 'העמותה')}${s.regNumber ? ` <small class="muted">ע"ר ${esc(s.regNumber)}</small>` : ''}</h3>
+            <small>${esc(NPO_VAT[s.vatStatus] || NPO_VAT.exempt)} · ${s46}</small>
+          </div>
+          <div class="acct-actions">
+            <button class="secondary" id="npoPrevYear">‹ ${year - 1}</button>
+            <strong>שנת ${year}</strong>
+            <button class="secondary" id="npoNextYear">${year + 1} ›</button>
+            <button class="secondary" id="npoSettingsBtn">הגדרות עמותה</button>
+            <button class="secondary" id="npoGrantBtn">＋ תמיכה / מענק</button>
+          </div>
+        </div>
+        ${s.orgName ? '' : `<div class="card"><h4>כדי להפיק קבלות יש להגדיר תחילה את פרטי העמותה</h4><p class="muted">שם, מספר עמותה, אישור סעיף 46 ומעמד מע"מ — בכפתור "הגדרות עמותה".</p></div>`}
+        <div class="kpis">
+          <div class="kpi"><small>תרומות בשנה</small><strong>${money(r.donationsTotal)}</strong></div>
+          <div class="kpi"><small>מתוכן עם קבלת סעיף 46</small><strong>${money(r.sec46Total)}</strong></div>
+          <div class="kpi"><small>תמיכות שהתקבלו</small><strong>${money(r.grantsReceived)}</strong></div>
+          <div class="kpi"><small>קרנות ייעודיות</small><strong>${money(fs.restrictedTotal)}</strong></div>
+          <div class="kpi"><small>כללי</small><strong>${money(fs.generalTotal)}</strong></div>
+          <div class="kpi"><small>תורמים בשנה</small><strong>${Number(r.donorsCount) || 0}</strong></div>
+        </div>
+        <div class="acct-grid">
+          <div class="card">
+            <h3>הכנסות לפי קרן</h3>
+            ${fs.funds.map(f => `<div class="acct-row"><span>${esc(f.name)} <small class="muted">${f.restricted ? 'ייעודי' : 'כללי'}${f.archived ? ' · ארכיון' : ''}</small></span><span>${money(f.total)}</span></div>`).join('') || '<div class="acct-row muted">אין קרנות</div>'}
+          </div>
+          <div class="card">
+            <h3>דוח שנתי לרשם העמותות — נתוני בסיס</h3>
+            <p class="muted">ייצוא מסודר בלבד. ההגשה עצמה נעשית ידנית מול רשם העמותות.</p>
+            <div class="acct-actions">
+              <button class="secondary" data-npo-export="summary">ריכוז שנתי</button>
+              <button class="secondary" data-npo-export="donations">רשימת תרומות</button>
+              <button class="secondary" data-npo-export="grants">תמיכות</button>
+              <button class="secondary" data-npo-export="funds">קרנות</button>
+            </div>
+            <h4>תורמים מעל ${money(r.largeDonorThreshold)}</h4>
+            ${(Array.isArray(r.largeDonors) ? r.largeDonors : []).map(d => `<div class="acct-row"><span>${esc(d.name)}</span><span>${money(d.total)}</span></div>`).join('') || '<div class="acct-row muted">אין</div>'}
+          </div>
+          <div class="card acct-wide">
+            <h3>תרומות וקבלות (${donations.length})</h3>
+            ${donations.length === 0 ? renderEmpty('אין תרומות בשנה זו — לחץ "＋ הוספת רשומה" כדי לרשום תרומה ולהפיק קבלה') : `
+            <div class="acct-scroll"><table class="acct-table">
+              <thead><tr><th>קבלה</th><th>תאריך</th><th>תורם</th><th>סכום</th><th>אמצעי</th><th>קרן</th><th>סעיף 46</th><th></th></tr></thead>
+              <tbody>${donations.map(d => `
+                <tr class="${d.status === 'cancelled' ? 'muted' : ''}">
+                  <td>${esc(d.receipt && d.receipt.number)}</td><td>${esc(d.date)}</td>
+                  <td>${esc(d.donorName)}</td><td>${money(d.amount)}</td>
+                  <td>${esc(NPO_METHODS[d.method] || d.method)}</td><td>${esc(funds[d.fundId] || 'כללי')}</td>
+                  <td>${d.receipt && d.receipt.sec46 ? '✓' : '—'}</td>
+                  <td>${d.status === 'cancelled' ? 'מבוטלת' : ''}
+                    <button class="icon-btn" data-npo-pdf="${esc(d.id)}" title="קבלה ל-PDF">📄</button>
+                    ${d.status === 'cancelled' ? '' : `<button class="icon-btn danger" data-npo-cancel="${esc(d.id)}" title="ביטול קבלה">✖</button>`}
+                  </td>
+                </tr>`).join('')}</tbody>
+            </table></div>`}
+          </div>
+          <div class="card">
+            <h3>תמיכות ומענקים (${grants.length})</h3>
+            ${grants.map(g => `
+              <div class="acct-row">
+                <span>${esc(g.source)}${g.program ? ' · ' + esc(g.program) : ''} <small class="muted">${esc(NPO_GRANT_STATUS[g.status] || '')}</small></span>
+                <span>${money(g.received)} / ${money(g.approved)}
+                  <button class="icon-btn" data-npo-grant-edit="${esc(g.id)}" title="עריכה">✎</button>
+                  <button class="icon-btn danger" data-npo-grant-del="${esc(g.id)}" title="מחיקה">🗑</button>
+                </span>
+              </div>`).join('') || '<div class="acct-row muted">אין תמיכות בשנה זו</div>'}
+          </div>
+          <div class="card">
+            <h3>תורמים (${donors.length})</h3>
+            ${donors.slice(0, 15).map(d => `<div class="acct-row"><span>${esc(d.name)} <small class="muted">${d.count} תרומות · אחרונה ${esc(d.lastDate)}</small></span><span>${money(d.total)}</span></div>`).join('') || '<div class="acct-row muted">אין תורמים עדיין</div>'}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function attachNpoHandlers() {
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    on('npoPrevYear', () => { state.npoYear = npoYear() - 1; switchView('npo'); });
+    on('npoNextYear', () => { state.npoYear = npoYear() + 1; switchView('npo'); });
+    on('npoSettingsBtn', () => {
+      const s = (state.data.npo && state.data.npo.settings) || {};
+      const fundsText = (Array.isArray(s.funds) ? s.funds : []).filter(f => !f.archived).map(f => f.name).join('\n');
+      openSubForm(npoSettingsSchema, { ...s, fundsText });
+    });
+    on('npoGrantBtn', () => openSubForm(npoGrantSchema));
+    document.querySelectorAll('[data-npo-grant-edit]').forEach(btn => btn.addEventListener('click', () => {
+      const g = ((state.data.npo && state.data.npo.grants) || []).find(x => x.id === btn.dataset.npoGrantEdit);
+      if (g) openSubForm(npoGrantSchema, g, g.id);
+    }));
+    document.querySelectorAll('[data-npo-grant-del]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!(await askConfirm('למחוק את רשומת התמיכה?'))) return;
+      try { await window.systemAPI.deleteNpoGrant(btn.dataset.npoGrantDel); showToast('התמיכה נמחקה'); await switchView('npo'); }
+      catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-npo-cancel]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!(await askConfirm('לבטל את הקבלה? המספר לא ישומש שוב, והקבלה תישאר ברשימה כמבוטלת.'))) return;
+      try { await window.systemAPI.cancelNpoDonation(btn.dataset.npoCancel); showToast('הקבלה בוטלה'); await switchView('npo'); }
+      catch (error) { showError('שגיאה בביטול: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-npo-pdf]').forEach(btn => btn.addEventListener('click', async () => {
+      try { const r = await window.systemAPI.exportNpoReceiptPdf(btn.dataset.npoPdf); if (r && r.ok) showToast('הקבלה נשמרה כ-PDF'); }
+      catch (error) { showError('שגיאה בהפקת הקבלה: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-npo-export]').forEach(btn => btn.addEventListener('click', async () => {
+      try { const r = await window.systemAPI.exportNpoCsv(btn.dataset.npoExport, npoYear()); if (r && r.ok) showToast('הקובץ נשמר'); }
+      catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
+    }));
+  }
+
+  // ============================================================
+  // ייעוץ משכנתאות — תיקי לקוחות, מחשבון מסלולים, השוואת הצעות בנקים, עמלה ומסמכים
+  // ============================================================
+  const MADV_STATUS = { preparing: 'בהכנה', submitted: 'הוגש', 'approved-principle': 'אושר עקרונית', 'approved-final': 'אושר סופי' };
+  const MADV_TRACKS = [
+    ['fixed-indexed', 'קבועה צמודה'], ['fixed-unindexed', 'קבועה לא צמודה'],
+    ['variable-5', 'משתנה כל 5 שנים'], ['prime', 'פריים']
+  ];
+  const trackFields = () => MADV_TRACKS.flatMap(([k, label]) => [
+    { name: `${k}_amount`, label: `${label} — סכום (₪)`, type: 'number' },
+    { name: `${k}_rate`, label: `${label} — ריבית שנתית (%)`, type: 'number' },
+    { name: `${k}_years`, label: `${label} — תקופה (שנים)`, type: 'number' }
+  ]);
+
+  formSchemas['mortgage-advisor'] = {
+    title: 'תיק לקוח חדש',
+    fields: [
+      { name: 'name', label: 'שם הלקוח', type: 'text', required: true },
+      { name: 'phone', label: 'טלפון', type: 'tel' },
+      { name: 'bank', label: 'בנק מוביל', type: 'text' },
+      { name: 'requestedAmount', label: 'סכום מבוקש (₪)', type: 'number', required: true },
+      { name: 'propertyValue', label: 'שווי הנכס (₪)', type: 'number' },
+      { name: 'status', label: 'סטטוס', type: 'select', options: opts(MADV_STATUS) },
+      { name: 'feeType', label: 'סוג עמלת ייעוץ', type: 'select', options: [
+        { value: 'percent', label: 'אחוז מהסכום המבוקש' },
+        { value: 'fixed', label: 'סכום קבוע' }
+      ]},
+      { name: 'feeValue', label: 'עמלה (% או ₪, לפני מע"מ)', type: 'number' },
+      { name: 'notes', label: 'הערות', type: 'textarea' }
+    ],
+    create: (d) => window.systemAPI.createMortgageClient(d),
+    update: (id, d) => window.systemAPI.updateMortgageClient(id, d),
+    remove: (id) => window.systemAPI.deleteMortgageClient(id),
+    confirmText: 'למחוק את תיק הלקוח וכל הצעות הבנקים שלו? הפעולה אינה ניתנת לביטול.'
+  };
+
+  const madvOfferSchema = {
+    title: 'הצעת בנק חדשה',
+    prepare: async (schema) => {
+      const o = state.data.mortgageAdvisor || {};
+      schema.fields.find(f => f.name === 'clientId').options = (Array.isArray(o.clients) ? o.clients : []).map(c => ({ value: c.id, label: c.name }));
+      schema.fields.find(f => f.name === 'date').value = today();
+    },
+    fields: [
+      { name: 'clientId', label: 'לקוח', type: 'select', required: true, options: [] },
+      { name: 'bank', label: 'בנק', type: 'text', required: true },
+      { name: 'date', label: 'תאריך ההצעה', type: 'date' },
+      { name: 'cpi', label: 'הנחת מדד שנתית למסלול צמוד (%)', type: 'number' },
+      ...trackFields(),
+      { name: 'notes', label: 'הערות', type: 'textarea' }
+    ],
+    create: (d) => window.systemAPI.addMortgageOffer(d)
+  };
+
+  function madvSummaryHtml(sum, yearly) {
+    return `
+      <div class="acct-row"><span>סכום ההלוואה</span><span>${money(sum.principal)}</span></div>
+      <div class="acct-row"><span>החזר חודשי ראשון</span><span>${money(sum.firstPayment)}</span></div>
+      <div class="acct-row"><span>החזר חודשי מקסימלי</span><span>${money(sum.maxPayment)}</span></div>
+      <div class="acct-row"><span>סה"כ ריבית</span><span>${money(sum.totalInterest)}</span></div>
+      <div class="acct-row"><span>סה"כ הצמדה</span><span>${money(sum.totalIndexation)}</span></div>
+      <div class="acct-row acct-big"><span>סה"כ תשלומים</span><span>${money(sum.totalPaid)}</span></div>
+      ${Array.isArray(yearly) && yearly.length ? `
+      <details><summary>לוח סילוקין שנתי (${yearly.length} שנים)</summary>
+        <div class="acct-scroll"><table class="acct-table">
+          <thead><tr><th>שנה</th><th>תשלומים</th><th>ריבית</th><th>קרן</th><th>הצמדה</th><th>יתרה</th></tr></thead>
+          <tbody>${yearly.map(y => `<tr><td>${y.year}</td><td>${money(y.payment)}</td><td>${money(y.interest)}</td><td>${money(y.principal)}</td><td>${money(y.indexation)}</td><td>${money(y.balance)}</td></tr>`).join('')}</tbody>
+        </table></div>
+      </details>` : ''}`;
+  }
+
+  function renderMortgageAdvisor(o) {
+    const clients = Array.isArray(o && o.clients) ? o.clients : [];
+    return `
+      <div class="mortgage-advisor">
+        <div class="card">
+          <h3>מחשבון מסלולים</h3>
+          <p class="muted">הזן סכום, ריבית ותקופה לכל מסלול רלוונטי. ריבית במשתנה ובפריים מחושבת כקבועה לאורך התקופה; המדד הוא הנחה שלך.</p>
+          <div class="acct-scroll"><table class="acct-table">
+            <thead><tr><th>מסלול</th><th>סכום (₪)</th><th>ריבית (%)</th><th>שנים</th></tr></thead>
+            <tbody>${MADV_TRACKS.map(([k, label]) => `<tr><td>${label}</td>
+              <td><input type="number" id="calc_${k}_amount" min="0"></td>
+              <td><input type="number" id="calc_${k}_rate" step="0.01" min="0"></td>
+              <td><input type="number" id="calc_${k}_years" min="1" max="35"></td></tr>`).join('')}</tbody>
+          </table></div>
+          <div class="acct-actions">
+            <label>מדד שנתי (%) <input type="number" id="calc_cpi" step="0.1" value="2"></label>
+            <button id="madvCalcBtn">חשב</button>
+            <button class="secondary" id="madvOfferBtn"${clients.length ? '' : ' disabled'}>＋ הצעת בנק ללקוח</button>
+          </div>
+          <div id="madvCalcOut"></div>
+        </div>
+        <h3>תיקי לקוחות (${clients.length})</h3>
+        ${clients.length === 0 ? renderEmpty('אין תיקי לקוחות עדיין — לחץ "＋ הוספת רשומה" כדי לפתוח תיק') : ''}
+        ${clients.map(c => {
+          const docs = c.docs && Array.isArray(c.docs.items) ? c.docs : { done: 0, total: 0, items: [] };
+          const fee = c.fee || {};
+          const cmp = Array.isArray(c.comparison) ? c.comparison : [];
+          const offers = Array.isArray(c.offers) ? c.offers : [];
+          return `
+          <div class="card">
+            <div class="acct-header">
+              <div>
+                <h4>${esc(c.name)}${c.phone ? ` <small class="muted">${esc(c.phone)}</small>` : ''}</h4>
+                <small>${c.bank ? esc(c.bank) + ' · ' : ''}מבוקש ${money(c.requestedAmount)}${c.ltv != null ? ` · מימון ${c.ltv}%` : ''}</small>
+              </div>
+              <div class="acct-actions">
+                <select data-madv-status="${esc(c.id)}">${Object.entries(MADV_STATUS).map(([v, l]) => `<option value="${v}"${c.status === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+                ${renderCardActions(c.id)}
+              </div>
+            </div>
+            <div class="acct-grid">
+              <div>
+                <h4>עמלת ייעוץ</h4>
+                <div class="acct-row"><span>לפני מע"מ ${c.feeType === 'percent' ? `(${Number(c.feeValue) || 0}%)` : ''}</span><span>${money(fee.net)}</span></div>
+                <div class="acct-row"><span>מע"מ</span><span>${money(fee.vat)}</span></div>
+                <div class="acct-row acct-total"><span>סה"כ</span><span>${money(fee.total)}</span></div>
+              </div>
+              <div>
+                <h4>מסמכים (${docs.done}/${docs.total})</h4>
+                ${docs.items.map(d => `<label class="doc-check"><input type="checkbox" data-madv-doc="${esc(c.id)}" data-key="${esc(d.key)}"${d.done ? ' checked' : ''}> ${esc(d.label)}</label>`).join('')}
+              </div>
+            </div>
+            <h4>השוואת הצעות (${cmp.length})</h4>
+            ${cmp.length === 0 ? '<div class="acct-row muted">אין הצעות עדיין</div>' : `
+            <div class="acct-scroll"><table class="acct-table">
+              <thead><tr><th>בנק</th><th>החזר ראשון</th><th>החזר מקסימלי</th><th>סה"כ תשלומים</th><th>עלות האשראי</th><th>פער מהזולה</th><th></th></tr></thead>
+              <tbody>${cmp.map(r => `<tr>
+                <td>${esc(r.bank)}${r.cheapest ? ' <span class="ok">★ הזולה</span>' : ''}${r.lowestFirstPayment ? ' <span class="ok">החזר נמוך</span>' : ''}</td>
+                <td>${money(r.firstPayment)}</td><td>${money(r.maxPayment)}</td><td>${money(r.totalPaid)}</td>
+                <td>${money(r.costOfCredit)}</td><td>${money(r.diffFromBest)}</td>
+                <td><button class="icon-btn" data-madv-export="${esc(r.id)}" title="ייצוא לוח סילוקין">📊</button>
+                    <button class="icon-btn danger" data-madv-offer-del="${esc(r.id)}" title="מחיקת הצעה">🗑</button></td>
+              </tr>`).join('')}</tbody>
+            </table></div>
+            ${offers.map(of => `<details><summary>${esc(of.bank)} — פירוט מסלולים</summary>
+              ${(of.summary && Array.isArray(of.summary.tracks) ? of.summary.tracks : []).map(t => `<div class="acct-row"><span>${esc(t.label)}</span><span>${money(t.amount)} · ${t.rate}% · ${t.years} שנים</span></div>`).join('')}
+              ${of.summary ? madvSummaryHtml(of.summary, of.yearly) : ''}
+            </details>`).join('')}`}
+            ${c.notes ? `<p class="muted">${esc(c.notes)}</p>` : ''}
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
+
+  function attachMadvHandlers() {
+    const calcBtn = document.getElementById('madvCalcBtn');
+    if (calcBtn) calcBtn.addEventListener('click', async () => {
+      const input = { cpi: (document.getElementById('calc_cpi') || {}).value };
+      for (const [k] of MADV_TRACKS) for (const p of ['amount', 'rate', 'years']) {
+        const el = document.getElementById(`calc_${k}_${p}`);
+        if (el && el.value !== '') input[`${k}_${p}`] = Number(el.value);
+      }
+      const out = document.getElementById('madvCalcOut');
+      try {
+        const r = await window.systemAPI.calcMortgageTracks(input);
+        if (out) out.innerHTML = madvSummaryHtml(r.summary, r.yearly);
+      } catch (error) { showError('שגיאה בחישוב: ' + errMsg(error)); }
+    });
+    const offerBtn = document.getElementById('madvOfferBtn');
+    if (offerBtn) offerBtn.addEventListener('click', () => {
+      // הערכים שבמחשבון עוברים להצעה — כך מחשבים פעם אחת ושומרים כהצעה ללקוח
+      const values = { cpi: (document.getElementById('calc_cpi') || {}).value };
+      for (const [k] of MADV_TRACKS) for (const p of ['amount', 'rate', 'years']) {
+        const el = document.getElementById(`calc_${k}_${p}`);
+        if (el && el.value !== '') values[`${k}_${p}`] = el.value;
+      }
+      openSubForm(madvOfferSchema, values);
+    });
+    document.querySelectorAll('[data-madv-status]').forEach(sel => sel.addEventListener('change', async () => {
+      try { await window.systemAPI.updateMortgageClient(sel.dataset.madvStatus, { status: sel.value }); showToast('הסטטוס עודכן'); await switchView('mortgage-advisor'); }
+      catch (error) { showError('שגיאה בעדכון: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-madv-doc]').forEach(cb => cb.addEventListener('change', async () => {
+      try { await window.systemAPI.toggleMortgageDoc(cb.dataset.madvDoc, cb.dataset.key); await switchView('mortgage-advisor'); }
+      catch (error) { showError('שגיאה בעדכון: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-madv-export]').forEach(btn => btn.addEventListener('click', async () => {
+      try { const r = await window.systemAPI.exportMortgageSchedule(btn.dataset.madvExport); if (r && r.ok) showToast('לוח הסילוקין נשמר'); }
+      catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
+    }));
+    document.querySelectorAll('[data-madv-offer-del]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!(await askConfirm('למחוק את ההצעה?'))) return;
+      try { await window.systemAPI.deleteMortgageOffer(btn.dataset.madvOfferDel); showToast('ההצעה נמחקה'); await switchView('mortgage-advisor'); }
+      catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+    }));
+  }
+
   // תצוגות ללא טופס הוספה — מחושבות/מצטברות בלבד.
   // נגזר מ-formSchemas כדי שלא ייווצר פער בין הרשימה לסכימות בפועל.
   const hasForm = (viewName) => !!formSchemas[viewName];
@@ -1530,6 +1964,9 @@
     document.querySelectorAll('[data-action="pdf"]').forEach(btn => {
       btn.addEventListener('click', () => handlePdf(btn.dataset.id));
     });
+
+    if (viewName === 'npo') attachNpoHandlers();
+    if (viewName === 'mortgage-advisor') attachMadvHandlers();
 
     // תיבת חיפוש
     const searchInput = document.getElementById('viewSearch');
@@ -1597,7 +2034,7 @@
   // בניית HTML של טופס לפי סכימה
   function buildFormHtml(fields) {
     // טופס דינמי: שדה הסוג נשאר בחוץ, שאר השדות נעטפים ב-wrapper שמתחלף
-    const schema = formSchemas[state.currentView];
+    const schema = currentSchema();
     if (!schema || !schema.dynamic) return fields.map(renderField).join('');
 
     const kindName = schema.fields[0].name;
@@ -1629,7 +2066,7 @@
 
   // איסוף ערכי הטופס — בטופס דינמי נאספים רק השדות הפעילים לסוג הנבחר
   function collectFormData(fields) {
-    const schema = formSchemas[state.currentView];
+    const schema = currentSchema();
     const relevant = (schema && schema.dynamic) ? activeFields(schema) : fields;
     const data = {};
     for (const f of relevant) {
@@ -1723,7 +2160,7 @@
 
   // Handle form submission — יוצר או מעדכן רשומה בפועל
   async function handleSubmit() {
-    const schema = formSchemas[state.currentView];
+    const schema = currentSchema();
     if (!schema) {
       closeModal();
       return;
@@ -1998,6 +2435,7 @@
     // עריכת רשומה דרסה את ערכי השדות שבסכימה; מחזירים אותם כדי שטופס "הוספה"
     // הבא ייפתח נקי. כל יציאה מהחלון (ביטול / × / שמירה) עוברת כאן.
     const schema = formSchemas[state.currentView];
+    state.subForm = null;
     if (schema && state.fieldValuesBackup) {
       schema.fields.forEach((f, i) => { f.value = state.fieldValuesBackup[i]; });
     }

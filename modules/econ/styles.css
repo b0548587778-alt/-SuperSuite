@@ -773,3 +773,10 @@ button.secondary:disabled {
 .module-card strong { color:var(--navy,#13264a); font-size:1.05rem; }
 .module-card small { color:#6b5a2a; }
 .module-ic { font-size:1.6rem; }
+
+/* עמותה וייעוץ משכנתאות */
+.doc-check { display: flex; align-items: center; gap: .5rem; padding: .2rem 0; font-size: .92rem; cursor: pointer; }
+.mortgage-advisor .acct-table input { width: 100%; min-width: 6rem; }
+.mortgage-advisor details, .npo details { margin-top: .6rem; }
+.mortgage-advisor summary { cursor: pointer; font-weight: 600; }
+.acct-table tr.muted td { opacity: .55; text-decoration: line-through; }

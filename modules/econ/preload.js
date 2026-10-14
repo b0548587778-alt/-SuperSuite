@@ -112,6 +112,28 @@ contextBridge.exposeInMainWorld('systemAPI', {
   addPersonalEntry: (entry) => ipcRenderer.invoke('personal:addEntry', entry),
   deletePersonalEntry: (entryId) => ipcRenderer.invoke('personal:deleteEntry', entryId),
 
+  // עמותות
+  getNpoOverview: (year) => ipcRenderer.invoke('npo:getOverview', year),
+  saveNpoSettings: (input) => ipcRenderer.invoke('npo:saveSettings', input),
+  addNpoDonation: (input) => ipcRenderer.invoke('npo:addDonation', input),
+  cancelNpoDonation: (id) => ipcRenderer.invoke('npo:cancelDonation', id),
+  addNpoGrant: (input) => ipcRenderer.invoke('npo:addGrant', input),
+  updateNpoGrant: (id, input) => ipcRenderer.invoke('npo:updateGrant', id, input),
+  deleteNpoGrant: (id) => ipcRenderer.invoke('npo:deleteGrant', id),
+  exportNpoCsv: (kind, year) => ipcRenderer.invoke('npo:exportCsv', kind, year),
+  exportNpoReceiptPdf: (id) => ipcRenderer.invoke('npo:exportReceiptPdf', id),
+
+  // ייעוץ משכנתאות
+  getMortgageAdvisor: () => ipcRenderer.invoke('madv:getOverview'),
+  calcMortgageTracks: (input) => ipcRenderer.invoke('madv:calcTracks', input),
+  createMortgageClient: (input) => ipcRenderer.invoke('madv:createClient', input),
+  updateMortgageClient: (id, input) => ipcRenderer.invoke('madv:updateClient', id, input),
+  deleteMortgageClient: (id) => ipcRenderer.invoke('madv:deleteClient', id),
+  toggleMortgageDoc: (id, key) => ipcRenderer.invoke('madv:toggleDoc', id, key),
+  addMortgageOffer: (input) => ipcRenderer.invoke('madv:addOffer', input),
+  deleteMortgageOffer: (id) => ipcRenderer.invoke('madv:deleteOffer', id),
+  exportMortgageSchedule: (offerId) => ipcRenderer.invoke('madv:exportSchedule', offerId),
+
   // Backup and Restore — רק טקסט מוצפן (SSBK1:) עובר לממשק; גיבוי גלוי לא קיים
   backupEncrypted: (passphrase) => ipcRenderer.invoke('data:backupEncrypted', passphrase),
   restoreEncrypted: (text, passphrase) => ipcRenderer.invoke('data:restoreEncrypted', text, passphrase),

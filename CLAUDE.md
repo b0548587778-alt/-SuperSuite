@@ -10,7 +10,7 @@
 
 | מזהה | מודול | תיאור |
 |------|-------|--------|
-| `econ` | מערכת כלכלית | הנהלת חשבונות כפולה, חשבוניות מס, מע"מ, מחירון, דוחות, תכנון פיננסי, משכנתאות, מודיעין שוק |
+| `econ` | מערכת כלכלית | הנהלת חשבונות כפולה, חשבוניות מס, מע"מ, מחירון, דוחות, תכנון פיננסי, משכנתאות, ייעוץ משכנתאות, עמותות, מודיעין שוק |
 | `shamai` | שמאי | הערכת שווי נכסים |
 | `trainer` | TrainerPro | ניהול אימונים ומתאמנים |
 | `tools` | ארגז כלים | מחשבונים וכלי עזר (13 כלים) |
@@ -24,7 +24,7 @@
 
 ```bash
 npm start          # הרצת האפליקציה בפיתוח (run-electron.js — עובד גם בלי path.txt של electron)
-npm test           # הרצת 126 בדיקות (node --test)
+npm test           # הרצת 152 בדיקות (node --test)
 npm run dist       # בניית מתקין NSIS + portable ל-Windows
 npm run dist:local # בנייה מהמטמון המקומי בלבד (בלי הורדות) — מומלץ בסביבה מסוננת
 npm run dist:check # בדיקה מה קיים מקומית לבנייה, בלי לבנות
@@ -88,6 +88,8 @@ python -m unittest test_encryption -v
 | `core/backupCrypto.js` | הצפנת גיבוי AES-256-GCM |
 | `core/exports.js` | ייצוא CSV/Excel |
 | `services/*.js` | שירותים עסקיים — כל אחד מאותחל דרך `initializeAsync(db)` |
+| `core/npo.js` + `services/npoService.js` | עמותה: קבלות סעיף 46, קרנות, תמיכות, דוח שנתי. ערוצי `npo:*`. **נפרד מהיומן העסקי** |
+| `core/mortgageAdvisor.js` + `services/mortgageAdvisorService.js` | ייעוץ משכנתאות: תיקים, מסלולים ולוח סילוקין באגורות, השוואה, עמלה, מסמכים. ערוצי `madv:*` |
 
 ---
 
@@ -135,7 +137,7 @@ python -m unittest test_encryption -v
 ## בדיקות
 
 - מסגרת: `node --test`. אין Jest/Vitest — רק מודול `test` המובנה.
-- **126 בדיקות** ב-`tests/`, כולן חייבות לעבור לפני סיום עבודה.
+- **152 בדיקות** ב-`tests/`, כולן חייבות לעבור לפני סיום עבודה.
 - קבצים עיקריים: `accounting`, `integration`, `ipc-guard`, `exports`, `backupCrypto`, `pricing`, `regressions`, `security`, `features`, `regressions-r2`, `tools-calc`, `nav-guard`, `main-behavior`, `shell-ui`, `ui-nav`, `fitness-view`.
 - כל תיקון באג חייב לקבל בדיקת רגרסיה מלווה.
 - בדיקות ה-UI מריצות את הרינדור ב-Chromium עם API מדומה (ללא שגיאות JS).

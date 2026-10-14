@@ -15,6 +15,8 @@ const { ContactsService: contactsService } = require('./services/contactsService
 const { FitnessService: fitnessService } = require('./services/fitnessService');
 const { VoiceNotesService: voiceNotesService } = require('./services/voiceNotesService');
 const { AccountingService: accountingService } = require('./services/accountingService');
+const { NpoService: npoService } = require('./services/npoService');
+const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
 const BK = require('./core/backupCrypto');
 
 let db;
@@ -33,6 +35,8 @@ async function initEcon(userDataPath) {
   fitnessService.initialize(db);
   voiceNotesService.initialize(db);
   accountingService.initialize(db);
+  npoService.initialize(db);
+  mortgageAdvisorService.initialize(db);
   registerIpcHandlers();
   return db;
 }
@@ -87,6 +91,28 @@ function handle(channel, fn) {
 async function auditEvent(event, action, details) {
   const user = authService.getSession(event.sender.id);
   try { await db.audit(user && user.id, action, JSON.stringify(details || {})); } catch (e) { console.error('audit failed', e); }
+}
+
+// הפקת PDF מ-HTML: רינדור בחלון נסתר בלי JavaScript, ואז שמירה במקום שהמשתמש בוחר
+async function saveHtmlAsPdf(html, defaultPath) {
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false } });
+  try {
+    await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64'));
+    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true });
+    const r = await dialog.showSaveDialog({ defaultPath, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+    if (r.canceled || !r.filePath) return { ok: false };
+    fs.writeFileSync(r.filePath, pdf);
+    return { ok: true, path: r.filePath };
+  } finally {
+    win.destroy();
+  }
+}
+
+async function saveCsv({ headers, rows, name }) {
+  const r = await dialog.showSaveDialog({ defaultPath: `${name}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] });
+  if (r.canceled || !r.filePath) return { ok: false };
+  fs.writeFileSync(r.filePath, X.toCsv(headers, rows), 'utf8');
+  return { ok: true, path: r.filePath, rows: rows.length };
 }
 
 function registerIpcHandlers() {
@@ -426,6 +452,85 @@ handle('auth:login', async (event, username, password) => {
     fs.writeFileSync(r.filePath, X.toCsv(headers, rows), 'utf8');
     await auditEvent(event, 'acct.export.csv', { kind, rows: rows.length });
     return { ok: true, path: r.filePath };
+  });
+
+  // עמותות: תרומות וקבלות סעיף 46, קרנות, תמיכות ודוח שנתי — נפרד מהיומן העסקי
+  handle('npo:getOverview', async (event, year) => npoService.getOverview(year));
+  handle('npo:saveSettings', async (event, input) => {
+    const saved = await npoService.saveSettings(input || {});
+    await auditEvent(event, 'npo.settings.save', { vatStatus: saved.vatStatus, funds: saved.funds.length });
+    return saved;
+  });
+  handle('npo:addDonation', async (event, input) => {
+    const d = await npoService.addDonation(input);
+    await auditEvent(event, 'npo.donation.add', { receipt: d.receipt.number });
+    return d;
+  });
+  handle('npo:cancelDonation', async (event, id) => {
+    const d = await npoService.cancelDonation(id);
+    await auditEvent(event, 'npo.donation.cancel', { receipt: d.receipt.number });
+    return d;
+  });
+  handle('npo:addGrant', async (event, input) => {
+    const g = await npoService.addGrant(input);
+    await auditEvent(event, 'npo.grant.add', { id: g.id });
+    return g;
+  });
+  handle('npo:updateGrant', async (event, id, input) => {
+    const g = await npoService.updateGrant(id, input || {});
+    await auditEvent(event, 'npo.grant.update', { id });
+    return g;
+  });
+  handle('npo:deleteGrant', async (event, id) => {
+    await npoService.deleteGrant(id);
+    await auditEvent(event, 'npo.grant.delete', { id });
+    return true;
+  });
+  handle('npo:exportCsv', async (event, kind, year) => {
+    const r = await saveCsv(await npoService.getExportData(kind, year));
+    if (r.ok) await auditEvent(event, 'npo.export.csv', { kind, year, rows: r.rows });
+    return r;
+  });
+  handle('npo:exportReceiptPdf', async (event, id) => {
+    const d = await npoService.getDonation(id);
+    const r = await saveHtmlAsPdf(X.renderDonationReceiptHtml(d), `קבלה-${d.receipt.number}.pdf`);
+    if (r.ok) await auditEvent(event, 'npo.receipt.pdf', { receipt: d.receipt.number });
+    return r;
+  });
+
+  // ייעוץ משכנתאות: תיקים, הצעות, השוואה, עמלה ומסמכים
+  handle('madv:getOverview', async () => mortgageAdvisorService.getOverview());
+  handle('madv:calcTracks', async (event, input) => mortgageAdvisorService.calcTracks(input || {}));
+  handle('madv:createClient', async (event, input) => {
+    const c = await mortgageAdvisorService.createClient(input);
+    await auditEvent(event, 'madv.client.create', { id: c.id });
+    return c;
+  });
+  handle('madv:updateClient', async (event, id, input) => {
+    const c = await mortgageAdvisorService.updateClient(id, input || {});
+    await auditEvent(event, 'madv.client.update', { id, status: c.status });
+    return c;
+  });
+  handle('madv:deleteClient', async (event, id) => {
+    await mortgageAdvisorService.deleteClient(id);
+    await auditEvent(event, 'madv.client.delete', { id });
+    return true;
+  });
+  handle('madv:toggleDoc', async (event, id, key) => mortgageAdvisorService.toggleDoc(id, key));
+  handle('madv:addOffer', async (event, input) => {
+    const o = await mortgageAdvisorService.addOffer(input);
+    await auditEvent(event, 'madv.offer.add', { id: o.id, clientId: o.clientId });
+    return o;
+  });
+  handle('madv:deleteOffer', async (event, id) => {
+    await mortgageAdvisorService.deleteOffer(id);
+    await auditEvent(event, 'madv.offer.delete', { id });
+    return true;
+  });
+  handle('madv:exportSchedule', async (event, offerId) => {
+    const r = await saveCsv(await mortgageAdvisorService.getScheduleExport(offerId));
+    if (r.ok) await auditEvent(event, 'madv.export.schedule', { offerId });
+    return r;
   });
 
   // גיבוי ושחזור: ההצפנה נעשית כאן, והממשק מקבל ומחזיר רק טקסט מוצפן (SSBK1:)

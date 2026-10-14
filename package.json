@@ -1,6 +1,6 @@
 {
   "name": "super-suite",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "description": "חבילת העבודה המאוחדת — כלכלה, שמאות, כושר וכלים",
   "main": "main.js",
   "author": "Bunim Seller",
@@ -10,7 +10,7 @@
     "dist": "electron-builder --win nsis portable",
     "dist:local": "node build-local.js",
     "dist:check": "node build-local.js --check",
-    "test": "node --test tests/accounting.test.js tests/auto-backup.test.js tests/backupCrypto.test.js tests/exports.test.js tests/features.test.js tests/fitness-view.test.js tests/integration.test.js tests/ipc-guard.test.js tests/main-behavior.test.js tests/nav-guard.test.js tests/pricing.test.js tests/regressions-r2.test.js tests/regressions.test.js tests/security.test.js tests/shell-ui.test.js tests/tools-calc.test.js tests/ui-nav.test.js"
+    "test": "node --test tests/accounting.test.js tests/auto-backup.test.js tests/backupCrypto.test.js tests/econ-expansion-view.test.js tests/exports.test.js tests/features.test.js tests/fitness-view.test.js tests/integration.test.js tests/ipc-guard.test.js tests/main-behavior.test.js tests/mortgage-advisor.test.js tests/nav-guard.test.js tests/npo.test.js tests/pricing.test.js tests/regressions-r2.test.js tests/regressions.test.js tests/security.test.js tests/shell-ui.test.js tests/tools-calc.test.js tests/ui-nav.test.js"
   },
   "devDependencies": {
     "electron": "^38.8.6",

@@ -31,7 +31,9 @@ const collections = [
   'journal',           // Double-entry journal (יומן)
   'invoices',          // Sales invoices (חשבוניות מס)
   'products',          // Price list: products and services (מחירון)
-  'personal'           // Personal/family income & expenses — נפרד לחלוטין מהיומן העסקי
+  'personal',          // Personal/family income & expenses — נפרד לחלוטין מהיומן העסקי
+  'npo',               // עמותה: תרומות וקבלות, קרנות, תמיכות — נפרד מהיומן העסקי
+  'mortgageAdvisor'    // ייעוץ משכנתאות: תיקי לקוחות והצעות בנקים
 ];
 
 const objectCollections = new Set([
@@ -40,7 +42,9 @@ const objectCollections = new Set([
   'mortgageScenarios',
   'canvasBoards',
   'fitnessData',
-  'voiceNotes'
+  'voiceNotes',
+  'npo',
+  'mortgageAdvisor'
 ]);
 
 const defaults = { 
@@ -72,6 +76,8 @@ const defaults = {
   invoices: [],
   products: [],
   personal: [],
+  npo: { settings: {}, donations: [], grants: [] },
+  mortgageAdvisor: { clients: [], offers: [] },
   settings: { currency: 'ILS', vatRate: 0.18 }
 };
 
@@ -427,6 +433,8 @@ class Database {
       invoices: data.invoices,
       products: data.products,
       personal: data.personal,
+      npo: data.npo,
+      mortgageAdvisor: data.mortgageAdvisor,
       exportedAt: new Date().toISOString()
     };
   }
