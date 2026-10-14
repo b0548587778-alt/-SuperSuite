@@ -181,6 +181,11 @@
           break;
         case 'npo':
           state.data.npo = await window.systemAPI.getNpoOverview(npoYear());
+          // הוראות קבע — כרטיס נפרד; כשל בטעינתן לא מפיל את מסך העמותה
+          if (state.data.npo && typeof state.data.npo === 'object') {
+            try { state.data.npo.standing = window.systemAPI.getNpoStandingOrders ? await window.systemAPI.getNpoStandingOrders() : null; }
+            catch { state.data.npo.standing = null; }
+          }
           break;
         case 'gemach':
           state.data.gemach = await window.systemAPI.getGemachOverview();
@@ -1775,6 +1780,91 @@
     create: (d) => window.systemAPI.addNpoGrant({ ...d, documentsText: d.documentsText || '' }),
     update: (id, d) => window.systemAPI.updateNpoGrant(id, { ...d, documentsText: d.documentsText || '' })
   };
+  // הוראות קבע — מעקב בלבד. אין כאן שדות לפרטי אשראי/חשבון בכוונה
+  const SO_METHODS = { standing: 'הוראת קבע בנקאית', card: 'הוראת קבע באשראי' };
+  const SO_STATUS = { received: 'התקבל', failed: 'נכשל', missed: 'לא סומן', due: 'צפוי החודש', upcoming: 'צפוי', ended: 'הסתיימה', future: 'טרם התחילה' };
+  const npoStandingSchema = {
+    title: 'הוראת קבע חדשה',
+    editTitle: 'עריכת הוראת קבע',
+    prepare: async (schema) => {
+      const o = await window.systemAPI.getNpoOverview(npoYear());
+      schema.fields.find(f => f.name === 'fundId').options = npoFundOptions(o);
+      schema.fields.find(f => f.name === 'startMonth').value = today().slice(0, 7);
+      schema.fields.find(f => f.name === 'dayOfMonth').value = 1;
+    },
+    fields: [
+      { name: 'donorName', label: 'שם התורם', type: 'text', required: true },
+      { name: 'donorId', label: 'ת.ז / ח.פ של התורם', type: 'text' },
+      { name: 'amount', label: 'סכום חודשי (₪)', type: 'number', required: true },
+      { name: 'dayOfMonth', label: 'יום החיוב בחודש (1–31)', type: 'number', required: true },
+      { name: 'startMonth', label: 'חודש התחלה (YYYY-MM)', type: 'text', required: true },
+      { name: 'endMonth', label: 'חודש סיום (ריק = ללא הגבלה)', type: 'text' },
+      { name: 'method', label: 'סוג', type: 'select', options: opts(SO_METHODS) },
+      { name: 'fundId', label: 'קרן', type: 'select', options: [] },
+      { name: 'purpose', label: 'ייעוד לקבלה', type: 'text' },
+      { name: 'donorPhone', label: 'טלפון', type: 'tel' },
+      { name: 'donorAddress', label: 'כתובת', type: 'text' },
+      { name: 'notes', label: 'הערות (בלי פרטי אשראי או חשבון)', type: 'textarea' }
+    ],
+    create: (d) => window.systemAPI.saveNpoStandingOrder(null, { ...d, endMonth: d.endMonth || '' }),
+    update: (id, d) => window.systemAPI.saveNpoStandingOrder(id, { ...d, endMonth: d.endMonth || '' })
+  };
+
+  function renderNpoStanding(st) {
+    if (!st || !Array.isArray(st.rows)) return '';
+    const rows = st.rows;
+    const monthBtns = (r) => r.status === 'due' || r.status === 'missed' || r.status === 'upcoming'
+      ? `<button class="secondary small" data-so-pay="${esc(r.id)}" data-so-month="${esc(st.month)}" title="התקבל — הפקת קבלה">✓ התקבל</button>
+         <button class="secondary small" data-so-fail="${esc(r.id)}" data-so-month="${esc(st.month)}" title="החיוב נכשל">✗ נכשל</button>` : '';
+    return `<div class="card acct-wide">
+      <div class="hub-head"><h3>הוראות קבע — ${esc(st.month)}</h3>
+        <div class="acct-actions"><button class="secondary" id="npoStandingAdd">＋ הוראת קבע</button></div></div>
+      <p class="muted">מעקב בלבד: החיוב עצמו נעשה בבנק או בחברת האשראי. כאן מסמנים מה התקבל — וקבלה מופקת אוטומטית. פרטי אשראי וחשבון לא נשמרים.</p>
+      <div class="kpis">
+        <div class="kpi"><small>הוראות פעילות</small><strong>${Number(st.activeCount) || 0}</strong></div>
+        <div class="kpi"><small>צפוי החודש</small><strong>${money(st.expected)}</strong></div>
+        <div class="kpi pos"><small>התקבל החודש</small><strong>${money(st.received)}</strong></div>
+        <div class="kpi${st.missedCount ? ' neg' : ''}"><small>חודשים שלא סומנו</small><strong>${Number(st.missedCount) || 0}</strong></div>
+        <div class="kpi${st.atRisk ? ' neg' : ''}"><small>נכשלו פעמיים ברצף ומעלה</small><strong>${Number(st.atRisk) || 0}</strong></div>
+      </div>
+      ${rows.length === 0 ? renderEmpty('אין הוראות קבע עדיין') : `<div class="acct-scroll"><table class="acct-table">
+        <thead><tr><th>תורם</th><th>סכום</th><th>יום</th><th>תקופה</th><th>החודש</th><th>פתוחים</th><th></th></tr></thead>
+        <tbody>${rows.map(r => `<tr class="${r.ended ? 'muted' : ''}">
+          <td>${esc(r.donorName)}${r.failures >= 2 ? ` <small class="bad">· ${r.failures} כישלונות ברצף</small>` : ''}</td>
+          <td>${money(r.amount)}</td><td>${Number(r.dayOfMonth)}</td>
+          <td><small>${esc(r.startMonth)}${r.endMonth ? ' – ' + esc(r.endMonth) : ' ואילך'}</small></td>
+          <td><small class="${r.status === 'failed' || r.status === 'missed' ? 'bad' : r.status === 'received' ? 'ok' : 'muted'}">${esc(SO_STATUS[r.status] || r.status)}</small> ${monthBtns(r)}</td>
+          <td>${(r.openMonths || []).filter(m => m !== st.month).map(m => `<button class="secondary small" data-so-pay="${esc(r.id)}" data-so-month="${esc(m)}" title="סימון התקבל לחודש ${esc(m)}">${esc(m)}</button>`).join(' ') || '—'}</td>
+          <td><button class="icon-btn" data-so-edit="${esc(r.id)}" title="עריכה">✎</button>
+            ${r.receivedCount ? '' : `<button class="icon-btn danger" data-so-del="${esc(r.id)}" title="מחיקה">🗑</button>`}</td>
+        </tr>`).join('')}</tbody></table></div>`}
+    </div>`;
+  }
+
+  function attachNpoStandingHandlers() {
+    const st = state.data.npo && state.data.npo.standing;
+    const add = document.getElementById('npoStandingAdd');
+    if (add) add.addEventListener('click', () => openSubForm(npoStandingSchema));
+    const record = async (id, month, status) => {
+      try {
+        const r = await window.systemAPI.recordNpoStandingPayment(id, month, status);
+        showToast(status === 'received' ? `נרשם — קבלה ${r.donation && r.donation.receipt ? r.donation.receipt.number : ''}` : 'נרשם ככישלון');
+        await switchView('npo');
+      } catch (error) { showError('שגיאה ברישום: ' + errMsg(error)); }
+    };
+    document.querySelectorAll('[data-so-pay]').forEach(b => b.addEventListener('click', () => record(b.dataset.soPay, b.dataset.soMonth, 'received')));
+    document.querySelectorAll('[data-so-fail]').forEach(b => b.addEventListener('click', () => record(b.dataset.soFail, b.dataset.soMonth, 'failed')));
+    document.querySelectorAll('[data-so-edit]').forEach(b => b.addEventListener('click', () => {
+      const o = st && st.rows.find(x => x.id === b.dataset.soEdit);
+      if (o) openSubForm(npoStandingSchema, o, o.id);
+    }));
+    document.querySelectorAll('[data-so-del]').forEach(b => b.addEventListener('click', async () => {
+      if (!(await askConfirm('למחוק את הוראת הקבע?'))) return;
+      try { await window.systemAPI.deleteNpoStandingOrder(b.dataset.soDel); showToast('הוראת הקבע נמחקה'); await switchView('npo'); }
+      catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+    }));
+  }
+
   const NPO_TAX = { pending: 'ממתין לדיווח', reported: 'דווח', 'cancel-pending': 'ביטול ממתין', 'cancel-reported': 'ביטול דווח', 'not-required': '—' };
   function npoTaxSchema(d) {
     const cancel = d.taxStatus === 'cancel-pending';
@@ -1847,6 +1937,7 @@
           <div class="acct-actions"><button class="secondary" data-npo-export="tax">ייצוא רשימת עבודה לדיווח</button></div>
         </div>` : ''}
         <div class="acct-grid">
+          ${renderNpoStanding(o.standing)}
           <div class="card">
             <h3>הכנסות לפי קרן</h3>
             ${fs.funds.map(f => `<div class="acct-row"><span>${esc(f.name)} <small class="muted">${f.restricted ? 'ייעודי' : 'כללי'}${f.archived ? ' · ארכיון' : ''}</small></span><span>${money(f.total)}</span></div>`).join('') || '<div class="acct-row muted">אין קרנות</div>'}
@@ -1905,6 +1996,7 @@
 
   function attachNpoHandlers() {
     const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    attachNpoStandingHandlers();
     document.querySelectorAll('[data-npo-doc]').forEach(btn => btn.addEventListener('click', async () => {
       try { await window.systemAPI.toggleNpoGrantDocument(btn.dataset.npoDoc, Number(btn.dataset.docIndex)); await switchView('npo'); }
       catch (error) { showError('שגיאה בעדכון המסמך: ' + errMsg(error)); }

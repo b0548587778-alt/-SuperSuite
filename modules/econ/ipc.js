@@ -537,6 +537,23 @@ handle('auth:login', async (event, username, password) => {
     if (r.ok) await auditEvent(event, 'npo.export.csv', { kind, year, rows: r.rows });
     return r;
   });
+  // הוראות קבע — מעקב בלבד. סימון "התקבל" מפיק קבלה רגילה
+  handle('npo:getStandingOrders', async (event, today) => npoService.getStandingOrders(today));
+  handle('npo:saveStandingOrder', async (event, id, input) => {
+    const o = await npoService.saveStandingOrder(id || null, input);
+    await auditEvent(event, id ? 'npo.standing.update' : 'npo.standing.create', { id: o.id, amount: o.amount });
+    return o;
+  });
+  handle('npo:recordStandingPayment', async (event, id, month, status, date) => {
+    const r = await npoService.recordStandingPayment(id, month, status, date);
+    await auditEvent(event, 'npo.standing.' + status, { id, month, receipt: r.donation ? r.donation.receipt.number : null });
+    return r;
+  });
+  handle('npo:deleteStandingOrder', async (event, id) => {
+    await npoService.deleteStandingOrder(id);
+    await auditEvent(event, 'npo.standing.delete', { id });
+    return true;
+  });
   handle('npo:exportDonorStatementPdf', async (event, donorKey, year) => {
     const st = await npoService.getDonorStatement(donorKey, year);
     const safe = String(st.donor.name).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'תורם';

@@ -82,7 +82,7 @@ const defaults = {
   invoices: [],
   products: [],
   personal: [],
-  npo: { settings: {}, donations: [], grants: [] },
+  npo: { settings: {}, donations: [], grants: [], standingOrders: [] },
   gemach: { settings: {}, loans: [], deposits: [] },
   chesed: { beneficiaries: [], volunteers: [], rounds: [] },
   mortgageAdvisor: { clients: [], offers: [] },

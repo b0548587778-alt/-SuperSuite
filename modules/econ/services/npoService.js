@@ -2,6 +2,7 @@
 // נשמר באוסף npo במסד המרכזי — ולכן נכנס אוטומטית לגיבוי המוצפן הקיים.
 const crypto = require('crypto');
 const N = require('../core/npo');
+const SO = require('../core/standingOrders');
 
 class NpoService {
   constructor(db) {
@@ -18,9 +19,68 @@ class NpoService {
     data.npo = {
       settings: N.normalizeSettings(npo.settings),
       donations: Array.isArray(npo.donations) ? npo.donations : [],
-      grants: Array.isArray(npo.grants) ? npo.grants : []
+      grants: Array.isArray(npo.grants) ? npo.grants : [],
+      standingOrders: Array.isArray(npo.standingOrders) ? npo.standingOrders : []
     };
     return data;
+  }
+
+  /* ---------- הוראות קבע (מעקב בלבד) ---------- */
+  async getStandingOrders(today) {
+    const { npo } = await this._load();
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? today : new Date().toISOString().slice(0, 10);
+    return SO.summarize(npo.standingOrders, t);
+  }
+
+  async saveStandingOrder(orderId, input) {
+    const data = await this._load();
+    const list = data.npo.standingOrders;
+    const prev = orderId ? list.find(o => o.id === orderId) : null;
+    if (orderId && !prev) throw new Error('הוראת הקבע לא נמצאה');
+    const fundIds = N.allFunds(data.npo.settings).filter(f => !f.archived || (prev && prev.fundId === f.id)).map(f => f.id);
+    const clean = SO.validateStandingOrder({ ...(prev || {}), ...input }, { fundIds, prev: prev || {}, count: list.length });
+    const now = new Date().toISOString();
+    const order = prev ? Object.assign(prev, clean, { updatedAt: now }) : { id: crypto.randomUUID(), ...clean, history: [], createdAt: now };
+    if (!prev) list.push(order);
+    await this.db.save(data);
+    return order;
+  }
+
+  // סימון חודש: "התקבל" מפיק תרומה וקבלה רגילות (באותה שמירה), "נכשל" נרשם להיסטוריה בלבד
+  async recordStandingPayment(orderId, month, status, date) {
+    const data = await this._load();
+    const order = data.npo.standingOrders.find(o => o.id === orderId);
+    if (!order) throw new Error('הוראת הקבע לא נמצאה');
+    SO.assertCanRecord(order, month, status);
+    const entry = { month, status, at: new Date().toISOString() };
+    let donation = null;
+    if (status === 'received') {
+      if (!data.npo.settings.orgName) throw new Error('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : SO.dueDate(month, order.dayOfMonth);
+      const clean = N.validateDonation({
+        date: day, donorName: order.donorName, donorId: order.donorId, amount: order.amount, method: order.method,
+        fundId: order.fundId, purpose: order.purpose || 'הוראת קבע', donorPhone: order.donorPhone, donorAddress: order.donorAddress
+      }, data.npo.settings, data.npo.donations.length);
+      const { receipt, settings } = N.issueReceipt(clean, data.npo.settings);
+      donation = { id: crypto.randomUUID(), ...clean, receipt, status: 'active', standingOrderId: order.id, createdAt: entry.at };
+      data.npo.donations.push(donation);
+      data.npo.settings = settings;
+      entry.donationId = donation.id;
+    }
+    order.history = [...(Array.isArray(order.history) ? order.history : []), entry];
+    await this.db.save(data);
+    return { order, donation };
+  }
+
+  async deleteStandingOrder(orderId) {
+    const data = await this._load();
+    const order = data.npo.standingOrders.find(o => o.id === orderId);
+    if (!order) throw new Error('הוראת הקבע לא נמצאה');
+    // הוראה שכבר הפיקה קבלות לא נמחקת — רק מסתיימת, כדי שהקשר לקבלות יישמר
+    if ((order.history || []).some(h => h.status === 'received')) throw new Error('להוראה זו כבר הופקו קבלות. במקום למחוק — קבע לה חודש סיום');
+    data.npo.standingOrders = data.npo.standingOrders.filter(o => o.id !== orderId);
+    await this.db.save(data);
+    return true;
   }
 
   async getOverview(year) {
