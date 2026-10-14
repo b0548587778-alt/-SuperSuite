@@ -83,7 +83,7 @@ const defaults = {
   products: [],
   personal: [],
   npo: { settings: {}, donations: [], grants: [], standingOrders: [], memorials: [], campaigns: [] },
-  gemach: { settings: {}, loans: [], deposits: [] },
+  gemach: { settings: {}, loans: [], deposits: [], applications: [], items: [], lendings: [] },
   chesed: { beneficiaries: [], volunteers: [], rounds: [] },
   mortgageAdvisor: { clients: [], offers: [] },
   mortgageLab: { forecast: null, verifications: [], scenarios: [], rateConvention: 'NOMINAL' },

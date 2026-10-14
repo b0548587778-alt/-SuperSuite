@@ -165,6 +165,13 @@ contextBridge.exposeInMainWorld('systemAPI', {
   addGemachDeposit: (input) => ipcRenderer.invoke('gemach:addDeposit', input),
   deleteGemachDeposit: (id) => ipcRenderer.invoke('gemach:deleteDeposit', id),
   exportGemachCsv: (kind) => ipcRenderer.invoke('gemach:exportCsv', kind),
+  saveGemachApplication: (id, input) => ipcRenderer.invoke('gemach:saveApplication', id, input),
+  moveGemachApplication: (id, to, input) => ipcRenderer.invoke('gemach:moveApplication', id, to, input),
+  deleteGemachApplication: (id) => ipcRenderer.invoke('gemach:deleteApplication', id),
+  saveGemachItem: (id, input) => ipcRenderer.invoke('gemach:saveItem', id, input),
+  deleteGemachItem: (id) => ipcRenderer.invoke('gemach:deleteItem', id),
+  lendGemachItem: (id, input) => ipcRenderer.invoke('gemach:lendItem', id, input),
+  returnGemachItem: (id, input) => ipcRenderer.invoke('gemach:returnItem', id, input),
 
   // חסד וחלוקות
   getChesedOverview: () => ipcRenderer.invoke('chesed:getOverview'),

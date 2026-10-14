@@ -643,6 +643,43 @@ handle('auth:login', async (event, username, password) => {
     await auditEvent(event, 'gemach.deposit.delete', { id });
     return true;
   });
+  // בקשות הלוואה — אישור יוצר הלוואה
+  handle('gemach:saveApplication', async (event, id, input) => {
+    const a = await gemachService.saveApplication(id || null, input || {});
+    await auditEvent(event, id ? 'gemach.application.update' : 'gemach.application.create', { id: a.id, amount: a.amount });
+    return a;
+  });
+  handle('gemach:moveApplication', async (event, id, to, input) => {
+    const r = await gemachService.moveApplication(id, to, input || {});
+    await auditEvent(event, 'gemach.application.' + to, { id, loanId: r.loan ? r.loan.id : null });
+    return r;
+  });
+  handle('gemach:deleteApplication', async (event, id) => {
+    await gemachService.deleteApplication(id);
+    await auditEvent(event, 'gemach.application.delete', { id });
+    return true;
+  });
+  // גמ"ח חפצים
+  handle('gemach:saveItem', async (event, id, input) => {
+    const it = await gemachService.saveItem(id || null, input || {});
+    await auditEvent(event, id ? 'gemach.item.update' : 'gemach.item.create', { id: it.id });
+    return it;
+  });
+  handle('gemach:deleteItem', async (event, id) => {
+    await gemachService.deleteItem(id);
+    await auditEvent(event, 'gemach.item.delete', { id });
+    return true;
+  });
+  handle('gemach:lendItem', async (event, id, input) => {
+    const l = await gemachService.lendItem(id, input || {});
+    await auditEvent(event, 'gemach.item.lend', { itemId: id, deposit: l.depositHeld });
+    return l;
+  });
+  handle('gemach:returnItem', async (event, id, input) => {
+    const l = await gemachService.returnItem(id, input || {});
+    await auditEvent(event, 'gemach.item.return', { itemId: id, depositReturned: l.depositReturned });
+    return l;
+  });
   handle('gemach:exportCsv', async (event, kind) => {
     const r = await saveCsv(await gemachService.getExportData(kind));
     if (r.ok) await auditEvent(event, 'gemach.export.csv', { kind, rows: r.rows });
