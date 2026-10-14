@@ -537,6 +537,13 @@ handle('auth:login', async (event, username, password) => {
     if (r.ok) await auditEvent(event, 'npo.export.csv', { kind, year, rows: r.rows });
     return r;
   });
+  handle('npo:exportDonorStatementPdf', async (event, donorKey, year) => {
+    const st = await npoService.getDonorStatement(donorKey, year);
+    const safe = String(st.donor.name).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'תורם';
+    const r = await saveHtmlAsPdf(X.renderDonorStatementHtml(st), `סיכום-תרומות-${st.year}-${safe}.pdf`);
+    if (r.ok) await auditEvent(event, 'npo.statement.pdf', { year: st.year, receipts: st.receipts.length });
+    return r;
+  });
   handle('npo:exportReceiptPdf', async (event, id) => {
     const d = await npoService.getDonation(id);
     const r = await saveHtmlAsPdf(X.renderDonationReceiptHtml(d), `קבלה-${d.receipt.number}.pdf`);

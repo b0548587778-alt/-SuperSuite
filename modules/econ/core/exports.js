@@ -126,6 +126,60 @@ ${r.sec46 ? `<div class="s46">התרומה מוכרת לזיכוי ממס לפי
 </html>`;
 }
 
+// סיכום שנתי לתורם: טבלת כל הקבלות בשנה, סה"כ והחלק המזכה לפי סעיף 46 (קלט: npo.donorAnnualStatement)
+function renderDonorStatementHtml(st) {
+  const o = st.org || {};
+  const dn = st.donor || {};
+  const rows = (st.receipts || []).map(r => `<tr><td>${esc(r.number)}</td><td>${esc(r.date)}</td><td>${esc(METHOD_LABELS[r.method] || r.method)}</td><td>${esc(r.fundName)}</td><td>${r.sec46 ? '✓' : '—'}</td><td class="n">${money(r.amount)}</td></tr>`).join('');
+  return `<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>סיכום תרומות לשנת ${esc(st.year)}</title>
+<style>
+  @page { size: A4; margin: 16mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #14213d; margin: 0; font-size: 13px; }
+  header { display: flex; justify-content: space-between; border-bottom: 3px solid #13264a; padding-bottom: 12px; }
+  h1 { margin: 0; font-size: 21px; color: #13264a; font-family: "David", serif; }
+  .org h2 { margin: 0 0 4px; font-size: 16px; }
+  .meta { text-align: left; }
+  .to { margin: 18px 0 10px; line-height: 1.7; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th { background: #13264a; color: #f6eccb; font-weight: 600; padding: 7px 6px; text-align: right; }
+  td { padding: 6px; border-bottom: 1px solid #e3e7f0; }
+  tr:nth-child(even) td { background: #f7f9fd; }
+  .n { text-align: left; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tfoot td { font-weight: 800; border-top: 2px solid #b8860b; background: #fff !important; }
+  .s46 { margin-top: 16px; padding: 10px 14px; border: 2px solid #b8860b; border-radius: 6px; background: #fffaf0; }
+  .notice { margin-top: 26px; font-size: 11px; color: #5d6b85; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="org">
+    <h2>${esc(o.name)}</h2>
+    ${o.regNumber ? `<div>ע"ר ${esc(o.regNumber)}</div>` : ''}
+    ${o.address ? `<div>${esc(o.address)}</div>` : ''}
+    ${o.phone ? `<div>טלפון: ${esc(o.phone)}</div>` : ''}
+  </div>
+  <div class="meta">
+    <h1>סיכום תרומות לשנת ${esc(st.year)}</h1>
+    <div>הופק: ${esc(new Date().toISOString().slice(0, 10))}</div>
+  </div>
+</header>
+<div class="to">לכבוד: <strong>${esc(dn.name)}</strong>${dn.id ? ` · ת.ז/ח.פ ${esc(dn.id)}` : ''}${dn.address ? `<br>${esc(dn.address)}` : ''}</div>
+<div>להלן פירוט התרומות שהתקבלו ממך בשנת ${esc(st.year)}. תודה על תמיכתך.</div>
+<table>
+  <thead><tr><th>קבלה</th><th>תאריך</th><th>אמצעי</th><th>ייעוד</th><th>סעיף 46</th><th class="n">סכום</th></tr></thead>
+  <tbody>${rows}</tbody>
+  <tfoot><tr><td colspan="5">סה"כ תרומות בשנה</td><td class="n">${money(st.total)}</td></tr></tfoot>
+</table>
+${st.sec46Total > 0 ? `<div class="s46">מתוכן <strong>${money(st.sec46Total)}</strong> מוכרים לזיכוי ממס לפי סעיף 46 לפקודת מס הכנסה${o.sec46Number ? ` · אישור מס' ${esc(o.sec46Number)}` : ''}${o.sec46ValidUntil ? ` · בתוקף עד ${esc(o.sec46ValidUntil)}` : ''}.</div>` : ''}
+<div class="notice">סיכום זה מרכז קבלות שכבר הופקו ואינו מחליף אותן. האחריות לתוקף אישור סעיף 46 ולדיווח לרשויות חלה על העמותה. הופק במערכת SuperSuite.</div>
+</body>
+</html>`;
+}
+
 // CSV עם BOM כדי ש-Excel יציג עברית נכון
 function toCsv(headers, rows) {
   const cell = (v) => {
@@ -137,4 +191,4 @@ function toCsv(headers, rows) {
   return '﻿' + [headers, ...rows].map(r => r.map(cell).join(',')).join('\r\n') + '\r\n';
 }
 
-module.exports = { renderInvoiceHtml, renderDonationReceiptHtml, toCsv, esc, money };
+module.exports = { renderInvoiceHtml, renderDonationReceiptHtml, renderDonorStatementHtml, toCsv, esc, money };

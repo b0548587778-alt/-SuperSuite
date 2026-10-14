@@ -73,6 +73,11 @@ class NpoService {
     return d;
   }
 
+  async getDonorStatement(donorKey, year) {
+    const { npo } = await this._load();
+    return N.donorAnnualStatement(npo.donations, npo.settings, donorKey, year);
+  }
+
   async getDonation(donationId) {
     const { npo } = await this._load();
     const d = npo.donations.find(x => x.id === donationId);

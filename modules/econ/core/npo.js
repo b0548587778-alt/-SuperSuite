@@ -204,6 +204,29 @@ function donorSummary(donations, year) {
     .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'he'));
 }
 
+// סיכום שנתי לתורם (לצירוף לבקשת החזר מס): כל הקבלות הפעילות של התורם בשנה, הסכום הכולל והחלק לפי סעיף 46.
+// donorKey כמו ב-donorSummary: 'id:<ת.ז>' או 'name:<שם>'. קבלות מבוטלות אינן נכללות.
+function donorAnnualStatement(donations, settings, donorKey, year) {
+  const key = String(donorKey || '');
+  const y = Number(year);
+  if (!Number.isInteger(y) || y < 2000 || y > 2100) throw new Error('שנה לא תקינה');
+  const match = d => key.startsWith('id:') ? d.donorId === key.slice(3)
+    : key.startsWith('name:') && !d.donorId && d.donorName.trim().toLowerCase() === key.slice(5);
+  const rows = live(donations).filter(d => inYear(d.date, y) && match(d)).sort((a, b) => a.date.localeCompare(b.date) || a.receipt.number - b.receipt.number);
+  if (!rows.length) throw new Error('לא נמצאו תרומות לתורם בשנה זו');
+  const last = rows[rows.length - 1];
+  const totalAg = rows.reduce((t, d) => t + toAg(d.amount), 0);
+  const sec46Ag = rows.filter(d => d.receipt && d.receipt.sec46).reduce((t, d) => t + toAg(d.amount), 0);
+  const s = normalizeSettings(settings);
+  return {
+    year: y,
+    donor: { name: last.donorName, id: last.donorId || '', address: last.donorAddress || '' },
+    org: { name: s.orgName, regNumber: s.regNumber, address: s.address, phone: s.phone, sec46Number: s.sec46Number, sec46ValidUntil: s.sec46ValidUntil },
+    receipts: rows.map(d => ({ number: d.receipt.number, date: d.date, amount: d.amount, method: d.method, sec46: !!(d.receipt && d.receipt.sec46), fundName: d.receipt.fundName || 'כללי' })),
+    total: fromAg(totalAg), sec46Total: fromAg(sec46Ag)
+  };
+}
+
 // יתרות לפי קרן: תרומות + תמיכות שהתקבלו, בהפרדה בין ייעודי לכללי
 function fundSummary(donations, grants, settings, year) {
   const funds = allFunds(settings);
@@ -365,5 +388,5 @@ module.exports = {
   GENERAL_FUND, VAT_STATUSES, METHODS, GRANT_STATUSES, TAX_STATUSES, DEFAULT_SETTINGS, MAX_DONATIONS, MAX_GRANTS,
   parseDocuments, matchingRequired, grantAlerts, taxStatus, recordTaxReport, taxSummary,
   normalizeSettings, allFunds, applySettings, sec46Eligible, validateDonation, issueReceipt,
-  validateGrant, donorSummary, fundSummary, annualReport, exportTable
+  validateGrant, donorSummary, donorAnnualStatement, fundSummary, annualReport, exportTable
 };

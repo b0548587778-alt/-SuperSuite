@@ -139,6 +139,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   deleteNpoGrant: (id) => ipcRenderer.invoke('npo:deleteGrant', id),
   toggleNpoGrantDocument: (id, index) => ipcRenderer.invoke('npo:toggleGrantDocument', id, index),
   recordNpoTaxReport: (id, input) => ipcRenderer.invoke('npo:recordTaxReport', id, input),
+  exportNpoDonorStatementPdf: (donorKey, year) => ipcRenderer.invoke('npo:exportDonorStatementPdf', donorKey, year),
   exportNpoCsv: (kind, year) => ipcRenderer.invoke('npo:exportCsv', kind, year),
   exportNpoReceiptPdf: (id) => ipcRenderer.invoke('npo:exportReceiptPdf', id),
 
