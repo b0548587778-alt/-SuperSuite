@@ -168,6 +168,9 @@ contextBridge.exposeInMainWorld('systemAPI', {
 
   // חסד וחלוקות
   getChesedOverview: () => ipcRenderer.invoke('chesed:getOverview'),
+  getPrivacyMap: () => ipcRenderer.invoke('privacy:getMap'),
+  previewPrivacyRetention: (years) => ipcRenderer.invoke('privacy:retentionPreview', years),
+  minimizePrivacy: (ids, years) => ipcRenderer.invoke('privacy:minimize', ids, years),
   searchPeople: (query) => ipcRenderer.invoke('people:search', query),
   getPersonCard: (key) => ipcRenderer.invoke('people:getCard', key),
   addChesedBeneficiary: (input) => ipcRenderer.invoke('chesed:addBeneficiary', input),

@@ -19,6 +19,7 @@ const { NpoService: npoService } = require('./services/npoService');
 const { GemachService: gemachService } = require('./services/gemachService');
 const { ChesedService: chesedService } = require('./services/chesedService');
 const { PeopleService: peopleService } = require('./services/peopleService');
+const { PrivacyService: privacyService } = require('./services/privacyService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
 const { MortgageLabService: mortgageLabService } = require('./services/mortgageLabService');
 const BK = require('./core/backupCrypto');
@@ -45,6 +46,7 @@ async function initEcon(userDataPath) {
   gemachService.initialize(db);
   chesedService.initialize(db);
   peopleService.initialize(db);
+  privacyService.initialize(db);
   mortgageAdvisorService.initialize(db);
   mortgageLabService.initialize(db);
   authService.setIdleMinutes(((await db.load()).settings || {}).idleMinutes);
@@ -71,6 +73,8 @@ function permissionFor(channel) {
   if (channel.startsWith('users:') || channel.startsWith('audit:') || channel === 'settings:saveAdvanced') return 'users.manage';
   // אימות כלל רגולטורי משנה את האזהרות לכל המשתמשים — מנהל בלבד
   if (channel === 'mlab:verifyRule' || channel === 'mlab:unverifyRule') return 'users.manage';
+  // מיפוי מאגרים ומזעור נתונים (תיקון 13) — מנהל בלבד
+  if (channel.startsWith('privacy:')) return 'users.manage';
   if (/backup/i.test(name)) return 'data.backup';
   if (/restore/i.test(name)) return 'data.restore';
   if (/export/i.test(name)) return 'data.export';
@@ -649,8 +653,24 @@ handle('auth:login', async (event, username, password) => {
   const canSeeConfidential = (event) => authService.hasPermission(event.sender.id, 'users.manage');
   // מאגר אנשים — קריאה בלבד. נזקק חסוי נכלל רק למי שמורשה לראות חסויים (כמו במסך החסד)
   handle('people:search', async (event, query) => peopleService.search(query, canSeeConfidential(event)));
-  handle('people:getCard', async (event, key) => peopleService.getCard(key, canSeeConfidential(event)));
-  handle('chesed:getOverview', async (event) => chesedService.getOverview(canSeeConfidential(event)));
+  handle('people:getCard', async (event, key) => {
+    const c = await peopleService.getCard(key, canSeeConfidential(event));
+    if (c.beneficiary.some(b => b.confidential)) await auditEvent(event, 'chesed.confidential.view', { via: 'people', key });
+    return c;
+  });
+  handle('chesed:getOverview', async (event) => {
+    const o = await chesedService.getOverview(canSeeConfidential(event));
+    const shown = o.beneficiaries.filter(b => b.tier === 'confidential' && !b.masked).length;
+    if (shown) await auditEvent(event, 'chesed.confidential.view', { via: 'overview', count: shown });
+    return o;
+  });
+  handle('privacy:getMap', async () => privacyService.getMap(await db.listUsers()));
+  handle('privacy:retentionPreview', async (event, years) => privacyService.retentionPreview(years));
+  handle('privacy:minimize', async (event, ids, years) => {
+    const r = await privacyService.minimize(ids, years);
+    await auditEvent(event, 'chesed.privacy.minimize', { years, minimized: r.minimized, skipped: r.skipped });
+    return r;
+  });
   handle('chesed:addBeneficiary', async (event, input) => {
     const b = await chesedService.addBeneficiary(input, canSeeConfidential(event));
     await auditEvent(event, 'chesed.beneficiary.add', { id: b.id, tier: b.tier });
@@ -713,7 +733,7 @@ handle('auth:login', async (event, username, password) => {
   });
   handle('chesed:exportCsv', async (event, kind, roundId) => {
     const r = await saveCsv(await chesedService.getExportData(kind, canSeeConfidential(event), roundId));
-    if (r.ok) await auditEvent(event, 'chesed.export.csv', { kind, roundId: roundId || '', rows: r.rows });
+    if (r.ok) await auditEvent(event, 'chesed.export.csv', { kind, roundId: roundId || '', rows: r.rows, confidential: canSeeConfidential(event) });
     return r;
   });
 

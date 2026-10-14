@@ -206,7 +206,9 @@
           const [users, audit] = adv && adv.isAdmin
             ? await Promise.all([window.systemAPI.listUsers(), window.systemAPI.listAudit({ limit: 100, action: state.auditFilter || '' })])
             : [[], []];
-          state.data.settings = { ...adv, users, audit };
+          let privacy = null;
+          if (adv && adv.isAdmin && window.systemAPI.getPrivacyMap) { try { privacy = await window.systemAPI.getPrivacyMap(); } catch { privacy = null; } }
+          state.data.settings = { ...adv, users, audit, privacy };
           break;
         }
         case 'tasks':
@@ -3574,6 +3576,53 @@
     create: (d) => window.systemAPI.createUser(d)
   };
 
+  // הגנת הפרטיות (תיקון 13) — כלי עזר למנהל: מיפוי מאגרים, מזעור נזקקים לא פעילים, רשימת בדיקה לאירוע
+  function renderPrivacyCard(pv) {
+    if (!pv || !Array.isArray(pv.rows)) return '';
+    return `<div class="card">
+      <h3>הגנת הפרטיות — מיפוי מאגרים</h3>
+      <p class="muted">${esc(pv.disclaimer)}</p>
+      <div class="acct-scroll"><table class="acct-table">
+        <thead><tr><th>מאגר</th><th>רשומות</th><th>שדות</th><th>רגישות</th><th>מי רואה</th></tr></thead>
+        <tbody>${pv.rows.map(r => `<tr><td>${esc(r.area)}</td><td>${Number(r.count) || 0}</td><td><small>${esc(r.fields)}</small></td>
+          <td><small class="${r.sensitivity === 'regular' ? 'muted' : 'bad'}">${esc(r.sensitivityLabel)}</small></td><td><small>${esc(r.access)}</small></td></tr>`).join('')}</tbody>
+      </table></div>
+      <div class="acct-row"><span>משתמשים פעילים</span><span>מנהלים ${Number(pv.users.admin)} · עורכים ${Number(pv.users.editor)} · צופים ${Number(pv.users.viewer)}</span></div>
+      <h4>היכן הנתונים נשמרים</h4>
+      ${pv.storage.map(s => `<div class="acct-row"><span><small>${esc(s)}</small></span></div>`).join('')}
+      <h4>מזעור נזקקים לא פעילים</h4>
+      <p class="muted">נזקק שסומן "לא פעיל" ולא הייתה לו פעילות בתקופה שנבחרה: שם המשפחה, גודל המשפחה והאזור נשמרים (להיסטוריית החלוקות), והפרטים המזהים נמחקים — ראש המשפחה, ת.ז, טלפון, כתובת והערות. הפעולה אינה הפיכה, ורצה רק אחרי אישור הרשימה. כדאי לבצע גיבוי לפני.</p>
+      <div class="acct-actions"><button class="secondary" id="privacyRetentionBtn">בדיקת רשומות למזעור…</button></div>
+      <details><summary><h4 style="display:inline">רשימת בדיקה לאירוע אבטחה</h4></summary>
+        <ol>${(pv.checklist || []).map(s => `<li>${esc(s)}</li>`).join('')}</ol>
+      </details>
+    </div>`;
+  }
+
+  async function runPrivacyRetention() {
+    const f = await askFields('מזעור נזקקים לא פעילים', [{ name: 'years', label: 'ללא פעילות לפחות (שנים)', type: 'number' }], 'הצג רשימה', { years: '7' });
+    if (!f) return;
+    let pv;
+    try { pv = await window.systemAPI.previewPrivacyRetention(Number(f.years)); }
+    catch (error) { return showError('שגיאה: ' + errMsg(error)); }
+    if (!pv.rows.length) return showToast(`אין נזקקים לא פעילים ללא פעילות מאז ${pv.cutoff}`);
+    const ok = await openDialog((card, finish) => {
+      card.style.maxWidth = '560px';
+      card.innerHTML = `<h2>${pv.rows.length} רשומות למזעור</h2>
+        <p class="muted" style="padding:0 1.5rem">לא פעילים, ללא פעילות מאז ${esc(pv.cutoff)}. הפרטים המזהים יימחקו לצמיתות.</p>
+        <div class="acct-scroll" style="max-height:45vh;padding:0 1.5rem">${pv.rows.map(r => `<div class="acct-row"><span>${esc(r.familyName)}${r.tier === 'confidential' ? ' <small class="bad">· חסוי</small>' : ''}</span><span><small class="muted">פעילות אחרונה ${esc(r.last)}</small></span></div>`).join('')}</div>
+        <div class="modal-actions"><button type="button" class="secondary" data-act="no">ביטול</button><button type="button" class="danger" data-act="yes">מזעור ${pv.rows.length} רשומות</button></div>`;
+      card.querySelector('[data-act="no"]').addEventListener('click', () => finish(false));
+      card.querySelector('[data-act="yes"]').addEventListener('click', () => finish(true));
+    });
+    if (!ok) return;
+    try {
+      const r = await window.systemAPI.minimizePrivacy(pv.rows.map(x => x.id), Number(f.years));
+      showToast(`מוזערו ${r.minimized} רשומות${r.skipped ? ` · ${r.skipped} דולגו (השתנו בינתיים)` : ''}`);
+      await switchView('settings');
+    } catch (error) { showError('שגיאה במזעור: ' + errMsg(error)); }
+  }
+
   function renderSettings(d) {
     const st = d && typeof d === 'object' ? d : {};
     const users = Array.isArray(st.users) ? st.users : [];
@@ -3625,11 +3674,13 @@
           </table></div>
         </div>
 
+        ${renderPrivacyCard(st.privacy)}
+
         <div class="card">
           <div class="acct-header"><h3>יומן ביקורת</h3>
             <div class="acct-actions">
               <select id="auditFilter">
-                ${[['', 'הכל'], ['acct', 'הנהלת חשבונות'], ['npo', 'עמותה'], ['gemach', 'גמ"ח'], ['chesed', 'חסד וחלוקות'], ['madv', 'ייעוץ משכנתאות'], ['users', 'משתמשים'], ['ports', 'ייבוא/ייצוא'], ['data', 'גיבוי ושחזור'], ['settings', 'הגדרות']]
+                ${[['', 'הכל'], ['chesed.confidential', 'צפייה בחסויים'], ['acct', 'הנהלת חשבונות'], ['npo', 'עמותה'], ['gemach', 'גמ"ח'], ['chesed', 'חסד וחלוקות'], ['madv', 'ייעוץ משכנתאות'], ['users', 'משתמשים'], ['ports', 'ייבוא/ייצוא'], ['data', 'גיבוי ושחזור'], ['settings', 'הגדרות']]
                   .map(([v, l]) => `<option value="${v}"${(state.auditFilter || '') === v ? ' selected' : ''}>${l}</option>`).join('')}
               </select>
               <button class="secondary" id="auditExportBtn">ייצוא יומן</button>
@@ -3644,6 +3695,8 @@
   }
 
   function attachSettingsHandlers() {
+    const privBtn = document.getElementById('privacyRetentionBtn');
+    if (privBtn) privBtn.addEventListener('click', runPrivacyRetention);
     const st = state.data.settings || {};
     const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
     on('advGeneralBtn', () => openSubForm(advGeneralSchema, { idleMinutes: st.idleMinutes, startView: st.startView }));
