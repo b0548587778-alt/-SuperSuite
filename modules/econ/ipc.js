@@ -30,10 +30,13 @@ const LG = require('../../shell/licensing/gate');
 const LS = require('../../shell/licensing/store');
 const ROOT_KEYS = require('../../shell/licensing/root-keys');
 const OC = require('../../shell/licensing/owner-core');
+const { createLicenseSync } = require('../../shell/licensing/sync');
+const { validateUrl } = require('../../shell/licensing/remote');
 
 let db;
 let licenseStore = null;
 let ownerCore = null;
+let licenseSync = null;
 
 // מצב הרישיון הנוכחי (docs/LICENSING-DESIGN.md). לפני אתחול — כמו התקנה בלי רישוי
 const licenseState = () => (licenseStore ? licenseStore.current() : { mode: 'unlicensed' });
@@ -54,11 +57,13 @@ function licenseAdapters(userDataPath) {
 let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
-async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage } = {}) {
+async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl } = {}) {
   const ad = licenseAdapters(userDataPath);
   // מצב מנהל-העל: זמין בכל התקנה, אבל נפתח רק בסיסמה. המפתח נשמר מוצפן (SSBK1:)
   ownerCore = OC.createOwnerCore({ storage: ownerStorage || ad.owner, clock });
   rootKeysInUse = rootKeys;
+  // עבודה מרחוק דרך שרת הרישוי — פעיל רק אחרי שהמנהל הגדיר כתובת (בלי כתובת: אופליין לגמרי)
+  licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock });
   licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
   db = await initializeDatabase(userDataPath);
   authService.initialize(db);
@@ -1016,6 +1021,88 @@ handle('auth:login', async (event, username, password) => {
     return n;
   });
   handle('owner:noticesPackage', async (event, target) => ownerCore.noticesPackage(String(target || '')));
+
+  // ---------- עבודה מרחוק (שרת רישוי) ----------
+  handle('license:getRemote', async () => {
+    const r = licenseStore.getRemoteSettings();
+    const info = licenseStore.syncInfo();
+    return { url: r.url || '', lastSync: r.lastSync || null, myCode: info.nodeId,
+      pending: (r.pendingChildRequests || []).map(({ keyId, name, at }) => ({ keyId, name, at })) };
+  });
+  handle('license:setRemote', async (event, url) => {
+    const clean = url ? validateUrl(url) : '';
+    licenseStore.setRemoteSettings({ url: clean });
+    await auditEvent(event, 'license.remote.set', { url: clean });
+    return { url: clean };
+  });
+  handle('license:remoteRequest', async (event, name) => {
+    const r = await licenseSync.sendLicenseRequest(name);
+    await auditEvent(event, 'license.remote.request', r);
+    return r;
+  });
+  handle('license:remoteRequestFromParent', async (event, name, parentCode) => {
+    const r = await licenseSync.sendRequestToParent(name, parentCode);
+    await auditEvent(event, 'license.remote.requestParent', { parent: parentCode, keyId: r.keyId });
+    return r;
+  });
+  handle('license:remoteSync', async (event) => {
+    const r = await licenseSync.receive();
+    if (r.handled) await auditEvent(event, 'license.remote.sync', { handled: r.handled, errors: r.errors.length });
+    return r;
+  });
+  handle('license:remoteForwardChild', async (event, input = {}) => {
+    const { keyId, ...terms } = input || {};
+    const r = await licenseSync.forwardChildRequest(keyId, terms);
+    await auditEvent(event, 'license.remote.childApprovalRequest', { childId: r.childId, features: terms.features, limits: terms.limits });
+    return r;
+  });
+  handle('license:remoteDismissChild', async (event, keyId) => {
+    licenseSync.dismissChildRequest(keyId);
+    await auditEvent(event, 'license.remote.childDismiss', { keyId });
+    return true;
+  });
+  // השבתה/החזרה/סיום של מערכת בת — ומיד שליחה אליה כשיש שרת
+  handle('license:remotePushChild', async (event, childId) => {
+    const pkg = licenseStore.noticesForChild(String(childId || ''));
+    if (!pkg) throw new Error('מערכת הבת לא נמצאה');
+    await licenseSync.pushToChild(childId, pkg);
+    return true;
+  });
+
+  // מנהל-העל מרחוק: קליטת בקשות, אישור/דחייה ושליחה ישירה, ועדכון כל הלקוחות
+  handle('owner:remoteReceive', async () => licenseSync.ownerReceive());
+  handle('owner:inbox', async () => ownerCore.inbox().map(({ id, from, at, summary }) => ({ id, from, at, summary })));
+  handle('owner:inboxIssue', async (event, input = {}) => {
+    const m = ownerCore.peekInbox(String((input || {}).id || ''));
+    const r = ownerCore.issue({ ...(input || {}), request: m.body });
+    await licenseSync.ownerReply(m.from, 'license', r.package);
+    ownerCore.takeFromInbox(m.id);
+    await ownerAudit(event, 'tenant.issue', { id: r.id, name: r.name, slot: r.slot, renewal: r.renewal, remote: true });
+    return { id: r.id, name: r.name, slot: r.slot };
+  });
+  handle('owner:inboxApprove', async (event, id) => {
+    const m = ownerCore.peekInbox(String(id || ''));
+    const r = ownerCore.approve({ request: m.body });
+    await licenseSync.ownerReply(m.from, 'approval', r.package);
+    ownerCore.takeFromInbox(m.id);
+    await ownerAudit(event, 'child.approve', { childId: r.childId, name: r.name, parent: r.parentName, slot: r.slot, remote: true });
+    return { childId: r.childId, name: r.name, parentName: r.parentName };
+  });
+  handle('owner:inboxReject', async (event, id, reason) => {
+    const why = String(reason || '').trim();
+    if (!why) throw new Error('חובה לציין סיבה');
+    const m = ownerCore.peekInbox(String(id || ''));
+    const name = (m.summary && m.summary.name) || '';
+    await licenseSync.ownerReply(m.from, 'rejection', JSON.stringify({ name, reason: why }));
+    ownerCore.takeFromInbox(m.id);
+    await ownerAudit(event, 'request.reject', { from: m.from, name, reason: why, remote: true });
+    return true;
+  });
+  handle('owner:remotePush', async (event) => {
+    const r = await licenseSync.ownerPushNotices();
+    await ownerAudit(event, 'notices.push', r);
+    return r;
+  });
 
   // מצב הרישיון — לכל משתמש מחובר (פתוח גם במערכת מושבתת, כדי להציג את הסיבה)
   handle('license:getStatus', async () => {

@@ -221,7 +221,9 @@
               status.mode === 'licensed' ? window.systemAPI.listLicenseChildren().catch(() => []) : [],
               window.systemAPI.getOwnerState().catch(() => null)])
             : [[], null];
-          state.data.licensing = { status, isAdmin, children, owner };
+          const remote = isAdmin ? await window.systemAPI.getLicenseRemote().catch(() => null) : null;
+          const inbox = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerInbox().catch(() => []) : [];
+          state.data.licensing = { status, isAdmin, children, owner, remote, inbox };
           break;
         }
         case 'tasks':
@@ -3820,11 +3822,39 @@
       </table></div>
     </div>` : '';
 
-    return `<div class="settings">${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner) : ''}</div>`;
+    return `<div class="settings">${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote) : ''}</div>`;
+  }
+
+  // עבודה מרחוק: כשמוגדר שרת רישוי, הבקשות, האישורים והעדכונים עוברים בלחיצה — בלי להעביר קבצים
+  function renderRemoteCard(r, st) {
+    if (!r) return '';
+    const pending = Array.isArray(r.pending) ? r.pending : [];
+    const canIssue = st.mode === 'licensed' && st.status === 'active' && st.limits && st.limits.maxChildren > 0;
+    return `<div class="card">
+      <div class="acct-header"><h3>🌐 עבודה מרחוק</h3>
+        <div class="acct-actions"><button class="secondary small" id="licRemoteSetBtn">${r.url ? 'שינוי שרת' : 'הגדרת שרת רישוי'}</button></div>
+      </div>
+      ${r.url ? `
+        <div class="acct-row"><span>שרת</span><span dir="ltr">${esc(r.url)}</span></div>
+        <div class="acct-row"><span>סנכרון אחרון</span><span>${r.lastSync ? esc(new Date(r.lastSync).toLocaleString('he-IL')) : 'עדיין לא'}</span></div>
+        ${r.myCode ? `<div class="acct-row"><span>קוד המערכת (למערכות בת)</span><span dir="ltr"><b>${esc(r.myCode)}</b></span></div>` : ''}
+        <div class="acct-actions">
+          <button class="primary" id="licRemoteSyncBtn">🔄 סנכרון עכשיו</button>
+          ${st.mode === 'licensed' ? '' : '<button class="secondary" id="licRemoteRequestBtn">📤 שליחת בקשת רישיון לספק</button>'}
+          ${st.mode === 'licensed' ? '' : '<button class="secondary" id="licRemoteParentBtn">📤 בקשה ממערכת מנפיקה (קוד)</button>'}
+        </div>
+        ${pending.length ? `<h4>מערכות בת שביקשו רישיון (${pending.length})</h4>
+          <div class="acct-scroll"><table class="acct-table"><tbody>${pending.map(p => `<tr>
+            <td>${esc(p.name)}</td><td><small>${esc(new Date(p.at).toLocaleString('he-IL'))}</small></td>
+            <td>${canIssue ? `<button class="primary small" data-lic-remote-forward="${esc(p.keyId)}" data-name="${esc(p.name)}">שליחה לאישור</button>` : ''}
+              <button class="secondary small" data-lic-remote-dismiss="${esc(p.keyId)}">התעלמות</button></td></tr>`).join('')}</tbody></table></div>` : ''}
+        <p class="muted">השרת משמש רק להעברה: כל רישיון, אישור ועדכון חתומים, והתוכנה בודקת אותם בעצמה. בלי חיבור — הכול ממשיך לעבוד, ואפשר להעביר קבצים ידנית.</p>`
+      : '<p class="muted">בלי שרת — העברת קבצים ידנית (הכפתורים למטה). עם שרת — בקשות, אישורים ועדכוני השבתה עוברים בלחיצה, גם למחשב מרוחק.</p>'}
+    </div>`;
   }
 
   // מצב מנהל-העל: נפתח בסיסמה. ממנו מנפיקים ללקוחות ומאשרים מערכות בת
-  function renderOwnerPanel(o) {
+  function renderOwnerPanel(o, inbox, remote) {
     if (!o) return '';
     if (!o.initialized) {
       return `<div class="card"><h3>מצב מנהל-העל</h3>
@@ -3847,6 +3877,11 @@
           <button class="secondary" id="ownerLockBtn">🔒 יציאה ממצב מנהל-העל</button>
         </div>
       </div>
+      ${remote && remote.url ? `<div class="acct-actions">
+        <button class="primary" id="ownerRemoteReceiveBtn">📥 בדיקת בקשות חדשות</button>
+        <button class="secondary" id="ownerRemotePushBtn">📤 שליחת עדכוני סטטוס לכל המערכות</button>
+      </div>` : ''}
+      ${renderOwnerInbox(inbox)}
       ${o.configured ? '' : `<p class="bad">המפתח הציבורי שלך עדיין לא מוגדר בתוכנה (shell/licensing/root-keys.js), ולכן הרישוי אינו נאכף בהתקנות. <button class="secondary small" id="ownerCopyKeyBtn">שמירת המפתח הציבורי לקובץ</button></p>`}
       ${globalHolds.map(h => `<p class="bad">נעילה גלובלית פעילה: ${esc(h.reason)}</p>`).join('')}
       <div class="acct-scroll"><table class="acct-table">
@@ -3873,6 +3908,26 @@
       </table></div>
       <p class="muted">שינוי סטטוס נכנס לתוקף אצל הלקוח כשהוא מקבל "קובץ עדכון" (או בהתקנת רישיון מחודש). השבתה של לקוח משביתה גם את כל מערכות הבת שלו.</p>
     </div>`;
+  }
+
+  function renderOwnerInbox(inbox) {
+    const list = Array.isArray(inbox) ? inbox : [];
+    if (!list.length) return '';
+    return `<h4>בקשות ממתינות (${list.length})</h4>
+      <div class="acct-scroll"><table class="acct-table">
+        <thead><tr><th>התקבלה</th><th>בקשה</th><th>פרטים</th><th></th></tr></thead>
+        <tbody>${list.map(m => {
+          const sm = m.summary || {};
+          const what = sm.kind === 'license' ? (sm.renewal ? 'חידוש רישיון' : 'לקוח חדש') : sm.kind === 'approval' ? 'מערכת בת' : 'לא תקינה';
+          const detail = sm.kind === 'license' ? esc(sm.name)
+            : sm.kind === 'approval' ? `"${esc(sm.name)}" של ${esc(sm.parentName)} · ${(sm.features || []).map(f => esc(licFeatureLabel(f))).join(', ')} · מכסה ${Number(sm.quota && sm.quota.used)}/${Number(sm.quota && sm.quota.max)}${sm.problem ? ` · <span class="bad">${esc(sm.problem)}</span>` : ''}`
+            : `<span class="bad">${esc(sm.error || '')}</span>`;
+          const actions = sm.kind === 'license' ? `<button class="primary small" data-owner-inbox-issue="${esc(m.id)}">הנפקה</button>`
+            : sm.kind === 'approval' && !sm.problem ? `<button class="primary small" data-owner-inbox-approve="${esc(m.id)}">✔ אישור</button>` : '';
+          return `<tr><td><small>${esc(new Date(m.at).toLocaleString('he-IL'))}</small></td><td>${what}</td><td><small>${detail}</small></td>
+            <td>${actions} <button class="danger-outline" data-owner-inbox-reject="${esc(m.id)}">✖ דחייה</button></td></tr>`;
+        }).join('')}</tbody>
+      </table></div>`;
   }
 
   // ---------- חלונות קלט למסך הרישוי ----------
@@ -4056,12 +4111,14 @@
       const v = await licReason('השבתת מערכת בת', licHoldFields);
       if (!v) return;
       const r = await window.systemAPI.holdLicenseChild({ childId: b.dataset.licChildHold, kind: v.kind, reason: v.reason });
+      if (remoteOn) return pushChild(b.dataset.licChildHold);
       await licSave(r.package, 'עדכון-סטטוס', 'ההשבתה נרשמה — העבירו את קובץ העדכון למערכת הבת');
     });
     each('data-lic-child-release', async (b) => {
       const v = await licReason('החזרה לפעילות');
       if (!v) return;
       const r = await window.systemAPI.releaseLicenseChild({ childId: b.dataset.licChildRelease, holdId: b.dataset.hold, reason: v.reason });
+      if (remoteOn) return pushChild(b.dataset.licChildRelease);
       await licSave(r.package, 'עדכון-סטטוס', 'ההחזרה נרשמה — העבירו את קובץ העדכון למערכת הבת');
     });
     each('data-lic-child-terminate', async (b) => {
@@ -4069,7 +4126,79 @@
       const v = await licReason('סיום מערכת בת');
       if (!v) return;
       const r = await window.systemAPI.terminateLicenseChild({ childId: b.dataset.licChildTerminate, reason: v.reason });
+      if (remoteOn) return pushChild(b.dataset.licChildTerminate);
       await licSave(r.package, 'עדכון-סטטוס', 'הסיום נרשם');
+    });
+
+    // --- עבודה מרחוק ---
+    const remoteOn = !!(d.remote && d.remote.url);
+    on('licRemoteSetBtn', async () => {
+      const v = await licForm('שרת רישוי', [{ name: 'url', label: 'כתובת השרת (https://…) — ריק לביטול', value: (d.remote && d.remote.url) || '' }], 'שמירה',
+        'הכתובת מתקבלת מהספק. בסביבה מסוננת ייתכן שיש לבקש אישור לכתובת.');
+      if (!v) return;
+      await window.systemAPI.setLicenseRemote(v.url);
+      showToast(v.url ? 'שרת הרישוי הוגדר' : 'העבודה מרחוק בוטלה');
+    });
+    on('licRemoteSyncBtn', async () => {
+      const r = await window.systemAPI.licenseRemoteSync();
+      (r.errors || []).forEach(e => showError(e));
+      showToast(r.handled ? `התקבלו ${r.handled} עדכונים` : 'אין עדכונים חדשים');
+    });
+    on('licRemoteRequestBtn', async () => {
+      const v = await licForm('בקשת רישיון מהספק', [{ name: 'name', label: 'שם המערכת / הארגון', required: true }], 'שליחה');
+      if (!v) return;
+      await window.systemAPI.licenseRemoteRequest(v.name);
+      showToast('הבקשה נשלחה. אחרי האישור — "סנכרון עכשיו"');
+    });
+    on('licRemoteParentBtn', async () => {
+      const v = await licForm('בקשה ממערכת מנפיקה', [{ name: 'name', label: 'שם המערכת החדשה', required: true },
+        { name: 'code', label: 'קוד המערכת המנפיקה (מופיע אצלה ב"עבודה מרחוק")', required: true }], 'שליחה');
+      if (!v) return;
+      await window.systemAPI.licenseRemoteRequestFromParent(v.name, v.code);
+      showToast('הבקשה נשלחה. אחרי האישור — "סנכרון עכשיו"');
+    });
+    each('data-lic-remote-forward', async (b) => {
+      const v = await licForm(`בקשת אישור: ${b.dataset.name}`, [{ name: 'name', label: 'שם מערכת הבת', value: b.dataset.name, required: true },
+        ...licTermsFields({ features: st.features, limits: st.limits })], 'שליחה למנהל-העל',
+      'אחרי שמנהל-העל יאשר, הרישיון יונפק ויישלח למערכת הבת אוטומטית בסנכרון הבא.');
+      if (!v) return;
+      await window.systemAPI.licenseRemoteForwardChild({ keyId: b.dataset.licRemoteForward, name: v.name, ...licTerms(v) });
+      showToast('הבקשה נשלחה לאישור');
+    });
+    each('data-lic-remote-dismiss', async (b) => {
+      if (!(await askConfirm('להתעלם מהבקשה? אפשר לבקש שוב מהמערכת החדשה.'))) return;
+      await window.systemAPI.licenseRemoteDismissChild(b.dataset.licRemoteDismiss);
+    });
+    // אחרי השבתה/החזרה/סיום של מערכת בת — משלוח מיידי כשיש שרת (ללא שרת: קובץ, כמו קודם)
+    const pushChild = async (id) => { if (remoteOn) { try { await window.systemAPI.licenseRemotePushChild(id); showToast('העדכון נשלח למערכת הבת'); } catch (e) { showError(errMsg(e)); } } };
+
+    // --- מנהל-העל מרחוק ---
+    on('ownerRemoteReceiveBtn', async () => {
+      const r = await window.systemAPI.ownerRemoteReceive();
+      showToast(r.added ? `התקבלו ${r.added} בקשות חדשות` : 'אין בקשות חדשות');
+    });
+    on('ownerRemotePushBtn', async () => {
+      const r = await window.systemAPI.ownerRemotePush();
+      showToast(`נשלחו ${r.sent} עדכונים`);
+    });
+    each('data-owner-inbox-issue', async (b) => {
+      const m = (d.inbox || []).find(x => x.id === b.dataset.ownerInboxIssue) || {};
+      const sm = m.summary || {};
+      const v = await licForm(sm.renewal ? `חידוש רישיון: ${sm.name}` : `לקוח חדש: ${sm.name}`, [
+        { name: 'name', label: 'שם הלקוח', value: sm.name, required: true }, ...licTermsFields(null, sm.current)], 'הנפקה ושליחה');
+      if (!v) return;
+      const r = await window.systemAPI.ownerInboxIssue({ id: m.id, name: v.name, ...licTerms(v) });
+      showToast(`הרישיון של "${r.name}" נשלח ללקוח`);
+    });
+    each('data-owner-inbox-approve', async (b) => {
+      const r = await window.systemAPI.ownerInboxApprove(b.dataset.ownerInboxApprove);
+      showToast(`מערכת הבת "${r.name}" אושרה — האישור נשלח ל"${r.parentName}"`);
+    });
+    each('data-owner-inbox-reject', async (b) => {
+      const v = await licReason('דחיית הבקשה');
+      if (!v) return;
+      await window.systemAPI.ownerInboxReject(b.dataset.ownerInboxReject, v.reason);
+      showToast('הבקשה נדחתה והשולח עודכן');
     });
 
     // --- מנהל-העל ---

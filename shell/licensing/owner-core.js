@@ -209,7 +209,33 @@ function createOwnerCore({ storage, clock = Date.now }) {
     return JSON.stringify({ type: PKG_NOTICES, v: 1, notices: noticesFor([target, ...kids]) });
   }
 
-  return { MIN_PASS, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage };
+  // לסנכרון מרחוק: בקשות שהגיעו מהשרת ממתינות כאן להחלטה (אישור/דחייה בכפתור)
+  const inbox = () => readJson('inbox.json', []);
+  function addToInbox(msg) {
+    const list = inbox();
+    if (list.some(m => m.id === msg.id)) return false;
+    let summary;
+    try { summary = openRequest(msg.body); } catch (e) { summary = { kind: 'invalid', error: e.message }; }
+    writeJson('inbox.json', [...list, { id: msg.id, from: msg.from, at: msg.at, body: msg.body, summary }].slice(-200));
+    return true;
+  }
+  function takeFromInbox(id) {
+    const list = inbox();
+    const m = list.find(x => x.id === id);
+    if (!m) throw new Error('הבקשה לא נמצאה');
+    writeJson('inbox.json', list.filter(x => x.id !== id));
+    return m;
+  }
+  const peekInbox = (id) => { const m = inbox().find(x => x.id === id); if (!m) throw new Error('הבקשה לא נמצאה'); return m; };
+  const rootSigner = () => rootKey();
+  // כל הלקוחות ומערכות הבת שאושרו — למי לשלוח עדכוני סטטוס
+  function recipients() {
+    const reg = registry();
+    return [...reg.tenants.map(t => t.id), ...reg.approvals.filter(a => !a.revoked).map(a => a.childId)];
+  }
+
+  return { MIN_PASS, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
+    inbox, addToInbox, takeFromInbox, peekInbox, rootSigner, recipients };
 }
 
 // אחסון בתיקייה (שולחן העבודה וכלי שורת הפקודה). fs/path מוזרקים

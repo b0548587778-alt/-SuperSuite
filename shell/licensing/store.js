@@ -207,7 +207,30 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now }
   const licensePackage = (chain, notices) => JSON.stringify({ type: PKG_LICENSE, v: 1, chain, notices: relevant(notices, chain.map(l => l.payload.id)) });
   const noticesPackage = (notices, ids) => JSON.stringify({ type: PKG_NOTICES, v: 1, notices: relevant(notices, ids) });
 
-  return { current, invalidate() { cached = null; }, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren };
+  // לסנכרון מרחוק: המפתח הפרטי (לחתימת בקשות לשרת), והמזהים שהמערכת אחראית להעביר אליהם הודעות
+  const syncKey = (create) => nodeKey(create);
+  function syncInfo() {
+    const d = load();
+    if (!d || !Array.isArray(d.chain)) return { nodeId: null, children: [] };
+    const own = d.chain[d.chain.length - 1].payload;
+    return { nodeId: own.id, chainIds: d.chain.map(l => l.payload.id), children: (d.children || []).map(c => ({ id: c.id, name: c.name })) };
+  }
+  // חבילת הודעות למערכת בת (שלה ושל השרשרת מעליה) — להעברה הלאה של השבתה מלמעלה
+  function noticesForChild(childId) {
+    const d = load();
+    if (!d || !Array.isArray(d.chain)) return null;
+    return noticesPackage(d.notices || [], [...d.chain.map(l => l.payload.id), childId]);
+  }
+  // הגדרות סנכרון (כתובת שרת) — נשמרות עם מצב הרישוי, מחוץ למסד הנתונים
+  function getRemoteSettings() { const d = load(); return (d && !d.corrupt && d.remote) || {}; }
+  function setRemoteSettings(r) {
+    const d = load();
+    const base = d && !d.corrupt ? { ...blank(), ...d } : blank();
+    save({ ...base, remote: { ...(base.remote || {}), ...r } });
+  }
+
+  return { current, invalidate() { cached = null; }, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
+    syncKey, syncInfo, noticesForChild, getRemoteSettings, setRemoteSettings };
 }
 
 // אחסון בקבצים (שולחן העבודה). fs מוזרק כדי לא לתלות את הקוד באנדרואיד
