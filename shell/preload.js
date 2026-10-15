@@ -19,5 +19,7 @@ contextBridge.exposeInMainWorld('shellAPI', {
   onHistory: cb => ipcRenderer.on('shell:history', (_e, st) => cb(st)),
   quit: () => ipcRenderer.invoke('shell:quit'),
   onActive: cb => ipcRenderer.on('shell:active', (_e, id) => cb(id)),
-  onCmd: cb => ipcRenderer.on('shell:cmd', (_e, cmd) => cb(cmd))
+  onCmd: cb => ipcRenderer.on('shell:cmd', (_e, cmd) => cb(cmd)),
+  getLicenseState: () => ipcRenderer.invoke('shell:license-state'),
+  onLicense: cb => ipcRenderer.on('shell:license', (_e, st) => cb(st))
 });

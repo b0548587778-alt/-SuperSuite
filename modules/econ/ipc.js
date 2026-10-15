@@ -42,7 +42,23 @@ let chatStore = null;
 let ownerChatStore = null;
 
 // מצב הרישיון הנוכחי (docs/LICENSING-DESIGN.md). לפני אתחול — כמו התקנה בלי רישוי
-const licenseState = () => (licenseStore ? licenseStore.current() : { mode: 'unlicensed' });
+// כל שינוי סטטוס נרשם ביומן הביקורת ומודיע למאזינים (main.js — חסימת מודולים ומסך "מערכת מושבתת")
+let lastLicenseKey = null;
+const licenseListeners = [];
+function licenseState() {
+  const s = licenseStore ? licenseStore.current() : { mode: 'unlicensed' };
+  const key = s.mode === 'unlicensed' ? 'unlicensed' : s.status;
+  if (key !== lastLicenseKey) {
+    const from = lastLicenseKey;
+    lastLicenseKey = key;
+    if (from !== null) {
+      const details = JSON.stringify({ from, to: key, reasons: (s.reasons || []).map(r => ({ kind: r.kind, reason: r.reason })) });
+      if (db) db.audit(null, 'license.status.change', details).catch(e => console.error('audit failed', e));
+      for (const fn of licenseListeners) { try { fn(s); } catch (e) { console.error(e); } }
+    }
+  }
+  return s;
+}
 
 // אחסון הרישוי: באנדרואיד הקוד רץ ב-WebView (יש window.localStorage, ו-fs הוא shim); בשולחן העבודה — קבצים ו-DPAPI
 function licenseAdapters(userDataPath) {
@@ -1059,6 +1075,7 @@ handle('auth:login', async (event, username, password) => {
   handle('license:remoteSync', async (event) => {
     const r = await licenseSync.receive();
     if (r.handled) await auditEvent(event, 'license.remote.sync', { handled: r.handled, errors: r.errors.length });
+    licenseState();
     return r;
   });
   handle('license:remoteForwardChild', async (event, input = {}) => {
@@ -1169,12 +1186,14 @@ handle('auth:login', async (event, username, password) => {
     if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('קובץ הרישוי אינו תקין');
     const r = licenseStore.install(text);
     await auditEvent(event, 'license.install', r);
+    licenseState();
     return r;
   });
   handle('license:importNotices', async (event, text) => {
     if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('קובץ ההודעות אינו תקין');
     const r = licenseStore.importNotices(text);
     await auditEvent(event, 'license.notices.import', r);
+    licenseState();
     return r;
   });
   handle('license:listChildren', async () => licenseStore.listChildren());
@@ -1257,4 +1276,4 @@ handle('auth:login', async (event, username, password) => {
     return await db.restore(backupData);
   });
 }
-module.exports = { toUserError, initEcon, licenseState, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess };
+module.exports = { toUserError, initEcon, licenseState, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess };

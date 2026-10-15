@@ -61,6 +61,22 @@ function moduleAllowed(state, mod) {
   return !!f && (state.features || []).includes(f);
 }
 
+// מסכים במערכת הכלכלית שתמיד נגישים — כדי להתקין רישיון, לקלוט עדכון סטטוס ולפנות לספק
+const ALWAYS_VIEWS = new Set(['licensing', 'messages']);
+function viewAllowed(state, mod, view) {
+  if (mod === 'econ' && ALWAYS_VIEWS.has(view)) return true;
+  return moduleAllowed(state, mod);
+}
+
+// סיכום למעטפת: רמה (ok / limited — קריאה בלבד / blocked — נעול), הודעה, ואילו מודולים פתוחים
+function shellState(state) {
+  const modules = {};
+  for (const m of Object.keys(MODULE_FEATURES)) modules[m] = moduleAllowed(state, m);
+  if (!state || state.mode === 'unlicensed') return { mode: 'unlicensed', status: 'active', level: 'ok', message: '', modules };
+  const level = state.status === 'active' ? 'ok' : (state.status === 'pending_payment' || state.status === 'suspended') ? 'limited' : 'blocked';
+  return { mode: 'licensed', status: state.status, level, message: level === 'ok' ? '' : statusMessage(state), graceUntil: state.graceUntil || null, modules };
+}
+
 // מגבלת משתמשים פעילים. activeCount = כמה פעילים יהיו אחרי הפעולה
 function checkUserLimit(state, activeCount) {
   if (!state || state.mode === 'unlicensed') return null;
@@ -71,4 +87,4 @@ function checkUserLimit(state, activeCount) {
   return null;
 }
 
-module.exports = { MODULE_FEATURES, ECON_SUB_FEATURES, featuresForChannel, checkChannel, moduleAllowed, checkUserLimit, statusMessage };
+module.exports = { MODULE_FEATURES, ECON_SUB_FEATURES, ALWAYS_VIEWS, featuresForChannel, checkChannel, moduleAllowed, viewAllowed, shellState, checkUserLimit, statusMessage };

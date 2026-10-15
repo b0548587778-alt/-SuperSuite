@@ -12,6 +12,10 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const ui = { active: null, econView: null, query: '' };
+// מצב הרישוי מ-main.js: level ok / limited (קריאה בלבד) / blocked (נעול), ואילו מודולים פתוחים
+let lic = { level: 'ok', message: '', modules: {} };
+const ALWAYS_OPEN_VIEWS = ['licensing', 'messages'];
+const itemOpen = it => lic.modules[it.mod] !== false || (it.mod === 'econ' && ALWAYS_OPEN_VIEWS.includes(it.view));
 
 /* ---------- ניווט ---------- */
 function currentKey() {
@@ -29,7 +33,8 @@ function matches(it, q) {
 function groupTitle(id) { const g = GROUPS.find(x => x.id === id); return g ? g.title : ''; }
 
 function navItem(it) {
-  return `<button class="it hue-${it.hue}" data-key="${esc(it.key)}" title="${esc(it.desc)}">` +
+  const off = !itemOpen(it);
+  return `<button class="it hue-${it.hue}${off ? ' off' : ''}" data-key="${esc(it.key)}" title="${esc(off ? lic.message || 'אינו כלול ברישיון' : it.desc)}">` +
     `<span class="ic">${esc(it.icon)}</span><span class="nm">${esc(it.name)}</span></button>`;
 }
 
@@ -57,6 +62,7 @@ function open(key) {
   if (key === 'home') { goHome(); return; }
   const it = BY_KEY.get(key);
   if (!it) return;
+  if (!itemOpen(it)) { flashLicense(); return; }
   ui.active = it.mod;
   if (it.view) ui.econView = it.view;
   mark();
@@ -112,7 +118,7 @@ function greeting(h) {
   return 'לילה טוב';
 }
 function card(it) {
-  return `<button class="card hue-${it.hue}" data-key="${esc(it.key)}" type="button">` +
+  return `<button class="card hue-${it.hue}${itemOpen(it) ? '' : ' off'}" data-key="${esc(it.key)}" type="button">` +
     `<span class="ic">${esc(it.icon)}</span><span><b>${esc(it.name)}</b><small>${esc(it.desc)}</small></span></button>`;
 }
 function renderHome() {
@@ -122,6 +128,7 @@ function renderHome() {
   const heb = HC.hebrewToday(now.getTime(), cal);
   $('dates').innerHTML = heb ? `<b>${esc(heb.text)}</b>${heb.night ? ' <i>(אור ליום ' + esc(HC.WEEKDAYS[heb.weekday]) + ')</i>' : ''} · ${esc(greg)}` : esc(greg);
   renderDay(now.getTime());
+  renderLicense();
 
   const recent = getRecent().slice(0, 4).map(k => BY_KEY.get(k));
   $('recentSec').hidden = !recent.length;
@@ -132,9 +139,42 @@ function renderHome() {
     ITEMS.filter(it => it.group === g.id).map(card).join('') + '</div></section>').join('');
 }
 $('home').onclick = e => {
-  const c = e.target.closest('.card');
+  const c = e.target.closest('.card, .lic-go');
   if (c) open(c.dataset.key);
 };
+
+/* ---------- רישוי: מסך "מערכת מושבתת" ---------- */
+function renderLicense() {
+  const bar = $('licBar'), block = $('licBlock');
+  if (lic.level === 'ok') { bar.hidden = true; block.hidden = true; return; }
+  const blocked = lic.level === 'blocked';
+  bar.hidden = false;
+  bar.className = blocked ? 'blocked' : '';
+  bar.textContent = blocked ? lic.message : lic.message + ' — צפייה, ייצוא וגיבוי בלבד';
+  block.hidden = false;
+  block.className = 'lic-block' + (blocked ? '' : ' limited');
+  block.innerHTML = `<h2>${blocked ? '🔒' : '⏸'} ${esc(lic.message)}</h2>` +
+    (blocked ? '<p>התוכנה אינה זמינה לעבודה כרגע.</p>' : '<p>אפשר לצפות בנתונים, לייצא ולגבות. יצירה ועריכה חסומות עד לחידוש.</p>') +
+    '<p>הנתונים שלך שמורים במחשב ולא נמחקו. לחידוש הפעילות פנו לספק, או קלטו רישיון / עדכון סטטוס.</p>' +
+    '<button type="button" class="lic-go" data-key="econ:licensing">🔑 רישוי ומערכות</button>' +
+    '<button type="button" class="lic-go" data-key="econ:messages">💬 הודעה לספק</button>';
+}
+function flashLicense() {
+  if (!ui.active) { renderHome(); }
+  const bar = $('licBar');
+  if (bar.hidden) return;
+  bar.classList.add('flash');
+  setTimeout(() => bar.classList.remove('flash'), 1200);
+}
+function applyLicense(st) {
+  if (!st || typeof st !== 'object') return;
+  lic = { level: st.level || 'ok', message: String(st.message || ''), modules: st.modules || {} };
+  document.body.classList.toggle('lic-blocked', lic.level === 'blocked');
+  renderNav();
+  if (!ui.active) renderHome(); else renderLicense();
+}
+if (window.shellAPI.getLicenseState) window.shellAPI.getLicenseState().then(applyLicense).catch(() => {});
+if (window.shellAPI.onLicense) window.shellAPI.onLicense(applyLicense);
 
 renderNav();
 renderHome();

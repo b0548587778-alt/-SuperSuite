@@ -10,6 +10,7 @@ const AutoBk = require('./shell/auto-backup');
 const Catalog = require('./shell/catalog');
 const Hebcal = require('./shell/hebcal');
 const NavHistory = require('./shell/history');
+const LG = require('./shell/licensing/gate');
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
   try { return Catalog.extrasFromHtml(fs.readFileSync(path.join(__dirname, 'modules', 'econ', 'views', 'index.html'), 'utf8')); }
@@ -42,6 +43,7 @@ let win;
 let econ;
 const views = {};
 let active = null;
+let econView = null; // התצוגה הפעילה במודול הכלכלי (לאכיפת הרישוי)
 let zoom = 1;
 // דיאלוג פתוח במעטפת: התצוגות מוסתרות כדי שלא יכסו אותו
 let overlay = false;
@@ -159,8 +161,30 @@ function ensureView(id) {
   return v;
 }
 
+// רישוי (docs/LICENSING-DESIGN.md, שלב 4): מודול שאינו ברישיון או מערכת נעולה — לא נפתחים.
+// במערכת הכלכלית "רישוי ומערכות" ו"הודעות" נשארים פתוחים, כדי שאפשר יהיה להתקין רישיון ולפנות לספק
+function licenseNow() {
+  try { return econ && econ.licenseState ? econ.licenseState() : { mode: 'unlicensed' }; } catch { return { mode: 'unlicensed' }; }
+}
+function sendLicenseToShell(state) {
+  if (win && !win.isDestroyed()) win.webContents.send('shell:license', LG.shellState(state));
+}
+// שינוי סטטוס: עדכון המעטפת, ויציאה ממודול שנחסם
+function enforceLicense(state) {
+  sendLicenseToShell(state);
+  if (!active) return;
+  if (active === 'econ') { if (!LG.viewAllowed(state, 'econ', econView)) openEconView('licensing'); }
+  else if (!LG.moduleAllowed(state, active)) goHome();
+}
+
 function switchTo(id) {
   if (!MODS.includes(id)) return;
+  const lic = licenseNow();
+  if (!LG.moduleAllowed(lic, id) && id !== 'econ') {
+    sendLicenseToShell(lic);
+    if (win && !win.isDestroyed()) win.webContents.send('shell:active', active);
+    return;
+  }
   const v = ensureView(id);
   active = id;
   for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === id);
@@ -168,6 +192,7 @@ function switchTo(id) {
   if (win && !win.isDestroyed()) win.webContents.send('shell:active', id);
   // במודול הכלכלי התצוגה תדווח מיד (shell:econ-view) ותשלים את הרישום
   recordNav({ mod: id, view: null });
+  if (id === 'econ' && !LG.moduleAllowed(lic, 'econ')) openEconView('licensing');
 }
 
 // חזרה למסך הבית: מסתירים את כל התצוגות כך שהמעטפת נשארת לבדה.
@@ -183,6 +208,7 @@ function goHome() {
 // פתיחת תצוגה פנימית במודול הכלכלי. נשלח אחרי הטעינה; ה-preload שומר את הבקשה עד שהממשק מוכן
 function openEconView(view) {
   if (!ECON_VIEWS.includes(view)) return false;
+  if (!LG.viewAllowed(licenseNow(), 'econ', view)) view = 'licensing';
   const v = ensureView('econ');
   waitLoaded(v.webContents).then(() => {
     if (!v.webContents.isDestroyed()) v.webContents.send('econ:goto', view);
@@ -415,6 +441,15 @@ app.whenReady().then(async () => {
     app.quit(); return;
   }
 
+  // רישוי: שינוי סטטוס (התקנה, עדכון, סנכרון, או פקיעה עם הזמן — נבדק כל דקה) נאכף מיד
+  if (econ.onLicenseChange) econ.onLicenseChange(enforceLicense);
+  const licTimer = setInterval(licenseNow, 60 * 1000);
+  if (licTimer.unref) licTimer.unref();
+  ipcMain.handle('shell:license-state', (e) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return null;
+    return LG.shellState(licenseNow());
+  });
+
   ipcMain.handle('shell:switch', (e, id) => {
     if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return false;
     switchTo(id);
@@ -464,6 +499,8 @@ app.whenReady().then(async () => {
     const v = views.econ;
     if (!v || v.webContents.isDestroyed() || e.sender.id !== v.webContents.id) return false;
     if (!ECON_VIEWS.includes(view)) return false;
+    econView = view;
+    if (!LG.viewAllowed(licenseNow(), 'econ', view)) { openEconView('licensing'); return false; }
     if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view);
     if (active === 'econ') recordNav({ mod: 'econ', view });
     return true;
