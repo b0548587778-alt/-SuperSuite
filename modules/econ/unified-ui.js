@@ -224,7 +224,9 @@
             : [[], null];
           const remote = isAdmin ? await window.systemAPI.getLicenseRemote().catch(() => null) : null;
           const inbox = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerInbox().catch(() => []) : [];
-          state.data.licensing = { status, isAdmin, children, owner, remote, inbox };
+          const update = window.systemAPI.getUpdateStatus ? await window.systemAPI.getUpdateStatus().catch(() => null) : null;
+          const releases = isAdmin && owner && owner.unlocked && window.systemAPI.ownerReleases ? await window.systemAPI.ownerReleases().catch(() => []) : [];
+          state.data.licensing = { status, isAdmin, children, owner, remote, inbox, update, releases };
           break;
         }
         case 'messages': {
@@ -3836,7 +3838,28 @@
       </table></div>
     </div>` : '';
 
-    return `<div class="settings">${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote) : ''}</div>`;
+    return `<div class="settings">${renderUpdateCard(d.update, isAdmin)}${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote, d.releases) : ''}</div>`;
+  }
+
+  // עדכוני גרסה: גרסה מותקנת, עדכון חתום שהתקבל, והורדה / התקנה בלחיצה
+  function renderUpdateCard(u, isAdmin) {
+    if (!u) return '';
+    const av = u.available;
+    const ready = u.downloaded && av && u.downloaded.version === av.version;
+    return `<div class="card update-card">
+      <div class="acct-header"><h3>🔄 עדכוני גרסה</h3>
+        ${isAdmin ? '<div class="acct-actions"><button class="secondary small" id="updFileBtn">📂 התקנה מקובץ (USB)</button></div>' : ''}
+      </div>
+      <div class="acct-row"><span>גרסה מותקנת</span><span dir="ltr">${esc(u.currentVersion)}</span></div>
+      ${av ? `<div class="acct-row"><span>גרסה חדשה זמינה</span><span><b dir="ltr">${esc(av.version)}</b> <small class="muted">(${esc(licDate(av.issuedAt))})</small></span></div>
+        ${av.notes ? `<p class="update-notes">${esc(av.notes)}</p>` : ''}
+        ${isAdmin ? `<div class="acct-actions">
+          ${ready ? '<button class="primary" id="updInstallBtn">⬆ התקנת הגרסה עכשיו</button>'
+            : (av.url ? '<button class="primary" id="updDownloadBtn">⬇ הורדה ובדיקה</button>' : '<span class="muted">לעדכון הזה אין קישור — התקינו מקובץ</span>')}
+        </div>` : '<p class="muted">ההתקנה — על ידי מנהל המערכת.</p>'}`
+      : '<p class="muted">המערכת מעודכנת. עדכונים מגיעים בסנכרון עם השרת, או מקובץ.</p>'}
+      <p class="muted">כל עדכון חתום על ידי הספק ונבדק לפני ההתקנה — קובץ שאינו תואם לחתימה נדחה.</p>
+    </div>`;
   }
 
   // עבודה מרחוק: כשמוגדר שרת רישוי, הבקשות, האישורים והעדכונים עוברים בלחיצה — בלי להעביר קבצים
@@ -3868,7 +3891,7 @@
   }
 
   // מצב מנהל-העל: נפתח בסיסמה. ממנו מנפיקים ללקוחות ומאשרים מערכות בת
-  function renderOwnerPanel(o, inbox, remote) {
+  function renderOwnerPanel(o, inbox, remote, releases) {
     if (!o) return '';
     if (!o.initialized) {
       return `<div class="card"><h3>מצב מנהל-העל</h3>
@@ -3921,7 +3944,22 @@
           </tr>`).join('')}`).join('') || '<tr><td colspan="6" class="muted">עדיין לא הונפקו רישיונות. לקוח חדש: "פתיחת בקשה מלקוח"</td></tr>'}</tbody>
       </table></div>
       <p class="muted">שינוי סטטוס נכנס לתוקף אצל הלקוח כשהוא מקבל "קובץ עדכון" (או בהתקנת רישיון מחודש). השבתה של לקוח משביתה גם את כל מערכות הבת שלו.</p>
+      ${renderOwnerReleases(releases, remote)}
     </div>`;
+  }
+
+  function renderOwnerReleases(list, remote) {
+    const rows = (Array.isArray(list) ? list : []).slice().reverse();
+    return `<div class="acct-header"><h4>שחרור גרסאות</h4>
+        <div class="acct-actions"><button class="primary small" id="ownerReleaseBtn">＋ שחרור גרסה חדשה</button></div></div>
+      <div class="acct-scroll"><table class="acct-table">
+        <thead><tr><th>גרסה</th><th>מערכת</th><th>קובץ</th><th>שוחררה</th><th></th></tr></thead>
+        <tbody>${rows.map(r => `<tr><td dir="ltr"><b>${esc(r.version)}</b></td><td>${r.platform === 'android' ? 'אנדרואיד' : 'מחשב'}</td>
+          <td><small dir="ltr">${esc(r.fileName)}</small>${r.url ? '' : ' <small class="muted">(קובץ בלבד)</small>'}</td><td><small>${esc(licDate(r.issuedAt))}</small></td>
+          <td>${remote && remote.url ? `<button class="secondary small" data-owner-publish="${esc(r.version)}" data-platform="${esc(r.platform)}">📤 שליחה לכל המערכות</button>` : ''}</td></tr>`).join('')
+          || '<tr><td colspan="5" class="muted">עדיין לא שוחררו גרסאות</td></tr>'}</tbody>
+      </table></div>
+      <p class="muted">שחרור: בוחרים את קובץ ההתקנה (EXE / APK) — נחתמת תעודת גרסה ונשמרת לידו (.ssupdate). מעבירים את שני הקבצים ב-USB, או שולחים לכל המערכות דרך השרת עם קישור הורדה.</p>`;
   }
 
   function renderOwnerInbox(inbox) {
@@ -4271,6 +4309,35 @@
     on('ownerRemoteReceiveBtn', async () => {
       const r = await window.systemAPI.ownerRemoteReceive();
       showToast(r.added ? `התקבלו ${r.added} בקשות חדשות` : 'אין בקשות חדשות');
+    });
+    // --- עדכוני גרסה ---
+    on('updDownloadBtn', async () => {
+      showToast('מוריד ובודק את העדכון...');
+      const r = await window.systemAPI.updateDownload();
+      showToast(`גרסה ${r.version} הורדה ונבדקה — אפשר להתקין`);
+    });
+    on('updFileBtn', async () => {
+      const r = await window.systemAPI.updateFromFile();
+      if (r && r.ok) showToast(`גרסה ${r.version} נבדקה ומוכנה להתקנה`);
+    });
+    on('updInstallBtn', async () => {
+      if (!confirm('התוכנה תיסגר ותיפתח ההתקנה של הגרסה החדשה. מומלץ לגבות לפני כן. להמשיך?')) return;
+      await window.systemAPI.updateInstall();
+    });
+    on('ownerReleaseBtn', async () => {
+      const v = await licForm('שחרור גרסה חדשה', [
+        { name: 'version', label: 'מספר גרסה (למשל 3.9.0)', required: true },
+        { name: 'url', label: 'קישור הורדה https (לא חובה — בלי קישור: התקנה מקובץ בלבד)' },
+        { name: 'notes', label: 'מה חדש בגרסה' },
+      ], 'בחירת קובץ ההתקנה וחתימה', 'בשלב הבא בוחרים את קובץ ה-EXE או ה-APK. התעודה החתומה תישמר לידו.');
+      if (!v) return;
+      const r = await window.systemAPI.ownerReleaseCreate(v);
+      if (r && r.ok) showToast(`גרסה ${r.version} נחתמה. התעודה נשמרה: ${r.path}`);
+    });
+    each('data-owner-publish', async (b) => {
+      if (!confirm(`לשלוח את גרסה ${b.dataset.ownerPublish} לכל המערכות?`)) return;
+      const r = await window.systemAPI.ownerReleasePublish(b.dataset.ownerPublish, b.dataset.platform);
+      showToast(`העדכון נשלח ל-${r.sent} מערכות`);
     });
     on('ownerRemotePushBtn', async () => {
       const r = await window.systemAPI.ownerRemotePush();

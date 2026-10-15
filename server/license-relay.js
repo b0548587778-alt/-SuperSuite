@@ -21,7 +21,7 @@ const MAX_MAILBOX = 500;              // הודעות שממתינות בתיב�
 const CLOCK_SKEW_MS = 5 * 60 * 1000;  // חלון זמן לחתימה
 const RATE = { perMinute: 60 };       // בקשות לדקה לכל כתובת
 const ID_RE = /^[A-Za-z0-9_-]{22}$/;  // מזהה מפתח (keyId)
-const KINDS = new Set(['license-request', 'approval-request', 'approval', 'rejection', 'license', 'notices', 'message']);
+const KINDS = new Set(['license-request', 'approval-request', 'approval', 'rejection', 'license', 'notices', 'message', 'update']);
 
 function createRelay({ dataDir, clock = Date.now }) {
   fs.mkdirSync(dataDir, { recursive: true });

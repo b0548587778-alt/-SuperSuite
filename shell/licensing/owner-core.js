@@ -243,7 +243,15 @@ function createOwnerCore({ storage, clock = Date.now }) {
     ];
   }
 
-  return { MIN_PASS, contacts, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
+  // גרסאות ששוחררו (תעודות חתומות) — לשליחה חוזרת ולתצוגה
+  function releases() { return readJson('releases.json', []); }
+  function addRelease(text, payload) {
+    const list = releases().filter(r => !(r.version === payload.version && r.platform === payload.platform));
+    writeJson('releases.json', [...list, { version: payload.version, platform: payload.platform, fileName: payload.fileName, size: payload.size,
+      url: payload.url, notes: payload.notes, issuedAt: payload.issuedAt, text }].slice(-50));
+  }
+
+  return { MIN_PASS, contacts, releases, addRelease, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
     inbox, addToInbox, takeFromInbox, peekInbox, rootSigner, recipients };
 }
 

@@ -923,3 +923,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .chat-compose { display: grid; gap: 6px; margin-top: 8px; }
 .chat-compose textarea, .chat-compose input { width: 100%; font: inherit; padding: 8px; border: 1px solid #cbd5e1; border-radius: 8px; }
 @media (max-width: 700px) { .chat-layout { grid-template-columns: 1fr; } .chat-list { border: 0; max-height: 30vh; } }
+
+/* עדכוני גרסה */
+.update-card .update-notes{white-space:pre-wrap;background:#f6f8fb;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:13px}

@@ -6,7 +6,7 @@ const { createRemote, mailboxOf } = require('./remote');
 const M = require('./messages');
 const { PKG_REQUEST, PKG_APPROVAL_REQUEST } = require('./store');
 
-function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, ownerChat }) {
+function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, ownerChat, updates }) {
   const now = () => (clock ? clock() : Date.now());
   const remote = () => {
     const r = store.getRemoteSettings();
@@ -64,6 +64,9 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
         } else if (m.kind === 'rejection') {
           const j = JSON.parse(m.body);
           errors.push('הבקשה למערכת הבת "' + String(j.name || '') + '" נדחתה: ' + String(j.reason || ''));
+        } else if (m.kind === 'update') {
+          // תעודת גרסה — נבדקת בחתימה מול מפתח השורש; מה שאינו תקין נדחה
+          if (updates) updates.offer(m.body);
         } else if (m.kind === 'message') {
           if (chat) receiveMessage(store.syncKey(false), m.body, myContacts(), chat);
         } else if (m.kind === 'license-request') {
@@ -147,6 +150,15 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     return { sent: items.length };
   }
 
+  // מנהל-העל: שליחת תעודת גרסה לכל המערכות (לקוחות ומערכות בת)
+  async function ownerPublishUpdate(releaseText) {
+    const rm = remote();
+    const signer = owner.rootSigner();
+    const items = owner.recipients().map(to => ({ to, kind: 'update', body: releaseText }));
+    for (let i = 0; i < items.length; i += 50) await rm.send(signer, items.slice(i, i + 50));
+    return { sent: items.length };
+  }
+
   // ---------- הודעות ----------
   // אנשי הקשר של המערכת: ההורה, הילדים, ומנהל-העל — מתוך הרישיונות החתומים בלבד
   function myContacts() {
@@ -190,7 +202,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
   }
 
   return { myContacts, chatSend, chatMarkRead, ownerChatSend, ownerChatMarkRead, sendLicenseRequest, sendApprovalRequest, sendRequestToParent, receive, forwardChildRequest, dismissChildRequest, pushToChild,
-    ownerReceive, ownerReply, ownerPushNotices, ownerBox };
+    ownerReceive, ownerReply, ownerPushNotices, ownerPublishUpdate, ownerBox };
 }
 
 module.exports = { createLicenseSync, PKG_APPROVAL_REQUEST };

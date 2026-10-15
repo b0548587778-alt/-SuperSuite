@@ -33,6 +33,7 @@ const OC = require('../../shell/licensing/owner-core');
 const { createLicenseSync } = require('../../shell/licensing/sync');
 const { validateUrl } = require('../../shell/licensing/remote');
 const { createChatStore } = require('../../shell/licensing/chat');
+const UP = require('../../shell/licensing/update');
 
 let db;
 let licenseStore = null;
@@ -40,6 +41,11 @@ let ownerCore = null;
 let licenseSync = null;
 let chatStore = null;
 let ownerChatStore = null;
+let updateManager = null;
+let updatesDir = null;
+// הגרסה המותקנת (package.json). באנדרואיד החבילה מוזרקת בבנייה; אם חסרה — 0.0.0 (כל עדכון חתום חדש ממנה)
+let APP_VERSION = '0.0.0';
+try { APP_VERSION = require('../../package.json').version || APP_VERSION; } catch { /* אנדרואיד */ }
 
 // מצב הרישיון הנוכחי (docs/LICENSING-DESIGN.md). לפני אתחול — כמו התקנה בלי רישוי
 // כל שינוי סטטוס נרשם ביומן הביקורת ומודיע למאזינים (main.js — חסימת מודולים ומסך "מערכת מושבתת")
@@ -65,13 +71,16 @@ function licenseAdapters(userDataPath) {
   const ls = typeof window !== 'undefined' && window.localStorage;
   if (ls) return { storage: LS.webStorage(ls, 'supersuite.license'), secret: LS.webStorage(ls, 'supersuite.license.key'),
     owner: OC.prefixedWebStorage(ls, 'supersuite.owner.'),
-    chat: LS.webStorage(ls, 'supersuite.chat'), ownerChat: LS.webStorage(ls, 'supersuite.owner.chat') };
+    chat: LS.webStorage(ls, 'supersuite.chat'), ownerChat: LS.webStorage(ls, 'supersuite.owner.chat'),
+    updates: LS.webStorage(ls, 'supersuite.updates'), platform: 'android' };
   return {
     storage: LS.fileStorage(fs, path.join(userDataPath, 'license.json')),
     secret: LS.encryptedFileSecret(fs, path.join(userDataPath, 'license-key.bin'), safeStorage),
     owner: OC.dirStorage(fs, path, path.join(userDataPath, 'owner')),
     chat: LS.fileStorage(fs, path.join(userDataPath, 'messages.json')),
     ownerChat: LS.fileStorage(fs, path.join(userDataPath, 'owner', 'messages.json')),
+    updates: LS.fileStorage(fs, path.join(userDataPath, 'updates.json')),
+    platform: 'win',
   };
 }
 
@@ -79,8 +88,20 @@ function licenseAdapters(userDataPath) {
 let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
-async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage } = {}) {
+async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
+  updateStorage, appVersion, platform } = {}) {
   const ad = licenseAdapters(userDataPath);
+  // עדכוני גרסה: קבצים מאומתים נשמרים בתיקיית updates בתוך נתוני המשתמש
+  updatesDir = path.join(userDataPath, 'updates');
+  updateManager = UP.createUpdateManager({ storage: updateStorage || ad.updates, rootKeys, currentVersion: appVersion || APP_VERSION,
+    platform: platform || ad.platform, fetchImpl: fetchImpl || globalThis.fetch, clock: clock || Date.now,
+    saveFile: async (name, bytes) => {
+      fs.mkdirSync(updatesDir, { recursive: true });
+      const file = path.join(updatesDir, path.basename(name));
+      fs.writeFileSync(file + '.part', bytes);
+      fs.renameSync(file + '.part', file);
+      return file;
+    } });
   // מצב מנהל-העל: זמין בכל התקנה, אבל נפתח רק בסיסמה. המפתח נשמר מוצפן (SSBK1:)
   ownerCore = OC.createOwnerCore({ storage: ownerStorage || ad.owner, clock });
   rootKeysInUse = rootKeys;
@@ -88,7 +109,7 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStor
   chatStore = createChatStore({ storage: chatStorage || ad.chat, clock });
   ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock });
   licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock,
-    chat: chatStore, ownerChat: ownerChatStore });
+    chat: chatStore, ownerChat: ownerChatStore, updates: updateManager });
   licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
   db = await initializeDatabase(userDataPath);
   authService.initialize(db);
@@ -139,6 +160,9 @@ function permissionFor(channel) {
   // רישוי: התקנה, הנפקת מערכות בת והשבתתן — מנהל בלבד. מצב הרישיון — לכל משתמש מחובר
   if (channel.startsWith('license:') && channel !== 'license:getStatus') return 'users.manage';
   if (channel.startsWith('owner:')) return 'users.manage';
+  // עדכוני גרסה: כל משתמש רואה שיש עדכון; הורדה והתקנה — מנהל בלבד
+  if (channel === 'update:getStatus') return 'data.view';
+  if (channel.startsWith('update:')) return 'users.manage';
   if (channel === 'chat:send') return 'data.edit';
   if (channel.startsWith('chat:')) return 'data.view';
   if (/backup/i.test(name)) return 'data.backup';
@@ -1129,6 +1153,77 @@ handle('auth:login', async (event, username, password) => {
   handle('owner:remotePush', async (event) => {
     const r = await licenseSync.ownerPushNotices();
     await ownerAudit(event, 'notices.push', r);
+    return r;
+  });
+
+  // ---------- עדכוני גרסה חתומים ----------
+  handle('update:getStatus', async () => updateManager.status());
+  handle('update:download', async (event) => {
+    const r = await updateManager.download();
+    await auditEvent(event, 'update.download', { version: r.version });
+    return r;
+  });
+  // התקנה מקובץ (USB): בוחרים את תעודת הגרסה (.ssupdate) ואת קובץ ההתקנה שלידה
+  handle('update:fromFile', async (event) => {
+    const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ עדכון (.ssupdate)', properties: ['openFile'],
+      filters: [{ name: 'עדכון SuperSuite', extensions: ['ssupdate'] }] });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { ok: false };
+    const relFile = pick.filePaths[0];
+    if (fs.statSync(relFile).size > 64 * 1024) throw new Error('קובץ העדכון אינו תקין');
+    const text = fs.readFileSync(relFile, 'utf8');
+    const p = UP.verifyRelease(text, ROOT_KEYS_IN_USE());
+    // קובץ ההתקנה — ליד התעודה בשם שבתעודה, ואם אינו שם — המשתמש בוחר
+    let bin = path.join(path.dirname(relFile), path.basename(p.fileName));
+    if (!fs.existsSync(bin)) {
+      const pb = await dialog.showOpenDialog({ title: 'בחירת קובץ ההתקנה ' + p.fileName, properties: ['openFile'],
+        filters: [{ name: 'קובץ התקנה', extensions: UP.PLATFORMS[p.platform] }] });
+      if (pb.canceled || !pb.filePaths || !pb.filePaths[0]) return { ok: false };
+      bin = pb.filePaths[0];
+    }
+    if (fs.statSync(bin).size !== p.size) throw new Error('גודל הקובץ אינו תואם לעדכון החתום — הקובץ נדחה');
+    const r = await updateManager.fromFile(text, fs.readFileSync(bin));
+    await auditEvent(event, 'update.fromFile', { version: r.version });
+    return { ok: true, ...r };
+  });
+  // הפעלת ההתקנה: בדיקה חוזרת של הקובץ בדיסק (אולי הוחלף), ואז פתיחת המתקין וסגירת התוכנה
+  handle('update:install', async (event) => {
+    const r = updateManager.readyToInstall();
+    const file = path.resolve(r.path);
+    if (path.dirname(file) !== path.resolve(updatesDir)) throw new Error('קובץ ההתקנה אינו במקום הצפוי');
+    UP.checkFile(r.payload, fs.readFileSync(file));
+    await auditEvent(event, 'update.install', { version: r.version });
+    const electron = require('electron');
+    const err = await electron.shell.openPath(file);
+    if (err) throw new Error('פתיחת ההתקנה נכשלה: ' + err);
+    setTimeout(() => { try { electron.app.quit(); } catch { /* */ } }, 1500);
+    return { ok: true, version: r.version };
+  });
+
+  // מנהל-העל: שחרור גרסה — בוחרים קובץ התקנה, מחושבת תמצית, נחתמת תעודה ונשמרת ליד הקובץ
+  handle('owner:releaseCreate', async (event, input = {}) => {
+    const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ ההתקנה (EXE / APK)', properties: ['openFile'],
+      filters: [{ name: 'קובץ התקנה', extensions: ['exe', 'apk'] }] });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { ok: false };
+    const bin = pick.filePaths[0];
+    const st = fs.statSync(bin);
+    if (st.size > UP.MAX_SIZE) throw new Error('הקובץ גדול מדי');
+    const bytes = fs.readFileSync(bin);
+    const text = UP.createRelease(ownerCore.rootSigner(), { version: (input || {}).version, url: (input || {}).url, notes: (input || {}).notes,
+      fileName: path.basename(bin), size: bytes.length, sha256: UP.hashBytes(bytes) });
+    const payload = UP.verifyRelease(text, [ownerCore.pubkey()]);
+    ownerCore.addRelease(text, payload);
+    // התעודה נשמרת ליד קובץ ההתקנה — כך מעבירים את שניהם יחד ב-USB
+    const relPath = bin.replace(/\.(exe|apk)$/i, '') + '.ssupdate';
+    fs.writeFileSync(relPath, text, 'utf8');
+    await ownerAudit(event, 'release.create', { version: payload.version, platform: payload.platform, sha256: payload.sha256 });
+    return { ok: true, version: payload.version, platform: payload.platform, path: relPath, sha256: payload.sha256 };
+  });
+  handle('owner:releases', async () => ownerCore.releases().map(({ text, ...r }) => r));
+  handle('owner:releasePublish', async (event, version, platform) => {
+    const rel = ownerCore.releases().find(r => r.version === String(version) && r.platform === String(platform));
+    if (!rel) throw new Error('הגרסה לא נמצאה');
+    const r = await licenseSync.ownerPublishUpdate(rel.text);
+    await ownerAudit(event, 'release.publish', { version: rel.version, platform: rel.platform, sent: r.sent });
     return r;
   });
 
