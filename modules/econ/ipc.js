@@ -25,10 +25,19 @@ const { MortgageLabService: mortgageLabService } = require('./services/mortgageL
 const BK = require('./core/backupCrypto');
 const DP = require('./core/dataPorts');
 const { IDLE_MIN_RANGE } = require('./services/authService');
+const path = require('path');
+const LG = require('../../shell/licensing/gate');
+const { createLicenseStore } = require('../../shell/licensing/store');
+const ROOT_KEYS = require('../../shell/licensing/root-keys');
 
 let db;
+let licenseStore = null;
 
-async function initEcon(userDataPath) {
+// מצב הרישיון הנוכחי (docs/LICENSING-DESIGN.md). לפני אתחול — כמו התקנה בלי רישוי
+const licenseState = () => (licenseStore ? licenseStore.current() : { mode: 'unlicensed' });
+
+async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock } = {}) {
+  licenseStore = createLicenseStore({ file: path.join(userDataPath, 'license.json'), rootKeys, clock });
   db = await initializeDatabase(userDataPath);
   authService.initialize(db);
   financialService.initialize(db);
@@ -117,6 +126,9 @@ async function runGuarded(channel, fn, event, args) {
   if (perm && !authService.hasPermission(event.sender.id, perm)) {
     throw new Error('אין הרשאה לפעולה זו');
   }
+  // ההרשאה בפועל = חיתוך של התפקיד עם הרישיון: תחום שלא נפתח / מערכת מושבתת
+  const denied = LG.checkChannel(licenseState(), channel, perm);
+  if (denied) throw new Error(denied);
   return fn(event, ...args);
 }
 
@@ -885,7 +897,14 @@ handle('auth:login', async (event, username, password) => {
 
   // ---------- משתמשים ותפקידים (מנהל בלבד) ----------
   handle('users:list', async () => db.listUsers());
+  // מגבלת משתמשים פעילים לפי הרישיון
+  const assertUserLimit = async (extra) => {
+    const active = (await db.listUsers()).filter(u => u.active).length;
+    const denied = LG.checkUserLimit(licenseState(), active + extra);
+    if (denied) throw new Error(denied);
+  };
   handle('users:create', async (event, input = {}) => {
+    await assertUserLimit(1);
     const u = await db.createUser(String(input.username || '').trim(), String(input.password || ''), input.role);
     await auditEvent(event, 'users.create', { username: u.username, role: u.role });
     return u;
@@ -893,6 +912,10 @@ handle('auth:login', async (event, username, password) => {
   handle('users:update', async (event, id, input = {}) => {
     const me = authService.getSession(event.sender.id);
     if (me && me.id === id && (input.active === false || (input.role && input.role !== 'admin'))) throw new Error('לא ניתן לחסום או להוריד את ההרשאות של המשתמש המחובר עצמו');
+    if (input.active === true) {
+      const cur = (await db.listUsers()).find(x => x.id === id);
+      if (cur && !cur.active) await assertUserLimit(1);
+    }
     const u = await db.updateUser(id, { role: input.role, active: input.active });
     authService.dropUser(id);
     await auditEvent(event, 'users.update', { username: u.username, role: u.role, active: u.active });
@@ -903,6 +926,13 @@ handle('auth:login', async (event, username, password) => {
     authService.dropUser(id);
     await auditEvent(event, 'users.resetPassword', { id });
     return true;
+  });
+  // מצב הרישיון — לכל משתמש מחובר (פתוח גם במערכת מושבתת, כדי להציג את הסיבה)
+  handle('license:getStatus', async () => {
+    const s = licenseState();
+    if (s.mode === 'unlicensed') return { mode: 'unlicensed', status: 'active' };
+    return { mode: s.mode, status: s.status, reasons: (s.reasons || []).map(r => ({ kind: r.kind, reason: r.reason })),
+      graceUntil: s.graceUntil || null, features: s.features, limits: s.limits };
   });
   handle('audit:list', async (event, filter = {}) => db.listAudit(filter || {}));
   handle('audit:export', async (event, filter = {}) => {
@@ -963,4 +993,4 @@ handle('auth:login', async (event, username, password) => {
     return await db.restore(backupData);
   });
 }
-module.exports = { toUserError, initEcon, getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess };
+module.exports = { toUserError, initEcon, licenseState, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess };

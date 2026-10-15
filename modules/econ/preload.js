@@ -229,6 +229,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   resetUserPassword: (id, password) => ipcRenderer.invoke('users:resetPassword', id, password),
   listAudit: (filter) => ipcRenderer.invoke('audit:list', filter),
   exportAudit: (filter) => ipcRenderer.invoke('audit:export', filter),
+  getLicenseStatus: () => ipcRenderer.invoke('license:getStatus'),
 
   // ייבוא וייצוא
   listDataKinds: () => ipcRenderer.invoke('ports:listKinds'),

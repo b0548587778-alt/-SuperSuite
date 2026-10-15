@@ -126,6 +126,8 @@ python -m unittest test_encryption -v
 - `users.manage` — `users:*`, `audit:*`, `settings:saveAdvanced` (מנהל בלבד)
 ערוצים ציבוריים מוגדרים ב-`PUBLIC_CHANNELS` — **אל תוסיף לשם בלי סיבה מוצדקת**.
 
+**רישוי:** אחרי בדיקת התפקיד, `runGuarded` בודק גם את הרישיון (`shell/licensing/gate.js`). ההרשאה בפועל היא חיתוך של התפקיד עם הרישיון. תחילית ערוצים חדשה לתחום שנפתח בנפרד → להוסיף ל-`ECON_SUB_FEATURES` (ראו docs/LICENSING-DESIGN.md).
+
 ### 3. אטומיות במסד הנתונים
 כל פעולה על ה-DB עוברת דרך `enqueue()` — תור שמבטיח הרצה סדרתית.
 הרצה במקביל דורסת עדכונים ומייצרת מספרי חשבונית כפולים. **אל תעקוף את `enqueue`**.
