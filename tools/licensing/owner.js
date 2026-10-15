@@ -18,13 +18,18 @@
 //   node tools/licensing/owner.js terminate --target <id> --reason "..."
 //   node tools/licensing/owner.js kill --reason "..."          נעילה גלובלית של כל המערכות
 //   node tools/licensing/owner.js notices --target <id> --out notices.sslic
+//   node tools/licensing/owner.js review --request approval-request.sslic     הצגת בקשה של לקוח למערכת בת
+//   node tools/licensing/owner.js approve --request approval-request.sslic --out approval.sslic
+//   node tools/licensing/owner.js approvals                                    כל מערכות הבת שאושרו
+//   node tools/licensing/owner.js revoke --child <id> --reason "..."          ביטול אישור: מסיים את מערכת הבת ומפנה משבצת
 'use strict';
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const L = require('../../shell/licensing/license');
 const S = require('../../shell/licensing/status');
 const BK = require('../../modules/econ/core/backupCrypto');
-const { PKG_LICENSE, PKG_REQUEST, PKG_NOTICES } = require('../../shell/licensing/store');
+const { PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL } = require('../../shell/licensing/store');
 
 const MIN_PASS = 12;
 const MONTH_MS = 30 * L.DAY_MS;
@@ -59,7 +64,7 @@ function createOwner({ dir, passphrase, clock = Date.now }) {
     if (fs.existsSync(file('root.key'))) throw new Error('כבר קיים מפתח שורש בתיקייה הזו — לא נדרס');
     const k = L.generateKeyPair();
     fs.writeFileSync(file('root.key'), BK.encryptBackup(JSON.stringify(k.privateJwk), needPass()));
-    writeJson('registry.json', { tenants: [] });
+    writeJson('registry.json', { tenants: [], approvals: [] });
     writeJson('notices.json', []);
     return { keyId: k.keyId, publicKey: k.publicJwk };
   }
@@ -113,9 +118,73 @@ function createOwner({ dir, passphrase, clock = Date.now }) {
     }).sort((a, b) => a.slot - b.slot);
   }
 
+  // ---------- אישור מערכות בת: לקוח מבקש, מנהל-העל מאשר (וסופר את המכסה) ----------
+  function readApprovalRequest(text) {
+    let pkg;
+    try { pkg = typeof text === 'string' ? JSON.parse(text) : text; } catch { throw new Error('הקובץ אינו בקשת אישור תקינה'); }
+    if (!pkg || pkg.type !== PKG_APPROVAL_REQUEST || !pkg.child) throw new Error('הקובץ אינו בקשת אישור למערכת בת');
+    const parent = L.verifyChain(pkg.parentChain, [pubkey()]);
+    return { parent, child: pkg.child, childId: L.keyId(pkg.child.publicKey) };
+  }
+
+  function activeApprovals(reg, parentId) {
+    return (reg.approvals || []).filter(x => x.parentId === parentId && !x.revoked);
+  }
+
+  // תצוגה לפני אישור: מי מבקש, מה, והאם יש מקום במכסה
+  function review(opts) {
+    const { parent, child, childId } = readApprovalRequest(opts.request);
+    const reg = readJson('registry.json', { tenants: [], approvals: [] });
+    const used = activeApprovals(reg, parent.id);
+    const renewal = used.some(x => x.childId === childId);
+    return { parentId: parent.id, parentName: parent.name, childId, name: child.name, features: child.features, limits: child.limits,
+      expiresAt: child.expiresAt, renewal, quota: { used: used.length, max: parent.limits.maxChildren },
+      problem: L.checkTerms(parent, child) || (!renewal && used.length >= parent.limits.maxChildren ? 'המכסה של הלקוח מלאה' : null) };
+  }
+
+  function approve(opts) {
+    const { parent, child, childId } = readApprovalRequest(opts.request);
+    const reg = readJson('registry.json', { tenants: [], approvals: [] });
+    const used = activeApprovals(reg, parent.id);
+    const prev = used.find(x => x.childId === childId);
+    let slot = prev && prev.slot;
+    if (!slot) {
+      const taken = new Set(used.map(x => x.slot));
+      for (let i = 1; i <= parent.limits.maxChildren; i++) if (!taken.has(i)) { slot = i; break; }
+      if (!slot) throw new Error(`המכסה של "${parent.name}" מלאה: עד ${parent.limits.maxChildren} מערכות בת`);
+    }
+    const problem = L.checkTerms(parent, { ...child, slot });
+    if (problem) throw new Error(problem);
+    const now = clock();
+    const approval = L.createApproval(rootKey(), {
+      id: crypto.randomUUID(), parentId: parent.id, childPublicKey: child.publicKey, depth: parent.depth + 1, slot,
+      name: child.name, features: child.features, limits: child.limits, expiresAt: child.expiresAt, graceDays: child.graceDays, approvedAt: now,
+    });
+    reg.approvals = [...(reg.approvals || []).filter(x => x !== prev),
+      { id: approval.payload.id, parentId: parent.id, parentName: parent.name, childId, slot, name: approval.payload.name, approvedAt: now }];
+    writeJson('registry.json', reg);
+    return { childId, slot, package: JSON.stringify({ type: PKG_APPROVAL, v: 1, approval }) };
+  }
+
+  function approvals() {
+    return (readJson('registry.json', { tenants: [], approvals: [] }).approvals || [])
+      .map(({ id, parentId, parentName, childId, slot, name, approvedAt, revoked }) => ({ id, parentId, parentName, childId, slot, name, approvedAt, revoked: !!revoked }));
+  }
+
+  // ביטול אישור: הודעת סיום למערכת הבת, והמשבצת מתפנה
+  function revoke({ childId, reason }) {
+    const reg = readJson('registry.json', { tenants: [], approvals: [] });
+    const a = (reg.approvals || []).find(x => x.childId === childId && !x.revoked);
+    if (!a) throw new Error('לא נמצא אישור פעיל למערכת הזו');
+    const n = notice({ type: 'terminate', target: childId, reason });
+    a.revoked = true;
+    writeJson('registry.json', reg);
+    return n;
+  }
+
   const noticesPackage = (target) => JSON.stringify({ type: PKG_NOTICES, v: 1, notices: noticesFor([target]) });
 
-  return { init, pubkey, issue, notice, list, noticesPackage };
+  return { init, pubkey, issue, notice, list, noticesPackage, review, approve, approvals, revoke };
 }
 
 function limitsFrom(a) {
@@ -153,9 +222,18 @@ function main(argv) {
     case 'release': return console.log(owner.notice({ type: 'release', target: a.target, holdId: a.hold, reason: a.reason }));
     case 'terminate': return console.log(owner.notice({ type: 'terminate', target: a.target, reason: a.reason }));
     case 'kill': return console.log(owner.notice({ type: 'hold', target: S.ALL, kind: 'locked', source: 'owner', reason: a.reason }));
+    case 'review': if (!a.request) throw new Error('חסר --request'); return console.log(owner.review({ request: fs.readFileSync(a.request, 'utf8') }));
+    case 'approve': {
+      if (!a.request) throw new Error('חסר --request');
+      const r = owner.approve({ request: fs.readFileSync(a.request, 'utf8') });
+      console.log(`אושרה מערכת בת ${r.childId} (משבצת ${r.slot})`);
+      return out(r.package);
+    }
+    case 'approvals': return console.table(owner.approvals());
+    case 'revoke': return console.log(owner.revoke({ childId: a.child, reason: a.reason }));
     case 'notices': if (!a.target) throw new Error('חסר --target'); return out(owner.noticesPackage(a.target));
     default:
-      console.log('פקודות: init | pubkey | issue | list | hold | release | terminate | kill | notices (פירוט בראש הקובץ)');
+      console.log('פקודות: init | pubkey | issue | list | hold | release | terminate | kill | notices | review | approve | approvals | revoke (פירוט בראש הקובץ)');
   }
 }
 

@@ -234,6 +234,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   installLicense: (text) => ipcRenderer.invoke('license:install', text),
   importLicenseNotices: (text) => ipcRenderer.invoke('license:importNotices', text),
   listLicenseChildren: () => ipcRenderer.invoke('license:listChildren'),
+  requestLicenseChildApproval: (input) => ipcRenderer.invoke('license:requestChildApproval', input),
   issueLicenseChild: (input) => ipcRenderer.invoke('license:issueChild', input),
   holdLicenseChild: (input) => ipcRenderer.invoke('license:holdChild', input),
   releaseLicenseChild: (input) => ipcRenderer.invoke('license:releaseChild', input),

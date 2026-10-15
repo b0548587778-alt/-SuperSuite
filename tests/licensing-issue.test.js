@@ -35,6 +35,12 @@ function setup(clock = () => T0) {
   return { owner, rootKeys, install, tenantLimits, childLimits };
 }
 
+// מערכת בת: לקוח מבקש אישור ← מנהל-העל מאשר ← הלקוח מנפיק
+function approveAndIssue(owner, tenant, childStore, name, terms) {
+  const req = tenant.requestChildApproval({ request: childStore.request(name), ...terms });
+  return tenant.issueChild({ approval: owner.approve({ request: req.package }).package });
+}
+
 test('crypto-lite: תואם ל-node:crypto (SHA, מפתח ציבורי, חתימה ואימות)', () => {
   const msg = C.utf8('רישיון בדיקה '.repeat(40));
   assert.deepEqual(Buffer.from(C.sha256(msg)), crypto.createHash('sha256').update(msg).digest());
@@ -107,11 +113,12 @@ test('לקוח מנפיק מערכות בת במסגרת המכסה, וחידו�
   const tenant = install();
   tenant.install(owner.issue({ request: tenant.request('רשת'), features: ['econ', 'econ.npo'], limits: tenantLimits }).package);
   const c1 = install(); const c2 = install(); const c3 = install();
-  const r1 = tenant.issueChild({ request: c1.request('סניף א'), features: ['econ'], limits: childLimits, months: 6 });
-  tenant.issueChild({ request: c2.request('סניף ב'), features: ['econ'], limits: childLimits });
-  assert.throws(() => tenant.issueChild({ request: c3.request('סניף ג'), features: ['econ'], limits: childLimits }), /המכסה מלאה/);
-  assert.throws(() => tenant.issueChild({ request: c3.request('ג'), features: ['econ', 'trainer'], limits: childLimits }), /trainer|המכסה/);
-  const renewed = tenant.issueChild({ request: c1.request('סניף א'), features: ['econ'], limits: childLimits, months: 12 });
+  const r1 = approveAndIssue(owner, tenant, c1, 'סניף א', { features: ['econ'], limits: childLimits, months: 6 });
+  approveAndIssue(owner, tenant, c2, 'סניף ב', { features: ['econ'], limits: childLimits });
+  assert.throws(() => approveAndIssue(owner, tenant, c3, 'סניף ג', { features: ['econ'], limits: childLimits }), /מלאה/);
+  assert.match(owner.review({ request: tenant.requestChildApproval({ request: c3.request('סניף ג'), features: ['econ'], limits: childLimits }).package }).problem, /מלאה/);
+  assert.throws(() => tenant.requestChildApproval({ request: c3.request('ג'), features: ['econ', 'trainer'], limits: childLimits }), /trainer/);
+  const renewed = approveAndIssue(owner, tenant, c1, 'סניף א', { features: ['econ'], limits: childLimits, months: 12 });
   assert.equal(renewed.child.slot, r1.child.slot);
   c1.install(renewed.package);
   assert.equal(c1.current().status, 'active');
@@ -124,7 +131,7 @@ test('לקוח לא מקבל להעניק יותר ממה שיש לו', () => {
   const tenant = install();
   tenant.install(owner.issue({ request: tenant.request('רשת'), features: ['econ'], limits: tenantLimits }).package);
   const c = install();
-  assert.throws(() => tenant.issueChild({ request: c.request('x'), features: ['econ'],
+  assert.throws(() => tenant.requestChildApproval({ request: c.request('x'), features: ['econ'],
     limits: { maxChildren: 0, maxUsers: 50, maxStorageMb: 1, maxDepth: 2 } }), /maxUsers/);
 });
 
@@ -133,7 +140,7 @@ test('Cascade דרך קבצי הודעות: השבתת לקוח מגיעה למ�
   const { owner, install, tenantLimits, childLimits } = setup(() => now);
   const tenant = install(); const child = install();
   tenant.install(owner.issue({ request: tenant.request('רשת'), features: ['econ'], limits: tenantLimits }).package);
-  const { package: cpkg, child: info } = tenant.issueChild({ request: child.request('סניף'), features: ['econ'], limits: childLimits });
+  const { package: cpkg, child: info } = approveAndIssue(owner, tenant, child, 'סניף', { features: ['econ'], limits: childLimits });
   child.install(cpkg);
 
   now += DAY;
@@ -147,7 +154,7 @@ test('Cascade דרך קבצי הודעות: השבתת לקוח מגיעה למ�
   const top = owner.notice({ type: 'hold', target: tenantId, kind: 'pending_payment', source: 'billing', reason: 'החיוב נכשל' });
   tenant.importNotices(owner.noticesPackage(tenantId));
   assert.equal(tenant.current().status, 'pending_payment');
-  assert.throws(() => tenant.issueChild({ request: install().request('x'), features: ['econ'], limits: childLimits }), /אינה פעילה/);
+  assert.throws(() => tenant.requestChildApproval({ request: install().request('x'), features: ['econ'], limits: childLimits }), /אינה פעילה/);
 
   now += DAY;
   owner.notice({ type: 'release', target: tenantId, holdId: top.id, reason: 'התשלום התקבל' });
@@ -239,4 +246,33 @@ test('אנדרואיד: ipc בוחר localStorage כשרץ ב-WebView, עם המ
     L._forceLite(false);
     delete global.window;
   }
+});
+
+test('אישור: לקוח לא יכול להנפיק בלי אישור, ואישור של לקוח אחר נדחה', () => {
+  const { owner, install, tenantLimits, childLimits } = setup();
+  const a = install(); const b = install(); const c = install();
+  a.install(owner.issue({ request: a.request('רשת א'), features: ['econ'], limits: tenantLimits }).package);
+  b.install(owner.issue({ request: b.request('רשת ב'), features: ['econ'], limits: tenantLimits }).package);
+  const req = b.requestChildApproval({ request: c.request('סניף'), features: ['econ'], limits: childLimits });
+  const approvalForB = owner.approve({ request: req.package }).package;
+  assert.throws(() => a.issueChild({ approval: approvalForB }), /אינו מיועד/);
+  assert.throws(() => a.issueChild({ approval: '{"type":"supersuite-approval","approval":null}' }), /אינו מיועד/);
+  assert.equal(b.issueChild({ approval: approvalForB }).child.name, 'סניף');
+});
+
+test('אישור: ביטול מסיים את מערכת הבת ומפנה משבצת', () => {
+  let now = T0;
+  const { owner, install, tenantLimits, childLimits } = setup(() => now);
+  const t = install();
+  t.install(owner.issue({ request: t.request('רשת'), features: ['econ'], limits: { ...tenantLimits, maxChildren: 1 } }).package);
+  const c1 = install(); const c2 = install();
+  const { child: info, package: pkg } = approveAndIssue(owner, t, c1, 'סניף א', { features: ['econ'], limits: childLimits });
+  c1.install(pkg);
+  assert.throws(() => approveAndIssue(owner, t, c2, 'סניף ב', { features: ['econ'], limits: childLimits }), /מלאה/);
+  now += DAY;
+  owner.revoke({ childId: info.id, reason: 'הסניף נסגר' });
+  c1.importNotices(owner.noticesPackage(info.id));
+  assert.equal(c1.current().status, 'terminated');
+  assert.equal(approveAndIssue(owner, t, c2, 'סניף ב', { features: ['econ'], limits: childLimits }).child.slot, 1);
+  assert.equal(owner.approvals().filter(x => x.revoked).length, 1);
 });

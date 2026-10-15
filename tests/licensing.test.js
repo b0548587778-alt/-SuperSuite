@@ -22,14 +22,24 @@ function tenant(over = {}) {
   return { keys, license, issuer: { privateJwk: keys.privateJwk, license } };
 }
 
+let approvalSeq = 0;
+// אישור מנהל-העל למערכת בת, בדיוק בתנאים המבוקשים
+function approvalFor(parent, keys, input, signer = root.privateJwk) {
+  const p = parent.license.payload;
+  return L.createApproval(signer, { id: 'appr-' + (++approvalSeq), parentId: p.id, childPublicKey: keys.publicJwk,
+    depth: p.depth + 1, slot: input.slot, name: input.name, features: input.features, limits: input.limits,
+    expiresAt: input.expiresAt, graceDays: input.graceDays, approvedAt: T0 });
+}
+
 function child(parent, over = {}) {
   const keys = L.generateKeyPair();
-  const license = L.issueLicense(parent.issuer, {
+  const input = {
     name: 'סניף בני ברק', publicKey: keys.publicJwk, slot: 1,
     features: ['econ'],
     limits: { maxChildren: 0, maxUsers: 5, maxStorageMb: 1000, maxDepth: 2 },
     issuedAt: T0, expiresAt: T0 + 30 * DAY, graceDays: 7, ...over,
-  });
+  };
+  const license = L.issueLicense(parent.issuer, { ...input, approval: approvalFor(parent, keys, input) }, { rootKeys });
   return { keys, license, issuer: { privateJwk: keys.privateJwk, license } };
 }
 
@@ -209,4 +219,32 @@ test('שרשרת לא תקינה = נעול, עם סיבה', () => {
   const s = status([c.license]);
   assert.strictEqual(s.status, 'locked');
   assert.ok(s.invalid);
+});
+
+test('אישור מנהל-העל: מערכת בת בלי אישור נדחית, גם כשהלקוח חותם בעצמו', () => {
+  const t = tenant(); const keys = L.generateKeyPair();
+  const input = { name: 'סניף', publicKey: keys.publicJwk, slot: 1, features: ['econ'],
+    limits: { maxChildren: 0, maxUsers: 5, maxStorageMb: 10, maxDepth: 2 }, issuedAt: T0, expiresAt: T0 + 10 * DAY, graceDays: 7 };
+  assert.throws(() => L.issueLicense(t.issuer, input, { rootKeys }), /דורשת אישור/);
+  const lic = { payload: { ...child(t).license.payload, id: L.keyId(keys.publicJwk), publicKey: keys.publicJwk }, sig: '' };
+  lic.sig = L.signObject(lic.payload, t.keys.privateJwk);
+  assert.throws(() => L.verifyChain([t.license, lic], rootKeys), /דורשת אישור/);
+});
+
+test('אישור מנהל-העל: אישור שחתם הלקוח עצמו, או אישור למערכת אחרת — נדחים', () => {
+  const t = tenant(); const keys = L.generateKeyPair(); const other = L.generateKeyPair();
+  const input = { name: 'סניף', publicKey: keys.publicJwk, slot: 1, features: ['econ'],
+    limits: { maxChildren: 0, maxUsers: 5, maxStorageMb: 10, maxDepth: 2 }, issuedAt: T0, expiresAt: T0 + 10 * DAY, graceDays: 7 };
+  assert.throws(() => L.issueLicense(t.issuer, { ...input, approval: approvalFor(t, keys, input, t.keys.privateJwk) }, { rootKeys }), /אינו חתום על ידי מנהל-העל/);
+  assert.throws(() => L.issueLicense(t.issuer, { ...input, approval: approvalFor(t, other, input) }, { rootKeys }), /אינו תואם/);
+});
+
+test('אישור מנהל-העל: אי אפשר להנפיק יותר ממה שאושר', () => {
+  const t = tenant(); const keys = L.generateKeyPair();
+  const input = { name: 'סניף', publicKey: keys.publicJwk, slot: 1, features: ['econ'],
+    limits: { maxChildren: 0, maxUsers: 2, maxStorageMb: 10, maxDepth: 2 }, issuedAt: T0, expiresAt: T0 + 10 * DAY, graceDays: 7 };
+  const approval = approvalFor(t, keys, input);
+  assert.throws(() => L.issueLicense(t.issuer, { ...input, limits: { ...input.limits, maxUsers: 5 }, approval }, { rootKeys }), /המגבלות שאושרו/);
+  assert.throws(() => L.issueLicense(t.issuer, { ...input, features: ['econ', 'tools'], approval }, { rootKeys }), /התכונות שאושרו/);
+  assert.throws(() => L.issueLicense(t.issuer, { ...input, expiresAt: T0 + 20 * DAY, approval }, { rootKeys }), /התוקף שאושר/);
 });

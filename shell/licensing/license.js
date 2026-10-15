@@ -152,8 +152,52 @@ function checkAgainstParent(child, parent) {
   return null;
 }
 
-// הנפקה. issuer = { privateJwk, license? } — בלי license זו חתימת שורש (לקוח ברמה 1)
-function issueLicense(issuer, input) {
+// בדיקת תנאים מבוקשים מול ההורה, לפני הנפקה (משבצת ברירת מחדל 1 — נקבעת אצל מנהל-העל)
+function checkTerms(parent, terms) {
+  let features, limits;
+  try { features = normalizeFeatures(terms.features); limits = normalizeLimits(terms.limits); } catch (e) { return e.message; }
+  if (!Number.isSafeInteger(terms.expiresAt)) return 'תאריכי תוקף לא תקינים';
+  return checkAgainstParent({ parentId: parent.id, depth: parent.depth + 1, slot: terms.slot == null ? 1 : terms.slot,
+    features, limits, expiresAt: terms.expiresAt }, parent);
+}
+
+// אישור מנהל-העל למערכת בת: כל רישיון בעומק 2 ומעלה חייב לשאת אישור חתום במפתח השורש.
+// כך לקוח אינו יכול להנפיק מערכת בת בלי אישור — גם אם הוא מחזיק את המפתח הפרטי שלו
+function createApproval(rootPrivateJwk, input) {
+  if (typeof input.id !== 'string' || !input.id) throw new Error('מזהה אישור חסר');
+  for (const k of ['depth', 'slot', 'expiresAt', 'approvedAt']) {
+    if (!Number.isSafeInteger(input[k]) || input[k] < 1) throw new Error('שדה לא תקין באישור: ' + k);
+  }
+  const graceDays = input.graceDays == null ? 7 : input.graceDays;
+  if (!Number.isSafeInteger(graceDays) || graceDays < 0 || graceDays > 90) throw new Error('תקופת חסד לא תקינה');
+  const payload = {
+    v: 1, type: 'approval', id: input.id,
+    parentId: input.parentId, childId: keyId(input.childPublicKey), childPublicKey: publicOf(input.childPublicKey),
+    depth: input.depth, slot: input.slot, name: cleanName(input.name),
+    features: normalizeFeatures(input.features), limits: normalizeLimits(input.limits),
+    expiresAt: input.expiresAt, graceDays, approvedAt: input.approvedAt,
+  };
+  return { payload, sig: signObject(payload, rootPrivateJwk) };
+}
+
+function checkApproval(approval, child, rootKeys) {
+  const a = approval && approval.payload;
+  if (!a) return 'מערכת בת דורשת אישור של מנהל-העל';
+  if (a.v !== 1 || a.type !== 'approval') return 'אישור בפורמט לא מוכר';
+  if (!(rootKeys || []).some(k => verifyObject(a, approval.sig, k))) return 'האישור אינו חתום על ידי מנהל-העל';
+  if (a.childId !== child.id || a.parentId !== child.parentId || a.depth !== child.depth || a.slot !== child.slot) {
+    return 'האישור אינו תואם למערכת הזו';
+  }
+  const approved = new Set(a.features || []);
+  if (child.features.some(f => !approved.has(f))) return 'הרישיון חורג מהתכונות שאושרו';
+  for (const k of LIMIT_KEYS) if (!(child.limits[k] <= (a.limits || {})[k])) return 'הרישיון חורג מהמגבלות שאושרו';
+  if (child.expiresAt > a.expiresAt || child.graceDays > a.graceDays) return 'הרישיון חורג מהתוקף שאושר';
+  return null;
+}
+
+// הנפקה. issuer = { privateJwk, license? } — בלי license זו חתימת שורש (לקוח ברמה 1).
+// מערכת בת (יש license להורה): חובה input.approval ו-opts.rootKeys לאימות האישור
+function issueLicense(issuer, input, opts = {}) {
   const parent = issuer.license ? issuer.license.payload : null;
   if (parent && keyId(issuer.privateJwk) !== parent.id) throw new Error('המפתח אינו תואם לרישיון המנפיק');
   const payload = buildPayload({
@@ -161,9 +205,11 @@ function issueLicense(issuer, input) {
     parentId: parent ? parent.id : null,
     depth: parent ? parent.depth + 1 : 1,
   });
-  const problem = checkAgainstParent(payload, parent);
+  const problem = checkAgainstParent(payload, parent) || (parent ? checkApproval(input.approval, payload, opts.rootKeys) : null);
   if (problem) throw new Error(problem);
-  return { payload, sig: signObject(payload, issuer.privateJwk) };
+  const lic = { payload, sig: signObject(payload, issuer.privateJwk) };
+  if (parent) lic.approval = input.approval;
+  return lic;
 }
 
 // אימות שרשרת מלאה [רישיון לקוח, ..., רישיון הצומת] מול מפתחות השורש המהימנים.
@@ -187,7 +233,7 @@ function verifyChain(chain, rootKeys) {
 
     const signers = parent ? [parent.publicKey] : rootKeys;
     if (!signers.some(k => verifyObject(lic.payload, lic.sig, k))) throw new Error('חתימת הרישיון אינה תקינה');
-    const problem = checkAgainstParent(lic.payload, parent);
+    const problem = checkAgainstParent(lic.payload, parent) || (parent ? checkApproval(lic.approval, lic.payload, rootKeys) : null);
     if (problem) throw new Error(problem);
     parent = lic.payload;
   }
@@ -206,5 +252,5 @@ function validity(payload, now) {
 module.exports = {
   LICENSE_VERSION, LIMIT_KEYS, DAY_MS,
   canonical, keyId, publicOf, generateKeyPair, signObject, verifyObject, sha256Hex, _forceLite,
-  issueLicense, verifyChain, checkAgainstParent, validity,
+  issueLicense, verifyChain, checkAgainstParent, checkTerms, createApproval, checkApproval, validity,
 };

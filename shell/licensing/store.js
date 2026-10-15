@@ -10,6 +10,8 @@ const MAX_NOTICES = 2000;
 const PKG_LICENSE = 'supersuite-license';
 const PKG_REQUEST = 'supersuite-license-request';
 const PKG_NOTICES = 'supersuite-license-notices';
+const PKG_APPROVAL_REQUEST = 'supersuite-approval-request';
+const PKG_APPROVAL = 'supersuite-approval';
 const MONTH_MS = 30 * L.DAY_MS;
 
 // storage / secret: { read(): string|null, write(text) }. secret מחזיק את המפתח הפרטי של הצומת — חייב להיות מוצפן/פרטי.
@@ -128,31 +130,39 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now }
     return { d, key, own };
   }
 
-  // משבצת תפוסה כל עוד הרישיון שלה בתוקף או שהמערכת לא הסתיימה
-  function slotTaken(child, notices, now) {
-    const terminated = notices.some(n => n.payload.type === 'terminate' && n.payload.target === child.id);
-    return !terminated || L.validity(child.license.payload, now).state !== 'expired';
+  // שלב א: בקשת אישור ממנהל-העל. התנאים נבדקים כבר כאן מול הרישיון של המערכת;
+  // המשבצת והחתימה הסופית נקבעות אצל מנהל-העל (הוא גם סופר את המכסה)
+  function requestChildApproval(input) {
+    const { d, own } = issuerContext();
+    const req = parsePackage(input.request, PKG_REQUEST);
+    const now = Math.max(clock(), d.lastSeen || 0);
+    const months = Number.isSafeInteger(input.months) && input.months > 0 ? input.months : 12;
+    const child = {
+      publicKey: req.publicKey, name: String(input.name || req.name || '').trim().slice(0, 80),
+      features: input.features, limits: input.limits,
+      expiresAt: Math.min(now + months * MONTH_MS, own.payload.expiresAt),
+      graceDays: input.graceDays == null ? 7 : input.graceDays,
+    };
+    const childId = L.keyId(child.publicKey);
+    const problem = L.checkTerms(own.payload, child);
+    if (problem) throw new Error(problem);
+    return { childId, package: JSON.stringify({ type: PKG_APPROVAL_REQUEST, v: 1, parentChain: d.chain, child }) };
   }
 
+  // שלב ב: הנפקה לפי אישור חתום של מנהל-העל — בדיוק בתנאים שאושרו
   function issueChild(input) {
     const { d, key, own } = issuerContext();
-    const req = parsePackage(input.request, PKG_REQUEST);
-    const childId = L.keyId(req.publicKey);
+    const pkg = parsePackage(input.approval, PKG_APPROVAL);
+    const a = pkg.approval && pkg.approval.payload;
+    if (!a || a.parentId !== own.payload.id) throw new Error('האישור אינו מיועד למערכת הזו');
     const now = Math.max(clock(), d.lastSeen || 0);
-    const children = d.children || [];
-    const existing = children.find(c => c.id === childId);
-    let slot = existing && existing.slot;
-    if (!slot) {
-      const taken = new Set(children.filter(c => slotTaken(c, d.notices || [], now)).map(c => c.slot));
-      for (let i = 1; i <= own.payload.limits.maxChildren; i++) if (!taken.has(i)) { slot = i; break; }
-      if (!slot) throw new Error(`המכסה מלאה: מותר להנפיק עד ${own.payload.limits.maxChildren} מערכות בת`);
-    }
-    const months = Number.isSafeInteger(input.months) && input.months > 0 ? input.months : 12;
     const lic = L.issueLicense({ privateJwk: key, license: own }, {
-      name: input.name || req.name, publicKey: req.publicKey, slot,
-      features: input.features, limits: input.limits,
-      issuedAt: now, expiresAt: Math.min(now + months * MONTH_MS, own.payload.expiresAt), graceDays: input.graceDays,
-    });
+      name: a.name, publicKey: a.childPublicKey, slot: a.slot, features: a.features, limits: a.limits,
+      issuedAt: now, expiresAt: a.expiresAt, graceDays: a.graceDays, approval: pkg.approval,
+    }, { rootKeys });
+    const childId = lic.payload.id;
+    const slot = a.slot;
+    const children = d.children || [];
     const entry = { id: childId, slot, name: lic.payload.name, license: lic, issuedAt: now };
     save({ ...d, children: [...children.filter(c => c.id !== childId), entry] });
     return { child: summarizeChild(entry, d), package: licensePackage([...d.chain, lic], d.notices) };
@@ -197,7 +207,7 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now }
   const licensePackage = (chain, notices) => JSON.stringify({ type: PKG_LICENSE, v: 1, chain, notices: relevant(notices, chain.map(l => l.payload.id)) });
   const noticesPackage = (notices, ids) => JSON.stringify({ type: PKG_NOTICES, v: 1, notices: relevant(notices, ids) });
 
-  return { current, invalidate() { cached = null; }, request, install, importNotices, issueChild, noticeForChild, listChildren };
+  return { current, invalidate() { cached = null; }, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren };
 }
 
 // אחסון בקבצים (שולחן העבודה). fs מוזרק כדי לא לתלות את הקוד באנדרואיד
@@ -228,4 +238,4 @@ function webStorage(ls, key) {
   return { read: () => ls.getItem(key), write: (text) => ls.setItem(key, text) };
 }
 
-module.exports = { createLicenseStore, fileStorage, encryptedFileSecret, webStorage, CACHE_MS, PKG_LICENSE, PKG_REQUEST, PKG_NOTICES };
+module.exports = { createLicenseStore, fileStorage, encryptedFileSecret, webStorage, CACHE_MS, PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL };

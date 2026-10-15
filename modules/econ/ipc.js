@@ -965,6 +965,12 @@ handle('auth:login', async (event, username, password) => {
     return r;
   });
   handle('license:listChildren', async () => licenseStore.listChildren());
+  // מערכת בת: קודם בקשת אישור ממנהל-העל, ורק עם האישור החתום — הנפקה
+  handle('license:requestChildApproval', async (event, input = {}) => {
+    const r = licenseStore.requestChildApproval(input || {});
+    await auditEvent(event, 'license.child.approvalRequest', { childId: r.childId, features: (input || {}).features, limits: (input || {}).limits });
+    return r;
+  });
   handle('license:issueChild', async (event, input = {}) => {
     const r = licenseStore.issueChild(input || {});
     await auditEvent(event, 'license.child.issue', { id: r.child.id, name: r.child.name, slot: r.child.slot, features: r.child.features, limits: r.child.limits });
