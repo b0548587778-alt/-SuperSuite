@@ -11,6 +11,7 @@ const Catalog = require('./shell/catalog');
 const Hebcal = require('./shell/hebcal');
 const NavHistory = require('./shell/history');
 const Layout = require('./shell/layout');
+const SyncService = require('./shell/sync/service');
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
   try { return Catalog.extrasFromHtml(fs.readFileSync(path.join(__dirname, 'modules', 'econ', 'views', 'index.html'), 'utf8')); }
@@ -419,6 +420,35 @@ function econLoggedIn() {
   try { econ.assertAccess(v.webContents.id, 'data.view'); return true; } catch { return false; }
 }
 
+/* ---------- מכשירים מחוברים (סנכרון עמית-לעמית, docs/SYNC-DESIGN.md) ----------
+   כבוי כברירת מחדל. כל פעולה — מהמעטפת בלבד ולמנהל בלבד (users.manage): צימוד נותן למכשיר אחר
+   גישה לכל הנתונים. בשבת וביום טוב (מצב שבת) השירות לא מאזין ולא מתחבר. */
+let sync = null;
+function syncPaused() {
+  const cal = calendarSettings();
+  return !!(cal.shabbatMode && Hebcal.shabbatStatus(Date.now(), cal).active);
+}
+function registerSyncHandlers() {
+  sync = SyncService.createSyncService({ dir: app.getPath('userData'), safeStorage, isPaused: syncPaused });
+  sync.on('changed', () => { if (win && !win.isDestroyed()) win.webContents.send('shell:sync-changed'); });
+  const h = (ch, fn) => ipcMain.handle(ch, (e, ...args) => { shellGuard(e, 'users.manage'); return fn(...args); });
+  const str = (v) => (typeof v === 'string' ? v : '');
+  h('sync:status', () => sync.status());
+  h('sync:set-enabled', (on) => sync.setEnabled(on === true));
+  h('sync:rename', (name) => sync.rename(str(name)));
+  h('sync:set-port', (port) => sync.setPort(Number(port)));
+  h('sync:create-invite', (host) => sync.createInvite(str(host)));
+  h('sync:cancel-invite', () => sync.cancelInvite());
+  h('sync:join', (code, endpoint) => sync.join(str(code), str(endpoint)));
+  h('sync:approve', (reqId) => sync.approve(str(reqId)));
+  h('sync:reject', (reqId) => sync.reject(str(reqId)));
+  h('sync:connect', (peerId, endpoint) => sync.connect(str(peerId), str(endpoint)));
+  h('sync:ping', (peerId) => sync.ping(str(peerId)));
+  h('sync:revoke', (peerId) => sync.revoke(str(peerId)));
+  sync.init().catch((err) => console.error('sync init failed', err));
+}
+app.on('will-quit', () => { if (sync) sync.close().catch(() => {}); });
+
 /* ---------- הפעלה ---------- */
 if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
@@ -535,6 +565,7 @@ app.whenReady().then(async () => {
     return r.filePaths[0];
   });
 
+  registerSyncHandlers();
   createWindow();
   setTimeout(autoBackup, 15000);
   setInterval(autoBackup, 6 * 3600 * 1000);

@@ -19,5 +19,21 @@ contextBridge.exposeInMainWorld('shellAPI', {
   onHistory: cb => ipcRenderer.on('shell:history', (_e, st) => cb(st)),
   quit: () => ipcRenderer.invoke('shell:quit'),
   onActive: cb => ipcRenderer.on('shell:active', (_e, id) => cb(id)),
-  onCmd: cb => ipcRenderer.on('shell:cmd', (_e, cmd) => cb(cmd))
+  onCmd: cb => ipcRenderer.on('shell:cmd', (_e, cmd) => cb(cmd)),
+  // מכשירים מחוברים — כל הערוצים דורשים כניסת מנהל במערכת הכלכלית
+  sync: {
+    status: () => ipcRenderer.invoke('sync:status'),
+    setEnabled: (on) => ipcRenderer.invoke('sync:set-enabled', !!on),
+    rename: (name) => ipcRenderer.invoke('sync:rename', name),
+    setPort: (port) => ipcRenderer.invoke('sync:set-port', port),
+    createInvite: (host) => ipcRenderer.invoke('sync:create-invite', host),
+    cancelInvite: () => ipcRenderer.invoke('sync:cancel-invite'),
+    join: (code, endpoint) => ipcRenderer.invoke('sync:join', code, endpoint),
+    approve: (reqId) => ipcRenderer.invoke('sync:approve', reqId),
+    reject: (reqId) => ipcRenderer.invoke('sync:reject', reqId),
+    connect: (peerId, endpoint) => ipcRenderer.invoke('sync:connect', peerId, endpoint),
+    ping: (peerId) => ipcRenderer.invoke('sync:ping', peerId),
+    revoke: (peerId) => ipcRenderer.invoke('sync:revoke', peerId),
+    onChanged: (cb) => ipcRenderer.on('shell:sync-changed', () => cb()),
+  }
 });

@@ -272,3 +272,15 @@ test('אחורה/קדימה: חזרה למודול הקודם ולמסך הבי�
   assert.equal(visible(), 1);
   assert.equal(await handlers['shell:history-go'](viewSender(created.views[0]), -1), false, 'מודול לא מנווט בהיסטוריה');
 });
+
+test('מכשירים מחוברים: כל ערוצי sync: רשומים, ונדחים משולח זר ומהמעטפת בלי כניסת מנהל', async () => {
+  await boot();
+  const channels = ['sync:status', 'sync:set-enabled', 'sync:rename', 'sync:set-port', 'sync:create-invite', 'sync:cancel-invite',
+    'sync:join', 'sync:approve', 'sync:reject', 'sync:connect', 'sync:ping', 'sync:revoke'];
+  for (const ch of channels) {
+    assert.equal(typeof handlers[ch], 'function', ch + ' רשום');
+    assert.throws(() => handlers[ch]({ sender: { id: 999 } }), /מתוך המעטפת בלבד/, ch + ': שולח זר');
+  }
+  // תצוגת מודול (לא המעטפת) — נדחית גם היא
+  assert.throws(() => handlers['sync:set-enabled'](viewSender(created.views[0]), true), /מתוך המעטפת בלבד/);
+});
