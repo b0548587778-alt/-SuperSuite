@@ -119,6 +119,8 @@ class AccountingService {
     const date = invoiceData.date || new Date().toISOString().slice(0, 10);
     this._assertOpen(data, date);
     const inv = { number, date, customer: String(invoiceData.customer || '').trim(), items: invoiceData.items, vatExempt: !!invoiceData.vatExempt };
+    // מחיר כולל מע"מ — רק לשורה אחת (מנוי), כדי שהמע"מ יחושב כהפרש
+    if (Number.isSafeInteger(invoiceData.grossAgorot) && Array.isArray(inv.items) && inv.items.length === 1) inv.grossAgorot = invoiceData.grossAgorot;
     if (!inv.customer) throw new Error('שם לקוח חובה בחשבונית');
     if (inv.customer.length > 200) throw new Error('שם הלקוח ארוך מדי');
     if (!Array.isArray(inv.items) || inv.items.length > 200) throw new Error('מספר הפריטים בחשבונית חורג מהמותר (עד 200)');
@@ -134,6 +136,25 @@ class AccountingService {
     data.invoices.push(invoice);
     await this.db.save(data);
     return invoice;
+  }
+
+  // חשבונית מס/קבלה למנוי ששולם: הסכום כולל מע"מ ונקבע מראש (אגורות). יוצרת חשבונית ומסמנת אותה כשולמה —
+  // שתי רשומות יומן (מכירה וגבייה) בשמירה אחת. ref = אסמכתת התשלום מחברת הסליקה
+  async createPaidInvoice({ customer, customerTaxId, description, grossAgorot, date, ref }) {
+    if (!Number.isSafeInteger(grossAgorot) || grossAgorot <= 0) throw new Error('סכום החשבונית אינו תקין');
+    const data = await this._load();
+    const rate = this._vatRate(data);
+    const unitPrice = A.netFromGross(grossAgorot, rate);
+    const inv = await this.createInvoice({ customer, date, grossAgorot, items: [{ description, quantity: 1, unitPrice, kind: 'service' }] });
+    if (Math.round(inv.total * 100) !== grossAgorot) throw new Error('סכום החשבונית אינו תואם לסכום ששולם');
+    const paid = await this.recordPayment(inv.id, { date: inv.date });
+    const d2 = await this._load();
+    const stored = d2.invoices.find(i => i.id === paid.id);
+    stored.kind = 'tax-invoice-receipt';
+    if (customerTaxId) stored.customerTaxId = String(customerTaxId).slice(0, 12);
+    if (ref) stored.paymentRef = String(ref).slice(0, 80);
+    await this.db.save(d2);
+    return stored;
   }
 
   // גביית חשבונית: חובה בנק, זכות לקוחות

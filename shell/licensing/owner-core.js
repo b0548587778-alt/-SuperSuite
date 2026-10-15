@@ -341,6 +341,10 @@ function createOwnerCore({ storage, clock = Date.now }) {
     writeJson('signups.json', signups().map(y => (y.id === id ? { ...y, status: 'issued', issuedAt: clock(), tenantId: r.id } : y)));
     return { ...r, keyId: x.keyId };
   }
+  function setSignupInvoice(id, invoice) {
+    signupOf(id);
+    writeJson('signups.json', signups().map(y => (y.id === id ? { ...y, invoice } : y)));
+  }
   function signedDocument(id) {
     const x = signupOf(id);
     const v = SU.verifySignup(x.signup, [pubkey()]);
@@ -355,7 +359,7 @@ function createOwnerCore({ storage, clock = Date.now }) {
       url: payload.url, notes: payload.notes, issuedAt: payload.issuedAt, text }].slice(-50));
   }
 
-  return { MIN_PASS, changePassphrase, recoveryCodes, recoveryInfo, recoverFromCodes, exportBackup, importBackup, contacts, releases, addRelease, setOffer, offer, addSignup, signups, issueSignup, signedDocument, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
+  return { MIN_PASS, changePassphrase, recoveryCodes, recoveryInfo, recoverFromCodes, exportBackup, importBackup, contacts, releases, addRelease, setOffer, offer, addSignup, signups, issueSignup, signedDocument, setSignupInvoice, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
     inbox, addToInbox, takeFromInbox, peekInbox, rootSigner, recipients };
 }
 

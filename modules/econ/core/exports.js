@@ -18,7 +18,7 @@ function renderInvoiceHtml(invoice, business = {}) {
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<title>חשבונית מס ${esc(invoice.number)}</title>
+<title>${invoice.kind === 'tax-invoice-receipt' ? 'חשבונית מס/קבלה' : 'חשבונית מס'} ${esc(invoice.number)}</title>
 <style>
   @page { size: A4; margin: 16mm; }
   * { box-sizing: border-box; }
@@ -49,12 +49,12 @@ function renderInvoiceHtml(invoice, business = {}) {
     ${b.email ? `<div>${esc(b.email)}</div>` : ''}
   </div>
   <div class="meta">
-    <h1>${invoice.vatExempt ? 'חשבונית עסקה' : 'חשבונית מס'}</h1>
+    <h1>${invoice.vatExempt ? 'חשבונית עסקה' : invoice.kind === 'tax-invoice-receipt' ? 'חשבונית מס/קבלה' : 'חשבונית מס'}</h1>
     <div><strong>מספר:</strong> ${esc(invoice.number)}</div>
     <div><strong>תאריך:</strong> ${esc(invoice.date)}</div>
   </div>
 </header>
-<div class="customer"><strong>לכבוד:</strong> ${esc(invoice.customer)}</div>
+<div class="customer"><strong>לכבוד:</strong> ${esc(invoice.customer)}${invoice.customerTaxId ? ` · ע.מ / ח.פ: ${esc(invoice.customerTaxId)}` : ''}</div>
 <table>
   <thead><tr><th>#</th><th>תיאור</th><th class="n">כמות</th><th class="n">מחיר ליחידה</th><th class="n">סה"כ לפני מע"מ</th></tr></thead>
   <tbody>${rows}
@@ -63,8 +63,9 @@ function renderInvoiceHtml(invoice, business = {}) {
 <div class="totals">
   <div><span>סה"כ לפני מע"מ</span><span>${money(invoice.net)}</span></div>
   <div><span>מע"מ ${invoice.vatExempt ? '(פטור)' : ''}</span><span>${money(invoice.vat)}</span></div>
-  <div class="grand"><span>סה"כ לתשלום</span><span>${money(invoice.total)}</span></div>
+  <div class="grand"><span>${invoice.status === 'paid' ? 'סה"כ שולם' : 'סה"כ לתשלום'}</span><span>${money(invoice.total)}</span></div>
 </div>
+${invoice.status === 'paid' ? `<div class="customer"><strong>התקבל תשלום</strong> בתאריך ${esc(invoice.paidAt || invoice.date)}${invoice.paymentRef ? ` · אסמכתא: <span dir="ltr">${esc(invoice.paymentRef)}</span>` : ''}</div>` : ''}
 <div class="notice">מסמך זה הופק במערכת SuperSuite. חשבונית מס תקפה לפי חוק דורשת הקצאת מספר מרשות המסים; ללא הקצאה אין לראות במסמך זה חשבונית מס מאושרת.</div>
 </body>
 </html>`;

@@ -96,7 +96,8 @@ function computeInvoice(invoice, vatRate = DEFAULT_VAT_RATE) {
     net += lineNet;
     return { description: String(it.description || '').trim() || 'שירות/מוצר', quantity: qty, unitPrice: price, lineNet: fromAg(lineNet), account: it.account ? String(it.account) : (it.kind === 'service' ? SYS.SERVICES : SYS.SALES) };
   });
-  const vatAg = invoice.vatExempt ? 0 : Math.round(net * vatRate);
+  // מחיר כולל מע"מ (grossAgorot): המע"מ = הסכום הכולל פחות הנטו, כך שהסה"כ שווה בדיוק למה ששולם
+  const vatAg = invoice.vatExempt ? 0 : Number.isSafeInteger(invoice.grossAgorot) ? invoice.grossAgorot - net : Math.round(net * vatRate);
   return { items, net: fromAg(net), vat: fromAg(vatAg), total: fromAg(net + vatAg), vatExempt: !!invoice.vatExempt };
 }
 
@@ -110,6 +111,12 @@ function invoiceToEntry(invoice, computed) {
   for (const [account, ag] of byAccount) lines.push({ account, debit: 0, credit: fromAg(ag), memo: '' });
   if (computed.vat > 0) lines.push({ account: SYS.OUTPUT_VAT, debit: 0, credit: computed.vat, memo: 'מע"מ עסקאות' });
   return { date: invoice.date, description: `חשבונית מס ${invoice.number} — ${invoice.customer || ''}`.trim(), lines };
+}
+
+// מחיר כולל מע"מ (אגורות) ← נטו (ש"ח): עיגול של gross/(1+שיעור). המע"מ בחשבונית = gross − נטו (computeInvoice עם grossAgorot)
+function netFromGross(grossAg, vatRate = DEFAULT_VAT_RATE) {
+  if (!Number.isSafeInteger(grossAg) || grossAg < 0) throw new Error('סכום לא תקין');
+  return fromAg(Math.round(grossAg / (1 + vatRate)));
 }
 
 // מספור רציף לחשבוניות: המספר הבא = מקסימום קיים + 1 (בלי פערים)
@@ -187,6 +194,6 @@ function vatReport(entries, { from, to } = {}) {
 
 module.exports = {
   ACCOUNT_TYPES, DEFAULT_CHART, DEFAULT_VAT_RATE, SYS,
-  validateAccount, validateEntry, computeInvoice, invoiceToEntry, nextInvoiceNumber,
+  validateAccount, validateEntry, computeInvoice, invoiceToEntry, nextInvoiceNumber, netFromGross,
   trialBalance, incomeStatement, balanceSheet, vatReport, toAg, fromAg
 };

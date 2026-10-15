@@ -4114,9 +4114,10 @@
         <tbody>${rows.map(x => `<tr><td><small>${esc(new Date(x.receivedAt).toLocaleString('he-IL'))}</small></td>
           <td><b>${esc(x.customer.org)}</b><br><small>${esc(x.customer.contact)} · <span dir="ltr">${esc(x.customer.phone)}</span></small></td>
           <td>${esc(x.planName)}</td><td>${x.payment ? esc(agorotText(x.payment.amountAgorot)) + '<br><small dir="ltr">' + esc(x.payment.providerRef || '') + '</small>' : 'ללא תשלום'}</td>
-          <td>${x.status === 'issued' ? '<span class="ok">הונפק</span>' : '<b>חדשה</b>'}</td>
+          <td>${x.status === 'issued' ? '<span class="ok">הונפק</span>' : '<b>חדשה</b>'}${x.invoice ? `<br><small>חשבונית ${Number(x.invoice.number)}</small>` : ''}</td>
           <td>${x.status === 'issued' ? '' : `<button class="primary small" data-owner-signup-issue="${esc(x.id)}">✔ הנפקה ושליחה</button>`}
-            <button class="secondary small" data-owner-signup-doc="${esc(x.id)}">📄 תקנון חתום (PDF)</button></td></tr>`).join('')}</tbody>
+            <button class="secondary small" data-owner-signup-doc="${esc(x.id)}">📄 תקנון חתום (PDF)</button>
+            ${x.invoice ? `<button class="secondary small" data-owner-signup-invoice="${esc(x.invoice.id)}">🧾 חשבונית (PDF)</button>` : ''}</td></tr>`).join('')}</tbody>
       </table></div>` : ''}`;
   }
 
@@ -4589,7 +4590,11 @@
     });
     each('data-owner-signup-issue', async (b) => {
       const r = await window.systemAPI.ownerSignupIssue(b.dataset.ownerSignupIssue);
-      showToast(`הרישיון של "${r.name}" נשלח`);
+      showToast(r.invoice ? `הרישיון של "${r.name}" נשלח, והופקה חשבונית מס/קבלה ${r.invoice.number}` : `הרישיון של "${r.name}" נשלח`);
+    });
+    each('data-owner-signup-invoice', async (b) => {
+      const r = await window.systemAPI.exportInvoicePdf(b.dataset.ownerSignupInvoice);
+      if (r && r.ok) showToast('החשבונית נשמרה כ-PDF');
     });
     each('data-owner-signup-doc', async (b) => {
       const r = await window.systemAPI.ownerSignupDocument(b.dataset.ownerSignupDoc);

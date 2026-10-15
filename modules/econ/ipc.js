@@ -217,6 +217,12 @@ async function runGuarded(channel, fn, event, args) {
   return fn(event, ...args);
 }
 
+// תאריך מקומי (לא UTC — בישראל toISOString מזיז את היום בין חצות ל-03:00)
+function localDay(ms) {
+  const d = new Date(ms);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 // רישום ביקורת: מי עשה מה ומתי (נשמר בטבלת audit_events)
 async function auditEvent(event, action, details) {
   const user = authService.getSession(event.sender.id);
@@ -1226,10 +1232,23 @@ handle('auth:login', async (event, username, password) => {
   });
   handle('owner:signups', async () => ownerCore.signups().map(({ signup, ...x }) => x));
   handle('owner:signupIssue', async (event, id) => {
-    const r = ownerCore.issueSignup(String(id || ''));
+    const sid = String(id || '');
+    const x = ownerCore.signups().find(y => y.id === sid);
+    if (!x) throw new Error('ההרשמה לא נמצאה');
+    // חשבונית קודם (אם שולם ועוד אין) — כך שלא יונפק רישיון בתשלום בלי מסמך חשבונאי
+    let invoice = x.invoice || null;
+    if (!invoice && x.payment && x.payment.amountAgorot > 0) {
+      const inv = await accountingService.createPaidInvoice({ customer: x.customer.org, customerTaxId: x.customer.taxId,
+        description: `מנוי SuperSuite — ${x.planName} (${x.months} חודשים)`, grossAgorot: x.payment.amountAgorot,
+        ref: x.payment.providerRef, date: localDay(x.payment.paidAt || Date.now()) });
+      invoice = { id: inv.id, number: inv.number };
+      ownerCore.setSignupInvoice(sid, invoice);
+      await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'signup', signup: sid });
+    }
+    const r = ownerCore.issueSignup(sid);
     await licenseSync.ownerReply(r.keyId, 'license', r.package);
-    await ownerAudit(event, 'signup.issue', { id, tenant: r.id, name: r.name });
-    return { name: r.name };
+    await ownerAudit(event, 'signup.issue', { id: sid, tenant: r.id, name: r.name, invoice: invoice && invoice.number });
+    return { name: r.name, invoice };
   });
   handle('owner:signupDocument', async (event, id) => {
     const d = ownerCore.signedDocument(String(id || ''));
