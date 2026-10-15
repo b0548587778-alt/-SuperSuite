@@ -45,3 +45,7 @@ venv/
 # Android (android/build-apk.js) — תוצרי בנייה ומפתח החתימה (לא לשתף! לגבות בנפרד)
 android/build/
 android/keystore/
+
+# מפתח השורש של מנהל-העל — לעולם לא במאגר (tools/licensing/owner.js)
+owner-data/
+root.key
