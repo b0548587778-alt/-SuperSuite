@@ -6,9 +6,10 @@ const { createRemote, mailboxOf } = require('./remote');
 const M = require('./messages');
 const OF = require('./offer');
 const SU = require('./signup');
+const PK = require('./prekeys');
 const { PKG_REQUEST, PKG_APPROVAL_REQUEST } = require('./store');
 
-function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, ownerChat, updates }) {
+function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, ownerChat, updates, prekeys, ownerPrekeys }) {
   const now = () => (clock ? clock() : Date.now());
   const remote = () => {
     const r = store.getRemoteSettings();
@@ -50,6 +51,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     const key = store.syncKey(false);
     if (!key) return { handled: 0, pending: [], errors: [] };
     const rm = remote();
+    try { await publishPrekey(key, prekeys); } catch { /* ינוסה שוב בסנכרון הבא */ }
     const msgs = await rm.fetch(key);
     const done = [];
     const errors = [];
@@ -70,7 +72,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
           // תעודת גרסה — נבדקת בחתימה מול מפתח השורש; מה שאינו תקין נדחה
           if (updates) updates.offer(m.body);
         } else if (m.kind === 'message') {
-          if (chat) receiveMessage(store.syncKey(false), m.body, myContacts(), chat);
+          if (chat) receiveMessage(store.syncKey(false), m.body, myContacts(), chat, prekeys);
         } else if (m.kind === 'license-request') {
           const req = JSON.parse(m.body);
           if (!req || req.type !== PKG_REQUEST) throw new Error('בקשה לא תקינה');
@@ -119,6 +121,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
   async function ownerReceive() {
     const signer = owner.rootSigner();
     const rm = remote();
+    try { await publishPrekey(signer, ownerPrekeys); } catch { /* ינוסה שוב */ }
     const msgs = await rm.fetch(signer);
     let added = 0;
     let messages = 0;
@@ -129,7 +132,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
         try { if (owner.addSignup(m.body).added) signups++; } catch { /* הרשמה לא תקינה — נדחית */ }
       }
       else if (m.kind === 'message' && ownerChat) {
-        try { if (receiveMessage(signer, m.body, owner.contacts(), ownerChat)) messages++; } catch { /* הודעה פגומה — מדולגת */ }
+        try { if (receiveMessage(signer, m.body, owner.contacts(), ownerChat, ownerPrekeys)) messages++; } catch { /* הודעה פגומה — מדולגת */ }
       }
     }
     await rm.ack(signer, msgs.map(m => m.id));
@@ -207,16 +210,30 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     return M.contactsOf({ chain: info.chain, children: info.children, rootKeys: rootKeys.slice(0, 1) });
   }
   // פענוח ושמירה; אישור קריאה מעדכן את ההודעות היוצאות. מחזיר true אם נוספה הודעה חדשה
-  function receiveMessage(myKey, body, contacts, box) {
-    const msg = M.open(myKey, body, contacts);
+  function receiveMessage(myKey, body, contacts, box, pks) {
+    const msg = M.open(myKey, body, contacts, { prekeyPriv: pks ? (id) => pks.privOf(id) : null });
     if (msg.kind === 'receipt') { box.setStatus(msg.mids, 'read'); return false; }
     return box.addIncoming({ mid: msg.mid, peer: msg.from, subject: msg.subject, text: msg.text, sentAt: msg.sentAt });
   }
-  async function sendSealed(signer, contacts, box, peerId, { subject, text }) {
+  // פרסום המפתח הזמני שלי (כשהתחלף או עוד לא פורסם)
+  async function publishPrekey(signer, pks) {
+    if (!pks || !pks.needsPublish()) return false;
+    const b = pks.bundle(signer);
+    await remote().setPrekey(signer, b);
+    pks.markPublished(b.id);
+    return true;
+  }
+  // המפתח הזמני של איש קשר — מאומת בחתימה מול המפתח הקבוע שלו (מהרישיונות), לא מה שהשרת טוען
+  async function peerPrekey(signer, peer) {
+    try { return PK.verifyBundle(await remote().getPrekey(signer, peer.id), peer.publicKey, now()); } catch { return null; }
+  }
+  async function sendSealed(signer, contacts, box, peerId, { subject, text }, pks) {
     const peer = contacts.find(c => c.id === peerId);
     if (!peer) throw new Error('איש הקשר אינו מוכר');
     const sentAt = now();
-    const { mid, envelope } = M.seal(signer, peer.publicKey, { subject, text, sentAt });
+    try { await publishPrekey(signer, pks); } catch { /* לא חוסם שליחה */ }
+    const prekey = await peerPrekey(signer, peer);
+    const { mid, envelope } = M.seal(signer, peer.publicKey, { subject, text, sentAt }, { prekey });
     await remote().send(signer, [{ to: peer.id, kind: 'message', body: envelope }]);
     box.addOutgoing({ mid, peer: peer.id, subject, text, sentAt });
     box.setStatus([mid], 'delivered');
@@ -225,16 +242,16 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
   async function sendReceipt(signer, contacts, peerId, mids) {
     const peer = contacts.find(c => c.id === peerId);
     if (!peer || !mids.length) return;
-    const { envelope } = M.seal(signer, peer.publicKey, { kind: 'receipt', mids, sentAt: now() });
+    const { envelope } = M.seal(signer, peer.publicKey, { kind: 'receipt', mids, sentAt: now() }, { prekey: await peerPrekey(signer, peer) });
     await remote().send(signer, [{ to: peer.id, kind: 'message', body: envelope }]);
   }
-  const chatSend = (peerId, msg) => sendSealed(store.syncKey(false), myContacts(), chat, peerId, msg);
+  const chatSend = (peerId, msg) => sendSealed(store.syncKey(false), myContacts(), chat, peerId, msg, prekeys);
   async function chatMarkRead(peerId) {
     const ids = chat.markRead(peerId);
     try { await sendReceipt(store.syncKey(false), myContacts(), peerId, ids); } catch { /* אישור קריאה אינו קריטי */ }
     return ids.length;
   }
-  const ownerChatSend = (peerId, msg) => sendSealed(owner.rootSigner(), owner.contacts(), ownerChat, peerId, msg);
+  const ownerChatSend = (peerId, msg) => sendSealed(owner.rootSigner(), owner.contacts(), ownerChat, peerId, msg, ownerPrekeys);
   async function ownerChatMarkRead(peerId) {
     const ids = ownerChat.markRead(peerId);
     try { await sendReceipt(owner.rootSigner(), owner.contacts(), peerId, ids); } catch { /* לא קריטי */ }

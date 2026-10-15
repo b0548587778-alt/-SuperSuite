@@ -53,6 +53,8 @@ function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now }) {
     fetch: async (signer) => (await call(signer, 'fetch', {})).messages || [],
     ack: (signer, ids) => (ids.length ? call(signer, 'ack', { ids }) : Promise.resolve({ ok: true })),
     setOffer: (signer, offer) => call(signer, 'setOffer', { offer }),
+    setPrekey: (signer, bundle) => call(signer, 'setPrekey', { bundle }),
+    getPrekey: async (signer, id) => (await call(signer, 'getPrekey', { id })).bundle,
     getOffer: async (signer) => (await call(signer, 'getOffer', {})).offer,
     checkout: (signer, signup) => call(signer, 'checkout', { signup }),
     paymentStatus: (signer, paymentId) => call(signer, 'paymentStatus', { paymentId }),

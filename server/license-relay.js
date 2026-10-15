@@ -59,6 +59,9 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     hits.set(ip, list);
   }
 
+  const readJsonFileSafe = (n) => { try { return JSON.parse(fs.readFileSync(path.join(dataDir, n), 'utf8')) || {}; } catch { return {}; } };
+  const writeJsonFileSafe = (n, v) => { const f = path.join(dataDir, n); fs.writeFileSync(f + '.tmp', JSON.stringify(v)); fs.renameSync(f + '.tmp', f); };
+
   // ---------- הרשמה ותשלום ----------
   const readJsonFile = (n, def) => { try { return JSON.parse(fs.readFileSync(path.join(dataDir, n), 'utf8')); } catch { return def; } };
   const writeJsonFile = (n, v) => { const f = path.join(dataDir, n); fs.writeFileSync(f + '.tmp', JSON.stringify(v)); fs.renameSync(f + '.tmp', f); };
@@ -142,6 +145,21 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     rateLimit(ip);
     const from = authenticate(body);
     const p = body.payload || {};
+    // מפתח זמני להודעות: כל מערכת מפרסמת את שלה (חתום במפתח הקבוע — מאומת כאן ושוב אצל השולח)
+    if (body.op === 'setPrekey') {
+      const b = p.bundle;
+      const { sig, ...payload } = b || {};
+      if (!b || payload.owner !== from || typeof sig !== 'string' || !L.verifyObject(payload, sig, body.pub)) throw httpError(400, 'מפתח זמני לא תקין');
+      if (JSON.stringify(b).length > 2048) throw httpError(400, 'מפתח זמני לא תקין');
+      const all = readJsonFileSafe('prekeys.json');
+      all[from] = b;
+      writeJsonFileSafe('prekeys.json', all);
+      return { ok: true };
+    }
+    if (body.op === 'getPrekey') {
+      if (!ID_RE.test(String(p.id))) throw httpError(400, 'מזהה לא תקין');
+      return { ok: true, bundle: readJsonFileSafe('prekeys.json')[p.id] || null };
+    }
     if (body.op === 'setOffer') return setOffer(from, p);
     if (body.op === 'getOffer') return getOffer();
     if (body.op === 'checkout') return checkout(from, p);

@@ -34,6 +34,7 @@ const { createLicenseSync } = require('../../shell/licensing/sync');
 const { validateUrl } = require('../../shell/licensing/remote');
 const { createChatStore } = require('../../shell/licensing/chat');
 const UP = require('../../shell/licensing/update');
+const PK = require('../../shell/licensing/prekeys');
 const OF = require('../../shell/licensing/offer');
 
 let db;
@@ -76,7 +77,8 @@ function licenseAdapters(userDataPath) {
   if (ls) return { storage: LS.webStorage(ls, 'supersuite.license'), secret: LS.webStorage(ls, 'supersuite.license.key'),
     owner: OC.prefixedWebStorage(ls, 'supersuite.owner.'),
     chat: LS.webStorage(ls, 'supersuite.chat'), ownerChat: LS.webStorage(ls, 'supersuite.owner.chat'),
-    updates: LS.webStorage(ls, 'supersuite.updates'), platform: 'android' };
+    updates: LS.webStorage(ls, 'supersuite.updates'), platform: 'android',
+    prekeys: LS.webStorage(ls, 'supersuite.prekeys'), ownerPrekeys: LS.webStorage(ls, 'supersuite.owner.prekeys') };
   return {
     storage: LS.fileStorage(fs, path.join(userDataPath, 'license.json')),
     secret: LS.encryptedFileSecret(fs, path.join(userDataPath, 'license-key.bin'), safeStorage),
@@ -85,6 +87,9 @@ function licenseAdapters(userDataPath) {
     ownerChat: LS.fileStorage(fs, path.join(userDataPath, 'owner', 'messages.json')),
     updates: LS.fileStorage(fs, path.join(userDataPath, 'updates.json')),
     platform: 'win',
+    // מפתחות זמניים להודעות — מוצפנים ב-DPAPI כמו מפתח המערכת
+    prekeys: LS.encryptedFileSecret(fs, path.join(userDataPath, 'prekeys.bin'), safeStorage),
+    ownerPrekeys: LS.encryptedFileSecret(fs, path.join(userDataPath, 'owner', 'prekeys.bin'), safeStorage),
   };
 }
 
@@ -93,7 +98,7 @@ let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
 async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
-  updateStorage, appVersion, platform } = {}) {
+  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage } = {}) {
   const ad = licenseAdapters(userDataPath);
   // עדכוני גרסה: קבצים מאומתים נשמרים בתיקיית updates בתוך נתוני המשתמש
   updatesDir = path.join(userDataPath, 'updates');
@@ -113,7 +118,9 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStor
   chatStore = createChatStore({ storage: chatStorage || ad.chat, clock });
   ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock });
   licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock,
-    chat: chatStore, ownerChat: ownerChatStore, updates: updateManager });
+    chat: chatStore, ownerChat: ownerChatStore, updates: updateManager,
+    prekeys: PK.createPrekeyStore({ storage: prekeyStorage || ad.prekeys, clock: clock || Date.now }),
+    ownerPrekeys: PK.createPrekeyStore({ storage: ownerPrekeyStorage || ad.ownerPrekeys, clock: clock || Date.now }) });
   licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
   db = await initializeDatabase(userDataPath);
   authService.initialize(db);
