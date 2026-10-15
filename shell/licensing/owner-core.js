@@ -7,6 +7,8 @@ const L = require('./license');
 const S = require('./status');
 const BK = require('../../modules/econ/core/backupCrypto');
 const { PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL } = require('./store');
+const OF = require('./offer');
+const SU = require('./signup');
 
 const MIN_PASS = 12;
 const MONTH_MS = 30 * L.DAY_MS;
@@ -243,6 +245,46 @@ function createOwnerCore({ storage, clock = Date.now }) {
     ];
   }
 
+  // ---------- הרשמה: הצעה (תכניות + תקנון) והרשמות שהתקבלו ----------
+  function setOffer(input) {
+    const text = OF.createOffer(rootKey(), input, { issuedAt: clock() });
+    writeJson('offer.json', { text });
+    return { text, offer: OF.verifyOffer(text, [pubkey()]) };
+  }
+  function offer() {
+    const o = readJson('offer.json', null);
+    if (!o) return null;
+    try { return { text: o.text, offer: OF.verifyOffer(o.text, [pubkey()]) }; } catch { return null; }
+  }
+  // הרשמה שנמסרה מהשרת (אחרי תשלום, או חינם): נבדקת ונשמרת. ההנפקה — בלחיצה (או אוטומטית)
+  function addSignup(deliveryText) {
+    let d;
+    try { d = JSON.parse(deliveryText); } catch { throw new Error('הרשמה פגומה'); }
+    const v = SU.verifySignup(d.signup, [pubkey()]);
+    const list = readJson('signups.json', []);
+    if (list.some(x => x.id === v.body.id)) return { added: false, id: v.body.id };
+    if (v.plan.priceAgorot > 0 && !(d.payment && d.payment.amountAgorot === v.plan.priceAgorot)) throw new Error('הרשמה בתשלום ללא אישור תשלום');
+    writeJson('signups.json', [...list, { id: v.body.id, keyId: v.body.keyId, customer: v.body.customer, planId: v.plan.id, planName: v.plan.name,
+      priceAgorot: v.plan.priceAgorot, months: v.plan.months, terms: v.body.terms, signedAt: v.body.signedAt, payment: d.payment || null,
+      receivedAt: clock(), status: 'new', signup: d.signup }].slice(-1000));
+    return { added: true, id: v.body.id };
+  }
+  const signups = () => readJson('signups.json', []);
+  function signupOf(id) { const x = signups().find(y => y.id === id); if (!x) throw new Error('ההרשמה לא נמצאה'); return x; }
+  // הנפקת רישיון לפי ההרשמה: תחומים, מכסות ותקופה — מהתכנית ששולמה
+  function issueSignup(id) {
+    const x = signupOf(id);
+    const v = SU.verifySignup(x.signup, [pubkey()]);
+    const r = issue({ request: v.request, name: x.customer.org, features: v.plan.features, limits: v.plan.limits, months: v.plan.months });
+    writeJson('signups.json', signups().map(y => (y.id === id ? { ...y, status: 'issued', issuedAt: clock(), tenantId: r.id } : y)));
+    return { ...r, keyId: x.keyId };
+  }
+  function signedDocument(id) {
+    const x = signupOf(id);
+    const v = SU.verifySignup(x.signup, [pubkey()]);
+    return { html: SU.signedDocumentHtml(v), name: 'תקנון-חתום-' + x.customer.org };
+  }
+
   // גרסאות ששוחררו (תעודות חתומות) — לשליחה חוזרת ולתצוגה
   function releases() { return readJson('releases.json', []); }
   function addRelease(text, payload) {
@@ -251,7 +293,7 @@ function createOwnerCore({ storage, clock = Date.now }) {
       url: payload.url, notes: payload.notes, issuedAt: payload.issuedAt, text }].slice(-50));
   }
 
-  return { MIN_PASS, contacts, releases, addRelease, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
+  return { MIN_PASS, contacts, releases, addRelease, setOffer, offer, addSignup, signups, issueSignup, signedDocument, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
     inbox, addToInbox, takeFromInbox, peekInbox, rootSigner, recipients };
 }
 

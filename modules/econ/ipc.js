@@ -34,6 +34,7 @@ const { createLicenseSync } = require('../../shell/licensing/sync');
 const { validateUrl } = require('../../shell/licensing/remote');
 const { createChatStore } = require('../../shell/licensing/chat');
 const UP = require('../../shell/licensing/update');
+const OF = require('../../shell/licensing/offer');
 
 let db;
 let licenseStore = null;
@@ -1154,6 +1155,50 @@ handle('auth:login', async (event, username, password) => {
     const r = await licenseSync.ownerPushNotices();
     await ownerAudit(event, 'notices.push', r);
     return r;
+  });
+
+  // ---------- הרשמה, תשלום וחתימה על התקנון ----------
+  handle('license:getOffer', async () => {
+    const r = await licenseSync.getOffer();
+    return { text: r.text, offer: r.offer };
+  });
+  handle('license:signup', async (event, input = {}) => {
+    const r = await licenseSync.signup(input || {});
+    await auditEvent(event, 'license.signup', { id: r.id, planId: (input || {}).planId, free: r.free });
+    return r;
+  });
+  handle('license:signupStatus', async () => licenseSync.signupStatus());
+  // פתיחת דף התשלום של הספק בדפדפן — רק הכתובת שהשרת החזיר להרשמה הזו, ורק https (או localhost בבדיקות)
+  handle('license:openPayment', async () => {
+    const cur = licenseStore.getRemoteSettings().signup;
+    if (!cur || !cur.url) throw new Error('אין תשלום פתוח');
+    const u = new URL(cur.url);
+    if (u.protocol !== 'https:' && !(u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname))) throw new Error('כתובת התשלום אינה מאובטחת');
+    await require('electron').shell.openExternal(u.toString());
+    return true;
+  });
+
+  handle('owner:getOffer', async () => { const o = ownerCore.offer(); return o ? o.offer : null; });
+  handle('owner:setOffer', async (event, input) => {
+    const r = ownerCore.setOffer(input || {});
+    await ownerAudit(event, 'offer.set', { plans: r.offer.plans.map(p => ({ id: p.id, priceAgorot: p.priceAgorot })), terms: r.offer.terms.version });
+    return r.offer;
+  });
+  handle('owner:publishOffer', async (event) => {
+    const r = await licenseSync.ownerPublishOffer();
+    await ownerAudit(event, 'offer.publish', {});
+    return r;
+  });
+  handle('owner:signups', async () => ownerCore.signups().map(({ signup, ...x }) => x));
+  handle('owner:signupIssue', async (event, id) => {
+    const r = ownerCore.issueSignup(String(id || ''));
+    await licenseSync.ownerReply(r.keyId, 'license', r.package);
+    await ownerAudit(event, 'signup.issue', { id, tenant: r.id, name: r.name });
+    return { name: r.name };
+  });
+  handle('owner:signupDocument', async (event, id) => {
+    const d = ownerCore.signedDocument(String(id || ''));
+    return saveHtmlAsPdf(d.html, d.name.replace(/[\\/:*?"<>|]/g, '') + '.pdf');
   });
 
   // ---------- עדכוני גרסה חתומים ----------

@@ -4,6 +4,8 @@
 const L = require('./license');
 const { createRemote, mailboxOf } = require('./remote');
 const M = require('./messages');
+const OF = require('./offer');
+const SU = require('./signup');
 const { PKG_REQUEST, PKG_APPROVAL_REQUEST } = require('./store');
 
 function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, ownerChat, updates }) {
@@ -120,14 +122,18 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     const msgs = await rm.fetch(signer);
     let added = 0;
     let messages = 0;
+    let signups = 0;
     for (const m of msgs) {
       if (m.kind === 'license-request' || m.kind === 'approval-request') { if (owner.addToInbox(m)) added++; }
+      else if (m.kind === 'signup' && m.from === 'relay') {
+        try { if (owner.addSignup(m.body).added) signups++; } catch { /* הרשמה לא תקינה — נדחית */ }
+      }
       else if (m.kind === 'message' && ownerChat) {
         try { if (receiveMessage(signer, m.body, owner.contacts(), ownerChat)) messages++; } catch { /* הודעה פגומה — מדולגת */ }
       }
     }
     await rm.ack(signer, msgs.map(m => m.id));
-    return { added, messages, inbox: owner.inbox().length };
+    return { added, messages, signups, inbox: owner.inbox().length };
   }
 
   // שליחת תוצאה לשולח: רישיון ללקוח, או אישור/דחייה ללקוח שביקש מערכת בת
@@ -148,6 +154,40 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     }
     for (let i = 0; i < items.length; i += 50) await rm.send(signer, items.slice(i, i + 50));
     return { sent: items.length };
+  }
+
+  // ---------- הרשמה ותשלום ----------
+  // מנהל-העל: פרסום ההצעה (תכניות + תקנון) בשרת
+  async function ownerPublishOffer() {
+    const o = owner.offer();
+    if (!o) throw new Error('עדיין לא הוגדרו תכניות ותקנון');
+    await remote().setOffer(owner.rootSigner(), o.text);
+    return { ok: true };
+  }
+  // מערכת חדשה: ההצעה מהשרת — נבדקת בחתימה מול מפתח השורש שבתוכנה
+  async function getOffer() {
+    const text = await remote().getOffer(store.syncKey(true));
+    return { text, offer: OF.verifyOffer(text, rootKeys) };
+  }
+  // הרשמה: חתימה על התקנון ויצירת תשלום. מחזיר קישור לדף התשלום המאובטח של הספק
+  async function signup({ offerText, planId, customer, signatureImage, scrolledToEnd, accepted }) {
+    const key = store.syncKey(true);
+    const su = SU.createSignup({ deviceJwk: key, offerText, rootKeys, planId, customer, signatureImage, scrolledToEnd, accepted, at: now() });
+    const r = await remote().checkout(key, su.text);
+    store.setRemoteSettings({ signup: { id: su.id, paymentId: r.paymentId || null, status: r.free ? 'submitted' : r.status, url: r.url || null,
+      planName: su.body.planName, priceAgorot: su.body.priceAgorot, org: su.body.customer.org, at: now() } });
+    return { id: su.id, free: !!r.free, status: r.free ? 'submitted' : r.status, url: r.url || null };
+  }
+  async function signupStatus() {
+    const cur = store.getRemoteSettings().signup;
+    if (!cur) return null;
+    if (cur.paymentId && cur.status === 'pending') {
+      const r = await remote().paymentStatus(store.syncKey(false), cur.paymentId);
+      const next = { ...cur, status: r.status === 'paid' ? 'submitted' : r.status, url: r.url || cur.url };
+      store.setRemoteSettings({ signup: next });
+      return next;
+    }
+    return cur;
   }
 
   // מנהל-העל: שליחת תעודת גרסה לכל המערכות (לקוחות ומערכות בת)
@@ -202,7 +242,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
   }
 
   return { myContacts, chatSend, chatMarkRead, ownerChatSend, ownerChatMarkRead, sendLicenseRequest, sendApprovalRequest, sendRequestToParent, receive, forwardChildRequest, dismissChildRequest, pushToChild,
-    ownerReceive, ownerReply, ownerPushNotices, ownerPublishUpdate, ownerBox };
+    ownerReceive, ownerReply, ownerPushNotices, ownerPublishUpdate, ownerPublishOffer, getOffer, signup, signupStatus, ownerBox };
 }
 
 module.exports = { createLicenseSync, PKG_APPROVAL_REQUEST };

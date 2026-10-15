@@ -926,3 +926,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 /* עדכוני גרסה */
 .update-card .update-notes{white-space:pre-wrap;background:#f6f8fb;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:13px}
+
+/* הרשמה וחתימה על התקנון */
+.signup-steps{color:#64748b;font-size:12.5px;margin:-6px 0 10px}
+.signup-plans{display:flex;flex-direction:column;gap:8px}
+.signup-plan{display:flex;gap:10px;align-items:flex-start;border:1px solid #d6dde8;border-radius:10px;padding:10px 12px;cursor:pointer}
+.signup-plan:has(input:checked){border-color:#2563eb;background:#eff5ff}
+.signup-terms{max-height:260px;overflow:auto;white-space:pre-wrap;border:1px solid #d6dde8;border-radius:8px;padding:12px;background:#fafbfd;line-height:1.7;font-size:13.5px}
+.signup-sig{display:block;width:100%;max-width:480px;height:140px;border:1px dashed #94a3b8;border-radius:8px;background:#fff;touch-action:none}
+.signup-wizard textarea{width:100%;font:inherit}

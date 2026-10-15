@@ -226,7 +226,10 @@
           const inbox = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerInbox().catch(() => []) : [];
           const update = window.systemAPI.getUpdateStatus ? await window.systemAPI.getUpdateStatus().catch(() => null) : null;
           const releases = isAdmin && owner && owner.unlocked && window.systemAPI.ownerReleases ? await window.systemAPI.ownerReleases().catch(() => []) : [];
-          state.data.licensing = { status, isAdmin, children, owner, remote, inbox, update, releases };
+          const signup = isAdmin && remote && remote.url && status.mode !== 'licensed' ? await window.systemAPI.licenseSignupStatus().catch(() => null) : null;
+          const ownerOffer = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerGetOffer().catch(() => null) : null;
+          const signups = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerSignups().catch(() => []) : [];
+          state.data.licensing = { status, isAdmin, children, owner, remote, inbox, update, releases, signup, ownerOffer, signups };
           break;
         }
         case 'messages': {
@@ -3838,7 +3841,129 @@
       </table></div>
     </div>` : '';
 
-    return `<div class="settings">${renderUpdateCard(d.update, isAdmin)}${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote, d.releases) : ''}</div>`;
+    const signupCard = isAdmin && st.mode !== 'licensed' && d.remote && d.remote.url ? renderSignupCard(d.signup) : '';
+    return `<div class="settings">${signupCard}${renderUpdateCard(d.update, isAdmin)}${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote, d.releases, d.ownerOffer, d.signups) : ''}</div>`;
+  }
+
+  // הרשמה: מערכת חדשה בוחרת תכנית, חותמת על התקנון ומשלמת בדף המאובטח של חברת הסליקה
+  const SIGNUP_STATUS = { pending: 'ממתין לתשלום', failed: 'התשלום לא הושלם', submitted: 'ההרשמה התקבלה — הרישיון יגיע בסנכרון' };
+  function renderSignupCard(su) {
+    return `<div class="card signup-card">
+      <h3>📝 הרשמה למערכת</h3>
+      ${su ? `<div class="acct-row"><span>תכנית</span><span>${esc(su.planName)} · ${esc(agorotText(su.priceAgorot))}</span></div>
+        <div class="acct-row"><span>מצב</span><span>${esc(SIGNUP_STATUS[su.status] || su.status)}</span></div>
+        <div class="acct-actions">
+          ${su.status === 'pending' ? '<button class="primary" id="signupPayBtn">💳 מעבר לתשלום מאובטח</button><button class="secondary" id="signupCheckBtn">🔄 בדיקת מצב התשלום</button>' : ''}
+          ${su.status === 'submitted' ? '<button class="primary" id="licRemoteSyncBtn2">🔄 סנכרון — קבלת הרישיון</button>' : ''}
+          ${su.status !== 'submitted' ? '<button class="secondary" id="signupStartBtn">הרשמה מחדש</button>' : ''}
+        </div>`
+      : `<p>בחירת תכנית, חתימה על התקנון ותשלום — הכול מכאן. בסיום הרישיון מגיע אוטומטית.</p>
+        <div class="acct-actions"><button class="primary" id="signupStartBtn">📝 התחלת הרשמה</button></div>`}
+      <p class="muted">פרטי האשראי מוקלדים רק בדף המאובטח של חברת הסליקה — לא בתוכנה ולא בשרת שלנו.</p>
+    </div>`;
+  }
+  const agorotText = (a) => (Number(a) === 0 ? 'ללא תשלום' : '₪' + (Number(a) / 100).toLocaleString('he-IL', { maximumFractionDigits: 2 }));
+
+  // אשף ההרשמה: תכנית ← פרטים ← תקנון (גלילה + הסכמה + חתימה)
+  function signupWizard(offerResp) {
+    const offer = offerResp.offer;
+    return openDialog((card, finish) => {
+      card.style.maxWidth = '640px';
+      card.classList.add('signup-wizard');
+      const v = { planId: offer.plans[0].id, customer: {}, scrolled: false, accepted: false, signed: false };
+      const step = (n) => {
+        card.innerHTML = '';
+        const h = document.createElement('h2');
+        h.textContent = ['בחירת תכנית', 'פרטי הלקוח', offer.terms.title + ' — גרסה ' + offer.terms.version][n];
+        const steps = document.createElement('div');
+        steps.className = 'signup-steps';
+        steps.textContent = 'שלב ' + (n + 1) + ' מתוך 3';
+        card.append(h, steps);
+        const err = document.createElement('div');
+        err.className = 'bad';
+        const actions = document.createElement('div');
+        actions.className = 'modal-actions';
+        const btn = (text, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = text; b.onclick = fn; actions.appendChild(b); return b; };
+        if (n === 0) {
+          const list = document.createElement('div');
+          list.className = 'signup-plans';
+          for (const p of offer.plans) {
+            const l = document.createElement('label');
+            l.className = 'signup-plan';
+            const r = document.createElement('input');
+            r.type = 'radio'; r.name = 'plan'; r.value = p.id; r.checked = p.id === v.planId;
+            r.onchange = () => { v.planId = p.id; };
+            const t = document.createElement('div');
+            t.innerHTML = `<b>${esc(p.name)}</b> — <b>${esc(agorotText(p.priceAgorot))}</b> ל-${Number(p.months)} חודשים<br>
+              <small>${esc(p.desc || '')}</small><br><small class="muted">${(p.features || []).map(f => esc(licFeatureLabel(f))).join(' · ')} · עד ${Number(p.limits.maxUsers)} משתמשים</small>`;
+            l.append(r, t);
+            list.appendChild(l);
+          }
+          card.appendChild(list);
+          btn('ביטול', 'secondary', () => finish(null));
+          btn('המשך', 'primary', () => step(1));
+        } else if (n === 1) {
+          const fields = [['org', 'שם הארגון / העסק *'], ['contact', 'איש קשר *'], ['phone', 'טלפון *'], ['email', 'דוא"ל'], ['taxId', 'ת.ז / ח"פ']];
+          for (const [k, label] of fields) {
+            const l = document.createElement('label'); l.className = 'field';
+            const sp = document.createElement('span'); sp.textContent = label;
+            const i = document.createElement('input'); i.value = v.customer[k] || ''; i.oninput = () => { v.customer[k] = i.value.trim(); };
+            if (k === 'phone' || k === 'taxId') i.inputMode = 'numeric';
+            if (k === 'email') i.type = 'email';
+            l.append(sp, i); card.appendChild(l);
+          }
+          btn('חזרה', 'secondary', () => step(0));
+          btn('המשך', 'primary', () => {
+            if (!v.customer.org || !v.customer.contact || !v.customer.phone) { err.textContent = 'יש למלא את השדות המסומנים'; return; }
+            step(2);
+          });
+        } else {
+          const box = document.createElement('div');
+          box.className = 'signup-terms';
+          box.tabIndex = 0;
+          box.textContent = offer.terms.text;
+          const hint = document.createElement('p');
+          hint.className = 'muted';
+          hint.textContent = 'יש לגלול עד סוף התקנון';
+          const chkL = document.createElement('label'); chkL.className = 'chk';
+          const chk = document.createElement('input'); chk.type = 'checkbox'; chk.disabled = true;
+          chkL.append(chk, document.createTextNode(' קראתי את התקנון ואני מסכים לכל תנאיו'));
+          box.addEventListener('scroll', () => {
+            if (box.scrollTop + box.clientHeight >= box.scrollHeight - 8) { v.scrolled = true; chk.disabled = false; hint.textContent = ''; }
+          });
+          chk.onchange = () => { v.accepted = chk.checked; };
+          // תקנון קצר שאינו נגלל — נחשב כנקרא
+          setTimeout(() => { if (box.scrollHeight <= box.clientHeight + 8) { v.scrolled = true; chk.disabled = false; hint.textContent = ''; } }, 0);
+          const sigLabel = document.createElement('p'); sigLabel.textContent = 'חתימה (בעכבר או באצבע):';
+          const canvas = document.createElement('canvas');
+          canvas.width = 480; canvas.height = 140; canvas.className = 'signup-sig';
+          const ctx = canvas.getContext && canvas.getContext('2d');
+          let drawing = false, strokes = 0;
+          const pos = (e) => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) * canvas.width / r.width, (e.clientY - r.top) * canvas.height / r.height]; };
+          if (ctx) {
+            ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#0b2a5b';
+            canvas.addEventListener('pointerdown', (e) => { drawing = true; canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId); const [x, y] = pos(e); ctx.beginPath(); ctx.moveTo(x, y); });
+            canvas.addEventListener('pointermove', (e) => { if (!drawing) return; const [x, y] = pos(e); ctx.lineTo(x, y); ctx.stroke(); strokes++; });
+            canvas.addEventListener('pointerup', () => { drawing = false; v.signed = strokes > 10; });
+          }
+          const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'secondary small'; clear.textContent = 'ניקוי החתימה';
+          clear.onclick = () => { if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height); strokes = 0; v.signed = false; };
+          const plan = offer.plans.find(p => p.id === v.planId);
+          const sum = document.createElement('p');
+          sum.innerHTML = `לתשלום: <b>${esc(agorotText(plan.priceAgorot))}</b> — ${esc(plan.name)}, ${Number(plan.months)} חודשים`;
+          card.append(box, hint, chkL, sigLabel, canvas, clear, sum);
+          btn('חזרה', 'secondary', () => step(1));
+          btn(plan.priceAgorot > 0 ? 'חתימה ומעבר לתשלום' : 'חתימה ושליחה', 'primary', () => {
+            if (!v.scrolled) { err.textContent = 'יש לקרוא את התקנון עד סופו'; return; }
+            if (!v.accepted) { err.textContent = 'יש לסמן הסכמה לתקנון'; return; }
+            if (!v.signed) { err.textContent = 'יש לחתום בתיבת החתימה'; return; }
+            finish({ offerText: offerResp.text, planId: v.planId, customer: v.customer, signatureImage: canvas.toDataURL('image/png'), scrolledToEnd: true, accepted: true });
+          });
+        }
+        card.append(err, actions);
+      };
+      step(0);
+    });
   }
 
   // עדכוני גרסה: גרסה מותקנת, עדכון חתום שהתקבל, והורדה / התקנה בלחיצה
@@ -3891,7 +4016,7 @@
   }
 
   // מצב מנהל-העל: נפתח בסיסמה. ממנו מנפיקים ללקוחות ומאשרים מערכות בת
-  function renderOwnerPanel(o, inbox, remote, releases) {
+  function renderOwnerPanel(o, inbox, remote, releases, ownerOffer, signups) {
     if (!o) return '';
     if (!o.initialized) {
       return `<div class="card"><h3>מצב מנהל-העל</h3>
@@ -3944,8 +4069,80 @@
           </tr>`).join('')}`).join('') || '<tr><td colspan="6" class="muted">עדיין לא הונפקו רישיונות. לקוח חדש: "פתיחת בקשה מלקוח"</td></tr>'}</tbody>
       </table></div>
       <p class="muted">שינוי סטטוס נכנס לתוקף אצל הלקוח כשהוא מקבל "קובץ עדכון" (או בהתקנת רישיון מחודש). השבתה של לקוח משביתה גם את כל מערכות הבת שלו.</p>
+      ${renderOwnerSignups(ownerOffer, signups, remote)}
       ${renderOwnerReleases(releases, remote)}
     </div>`;
+  }
+
+  function renderOwnerSignups(offer, list, remote) {
+    if (!offer || !Array.isArray(offer.plans) || !offer.terms) offer = null;
+    const rows = (Array.isArray(list) ? list : []).slice().reverse();
+    return `<div class="acct-header"><h4>הרשמה, תכניות ותקנון</h4>
+        <div class="acct-actions"><button class="secondary small" id="ownerOfferBtn">${offer ? '✎ עריכת תכניות ותקנון' : '＋ הגדרת תכניות ותקנון'}</button>
+        ${offer && remote && remote.url ? '<button class="primary small" id="ownerOfferPublishBtn">📤 פרסום בשרת</button>' : ''}</div></div>
+      ${offer ? `<p class="muted">תקנון גרסה ${esc(offer.terms.version)} · ${offer.plans.map(p => esc(p.name) + ' ' + esc(agorotText(p.priceAgorot))).join(' · ')}</p>` : '<p class="muted">עדיין לא הוגדרו תכניות. מערכות חדשות יוכלו להירשם ולשלם אחרי פרסום בשרת.</p>'}
+      ${rows.length ? `<div class="acct-scroll"><table class="acct-table">
+        <thead><tr><th>התקבלה</th><th>לקוח</th><th>תכנית</th><th>תשלום</th><th>מצב</th><th></th></tr></thead>
+        <tbody>${rows.map(x => `<tr><td><small>${esc(new Date(x.receivedAt).toLocaleString('he-IL'))}</small></td>
+          <td><b>${esc(x.customer.org)}</b><br><small>${esc(x.customer.contact)} · <span dir="ltr">${esc(x.customer.phone)}</span></small></td>
+          <td>${esc(x.planName)}</td><td>${x.payment ? esc(agorotText(x.payment.amountAgorot)) + '<br><small dir="ltr">' + esc(x.payment.providerRef || '') + '</small>' : 'ללא תשלום'}</td>
+          <td>${x.status === 'issued' ? '<span class="ok">הונפק</span>' : '<b>חדשה</b>'}</td>
+          <td>${x.status === 'issued' ? '' : `<button class="primary small" data-owner-signup-issue="${esc(x.id)}">✔ הנפקה ושליחה</button>`}
+            <button class="secondary small" data-owner-signup-doc="${esc(x.id)}">📄 תקנון חתום (PDF)</button></td></tr>`).join('')}</tbody>
+      </table></div>` : ''}`;
+  }
+
+  // עורך תכניות ותקנון (מנהל-העל)
+  function offerEditor(cur) {
+    return openDialog((card, finish) => {
+      card.style.maxWidth = '720px';
+      const plans = (cur && cur.plans ? cur.plans : [{ id: 'basic', name: 'בסיסי', priceAgorot: 0, months: 12, features: ['econ'], limits: { maxUsers: 3, maxChildren: 0 } }])
+        .map(p => ({ ...p, limits: { ...p.limits } }));
+      const render = () => {
+        card.innerHTML = '<h2>תכניות ותקנון</h2>';
+        const mk = (label, value, type = 'text') => { const l = document.createElement('label'); l.className = 'field'; const sp = document.createElement('span'); sp.textContent = label;
+          const i = document.createElement(type === 'textarea' ? 'textarea' : 'input'); if (type !== 'textarea') i.type = type; i.value = value == null ? '' : value; l.append(sp, i); card.appendChild(l); return i; };
+        const seller = mk('שם הספק (מופיע בתקנון)', cur && cur.seller ? cur.seller.name : '');
+        const sellerId = mk('ח"פ / עוסק', cur && cur.seller ? cur.seller.taxId : '');
+        const inputs = plans.map((p, idx) => {
+          const fsx = document.createElement('fieldset');
+          fsx.innerHTML = `<legend>תכנית ${idx + 1}</legend>`;
+          card.appendChild(fsx);
+          const f = (label, val, type) => { const l = document.createElement('label'); l.className = 'field'; const sp = document.createElement('span'); sp.textContent = label;
+            const i = document.createElement('input'); i.type = type || 'text'; i.value = val == null ? '' : val; l.append(sp, i); fsx.appendChild(l); return i; };
+          const out = { id: f('מזהה (אנגלית)', p.id), name: f('שם', p.name), desc: f('תיאור', p.desc), price: f('מחיר ב-₪ (0 = חינם)', (p.priceAgorot || 0) / 100, 'number'),
+            months: f('תקופה (חודשים)', p.months, 'number'), users: f('משתמשים', p.limits.maxUsers, 'number'), children: f('מערכות בת', p.limits.maxChildren, 'number'), feats: [] };
+          const box = document.createElement('div'); box.className = 'checks';
+          for (const [val, label] of LIC_FEATURES) { const l = document.createElement('label'); const c = document.createElement('input'); c.type = 'checkbox'; c.value = val; c.checked = (p.features || []).includes(val);
+            l.append(c, document.createTextNode(' ' + label)); box.appendChild(l); out.feats.push(c); }
+          fsx.appendChild(box);
+          return out;
+        });
+        const add = document.createElement('button'); add.type = 'button'; add.className = 'secondary small'; add.textContent = '＋ תכנית נוספת';
+        add.onclick = () => { collect(); plans.push({ id: 'plan' + (plans.length + 1), name: '', priceAgorot: 0, months: 12, features: ['econ'], limits: { maxUsers: 3, maxChildren: 0 } }); render(); };
+        card.appendChild(add);
+        const tv = mk('גרסת התקנון (למשל 1.0) — שינוי נוסח מחייב גרסה חדשה', cur && cur.terms ? cur.terms.version : '1.0');
+        const tt = mk('כותרת התקנון', cur && cur.terms ? cur.terms.title : 'תקנון ותנאי שימוש');
+        const tx = mk('נוסח התקנון המלא', cur && cur.terms ? cur.terms.text : '', 'textarea');
+        tx.rows = 12;
+        const err = document.createElement('div'); err.className = 'bad';
+        const actions = document.createElement('div'); actions.className = 'modal-actions';
+        const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'ביטול'; cancel.onclick = () => finish(null);
+        const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'primary'; ok.textContent = 'חתימה ושמירה';
+        function collect() {
+          inputs.forEach((x, i) => { Object.assign(plans[i], { id: x.id.value.trim(), name: x.name.value.trim(), desc: x.desc.value.trim(),
+            priceAgorot: Math.round(Number(x.price.value || 0) * 100), months: Number(x.months.value), features: x.feats.filter(c => c.checked).map(c => c.value),
+            limits: { ...plans[i].limits, maxUsers: Number(x.users.value), maxChildren: Number(x.children.value), maxDepth: Number(x.children.value) > 0 ? 2 : 1 } }); });
+        }
+        ok.onclick = () => {
+          collect();
+          finish({ seller: { name: seller.value.trim(), taxId: sellerId.value.trim() }, plans, terms: { version: tv.value.trim(), title: tt.value.trim(), text: tx.value } });
+        };
+        actions.append(cancel, ok);
+        card.append(err, actions);
+      };
+      render();
+    });
   }
 
   function renderOwnerReleases(list, remote) {
@@ -4310,6 +4507,45 @@
       const r = await window.systemAPI.ownerRemoteReceive();
       showToast(r.added ? `התקבלו ${r.added} בקשות חדשות` : 'אין בקשות חדשות');
     });
+    // --- הרשמה ---
+    on('signupStartBtn', async () => {
+      const offer = await window.systemAPI.getSignupOffer();
+      const v = await signupWizard(offer);
+      if (!v) return;
+      const r = await window.systemAPI.licenseSignup(v);
+      if (r.free) { showToast('ההרשמה נשלחה — הרישיון יגיע בסנכרון'); return; }
+      showToast('נפתח דף התשלום המאובטח');
+      await window.systemAPI.licenseOpenPayment();
+    });
+    on('signupPayBtn', async () => { await window.systemAPI.licenseOpenPayment(); });
+    on('signupCheckBtn', async () => {
+      const r = await window.systemAPI.licenseSignupStatus();
+      showToast(r && r.status === 'submitted' ? 'התשלום התקבל — הרישיון יגיע בסנכרון' : 'התשלום עדיין לא הושלם');
+    });
+    on('licRemoteSyncBtn2', async () => {
+      const r = await window.systemAPI.licenseRemoteSync();
+      showToast(r.handled ? 'התקבלו ' + r.handled + ' עדכונים' : 'עדיין לא התקבל רישיון — נסו שוב בעוד כמה דקות');
+    });
+    on('ownerOfferBtn', async () => {
+      const cur = await window.systemAPI.ownerGetOffer();
+      const v = await offerEditor(cur);
+      if (!v) return;
+      await window.systemAPI.ownerSetOffer(v);
+      showToast('התכניות והתקנון נחתמו ונשמרו');
+    });
+    on('ownerOfferPublishBtn', async () => {
+      await window.systemAPI.ownerPublishOffer();
+      showToast('התכניות והתקנון פורסמו — מערכות חדשות יכולות להירשם');
+    });
+    each('data-owner-signup-issue', async (b) => {
+      const r = await window.systemAPI.ownerSignupIssue(b.dataset.ownerSignupIssue);
+      showToast(`הרישיון של "${r.name}" נשלח`);
+    });
+    each('data-owner-signup-doc', async (b) => {
+      const r = await window.systemAPI.ownerSignupDocument(b.dataset.ownerSignupDoc);
+      if (r && r.ok) showToast('התקנון החתום נשמר כ-PDF');
+    });
+
     // --- עדכוני גרסה ---
     on('updDownloadBtn', async () => {
       showToast('מוריד ובודק את העדכון...');
