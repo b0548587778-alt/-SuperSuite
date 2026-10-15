@@ -92,6 +92,7 @@ python -m unittest test_encryption -v
 |------|--------|
 | `ipc.js` | רישום כל ערוצי ה-IPC + אכיפת הרשאות. **כל** ערוץ (מלבד `auth:`) דורש session פעיל. |
 | `preload.js` | חשיפת `window.systemAPI` |
+| `ui/*.js` | הממשק (לשעבר `unified-ui.js`), קובץ לכל תחום. **סקריפטים רגילים — לא מודולים ולא IIFE**: כולם חולקים טווח שמות גלובלי אחד, לפי סדר תגי ה-`script` ב-`views/index.html`; `boot.js` אחרון. כל שם ברמה העליונה הוא גלובלי — שם כפול בין קבצים מפיל את הטעינה, ושם כמו `open`/`name`/`print` דורס את `window` (`tests/econ-ui-split.test.js`). מחוץ ל-`boot.js` — הצהרות בלבד, בלי קוד שרץ בטעינה. קובץ חדש — להוסיף תג ב-`index.html` לפני `boot.js`. בבדיקות: `tests/helpers/econ-ui.js` (`run(context)` / `source()`) |
 | `core/database.js` | SQLite דרך `node:sqlite`. טבלת `collections` (key-value) + טבלאות auth/roles/audit. |
 | `core/accounting.js` | לוגיקת הנה"ח כפולה |
 | `core/backupCrypto.js` | הצפנת גיבוי AES-256-GCM |
@@ -110,7 +111,7 @@ python -m unittest test_encryption -v
 | `core/gemachExtra.js` | הרחבות גמ"ח (בשירות `gemachService`): **בקשות הלוואה** `gemach.applications` — draft→interview→verified→approved/rejected; נבדקות ב-`validateLoanInput` כבר בשמירה, אישור יוצר הלוואה באותה שמירה (`applicationId`), שינוי ערבים אחרי אימות מחזיר לראיון. **גמ"ח חפצים** `gemach.items` + `gemach.lendings` — השאלה אחת פתוחה לפריט, פיקדון באגורות, החזרה מעדכנת מצב; פריט עם היסטוריה לא נמחק. **פיגורים לפי ערב** — ייצוא `guarantor-arrears`. אין תזכורות אוטומטיות |
 | `core/chesed.js` + `services/chesedService.js` | חסד וחלוקות: נזקקים (רמת חיסיון), מתנדבים (מחלקות none/men/women), סבבי חלוקה — שיוך לפי משפחה/גודל, שיבוץ לפי מחלקת הסבב, מסירה, סגירה. ערוצי `chesed:*`. אוסף `chesed`. **נזקק חסוי מוסתר בצד השרת (`maskBeneficiary`) לכל מי שאין לו `users.manage` — כולל בייצוא** |
 | `core/mortgageAdvisor.js` + `services/mortgageAdvisorService.js` | ייעוץ משכנתאות: תיקים, מסלולים ולוח סילוקין באגורות, השוואה, עמלה, מסמכים. ערוצי `madv:*` |
-| `core/dashboard.js` | לוח בוקר למנהל העמותה (`morningBrief`): תמיכות, "תרומות ישראל", הוראות קבע, פיגורי גמ"ח, חפצים באיחור, בקשות, סבבי חלוקה ויארצייט בשבוע הקרוב — ממוין לפי דחיפות, כל שורה עם `view` למסך שלה. **קריאה בלבד, בלי פנייה אוטומטית.** `sources` = התחומים הפתוחים ברישיון. **עדיין לא מחובר ל-IPC/UI** — ממתין לפיצול `unified-ui.js` |
+| `core/dashboard.js` | לוח בוקר למנהל העמותה (`morningBrief`): תמיכות, "תרומות ישראל", הוראות קבע, פיגורי גמ"ח, חפצים באיחור, בקשות, סבבי חלוקה ויארצייט בשבוע הקרוב — ממוין לפי דחיפות, כל שורה עם `view` למסך שלה. **קריאה בלבד, בלי פנייה אוטומטית.** `sources` = התחומים הפתוחים ברישיון. ערוץ `dashboard:getMorningBrief` (`data.view`), מוצג בראש לוח הבקרה (`renderMorningBrief` ב-`ui/views-general.js`) רק כשיש פריטים |
 | `core/mixEngine.js` + `core/mortgageRules.js` + `services/mortgageLabService.js` | מעבדת תמהיל (הועבר מ-tamhil): 7 סוגי מסלולים, פריים לפי מסלול ריבית, משתנה לפי עוגן, גרייס, בדיקות 329, סלים אחידים, כושר החזר, מחזור, השוואת אישורים, עמלת פירעון, אופטימייזר ושימור. ערוצי `mlab:*`. אוסף `mortgageLab`. אימות כלל — `users.manage` בלבד |
 
 ---
@@ -220,14 +221,14 @@ tests/                   — בדיקות
 
 התוכנה מוצגת למשתמש כ**תוכנה אחת** עם סרגל אחד (`shell/`). מסך חדש במודול הכלכלי:
 
-1. כפתור ב-`modules/econ/views/index.html` (`<button class="nav" data-view="...">אייקון <span>שם</span></button>`), כותרת ב-`viewTitles` וטעינה/רינדור ב-`unified-ui.js`.
+1. כפתור ב-`modules/econ/views/index.html` (`<button class="nav" data-view="...">אייקון <span>שם</span></button>`), כותרת ב-`viewTitles` (`ui/core.js`) וטעינה/רינדור בקובץ התחום ב-`modules/econ/ui/` (או קובץ חדש שם — ראו `ui/*.js` למעלה).
 2. **פריט בקטלוג** `shell/catalog.js` בתחום המתאים (כספים / משק בית ותכנון / משכנתאות ונדל"ן / ארגון ועבודה / בריאות וכושר / מערכת), עם `icon`, `name`, `desc` בעברית.
 3. ערוצי IPC חדשים — דרך `handle()` ב-`ipc.js` בלבד, וחשיפה ב-`modules/econ/preload.js`.
 4. קובץ בדיקות `tests/<name>.test.js` — נאסף אוטומטית.
 
 **רשת ביטחון:** מסך ששלב 2 נשכח בו לא נעלם — `catalog.extrasFromHtml` מזהה אותו מהסרגל הפנימי ו-`main.js` מציג אותו בסרגל האחיד תחת "נוספו לאחרונה". אבל `tests/catalog.test.js` ייכשל עד שיתווסף לקטלוג במקומו הנכון — זו התזכורת.
 
-**עבודה מקבילה:** לפני עריכה של `shell/catalog.js`, `main.js`, `preload.js` או `unified-ui.js` — קרא את הגרסה העדכנית מהדיסק (ייתכן שסשן אחר שינה אותה), ערוך בעריכה נקודתית ולא בכתיבה מחדש של הקובץ כולו, והרץ `npm test` בסוף.
+**עבודה מקבילה:** לפני עריכה של `shell/catalog.js`, `main.js`, `preload.js` או `modules/econ/ui/*.js` — קרא את הגרסה העדכנית מהדיסק (ייתכן שסשן אחר שינה אותה), ערוך בעריכה נקודתית ולא בכתיבה מחדש של הקובץ כולו, והרץ `npm test` בסוף.
 
 ---
 

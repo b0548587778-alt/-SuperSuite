@@ -1,6 +1,7 @@
 // הודעות בסגנון "וואטסאפ ביזנס": תגובה, עריכה ומחיקה, כוכב, נעיצה/ארכיון/השתקה, תוויות והערות,
 // פרופיל עסקי, תשובות מהירות, הודעות פתיחה והיעדרות (לא בשבת), רשימות תפוצה וקבצים מצורפים
 const test = require('node:test');
+const EconUI = require('./helpers/econ-ui');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -257,7 +258,7 @@ function fakeElement(id = '', extra = {}) {
 }
 async function render(responses, setup) {
   const ROOT = path.join(__dirname, '..');
-  const UI_SRC = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+  const UI_SRC = EconUI.source();
   const HTML = fs.readFileSync(path.join(ROOT, 'modules/econ/views/index.html'), 'utf8');
   const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]))];
   const elements = {};
@@ -272,7 +273,7 @@ async function render(responses, setup) {
   const context = { document, console, setTimeout, clearTimeout, Date, Intl };
   context.window = context; context.window.systemAPI = systemAPI;
   vm.createContext(context);
-  vm.runInContext(UI_SRC, context, { filename: 'unified-ui.js' });
+  EconUI.run(context);
   for (let i = 0; i < 14; i++) await new Promise(r => setImmediate(r));
   navButtons[VIEWS.indexOf('messages')]._listeners.click[0]();
   for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r));
@@ -313,7 +314,7 @@ test('מסך הודעות: שיחה פתוחה מציגה את כל סוגי ה�
     { mid: 'z1aaaaaaaa', dir: 'in', text: '', sentAt: now - 600, att: { name: 'רע.png', type: 'image/svg+xml', size: 10, data: 'PHN2Zz4=', available: true } }] };
   // לחיצה על איש הקשר דרך ה-state: מדמים בחירה ע"י render חוזר עם chatPeer
   const ROOT = path.join(__dirname, '..');
-  const src = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+  const src = EconUI.source();
   assert.match(src, /state\.chatPeer = b\.dataset\.chatOpen/);
   const { html, calls } = await renderWithPeer({ chatOverview: { remote: true, unread: 0, conversations: convs, contacts: convs, labels: [], quickReplies: [], lists: [] },
     chatThread: thread, getOwnerState: {}, getAdvancedSettings: { isAdmin: true } });
@@ -336,7 +337,7 @@ test('מסך הודעות: שיחה פתוחה מציגה את כל סוגי ה�
 // רינדור עם איש קשר פתוח: אחרי הטעינה לוחצים על כפתור איש הקשר
 async function renderWithPeer(responses) {
   const ROOT = path.join(__dirname, '..');
-  const UI_SRC = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+  const UI_SRC = EconUI.source();
   const HTML = fs.readFileSync(path.join(ROOT, 'modules/econ/views/index.html'), 'utf8');
   const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]))];
   const elements = {};
@@ -356,7 +357,7 @@ async function renderWithPeer(responses) {
   const context = { document, console, setTimeout, clearTimeout, Date, Intl };
   context.window = context; context.window.systemAPI = systemAPI;
   vm.createContext(context);
-  vm.runInContext(UI_SRC, context, { filename: 'unified-ui.js' });
+  EconUI.run(context);
   for (let i = 0; i < 14; i++) await new Promise(r => setImmediate(r));
   navButtons[VIEWS.indexOf('messages')]._listeners.click[0]();
   for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r));

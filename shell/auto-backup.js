@@ -99,7 +99,9 @@ function b32decode(text, byteLen) {
     value = ((value << 5) | v) & 0xffff; bits += 5;
     if (bits >= 8) { out.push((value >>> (bits - 8)) & 255); bits -= 8; }
   }
-  return out.length >= byteLen ? Buffer.from(out.slice(0, byteLen)) : null;
+  // צורה קנונית בלבד: סיביות המילוי בתו האחרון חייבות להיות 0 — אחרת טעות הקלדה בהן הייתה עוברת בשקט
+  if (out.length !== byteLen || (value & ((1 << bits) - 1)) !== 0) return null;
+  return Buffer.from(out);
 }
 
 const checksum = (raw) => require('crypto').createHash('sha256').update(raw).digest().subarray(0, 2);

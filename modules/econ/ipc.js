@@ -24,6 +24,7 @@ const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/m
 const { MortgageLabService: mortgageLabService } = require('./services/mortgageLabService');
 const BK = require('./core/backupCrypto');
 const DP = require('./core/dataPorts');
+const MB = require('./core/dashboard');
 const { IDLE_MIN_RANGE } = require('./services/authService');
 const path = require('path');
 const LG = require('../../shell/licensing/gate');
@@ -813,6 +814,11 @@ handle('auth:login', async (event, username, password) => {
     const c = await peopleService.getCard(key, canSeeConfidential(event), LG.peopleSources(licenseState()));
     if (c.beneficiary.some(b => b.confidential)) await auditEvent(event, 'chesed.confidential.view', { via: 'people', key });
     return c;
+  });
+  // לוח בוקר: מה דורש טיפול היום בעמותה, בגמ"ח ובחסד. מצרף כמה תחומים — ולכן רק הפתוחים ברישיון
+  handle('dashboard:getMorningBrief', async () => {
+    const sources = LG.peopleSources(licenseState());
+    return MB.morningBrief(await db.load(), localDay(Date.now()), { sources: sources || MB.SOURCES });
   });
   handle('chesed:getOverview', async (event) => {
     const o = await chesedService.getOverview(canSeeConfidential(event));

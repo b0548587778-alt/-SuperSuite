@@ -1,14 +1,15 @@
 // בדיקת התנהגות לניווט של מערכת הניהול: כל כפתור ניווט מציג כותרת בעברית, לא את מזהה התצוגה.
-// unified-ui.js רץ ב-vm עם DOM מדומה, כפתורי הניווט נלקחים מ-views/index.html,
+// ממשק המודול (modules/econ/ui) רץ ב-vm עם DOM מדומה, כפתורי הניווט נלקחים מ-views/index.html,
 // ונלחץ כל כפתור כדי לבדוק את הכותרת שמוצגת.
 const test = require('node:test');
+const EconUI = require('./helpers/econ-ui');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
-const UI_SRC = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+const UI_SRC = EconUI.source();
 const HTML = fs.readFileSync(path.join(ROOT, 'modules/econ/views/index.html'), 'utf8');
 const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]))];
 
@@ -46,7 +47,7 @@ test('כל תצוגת ניווט במערכת הכלכלית מציגה כותר
   context.systemAPI = systemAPI;
   context.window.systemAPI = systemAPI;
   vm.createContext(context);
-  vm.runInContext(UI_SRC, context, { filename: 'unified-ui.js' });
+  EconUI.run(context);
   await new Promise(r => setImmediate(r));
 
   for (let i = 0; i < VIEWS.length; i++) {

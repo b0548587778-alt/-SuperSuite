@@ -42,3 +42,11 @@ test('רואה חשבון: קורא ומייצא; לא עורך, לא מוחק, 
   await assert.rejects(handlers['users:list'](ev(2)), denied);
   await assert.rejects(handlers['users:create'](ev(2), { username: 'x', password: 'y', role: 'admin' }), denied);
 });
+
+test('ממשק: כל תפקיד במסד ניתן לבחירה בהגדרות (אחרת רואה חשבון מוצג כ"מנהל" ברשימה)', () => {
+  const { ROLES } = require('../modules/econ/core/database');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/ui/settings.js'), 'utf8');
+  const block = src.match(/const ROLE_LABELS = \{([\s\S]*?)\};/)[1];
+  const keys = [...block.matchAll(/(\w+):\s*'/g)].map(m => m[1]);
+  assert.deepEqual(keys.sort(), [...ROLES].sort());
+});

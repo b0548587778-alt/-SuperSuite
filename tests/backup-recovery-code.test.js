@@ -39,6 +39,17 @@ test('טעות הקלדה בתו אחד נתפסת בספרת הביקורת', (
   assert.equal(caught, plain.length);
 });
 
+// רגרסיה: 55 תווים = 275 סיביות ל-272 של מפתח+ביקורת. טעות שנגעה רק בסיביות המילוי של התו האחרון
+// עברה בלי שגיאה (פעם בכמה הרצות של הבדיקה הקודמת). כל ערך אחר בתו האחרון — נדחה
+test('התו האחרון: כל החלפה נדחית, כולל כזו שמשנה רק את סיביות המילוי', () => {
+  const plain = A.recoveryCodeFromKey(newKey()).replace(/-/g, '');
+  const ALPHA = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  for (const ch of ALPHA) {
+    if (ch === plain[plain.length - 1]) continue;
+    assert.throws(() => A.keyFromRecoveryCode(plain.slice(0, -1) + ch), /שגוי/, 'תו אחרון ' + ch);
+  }
+});
+
 test('סיסמה רגילה אינה מזוהה כקוד', () => {
   assert.equal(A.looksLikeRecoveryCode('סיסמה-ארוכה-מאוד'), false);
   assert.equal(A.looksLikeRecoveryCode('abcdefgh12'), false);

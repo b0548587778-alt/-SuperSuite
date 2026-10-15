@@ -1,13 +1,14 @@
-// בדיקות התנהגות לתצוגות "עמותה ותרומות" ו"ייעוץ משכנתאות": unified-ui.js רץ ב-vm עם DOM מדומה.
+// בדיקות התנהגות לתצוגות "עמותה ותרומות" ו"ייעוץ משכנתאות": ממשק המודול (modules/econ/ui) רץ ב-vm עם DOM מדומה.
 // נבדק מה המשתמש רואה ומה נשלח ל-systemAPI — לא הטקסט של הקוד.
 const test = require('node:test');
+const EconUI = require('./helpers/econ-ui');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
-const UI_SRC = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+const UI_SRC = EconUI.source();
 const HTML = fs.readFileSync(path.join(ROOT, 'modules/econ/views/index.html'), 'utf8');
 const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]))];
 
@@ -51,7 +52,7 @@ async function makeHarness({ npo, madv, calls = [], buttons = {}, responses = {}
   context.window = context;
   context.window.systemAPI = systemAPI;
   vm.createContext(context);
-  vm.runInContext(UI_SRC, context, { filename: 'unified-ui.js' });
+  EconUI.run(context);
   await settle();
   return { elements, navButtons, calls };
 }

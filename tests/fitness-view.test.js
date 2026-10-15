@@ -1,13 +1,14 @@
 // בדיקת התנהגות לתצוגת הכושר: הטופס, השדות הדינמיים ויצירת הרשומות.
-// unified-ui.js רץ ב-vm עם DOM מדומה; נבדקת ההתנהגות בפועל — לא טקסט בקוד.
+// ממשק המודול (modules/econ/ui) רץ ב-vm עם DOM מדומה; נבדקת ההתנהגות בפועל — לא טקסט בקוד.
 const test = require('node:test');
+const EconUI = require('./helpers/econ-ui');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
-const UI_SRC = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+const UI_SRC = EconUI.source();
 const HTML = fs.readFileSync(path.join(ROOT, 'modules/econ/views/index.html'), 'utf8');
 const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]))];
 
@@ -83,7 +84,7 @@ async function makeHarness({ calls, fitnessData, personalFinance, accounting, ta
   context.systemAPI = systemAPI;
   context.window.systemAPI = systemAPI;
   vm.createContext(context);
-  vm.runInContext(UI_SRC, context, { filename: 'unified-ui.js' });
+  EconUI.run(context);
 
   await settle(context);
   return { context, elements, document, navButtons, editBtn };
@@ -459,7 +460,7 @@ test('תכנון פיננסי עם נתונים ריקים מציג הודעה �
 // הערוץ marketIntel:updateEntry קיים ב-ipc.js ובשירות, אך ה-UI מעולם לא חיבר
 // אליו כפתור. הבדיקה מוודאת שהחיבור קיים — עריכה שלא נגישה היא יכולת מדומה.
 test('מודיעין שוק: לרשומה יש כפתור עריכה שמחובר לערוץ updateEntry', async () => {
-  const source = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+  const source = EconUI.source();
   assert.match(source, /update:\s*\(id,\s*data\)\s*=>\s*window\.systemAPI\.updateMarketIntelEntry\(id,\s*data\)/,
     'סכימת מודיעין השוק מחוברת ל-updateMarketIntelEntry');
 });
@@ -468,7 +469,7 @@ test('תצוגות חשבונאיות שהן append-only אינן מציגות �
   // יומן, חשבוניות, תרשים חשבונות, מחירון ורשומות אישיות הן append-only בעיצוב:
   // רשומת יומן מבוטלת בהפכה ולא נערכת, חשבונית מבוטלת ולא נערכת. אין להן ערוץ
   // update — ולכן סכימה בלי update היא נכונה, וכפתור עריכה היה מטעה.
-  const source = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+  const source = EconUI.source();
   for (const view of ['acct-journal', 'acct-invoices', 'acct-chart', 'acct-pricing', 'acct-personal']) {
     const body = schemaBody(source, view);
     assert.ok(body, `סכימת ${view} נמצאה`);
