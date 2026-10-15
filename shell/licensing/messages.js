@@ -4,7 +4,8 @@
 // מי מדבר עם מי: רק הורה↔ילד ישיר, ומנהל-העל עם כולם. הנמענים נגזרים מהרישיונות החתומים, לא ממה שהשרת אומר.
 const crypto = require('crypto');
 const L = require('./license');
-const C = require('./crypto-lite');
+// עקומות, HKDF ו-SHA דרך שכבת הקריפטוגרפיה: OpenSSL בשולחן העבודה, JS טהור באנדרואיד
+const C = require('./crypto');
 
 const MAX_TEXT = 4000;
 const MAX_SUBJECT = 120;
