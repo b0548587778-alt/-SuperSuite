@@ -213,7 +213,8 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now }
     const d = load();
     if (!d || !Array.isArray(d.chain)) return { nodeId: null, children: [] };
     const own = d.chain[d.chain.length - 1].payload;
-    return { nodeId: own.id, chainIds: d.chain.map(l => l.payload.id), children: (d.children || []).map(c => ({ id: c.id, name: c.name })) };
+    return { nodeId: own.id, chainIds: d.chain.map(l => l.payload.id), chain: d.chain,
+      children: (d.children || []).map(c => ({ id: c.id, name: c.name, publicKey: c.license.payload.publicKey })) };
   }
   // חבילת הודעות למערכת בת (שלה ושל השרשרת מעליה) — להעברה הלאה של השבתה מלמעלה
   function noticesForChild(childId) {

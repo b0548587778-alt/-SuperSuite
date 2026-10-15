@@ -181,7 +181,7 @@ function createOwnerCore({ storage, clock = Date.now }) {
       name: child.name, features: child.features, limits: child.limits, expiresAt: child.expiresAt, graceDays: child.graceDays, approvedAt: now,
     });
     reg.approvals = [...reg.approvals.filter(x => x !== prev),
-      { id: approval.payload.id, parentId: parent.id, parentName: parent.name, childId, slot, name: approval.payload.name, approvedAt: now }];
+      { id: approval.payload.id, parentId: parent.id, parentName: parent.name, childId, childPublicKey: approval.payload.childPublicKey, slot, name: approval.payload.name, approvedAt: now }];
     writeJson('registry.json', reg);
     return { childId, slot, name: approval.payload.name, parentName: parent.name, package: JSON.stringify({ type: PKG_APPROVAL, v: 1, approval }) };
   }
@@ -234,7 +234,16 @@ function createOwnerCore({ storage, clock = Date.now }) {
     return [...reg.tenants.map(t => t.id), ...reg.approvals.filter(a => !a.revoked).map(a => a.childId)];
   }
 
-  return { MIN_PASS, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
+  // אנשי הקשר של מנהל-העל: כל הלקוחות, ומערכות הבת שאושרו (עם מפתח ציבורי)
+  function contacts() {
+    const reg = registry();
+    return [
+      ...reg.tenants.map(t => ({ id: t.id, name: t.name, publicKey: t.license.payload.publicKey, role: 'tenant' })),
+      ...reg.approvals.filter(a => !a.revoked && a.childPublicKey).map(a => ({ id: a.childId, name: a.name + ' (' + a.parentName + ')', publicKey: a.childPublicKey, role: 'child' })),
+    ];
+  }
+
+  return { MIN_PASS, contacts, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
     inbox, addToInbox, takeFromInbox, peekInbox, rootSigner, recipients };
 }
 

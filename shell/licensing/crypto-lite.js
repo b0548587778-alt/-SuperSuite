@@ -229,4 +229,65 @@ function verify(sig, msg, pub) {
   return lhs.every((v, i) => v === rhs[i]);
 }
 
-module.exports = { utf8, concat, b64uEncode, b64uDecode, sha256, sha512, ed25519: { getPublicKey, sign, verify } };
+/* ---------- HMAC-SHA256 (RFC 2104) ו-HKDF (RFC 5869) ---------- */
+function hmacSha256(key, msg) {
+  let k = key.length > 64 ? sha256(key) : key;
+  const block = new Uint8Array(64);
+  block.set(k);
+  const ipad = block.map(b => b ^ 0x36), opad = block.map(b => b ^ 0x5c);
+  return sha256(concat(opad, sha256(concat(ipad, msg))));
+}
+function hkdfSha256(ikm, salt, info, length = 32) {
+  const prk = hmacSha256(salt && salt.length ? salt : new Uint8Array(32), ikm);
+  const out = new Uint8Array(length);
+  let t = new Uint8Array(0);
+  for (let i = 0, o = 0; o < length; i++) {
+    t = hmacSha256(prk, concat(t, info, Uint8Array.of(i + 1)));
+    out.set(t.subarray(0, Math.min(32, length - o)), o);
+    o += 32;
+  }
+  return out;
+}
+
+/* ---------- X25519 (RFC 7748) ---------- */
+const A24 = 121665n;
+function x25519(scalar, u) {
+  if (scalar.length !== 32 || u.length !== 32) throw new Error('מפתח באורך שגוי');
+  const k = Uint8Array.from(scalar);
+  k[0] &= 248; k[31] &= 127; k[31] |= 64;
+  const ub = Uint8Array.from(u);
+  ub[31] &= 127;
+  const x1 = mod(leToInt(ub));
+  const kn = leToInt(k);
+  let x2 = 1n, z2 = 0n, x3 = x1, z3 = 1n, swap = 0n;
+  for (let t = 254; t >= 0; t--) {
+    const kt = (kn >> BigInt(t)) & 1n;
+    swap ^= kt;
+    if (swap) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; }
+    swap = kt;
+    const A = mod(x2 + z2), AA = mod(A * A), B = mod(x2 - z2), BB = mod(B * B), E = mod(AA - BB);
+    const Cc = mod(x3 + z3), Dd = mod(x3 - z3), DA = mod(Dd * A), CB = mod(Cc * B);
+    x3 = mod((DA + CB) * (DA + CB));
+    z3 = mod(x1 * mod((DA - CB) * (DA - CB)));
+    x2 = mod(AA * BB);
+    z2 = mod(E * (AA + A24 * E));
+  }
+  if (swap) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; }
+  const out = intToLe(mod(x2 * inv(z2)));
+  // נקודה בעלת סדר נמוך נותנת סוד משותף אפס — נדחה (RFC 7748 §6.1)
+  if (out.every(b => b === 0)) throw new Error('מפתח לא תקין');
+  return out;
+}
+const X25519_BASE = intToLe(9n);
+// המרת מפתחות Ed25519 ל-X25519 (כמו crypto_sign_ed25519_*_to_curve25519 ב-libsodium): מפתח אחד לחתימה ולהצפנה
+function edPublicToX25519(pub) {
+  const b = Uint8Array.from(pub);
+  b[31] &= 0x7f;
+  const y = leToInt(b);
+  if (y >= P) throw new Error('מפתח ציבורי לא תקין');
+  return intToLe(mod((1n + y) * inv(mod(1n - y))));
+}
+const edSeedToX25519 = (seed) => sha512(seed).subarray(0, 32);
+
+module.exports = { utf8, concat, b64uEncode, b64uDecode, sha256, sha512, hmacSha256, hkdfSha256,
+  ed25519: { getPublicKey, sign, verify }, x25519: { scalarMult: x25519, BASE: X25519_BASE, fromEdPublic: edPublicToX25519, fromEdSeed: edSeedToX25519 } };

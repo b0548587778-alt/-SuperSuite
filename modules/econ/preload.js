@@ -265,6 +265,11 @@ contextBridge.exposeInMainWorld('systemAPI', {
   ownerInboxApprove: (id) => ipcRenderer.invoke('owner:inboxApprove', id),
   ownerInboxReject: (id, reason) => ipcRenderer.invoke('owner:inboxReject', id, reason),
   ownerRemotePush: () => ipcRenderer.invoke('owner:remotePush'),
+  chatOverview: (as) => ipcRenderer.invoke('chat:overview', as),
+  chatThread: (peerId, as) => ipcRenderer.invoke('chat:thread', peerId, as),
+  chatSend: (input, as) => ipcRenderer.invoke('chat:send', input, as),
+  chatRefresh: (as) => ipcRenderer.invoke('chat:refresh', as),
+  chatSearch: (q, as) => ipcRenderer.invoke('chat:search', q, as),
 
   // ייבוא וייצוא
   listDataKinds: () => ipcRenderer.invoke('ports:listKinds'),

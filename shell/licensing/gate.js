@@ -16,7 +16,7 @@ const ECON_SUB_FEATURES = {
 };
 
 // ערוצים שתמיד פתוחים, גם במערכת מושבתת: כניסה/יציאה, כדי שהמשתמש יראה את מסך הסיבה
-const ALWAYS_OPEN = /^(auth|license|owner):/;
+const ALWAYS_OPEN = /^(auth|license|owner|chat):/;
 // במצב חוב/השבתה זמנית: קריאה, ייצוא וגיבוי בלבד — הנתונים של הלקוח לא "נלקחים כבני ערובה"
 const READ_ONLY_PERMS = new Set(['data.view', 'data.export', 'data.backup']);
 

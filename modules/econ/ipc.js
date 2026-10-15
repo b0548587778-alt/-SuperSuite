@@ -32,11 +32,14 @@ const ROOT_KEYS = require('../../shell/licensing/root-keys');
 const OC = require('../../shell/licensing/owner-core');
 const { createLicenseSync } = require('../../shell/licensing/sync');
 const { validateUrl } = require('../../shell/licensing/remote');
+const { createChatStore } = require('../../shell/licensing/chat');
 
 let db;
 let licenseStore = null;
 let ownerCore = null;
 let licenseSync = null;
+let chatStore = null;
+let ownerChatStore = null;
 
 // מצב הרישיון הנוכחי (docs/LICENSING-DESIGN.md). לפני אתחול — כמו התקנה בלי רישוי
 const licenseState = () => (licenseStore ? licenseStore.current() : { mode: 'unlicensed' });
@@ -45,11 +48,14 @@ const licenseState = () => (licenseStore ? licenseStore.current() : { mode: 'unl
 function licenseAdapters(userDataPath) {
   const ls = typeof window !== 'undefined' && window.localStorage;
   if (ls) return { storage: LS.webStorage(ls, 'supersuite.license'), secret: LS.webStorage(ls, 'supersuite.license.key'),
-    owner: OC.prefixedWebStorage(ls, 'supersuite.owner.') };
+    owner: OC.prefixedWebStorage(ls, 'supersuite.owner.'),
+    chat: LS.webStorage(ls, 'supersuite.chat'), ownerChat: LS.webStorage(ls, 'supersuite.owner.chat') };
   return {
     storage: LS.fileStorage(fs, path.join(userDataPath, 'license.json')),
     secret: LS.encryptedFileSecret(fs, path.join(userDataPath, 'license-key.bin'), safeStorage),
     owner: OC.dirStorage(fs, path, path.join(userDataPath, 'owner')),
+    chat: LS.fileStorage(fs, path.join(userDataPath, 'messages.json')),
+    ownerChat: LS.fileStorage(fs, path.join(userDataPath, 'owner', 'messages.json')),
   };
 }
 
@@ -57,13 +63,16 @@ function licenseAdapters(userDataPath) {
 let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
-async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl } = {}) {
+async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage } = {}) {
   const ad = licenseAdapters(userDataPath);
   // מצב מנהל-העל: זמין בכל התקנה, אבל נפתח רק בסיסמה. המפתח נשמר מוצפן (SSBK1:)
   ownerCore = OC.createOwnerCore({ storage: ownerStorage || ad.owner, clock });
   rootKeysInUse = rootKeys;
   // עבודה מרחוק דרך שרת הרישוי — פעיל רק אחרי שהמנהל הגדיר כתובת (בלי כתובת: אופליין לגמרי)
-  licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock });
+  chatStore = createChatStore({ storage: chatStorage || ad.chat, clock });
+  ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock });
+  licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock,
+    chat: chatStore, ownerChat: ownerChatStore });
   licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
   db = await initializeDatabase(userDataPath);
   authService.initialize(db);
@@ -114,6 +123,8 @@ function permissionFor(channel) {
   // רישוי: התקנה, הנפקת מערכות בת והשבתתן — מנהל בלבד. מצב הרישיון — לכל משתמש מחובר
   if (channel.startsWith('license:') && channel !== 'license:getStatus') return 'users.manage';
   if (channel.startsWith('owner:')) return 'users.manage';
+  if (channel === 'chat:send') return 'data.edit';
+  if (channel.startsWith('chat:')) return 'data.view';
   if (/backup/i.test(name)) return 'data.backup';
   if (/restore/i.test(name)) return 'data.restore';
   if (/export/i.test(name)) return 'data.export';
@@ -1102,6 +1113,44 @@ handle('auth:login', async (event, username, password) => {
     const r = await licenseSync.ownerPushNotices();
     await ownerAudit(event, 'notices.push', r);
     return r;
+  });
+
+  // ---------- הודעות מאובטחות בין המערכות (מוצפנות מקצה לקצה) ----------
+  // as: 'owner' — בשם מנהל-העל (דורש מצב מנהל-העל פתוח והרשאת מנהל)
+  const asOwner = (event, as) => {
+    if (as !== 'owner') return false;
+    if (!authService.hasPermission(event.sender.id, 'users.manage')) throw new Error('אין הרשאה לפעולה זו');
+    if (!ownerCore.isUnlocked()) throw new Error('יש לפתוח את מצב מנהל-העל בסיסמה');
+    return true;
+  };
+  const chatContacts = (owner) => (owner ? ownerCore.contacts() : licenseSync.myContacts()).map(({ id, name, role }) => ({ id, name, role }));
+  handle('chat:overview', async (event, as) => {
+    const owner = asOwner(event, as);
+    const box = owner ? ownerChatStore : chatStore;
+    return { conversations: box.conversations(chatContacts(owner)), remote: !!licenseStore.getRemoteSettings().url, unread: box.unreadTotal() };
+  });
+  handle('chat:thread', async (event, peerId, as) => {
+    const owner = asOwner(event, as);
+    const box = owner ? ownerChatStore : chatStore;
+    const thread = box.thread(String(peerId || ''));
+    try { if (owner) await licenseSync.ownerChatMarkRead(peerId); else await licenseSync.chatMarkRead(peerId); } catch { /* לא קריטי */ }
+    return thread;
+  });
+  handle('chat:send', async (event, input = {}, as) => {
+    const owner = asOwner(event, as);
+    const { peerId, subject, text } = input || {};
+    const r = owner ? await licenseSync.ownerChatSend(peerId, { subject, text }) : await licenseSync.chatSend(peerId, { subject, text });
+    await auditEvent(event, 'chat.send', { to: peerId, mid: r.mid, owner });
+    return r;
+  });
+  handle('chat:refresh', async (event, as) => {
+    const owner = asOwner(event, as);
+    if (owner) return licenseSync.ownerReceive();
+    return licenseSync.receive();
+  });
+  handle('chat:search', async (event, q, as) => {
+    const owner = asOwner(event, as);
+    return (owner ? ownerChatStore : chatStore).search(q);
   });
 
   // מצב הרישיון — לכל משתמש מחובר (פתוח גם במערכת מושבתת, כדי להציג את הסיבה)

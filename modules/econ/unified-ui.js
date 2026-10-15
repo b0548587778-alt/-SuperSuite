@@ -48,6 +48,7 @@
     'people': 'מאגר אנשים — כרטיס אחד לכל אדם',
     'settings': 'הגדרות מתקדמות, משתמשים וייבוא/ייצוא',
     'licensing': 'רישוי ומערכות — רישיון, מערכות בת ומנהל-העל',
+    'messages': 'הודעות — תקשורת מאובטחת בין המערכות',
     'personal-finance': 'התוכנית הפיננסית — הגדרה ופריטים',
     'tasks': 'משימות',
     'contacts': 'אנשי קשר',
@@ -226,6 +227,16 @@
           state.data.licensing = { status, isAdmin, children, owner, remote, inbox };
           break;
         }
+        case 'messages': {
+          const as = state.chatAs || '';
+          let overview;
+          try { overview = await window.systemAPI.chatOverview(as); }
+          catch (e) { if (as) { state.chatAs = ''; overview = await window.systemAPI.chatOverview(''); } else throw e; }
+          const thread = state.chatPeer ? await window.systemAPI.chatThread(state.chatPeer, state.chatAs || '') : [];
+          const owner = await window.systemAPI.getOwnerState().catch(() => null);
+          state.data.messages = { ...overview, thread, peer: state.chatPeer || null, as: state.chatAs || '', ownerUnlocked: !!(owner && owner.unlocked) };
+          break;
+        }
         case 'tasks':
           state.data.tasks = await window.systemAPI.getTasks();
           break;
@@ -381,6 +392,9 @@
         break;
       case 'licensing':
         html = renderLicensing(data);
+        break;
+      case 'messages':
+        html = renderMessages(data);
         break;
       case 'tasks':
         html = renderTasks(data);
@@ -3930,6 +3944,87 @@
       </table></div>`;
   }
 
+  // ============================================================
+  // הודעות: תקשורת מאובטחת בין מנהל-העל, הלקוחות ומערכות הבת — מוצפנת מקצה לקצה וחתומה
+  // ============================================================
+  const CHAT_ROLES = { owner: 'מנהל-העל', parent: 'המערכת המנפיקה', child: 'מערכת בת', tenant: 'לקוח' };
+  const CHAT_STATUS = { sent: '✓', delivered: '✓✓', read: '✓✓ נקרא' };
+  const chatTime = (ms) => (ms ? new Date(ms).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
+
+  function renderMessages(d) {
+    const m = d || {};
+    const convs = Array.isArray(m.conversations) ? m.conversations : [];
+    const thread = Array.isArray(m.thread) ? m.thread : [];
+    const peer = convs.find(c => c.id === m.peer);
+    const head = `<div class="acct-header">
+        <div class="acct-actions">
+          ${m.ownerUnlocked ? `<select id="chatAs"><option value=""${m.as ? '' : ' selected'}>בשם המערכת הזו</option><option value="owner"${m.as === 'owner' ? ' selected' : ''}>בשם מנהל-העל</option></select>` : ''}
+          <input id="chatSearch" type="search" placeholder="חיפוש בהודעות" value="${esc(state.chatQuery || '')}">
+        </div>
+        <div class="acct-actions">${m.remote ? '<button class="primary" id="chatRefreshBtn">🔄 קבלת הודעות</button>' : ''}</div>
+      </div>`;
+    if (!m.remote) {
+      return `<div class="card">${head}<p class="muted">ההודעות עוברות דרך שרת הרישוי. יש להגדיר שרת במסך "רישוי ומערכות" ← "עבודה מרחוק".</p></div>`;
+    }
+    if (!convs.length) {
+      return `<div class="card">${head}<p class="muted">אין אנשי קשר עדיין. אנשי הקשר נקבעים לפי הרישיונות: מנהל-העל, המערכת המנפיקה ומערכות הבת.</p></div>`;
+    }
+    const results = state.chatResults;
+    return `<div class="card chat">
+      ${head}
+      ${Array.isArray(results) ? `<div class="chat-results"><h4>תוצאות חיפוש (${results.length})</h4>${results.map(r => `<div class="acct-row"><span><small>${esc(chatTime(r.sentAt))}</small> ${esc(r.text.slice(0, 140))}</span><button class="secondary small" data-chat-open="${esc(r.peer)}">פתיחה</button></div>`).join('') || '<p class="muted">לא נמצאו הודעות</p>'}</div>` : ''}
+      <div class="chat-layout">
+        <aside class="chat-list">${convs.map(c => `<button class="chat-contact${c.id === m.peer ? ' active' : ''}" data-chat-open="${esc(c.id)}">
+          <b>${esc(c.name)}</b>${c.unread ? ` <span class="chat-badge">${Number(c.unread)}</span>` : ''}
+          <small class="muted">${esc(CHAT_ROLES[c.role] || '')}</small>
+          ${c.last ? `<small>${c.last.dir === 'out' ? 'את/ה: ' : ''}${esc(c.last.text)}</small>` : ''}
+        </button>`).join('')}</aside>
+        <section class="chat-thread">
+          ${peer ? `<h3>${esc(peer.name)} <small class="muted">${esc(CHAT_ROLES[peer.role] || '')} · 🔒 מוצפן מקצה לקצה</small></h3>
+            <div class="chat-messages" id="chatMessages">${thread.map(x => `<div class="chat-msg ${x.dir}">
+              ${x.subject ? `<b>${esc(x.subject)}</b><br>` : ''}${esc(x.text).replace(/\n/g, '<br>')}
+              <small>${esc(chatTime(x.sentAt))}${x.dir === 'out' ? ' ' + esc(CHAT_STATUS[x.status] || '') : ''}</small>
+            </div>`).join('') || '<p class="muted">אין הודעות עדיין</p>'}</div>
+            <div class="chat-compose">
+              <input id="chatSubject" type="text" maxlength="120" placeholder="נושא (לא חובה)">
+              <textarea id="chatText" rows="3" maxlength="4000" placeholder="כתיבת הודעה…"></textarea>
+              <button class="primary" id="chatSendBtn">שליחה</button>
+            </div>`
+          : '<p class="muted">בחרו איש קשר מהרשימה</p>'}
+        </section>
+      </div>
+    </div>`;
+  }
+
+  function attachMessagesHandlers() {
+    const as = () => state.chatAs || '';
+    const act = (fn) => async () => { try { await fn(); } catch (error) { showError(errMsg(error)); return; } await switchView('messages'); };
+    document.querySelectorAll('[data-chat-open]').forEach(b => b.addEventListener('click', act(() => { state.chatPeer = b.dataset.chatOpen; state.chatResults = null; })));
+    const sel = document.getElementById('chatAs');
+    if (sel) sel.addEventListener('change', act(() => { state.chatAs = sel.value; state.chatPeer = null; state.chatResults = null; }));
+    const refresh = document.getElementById('chatRefreshBtn');
+    if (refresh) refresh.addEventListener('click', act(async () => {
+      const r = await window.systemAPI.chatRefresh(as());
+      (r.errors || []).forEach(e => showError(e));
+    }));
+    const search = document.getElementById('chatSearch');
+    if (search) search.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      act(async () => { state.chatQuery = search.value; state.chatResults = search.value.trim() ? await window.systemAPI.chatSearch(search.value, as()) : null; })();
+    });
+    const send = document.getElementById('chatSendBtn');
+    if (send) send.addEventListener('click', act(async () => {
+      const text = document.getElementById('chatText').value;
+      const subject = document.getElementById('chatSubject').value;
+      if (!String(text).trim()) throw new Error('ההודעה ריקה');
+      send.disabled = true;
+      try { await window.systemAPI.chatSend({ peerId: state.chatPeer, subject, text }, as()); }
+      finally { send.disabled = false; }
+    }));
+    const box = document.getElementById('chatMessages');
+    if (box && typeof box.scrollHeight === 'number') box.scrollTop = box.scrollHeight;
+  }
+
   // ---------- חלונות קלט למסך הרישוי ----------
   // טופס כללי: שדות טקסט/מספר/בחירה ותיבות סימון. מחזיר ערכים או null בביטול
   function licForm(title, fields, submitText, intro) {
@@ -4526,6 +4621,7 @@
     if (viewName === 'personal-finance') attachPersonalFinanceHandlers();
     if (viewName === 'settings') attachSettingsHandlers();
     if (viewName === 'licensing') attachLicensingHandlers();
+    if (viewName === 'messages') attachMessagesHandlers();
     attachPortsHandlers();
     if (viewName === 'mortgage-advisor') attachMadvHandlers();
     if (viewName === 'mortgage-lab') attachLabHandlers();
