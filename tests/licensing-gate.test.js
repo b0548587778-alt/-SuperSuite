@@ -128,6 +128,14 @@ test('ipc: הרישיון נאכף מעל התפקיד — תחום סגור, מ
   await assert.rejects(handlers['acct:getJournal'](ev(5), {}), /אינו כלול ברישיון/);
   assert.ok(Array.isArray((await handlers['tasks:get'](ev(5))).tasks));
 
+  // מאגר האנשים: הרישיון כולל עמותה ולא גמ"ח — לווה מהגמ"ח אינו נחשף בכרטיס אדם (סקירת אבטחה, ממצא 6)
+  const data = await ipc.getDb().load();
+  await ipc.getDb().save({ ...data,
+    npo: { ...(data.npo || {}), donations: [{ id: 'd1', donorName: 'אברהם כהן', date: '2026-09-01', amount: 180, status: 'active' }] },
+    gemach: { ...(data.gemach || {}), loans: [{ id: 'l1', borrowerName: 'יצחק לוי', amount: 1000, installments: 1, issueDate: '2026-01-01', status: 'active', schedule: [], guarantors: [] }] } });
+  const people = (await handlers['people:search'](ev(5), '')).rows.map(r => r.name);
+  assert.deepEqual(people, ['אברהם כהן']);
+
   // maxUsers = 2: המנהל + עוד אחד
   await handlers['users:create'](ev(5), { username: 'mazkir_1', password: 'another-long-pass-2026', role: 'editor' });
   await assert.rejects(handlers['users:create'](ev(5), { username: 'mazkir_2', password: 'another-long-pass-2026', role: 'viewer' }), /עד 2 משתמשים/);

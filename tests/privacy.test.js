@@ -25,7 +25,7 @@ test('מיפוי: ספירה לפי מאגר, נזקקים חסויים בנפר
   assert.equal(row('חסד — נזקקים (רגילים)').count, 1);
   assert.equal(row('עמותה — תורמים').count, 2);
   assert.equal(row('חסד — נזקקים חסויים').sensitivity, 'high');
-  assert.deepEqual(m.users, { admin: 1, editor: 0, viewer: 2 });
+  assert.deepEqual(m.users, { admin: 1, editor: 0, viewer: 2, accountant: 0 });
   assert.match(m.disclaimer, /אינו ייעוץ משפטי/);
 });
 

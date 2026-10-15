@@ -20,17 +20,21 @@ const idKey = (raw) => {
 const digits = (s) => String(s ?? '').replace(/\D/g, '');
 const toAg = (n) => Math.round(Number(n || 0) * 100);
 
+// התחומים שמהם נבנה המאגר. sources מגביל לתחומים הפתוחים ברישיון — תחום סגור לא נחשף דרך כרטיס אדם
+const SOURCES = ['npo', 'gemach', 'chesed'];
+
 // כל ה"הופעות" של אנשים בנתונים, בצורה אחידה
-function collect(data, { canSeeConfidential = false, today } = {}) {
+function collect(data, { canSeeConfidential = false, today, sources = SOURCES } = {}) {
   const out = [];
+  const open = new Set(sources);
   const add = (role, name, id, phone, ref) => { if (normName(name)) out.push({ role, name: String(name).replace(/\s+/g, ' ').trim(), id: idKey(id), phone: String(phone || '').trim(), ref }); };
-  const npo = data.npo || {};
+  const npo = open.has('npo') ? data.npo || {} : {};
   for (const d of npo.donations || []) {
     add('donor', d.donorName, d.donorId, d.donorPhone, { kind: 'donation', id: d.id, date: d.date, amount: d.amount, cancelled: d.status === 'cancelled', receipt: d.receipt && (Number.isInteger(d.receipt.number) ? d.receipt.number : d.receipt.externalNumber || 'חיצונית') });
   }
   for (const o of npo.standingOrders || []) add('standing', o.donorName, o.donorId, o.donorPhone, { kind: 'standing', id: o.id, amount: o.amount, startMonth: o.startMonth, endMonth: o.endMonth || '' });
   for (const m of npo.memorials || []) add('memorial', m.contactName, m.contactId, m.contactPhone, { kind: 'memorial', id: m.id, deceased: m.name });
-  const gm = data.gemach || {};
+  const gm = open.has('gemach') ? data.gemach || {} : {};
   const asOf = today || new Date().toISOString().slice(0, 10);
   for (const l of gm.loans || []) {
     const s = G.loanSummary(l, asOf);
@@ -41,7 +45,7 @@ function collect(data, { canSeeConfidential = false, today } = {}) {
   const itemName = Object.fromEntries((gm.items || []).map(it => [it.id, it.name]));
   for (const l of gm.lendings || []) add('itemBorrower', l.borrowerName, l.borrowerId, l.borrowerPhone, { kind: 'lending', id: l.id, item: itemName[l.itemId] || 'פריט', date: l.date, dueDate: l.dueDate || '', returned: !!l.returnedAt, overdue: !l.returnedAt && !!l.dueDate && l.dueDate < asOf });
   for (const d of gm.deposits || []) add('depositor', d.depositorName, '', '', { kind: 'deposit', id: d.id, date: d.date, amount: d.amount });
-  const ch = data.chesed || {};
+  const ch = open.has('chesed') ? data.chesed || {} : {};
   for (const b of ch.beneficiaries || []) {
     if (b.tier === 'confidential' && !canSeeConfidential) continue;
     add('beneficiary', b.headName || b.familyName, b.idNumber, b.phone, { kind: 'beneficiary', id: b.id, family: b.familyName, active: b.active !== false, confidential: b.tier === 'confidential' });
@@ -122,4 +126,4 @@ function card(data, key, opts = {}) {
   };
 }
 
-module.exports = { ROLES, MAX_RESULTS, collect, group, search, card, normName };
+module.exports = { ROLES, SOURCES, MAX_RESULTS, collect, group, search, card, normName };

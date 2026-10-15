@@ -786,9 +786,10 @@ handle('auth:login', async (event, username, password) => {
   // חסד וחלוקות: נזקקים, מתנדבים וסבבי חלוקה. פרטי נזקק חסוי (מתן בסתר) — למנהל בלבד
   const canSeeConfidential = (event) => authService.hasPermission(event.sender.id, 'users.manage');
   // מאגר אנשים — קריאה בלבד. נזקק חסוי נכלל רק למי שמורשה לראות חסויים (כמו במסך החסד)
-  handle('people:search', async (event, query) => peopleService.search(query, canSeeConfidential(event)));
+  // רק התחומים הפתוחים ברישיון — כרטיס אדם לא חושף תחום סגור (סקירת אבטחה 10.2026, ממצא 6)
+  handle('people:search', async (event, query) => peopleService.search(query, canSeeConfidential(event), LG.peopleSources(licenseState())));
   handle('people:getCard', async (event, key) => {
-    const c = await peopleService.getCard(key, canSeeConfidential(event));
+    const c = await peopleService.getCard(key, canSeeConfidential(event), LG.peopleSources(licenseState()));
     if (c.beneficiary.some(b => b.confidential)) await auditEvent(event, 'chesed.confidential.view', { via: 'people', key });
     return c;
   });

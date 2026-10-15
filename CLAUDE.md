@@ -84,6 +84,8 @@ python -m unittest test_encryption -v
 | `hebcal.js` | לוח עברי (ICU מובנה), מועדים ודחיית צומות, זמני היום לפי עיר, מצב שבת/יו"ט. משותף ל-main.js ולמעטפת. הגדרות ב-`ui-settings.json` → `calendar` (ערוצי `shell:get-calendar` / `shell:save-calendar`). **במצב שבת אין פעולות אוטומטיות** — הגיבוי האוטומטי נדחה (`reason: 'shabbat'`) |
 | `shell.js` | סרגל אחיד, מסך בית, חיפוש, אחרונים, גיבוי/שחזור, זיהוי יעד גיבוי |
 | `preload.js` | חשיפת `window.shellAPI` מעל `contextBridge` |
+| `onboarding.js` | אשף התחלה: פרופילים (עמותה, גמ"ח, עסק...) ← "המסכים שלי" וצעדים ראשונים במסך הבית. מצב ב-`localStorage` (`suite.onboarding`), מנורמל כקלט לא מהימן. **רק סידור מסכים — לא יוצר נתונים.** כל מפתח בו חייב להיות בקטלוג (`tests/onboarding.test.js`). נטען גם באנדרואיד (`android/build-apk.js`) |
+| `auto-backup.js` → קוד שחזור | מפתח הגיבוי האוטומטי מוגן ב-DPAPI — בלי קוד שחזור, תקלה במחשב = אובדן כל הגיבויים האוטומטיים. `recoveryCodeFromKey` / `keyFromRecoveryCode`: Base32 של Crockford, 55 תווים עם 2 בתי ביקורת. כפתור 🔑 (`shell:get-recovery-code`, הרשאת `data.backup`); בשחזור — מזוהה לפי הצורה במקום סיסמה. אין באנדרואיד (אין שם גיבוי אוטומטי) |
 
 ### מודול כלכלי — `modules/econ/`
 | קובץ | תפקיד |
@@ -108,6 +110,7 @@ python -m unittest test_encryption -v
 | `core/gemachExtra.js` | הרחבות גמ"ח (בשירות `gemachService`): **בקשות הלוואה** `gemach.applications` — draft→interview→verified→approved/rejected; נבדקות ב-`validateLoanInput` כבר בשמירה, אישור יוצר הלוואה באותה שמירה (`applicationId`), שינוי ערבים אחרי אימות מחזיר לראיון. **גמ"ח חפצים** `gemach.items` + `gemach.lendings` — השאלה אחת פתוחה לפריט, פיקדון באגורות, החזרה מעדכנת מצב; פריט עם היסטוריה לא נמחק. **פיגורים לפי ערב** — ייצוא `guarantor-arrears`. אין תזכורות אוטומטיות |
 | `core/chesed.js` + `services/chesedService.js` | חסד וחלוקות: נזקקים (רמת חיסיון), מתנדבים (מחלקות none/men/women), סבבי חלוקה — שיוך לפי משפחה/גודל, שיבוץ לפי מחלקת הסבב, מסירה, סגירה. ערוצי `chesed:*`. אוסף `chesed`. **נזקק חסוי מוסתר בצד השרת (`maskBeneficiary`) לכל מי שאין לו `users.manage` — כולל בייצוא** |
 | `core/mortgageAdvisor.js` + `services/mortgageAdvisorService.js` | ייעוץ משכנתאות: תיקים, מסלולים ולוח סילוקין באגורות, השוואה, עמלה, מסמכים. ערוצי `madv:*` |
+| `core/dashboard.js` | לוח בוקר למנהל העמותה (`morningBrief`): תמיכות, "תרומות ישראל", הוראות קבע, פיגורי גמ"ח, חפצים באיחור, בקשות, סבבי חלוקה ויארצייט בשבוע הקרוב — ממוין לפי דחיפות, כל שורה עם `view` למסך שלה. **קריאה בלבד, בלי פנייה אוטומטית.** `sources` = התחומים הפתוחים ברישיון. **עדיין לא מחובר ל-IPC/UI** — ממתין לפיצול `unified-ui.js` |
 | `core/mixEngine.js` + `core/mortgageRules.js` + `services/mortgageLabService.js` | מעבדת תמהיל (הועבר מ-tamhil): 7 סוגי מסלולים, פריים לפי מסלול ריבית, משתנה לפי עוגן, גרייס, בדיקות 329, סלים אחידים, כושר החזר, מחזור, השוואת אישורים, עמלת פירעון, אופטימייזר ושימור. ערוצי `mlab:*`. אוסף `mortgageLab`. אימות כלל — `users.manage` בלבד |
 
 ---
@@ -126,9 +129,11 @@ python -m unittest test_encryption -v
 - `data.delete` — מחיקה/ביטול (`delete*`, `reverse*`, `cancel*`)
 - `data.backup` / `data.restore` / `data.export`
 - `users.manage` — `users:*`, `audit:*`, `settings:saveAdvanced` (מנהל בלבד)
+- תפקידים (`core/database.js` → `ROLES`): `admin`, `editor`, `viewer`, `accountant` (רואה חשבון — `data.view` + `data.export` בלבד)
 ערוצים ציבוריים מוגדרים ב-`PUBLIC_CHANNELS` — **אל תוסיף לשם בלי סיבה מוצדקת**.
 
 **רישוי:** אחרי בדיקת התפקיד, `runGuarded` בודק גם את הרישיון (`shell/licensing/gate.js`). ההרשאה בפועל היא חיתוך של התפקיד עם הרישיון. תחילית ערוצים חדשה לתחום שנפתח בנפרד → להוסיף ל-`ECON_SUB_FEATURES` (ראו docs/LICENSING-DESIGN.md).
+**מסך שמצרף נתונים מכמה תחומים** (מאגר אנשים, לוח בוקר) — חייב לסנן לפי `gate.peopleSources(licenseState())`, אחרת הוא עוקף את הרישיון של התחומים הסגורים.
 
 ### 3. אטומיות במסד הנתונים
 כל פעולה על ה-DB עוברת דרך `enqueue()` — תור שמבטיח הרצה סדרתית.

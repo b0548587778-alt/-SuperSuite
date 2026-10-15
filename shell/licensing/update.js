@@ -93,6 +93,33 @@ function checkFile(payload, bytes) {
   return true;
 }
 
+// קריאת גוף התשובה עם תקרה: השרת אינו מהימן, ובלי content-length הוא יכול לשלוח בלי סוף.
+// עוצרים ברגע שעברנו את הגודל שבתעודה — לפני שהזיכרון מתמלא
+async function readCapped(res, max) {
+  const reader = res.body && typeof res.body.getReader === 'function' ? res.body.getReader() : null;
+  if (!reader) {
+    const all = new Uint8Array(await res.arrayBuffer());
+    if (all.length > max) throw new Error('הקובץ שהתקבל גדול מהצפוי — נדחה');
+    return all;
+  }
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > max) {
+      try { await reader.cancel(); } catch { /* */ }
+      throw new Error('הקובץ שהתקבל גדול מהצפוי — נדחה');
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.length; }
+  return out;
+}
+
 // מנהל העדכונים במערכת: זוכר את העדכון החדש ביותר שהתקבל, מוריד, מאמת ושומר לקובץ.
 // io: { saveFile(name, bytes) → path, fetchImpl } — כדי שאותו קוד ירוץ בשולחן העבודה ובאנדרואיד
 function createUpdateManager({ storage, rootKeys, currentVersion, platform, fetchImpl, saveFile, clock = Date.now }) {
@@ -131,7 +158,7 @@ function createUpdateManager({ storage, rootKeys, currentVersion, platform, fetc
     if (!res.ok) throw new Error('ההורדה נכשלה (' + res.status + ')');
     const len = Number(res.headers && res.headers.get ? res.headers.get('content-length') : NaN);
     if (Number.isFinite(len) && len > p.size) throw new Error('הקובץ שהתקבל גדול מהצפוי — נדחה');
-    const bytes = new Uint8Array(await res.arrayBuffer());
+    const bytes = await readCapped(res, p.size);
     checkFile(p, bytes);
     const path = await saveFile(p.fileName, bytes);
     save({ ...load(), downloaded: { version: p.version, path, at: clock() } });
@@ -159,4 +186,4 @@ function createUpdateManager({ storage, rootKeys, currentVersion, platform, fetc
   return { offer, status, download, fromFile, readyToInstall, markChecked: () => save({ ...load(), lastCheck: clock() }) };
 }
 
-module.exports = { UPDATE_TYPE, PLATFORMS, MAX_SIZE, compareVersions, platformOf, hashBytes, createRelease, verifyRelease, checkFile, createUpdateManager };
+module.exports = { UPDATE_TYPE, PLATFORMS, MAX_SIZE, compareVersions, platformOf, hashBytes, createRelease, verifyRelease, checkFile, readCapped, createUpdateManager };

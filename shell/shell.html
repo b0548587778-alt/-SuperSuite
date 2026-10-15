@@ -68,7 +68,7 @@ nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:rgba(2
 
 /* ---- תחתית ---- */
 .bot{padding:10px 12px 12px;border-top:1px solid var(--line);position:relative;background:rgba(0,0,0,.12)}
-.tools{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.tools{display:grid;grid-template-columns:repeat(8,1fr);gap:3px}
 .tools button{height:34px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink-2);font-size:15px;cursor:pointer;transition:.12s}
 .tools button:hover{background:rgba(255,255,255,.08);color:#fff;border-color:var(--line)}
 .bot small{display:block;margin-top:8px;color:var(--ink-3);font-size:10.5px;text-align:center;line-height:1.4}
@@ -103,7 +103,29 @@ nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:rgba(2
       background:color-mix(in srgb,var(--hue) 12%,#fff);color:var(--hue);border:1px solid color-mix(in srgb,var(--hue) 22%,#fff)}
 .card b{display:block;font-size:14.5px;font-weight:600}
 .card small{display:block;margin-top:2px;color:var(--muted);font-size:12.5px;line-height:1.45}
-.recent .cards{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.recent .cards,.mine .cards{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.mine h2 .link,.ob-steps .link{margin-inline-start:auto}
+button.link{background:none;border:0;color:var(--blue);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;padding:2px 4px}
+button.link:hover{text-decoration:underline}
+.ob-invite{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 22px;padding:14px 16px;border-radius:14px;background:#eef3ff;border:1px solid #d6e1fb;font-size:14px}
+.ob-invite span{flex:1 1 260px}
+.ob-invite button{padding:8px 14px;border-radius:9px;border:1px solid var(--border);background:#fff;font:inherit;cursor:pointer}
+.ob-invite button.primary{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+.ob-steps{margin:0 0 24px;padding:14px 18px;border-radius:14px;background:var(--surface);border:1px solid var(--border)}
+.ob-steps h2{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:15px}
+.ob-steps h2 small{color:var(--muted);font-weight:500;font-size:12.5px}
+.ob-steps ol{margin:0;padding-inline-start:22px;display:grid;gap:6px}
+.ob-steps li{font-size:13.5px;line-height:1.5}
+.ob-steps li.done{color:var(--muted);text-decoration:line-through}
+.ob-steps li button{background:none;border:0;padding:0;font:inherit;font-weight:600;color:var(--blue);cursor:pointer}
+.ob-steps li small{display:block;color:var(--muted);font-size:12.5px;text-decoration:none}
+.ob-steps li label{margin-inline-start:8px;font-size:12px;color:var(--muted);cursor:pointer}
+.ob-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.ob-grid label{display:flex;gap:8px;align-items:flex-start;padding:9px 10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:13.5px;line-height:1.35}
+.ob-grid label:has(input:checked){border-color:var(--blue);background:#f3f6ff}
+.ob-grid input{width:auto;margin:2px 0 0}
+.ob-grid small{display:block;color:var(--muted);font-size:11.5px}
+#obDlg{width:520px}
 .recent .card{padding:11px 12px;align-items:center}
 .recent .card .ic{width:32px;height:32px;flex-basis:32px;font-size:16px}
 .hue-blue{--hue:var(--blue)} .hue-green{--hue:var(--green)} .hue-gold{--hue:var(--amber)}
@@ -156,6 +178,9 @@ body.shabbat #shabbat{display:flex;position:fixed;inset:0;z-index:50;align-items
 /* ---- דיאלוגים ---- */
 dialog{background:#fff;color:var(--text);border:1px solid var(--border);border-radius:16px;padding:24px;width:380px;
        box-shadow:0 24px 64px rgba(15,26,48,.35)}
+.rk-code{display:block;font:600 15px/1.7 Consolas,"Courier New",monospace;letter-spacing:.5px;background:#f3f6fb;border:1px dashed var(--border);border-radius:10px;padding:10px 12px;margin:0 0 10px;text-align:center;word-spacing:6px;user-select:all}
+dialog p.rk-hint{font-size:12.5px;margin-bottom:8px}
+#rkDlg{width:440px}
 dialog::backdrop{background:rgba(11,20,38,.55);backdrop-filter:blur(3px)}
 dialog h3{margin:0 0 6px;font-size:18px;font-family:"David","Frank Ruhl Libre",serif;color:var(--navy-2)}
 dialog p{margin:0 0 14px;color:var(--muted);font-size:13.5px;line-height:1.55}
@@ -230,6 +255,7 @@ dialog button:disabled{opacity:.5;cursor:default}
       <button id="bk" title="גיבוי מוצפן (Ctrl+Shift+B)">⬇</button>
       <button id="rs" title="שחזור מגיבוי (Ctrl+Shift+R)">↥</button>
       <button id="tg" title="יעד לגיבוי אוטומטי (למשל USB)">💾</button>
+      <button id="rk" title="קוד שחזור לגיבוי האוטומטי">🔑</button>
       <button id="dv" title="מכשירים מחוברים (סנכרון)">🔗</button>
       <button id="hp" title="מדריך וקיצורים (F1)">?</button>
       <button id="qt" title="יציאה מהמערכת">⏻</button>
@@ -248,6 +274,20 @@ dialog button:disabled{opacity:.5;cursor:default}
   <div class="body">
     <section class="lic-block" id="licBlock" role="alert" hidden></section>
     <section class="day" id="day" aria-label="היום"></section>
+    <section class="ob-invite" id="obInvite" hidden>
+      <span>👋 ברוכים הבאים! כמה שאלות קצרות, ומסך הבית יותאם לעבודה שלכם.</span>
+      <button type="button" class="primary" id="obStart">התחלה</button>
+      <button type="button" id="obLater">לא עכשיו</button>
+    </section>
+    <section class="ob-steps" id="obSteps" hidden aria-label="צעדים ראשונים">
+      <h2>צעדים ראשונים <small id="obProgress"></small></h2>
+      <ol id="obList"></ol>
+      <button type="button" class="link" id="obHide">הסתרה</button>
+    </section>
+    <section class="sec mine" id="mineSec" hidden>
+      <h2>המסכים שלי <button type="button" class="link" id="obEdit">התאמה</button></h2>
+      <div class="cards" id="mine"></div>
+    </section>
     <section class="sec recent" id="recentSec" hidden>
       <h2>המשך מאיפה שעצרת</h2>
       <div class="cards" id="recent"></div>
@@ -274,6 +314,31 @@ dialog button:disabled{opacity:.5;cursor:default}
       <button type="button" id="ppCancel">ביטול</button>
     </div>
   </form>
+</dialog>
+<dialog id="obDlg" aria-labelledby="obTitle">
+  <form id="obForm">
+    <h3 id="obTitle">במה תשתמשו בתוכנה?</h3>
+    <p>אפשר לבחור כמה. הבחירה רק מסדרת את מסך הבית — כל המסכים נשארים זמינים בסרגל ובחיפוש.</p>
+    <div class="ob-grid" id="obChoices"></div>
+    <div class="err" id="obErr"></div>
+    <div class="row">
+      <button type="submit" class="primary">שמירה</button>
+      <button type="button" id="obCancel">ביטול</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="rkDlg" aria-labelledby="rkTitle">
+  <h3 id="rkTitle">קוד שחזור לגיבוי האוטומטי</h3>
+  <p>הגיבוי האוטומטי נפתח רק במחשב הזה. אם המחשב יתקלקל או יוחלף — בלי הקוד הזה לא ניתן לפתוח את הגיבויים, גם אם הם שמורים ב-USB.</p>
+  <p><b>רשמו את הקוד על נייר ושמרו אותו במקום בטוח, מחוץ למחשב.</b> מי שמחזיק בקוד ובקובץ גיבוי יכול לקרוא את הנתונים.</p>
+  <code id="rkCode" class="rk-code" dir="ltr"></code>
+  <p class="rk-hint">בשחזור במחשב אחר: ↥ שחזור ← בחירת קובץ הגיבוי ← הזנת הקוד במקום סיסמה.</p>
+  <div class="err" id="rkErr"></div>
+  <div class="row">
+    <button type="button" class="primary" id="rkSaved">רשמתי את הקוד</button>
+    <button type="button" id="rkCopy">העתקה</button>
+    <button type="button" id="rkClose">סגירה</button>
+  </div>
 </dialog>
 <dialog id="guide" class="guide">
   <h3>מדריך מהיר</h3>
@@ -348,6 +413,7 @@ dialog button:disabled{opacity:.5;cursor:default}
 </div>
 <script src="hebcal.js"></script>
 <script src="catalog.js"></script>
+<script src="onboarding.js"></script>
 <script src="shell.js"></script>
 <script src="devices.js"></script>
 </body>

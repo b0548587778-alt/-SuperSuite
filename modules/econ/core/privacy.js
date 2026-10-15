@@ -26,7 +26,7 @@ function dataMap(data, userCounts = {}) {
   ].map(r => ({ ...r, sensitivityLabel: SENSITIVITY[r.sensitivity] }));
   return {
     rows,
-    users: { admin: userCounts.admin || 0, editor: userCounts.editor || 0, viewer: userCounts.viewer || 0 },
+    users: { admin: userCounts.admin || 0, editor: userCounts.editor || 0, viewer: userCounts.viewer || 0, accountant: userCounts.accountant || 0 },
     storage: [
       'מסד נתונים מקומי במחשב (תיקיית נתוני המשתמש של התוכנה) — לא נשלח לאינטרנט',
       'גיבוי ידני ואוטומטי — מוצפן בסיסמה (קובץ ‎.ssbk)',
