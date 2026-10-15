@@ -1,0 +1,27 @@
+[Unit]
+Description=SuperSuite license relay (encrypted mailbox for licensing and messages)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ssrelay
+Group=ssrelay
+WorkingDirectory=/opt/supersuite-relay
+# The relay listens only on the local machine; Caddy in front of it provides HTTPS
+ExecStart=/usr/bin/node /opt/supersuite-relay/server/license-relay.js --host 127.0.0.1 --port 8443 --data /var/lib/supersuite-relay --trust-proxy yes
+Restart=on-failure
+RestartSec=5
+# Hardening: the service can write only to its data directory
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/supersuite-relay
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

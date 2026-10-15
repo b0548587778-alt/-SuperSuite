@@ -74,3 +74,50 @@ test('שרת: זמני המתנה לחיבורים איטיים מוגדרים',
   assert.ok(server.headersTimeout > 0 && server.headersTimeout <= 30000);
   assert.ok(server.requestTimeout > 0 && server.requestTimeout <= 60000);
 });
+
+test('כתובת הלקוח מאחורי שרת קדמי: נלקחת מ-X-Forwarded-For רק כשהחיבור מקומי ו-trustProxy פעיל', () => {
+  const { clientIp } = require('../server/license-relay');
+  const req = (remote, xff) => ({ socket: { remoteAddress: remote }, headers: xff ? { 'x-forwarded-for': xff } : {} });
+  assert.equal(clientIp(req('127.0.0.1', '1.1.1.1, 9.9.9.9'), true), '9.9.9.9', 'הכתובת שהשרת הקדמי הוסיף (האחרונה)');
+  assert.equal(clientIp(req('::ffff:127.0.0.1', '9.9.9.9'), true), '9.9.9.9');
+  assert.equal(clientIp(req('5.5.5.5', '9.9.9.9'), true), '5.5.5.5', 'חיבור ישיר מבחוץ — הכותרת מזויפת ולא נלקחת');
+  assert.equal(clientIp(req('127.0.0.1', '9.9.9.9'), false), '127.0.0.1', 'בלי trustProxy — מתעלמים מהכותרת');
+  assert.equal(clientIp(req('127.0.0.1', ''), true), '127.0.0.1');
+});
+
+test('הגבלת קצב מאחורי שרת קדמי: לכל לקוח בנפרד ולא לכולם יחד', async () => {
+  const server = createServer({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'ss-relay-h-')), trustProxy: true });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}/v1`;
+  const k = L.generateKeyPair();
+  const call = (ip) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(signed(k, 'fetch', {})) }).then(r => r.status);
+  try {
+    for (let i = 0; i < 60; i++) assert.equal(await call('10.0.0.1'), 200);
+    assert.equal(await call('10.0.0.1'), 429, 'לקוח אחד שעבר את המכסה נחסם');
+    assert.equal(await call('10.0.0.2'), 200, 'לקוח אחר לא נפגע');
+  } finally { await new Promise(r => server.close(r)); }
+});
+
+test('חבילת השרת להתקנה: כוללת כל קובץ שהשרת טוען ואת קבצי ההתקנה', () => {
+  const { serverFiles } = require('../tools/pack-relay');
+  const files = serverFiles();
+  for (const f of ['server/license-relay.js', 'shell/licensing/license.js', 'server/deploy/install.sh', 'server/deploy/supersuite-relay.service', 'server/deploy/Caddyfile.template']) {
+    assert.ok(files.includes(f), 'חסר: ' + f);
+  }
+  assert.ok(!files.some(f => /owner|root-keys|\.env|node_modules/.test(f)), 'אין בחבילה מפתחות או סודות');
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'server', 'deploy', 'install.sh'), 'utf8');
+  assert.ok(!sh.includes('\r'), 'install.sh בשורות של Linux (LF) — אחרת לא ירוץ');
+  const unit = fs.readFileSync(path.join(__dirname, '..', 'server', 'deploy', 'supersuite-relay.service'), 'utf8');
+  assert.match(unit, /--host 127\.0\.0\.1/, 'השירות לא חשוף ישירות לאינטרנט');
+  assert.match(unit, /--trust-proxy yes/);
+});
+
+test('סקריפט Google Cloud: מסלול חינמי (e2-micro, דיסק Standard), IP קבוע, ובדיקת הדומיין לפני שימוש בו', () => {
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'server', 'deploy', 'gcp-create.sh'), 'utf8');
+  assert.ok(!sh.includes('\r'), 'שורות Linux (LF)');
+  assert.match(sh, /--machine-type e2-micro/);
+  assert.match(sh, /--boot-disk-type pd-standard/, 'SSD אינו במסלול החינמי');
+  assert.match(sh, /us-central1\|us-east1\|us-west1/, 'אזהרה על אזור מחוץ למסלול החינמי');
+  assert.match(sh, /addresses create/);
+  assert.ok(sh.indexOf('DOMAIN" =~') < sh.indexOf('install.sh \''), 'הדומיין נבדק לפני שהוא נשלח לפקודה בשרת');
+});

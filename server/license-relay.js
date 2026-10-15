@@ -235,7 +235,18 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
 
 function httpError(status, message) { const e = new Error(message); e.status = status; return e; }
 
-function createServer({ dataDir, cert, key, clock, billing }) {
+// כתובת הלקוח. מאחורי שרת TLS באותו מחשב (trustProxy) — הכתובת האחרונה ב-X-Forwarded-For, שהשרת הקדמי מוסיף.
+// רק כשהחיבור עצמו מגיע מהמחשב המקומי — אחרת כל אחד יכול לזייף כותרת ולעקוף את הגבלת הקצב
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+function clientIp(req, trustProxy) {
+  const direct = req.socket.remoteAddress || '';
+  if (!trustProxy || !LOOPBACK.has(direct)) return direct;
+  const xff = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
+  const last = xff[xff.length - 1];
+  return last && last.length <= 64 ? last : direct;
+}
+
+function createServer({ dataDir, cert, key, clock, billing, trustProxy = false }) {
   const relay = createRelay({ dataDir, clock, billing });
   const readBody = (req, res, max, cb) => {
     let size = 0;
@@ -260,7 +271,7 @@ function createServer({ dataDir, cert, key, clock, billing }) {
     };
     if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, service: 'supersuite-license-relay' });
     if (req.url.startsWith('/pay/')) {
-      try { relay.rateLimit(req.socket.remoteAddress || ''); } catch (e) { return send(e.status, { ok: false, error: e.message }); }
+      try { relay.rateLimit(clientIp(req, trustProxy)); } catch (e) { return send(e.status, { ok: false, error: e.message }); }
     }
     // webhook מספק התשלום
     if (req.method === 'POST' && req.url === '/pay/webhook') {
@@ -295,7 +306,7 @@ function createServer({ dataDir, cert, key, clock, billing }) {
       let body;
       try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return send(400, { ok: false, error: 'בקשה לא תקינה' }); }
       const fail = (e) => { send(e.status || 500, { ok: false, error: e.status ? e.message : 'שגיאה בשרת' }); if (!e.status) console.error(e); };
-      try { Promise.resolve(relay.handle(body, req.socket.remoteAddress || '')).then(r => send(200, r), fail); }
+      try { Promise.resolve(relay.handle(body, clientIp(req, trustProxy))).then(r => send(200, r), fail); }
       catch (e) { fail(e); }
     });
   };
@@ -322,8 +333,11 @@ if (require.main === module) {
     if (provider && provider.name === 'test') console.warn('⚠ ספק תשלום לבדיקות — אין חיוב אמיתי');
     billing = { rootKeys, provider };
   }
-  const server = createServer({ dataDir: path.resolve(a.data || 'relay-data'), cert: a.cert, key: a.key, billing });
-  server.listen(port, () => console.log(`שרת הרישוי פועל בפורט ${port}${a.cert ? ' (HTTPS)' : ' (HTTP — יש להפעיל מאחורי TLS)'}`));
+  // מאחורי שרת TLS באותו מחשב (Caddy): --host 127.0.0.1 --trust-proxy yes
+  const trustProxy = a['trust-proxy'] === 'yes';
+  const host = a.host || '0.0.0.0';
+  const server = createServer({ dataDir: path.resolve(a.data || 'relay-data'), cert: a.cert, key: a.key, billing, trustProxy });
+  server.listen(port, host, () => console.log(`שרת הרישוי פועל ב-${host}:${port}${a.cert ? ' (HTTPS)' : ' (HTTP — יש להפעיל מאחורי TLS)'}${trustProxy ? ', מאחורי שרת קדמי' : ''}`));
 }
 
-module.exports = { createRelay, createServer, KINDS };
+module.exports = { createRelay, createServer, clientIp, KINDS };
