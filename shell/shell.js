@@ -11,12 +11,14 @@ const BY_KEY = new Map(ITEMS.map(it => [it.key, it]));
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const ui = { active: null, econView: null, query: '' };
+// views — התצוגה הפעילה בכל מודול שיש לו מסכים בסרגל (כלכלי, אימונים)
+const ui = { active: null, views: {}, query: '' };
+const VIEW_MODS = ['econ', 'trainer'];
 
 /* ---------- ניווט ---------- */
 function currentKey() {
   if (!ui.active) return 'home';
-  if (ui.active === 'econ') return ui.econView ? 'econ:' + ui.econView : null;
+  if (VIEW_MODS.includes(ui.active)) return ui.views[ui.active] ? ui.active + ':' + ui.views[ui.active] : null;
   return ui.active;
 }
 
@@ -58,7 +60,7 @@ function open(key) {
   const it = BY_KEY.get(key);
   if (!it) return;
   ui.active = it.mod;
-  if (it.view) ui.econView = it.view;
+  if (it.view) ui.views[it.mod] = it.view;
   mark();
   pushRecent(key);
   const api = window.shellAPI;
@@ -161,9 +163,10 @@ window.shellAPI.onActive(id => {
   updateWhere();
 });
 if (window.shellAPI.onActiveView) {
-  window.shellAPI.onActiveView(view => {
-    ui.econView = view;
-    if (ui.active === 'econ') { pushRecent('econ:' + view); mark(); updateWhere(); }
+  window.shellAPI.onActiveView((view, mod = 'econ') => {
+    if (!VIEW_MODS.includes(mod)) return;
+    ui.views[mod] = view;
+    if (ui.active === mod) { pushRecent(mod + ':' + view); mark(); updateWhere(); }
   });
 }
 
@@ -225,6 +228,8 @@ function showGuide() {
   const g = $('guide');
   g.oncancel = (e) => { e.preventDefault(); closeDialog(g); };
   showDialog(g);
+  // המיקוד עובר לכפתור "סגור" שבתחתית וגולל לסוף — מחזירים לראש המדריך
+  g.scrollTop = 0;
 }
 
 $('bk').onclick = runBackup;

@@ -20,7 +20,7 @@ test('מפתחות הקטלוג ייחודיים, וכל פריט שייך למ�
   assert.equal(new Set(keys).size, keys.length);
   for (const it of CAT.ITEMS) {
     assert.ok(['econ', 'shamai', 'trainer', 'tools'].includes(it.mod), it.key);
-    assert.ok(!it.view || it.mod === 'econ', 'תצוגה פנימית רק במודול הכלכלי: ' + it.key);
+    assert.ok(!it.view || ['econ', 'trainer'].includes(it.mod), 'תצוגה פנימית רק במודול הכלכלי או באימונים: ' + it.key);
     assert.match(it.name, /[֐-׿]/, 'שם בעברית: ' + it.key);
   }
 });

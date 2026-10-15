@@ -1,6 +1,7 @@
 // קטלוג אחיד של כל מה שיש בתוכנה — מקור אמת יחיד לסרגל, למסך הבית, לחיפוש ולאימות ב-main.js.
 // המשתמש רואה "תוכנה אחת" עם תחומים; החלוקה הפנימית למודולים (econ/shamai/trainer/tools) נשארת שקופה.
-// כל פריט: mod = המודול שמארח אותו, view = תצוגה פנימית (במודול הכלכלי בלבד).
+// כל פריט: mod = המודול שמארח אותו, view = תצוגה פנימית (במודול הכלכלי ובמודול האימונים).
+// במודול האימונים (חבילה מהודרת) label = הטקסט של הכפתור בסרגל הפנימי שלו — ה-preload לוחץ עליו.
 (function (root) {
   const GROUPS = [
     {
@@ -51,8 +52,23 @@
     {
       id: 'health', title: 'בריאות וכושר', hue: 'teal',
       items: [
-        { mod: 'econ', view: 'fitness',          icon: '💪', name: 'כושר ובריאות',         desc: 'מעקב אישי' },
-        { mod: 'trainer',                        icon: '🏋',  name: 'ניהול אימונים',        desc: 'מתאמנים, תוכניות ומעקב' }
+        { mod: 'econ', view: 'fitness',          icon: '💪', name: 'כושר ובריאות',         desc: 'יומן אישי: אימונים, תזונה ומדדים' }
+      ]
+    },
+    {
+      id: 'trainer', title: 'ניהול אימונים (למאמנים)', hue: 'teal',
+      items: [
+        { mod: 'trainer', view: 'dashboard',   label: 'לוח בקרה',        icon: '🏋', name: 'לוח בקרת אימונים',  desc: 'מתאמנים פעילים, אימונים ומי שדורש תשומת לב' },
+        { mod: 'trainer', view: 'clients',     label: 'מתאמנים',         icon: '🧑', name: 'מתאמנים',            desc: 'רשימה, כרטיס מתאמן ומעקב התקדמות' },
+        { mod: 'trainer', view: 'programs',    label: 'תוכניות מוכנות',  icon: '📋', name: 'תוכניות מוכנות',     desc: '5×5, PPL, Upper/Lower ועוד' },
+        { mod: 'trainer', view: 'exercises',   label: 'ספריית תרגילים',  icon: '≣',  name: 'ספריית תרגילים',     desc: 'תרגילים לפי שריר וציוד' },
+        { mod: 'trainer', view: 'nutrition',   label: 'תזונה',           icon: '🥗', name: 'תזונה למתאמנים',     desc: 'מחשבון קלוריות, מאגר מאכלים ותפריטים' },
+        { mod: 'trainer', view: 'flexibility', label: 'גמישות ויוגה',    icon: '🤸', name: 'גמישות ומתיחות',     desc: 'שגרות גמישות והתאוששות' },
+        { mod: 'trainer', view: 'cardio',      label: 'קרדיו',           icon: '🏃', name: 'קרדיו',              desc: 'HIIT, ריצה ואזורי דופק' },
+        { mod: 'trainer', view: 'martial',     label: 'אומנויות לחימה',  icon: '🥊', name: 'אומנויות לחימה',     desc: 'טכניקות, תרגילי אימון וכושר ייעודי' },
+        { mod: 'trainer', view: 'knowledge',   label: 'ידע מקצועי',      icon: '📚', name: 'ידע מקצועי',         desc: 'פציעות, עקרונות אימון ומקורות' },
+        { mod: 'trainer', view: 'tools',       label: 'כלים',            icon: '🛠', name: 'כלי מאמן',           desc: '1RM, טיימר, הערכת תנועה ו-PAR-Q' },
+        { mod: 'trainer', view: 'settings',    label: 'הגדרות',          icon: '⚙',  name: 'הגדרות אימונים',     desc: 'פרופיל המאמן, גיבוי ושחזור' }
       ]
     },
     {
@@ -67,6 +83,9 @@
   const ITEMS = GROUPS.flatMap(g => g.items.map(it => ({ ...it, key: keyOf(it), group: g.id, hue: g.hue })));
   // תצוגות פנימיות שמותר לפתוח במודול הכלכלי (main.js מאמת מולן)
   const ECON_VIEWS = ITEMS.filter(it => it.mod === 'econ').map(it => it.view);
+  // מודול האימונים: תצוגה ← הטקסט בסרגל הפנימי שלו (main.js מאמת מול הרשימה ושולח את הטקסט ל-preload)
+  const TRAINER_VIEWS = ITEMS.filter(it => it.mod === 'trainer' && it.view).map(it => it.view);
+  const TRAINER_LABELS = Object.fromEntries(ITEMS.filter(it => it.mod === 'trainer' && it.view).map(it => [it.view, it.label]));
 
   // סנכרון אוטומטי: תצוגה שנוספה לסרגל הפנימי של המודול הכלכלי (views/index.html) ועדיין לא לקטלוג —
   // מזוהה כאן ומוצגת בסרגל האחיד תחת "נוספו לאחרונה", כדי שלא תיעלם. main.js מריץ זאת בעלייה.
@@ -83,7 +102,7 @@
   }
   const NEW_GROUP = { id: 'new', title: 'נוספו לאחרונה', hue: 'gold' };
 
-  const api = { GROUPS, ITEMS, ECON_VIEWS, keyOf, extrasFromHtml, NEW_GROUP };
+  const api = { GROUPS, ITEMS, ECON_VIEWS, TRAINER_VIEWS, TRAINER_LABELS, keyOf, extrasFromHtml, NEW_GROUP };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_CATALOG = api;
 })(typeof window !== 'undefined' ? window : this);

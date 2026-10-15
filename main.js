@@ -10,12 +10,18 @@ const AutoBk = require('./shell/auto-backup');
 const Catalog = require('./shell/catalog');
 const Hebcal = require('./shell/hebcal');
 const NavHistory = require('./shell/history');
+const Layout = require('./shell/layout');
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
   try { return Catalog.extrasFromHtml(fs.readFileSync(path.join(__dirname, 'modules', 'econ', 'views', 'index.html'), 'utf8')); }
   catch { return []; }
 })();
 const ECON_VIEWS = [...Catalog.ECON_VIEWS, ...ECON_EXTRAS.map(x => x.view)];
+// מסכי מודול האימונים בסרגל האחיד: תצוגה ← הטקסט של הכפתור בסרגל הפנימי של המודול
+const TRAINER_VIEWS = Catalog.TRAINER_VIEWS;
+const TRAINER_BY_LABEL = Object.fromEntries(Object.entries(Catalog.TRAINER_LABELS).map(([v, l]) => [l, v]));
+// האם מותר לפתוח תצוגה פנימית במודול
+const moduleHasView = (id, view) => (id === 'econ' && ECON_VIEWS.includes(view)) || (id === 'trainer' && TRAINER_VIEWS.includes(view));
 
 const SIDEBAR = 264;
 // היסטוריית ניווט (אחורה/קדימה). replaying: מעבר שמקורו בהיסטוריה עצמה לא נרשם כצעד חדש
@@ -69,7 +75,8 @@ function isExternal(u) { return /^(https?:|mailto:|tel:)/i.test(u); }
 function layout() {
   if (!win) return;
   const [w, h] = win.getContentSize();
-  const b = { x: 0, y: 0, width: Math.max(0, w - SIDEBAR), height: h };
+  // בממשק Windows בעברית Electron מודד את x מהימין — viewBounds מתקן, אחרת המודול מכסה את הסרגל
+  const b = Layout.viewBounds(w, h, SIDEBAR, app.getLocale());
   for (const id of Object.keys(views)) views[id].setBounds(b);
 }
 
@@ -116,7 +123,7 @@ function navigateHistory(delta) {
   replaying = true;
   try {
     if (!loc.mod) goHome();
-    else { switchTo(loc.mod); if (loc.view) openEconView(loc.view); }
+    else { switchTo(loc.mod); if (loc.view) openModuleView(loc.mod, loc.view); }
   } finally { replaying = false; }
   if (win && !win.isDestroyed()) win.webContents.send('shell:history', history.state());
   return true;
@@ -148,6 +155,8 @@ function ensureView(id) {
   if (views[id]) return views[id];
   const prefs = { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true };
   if (id === 'econ') prefs.preload = path.join(modulesRoot(), 'econ', 'preload.js');
+  // מודול האימונים: preload בלי חשיפה לעמוד — ניווט מהסרגל האחיד ודיווח המסך הפעיל
+  if (id === 'trainer') prefs.preload = path.join(modulesRoot(), 'trainer', 'preload.js');
   const v = new WebContentsView({ webPreferences: prefs });
   views[id] = v;
   v.setVisible(false); // תצוגות מוסתרות לא מציירות ולא קולטות קלט
@@ -188,6 +197,22 @@ function openEconView(view) {
     if (!v.webContents.isDestroyed()) v.webContents.send('econ:goto', view);
   });
   return true;
+}
+
+// פתיחת תצוגה במודול האימונים: ה-preload לוחץ על הכפתור המתאים בסרגל הפנימי (ושומר את הבקשה עד שהוא קיים)
+function openTrainerView(view) {
+  if (!TRAINER_VIEWS.includes(view)) return false;
+  const v = ensureView('trainer');
+  waitLoaded(v.webContents).then(() => {
+    if (!v.webContents.isDestroyed()) v.webContents.send('trainer:goto', Catalog.TRAINER_LABELS[view]);
+  });
+  return true;
+}
+
+function openModuleView(id, view) {
+  if (id === 'econ') return openEconView(view);
+  if (id === 'trainer') return openTrainerView(view);
+  return false;
 }
 
 // דיאלוג במעטפת: מסתירים את המודול הפעיל בזמן שהדיאלוג פתוח, ומחזירים אותו בסגירה
@@ -431,9 +456,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('shell:open', (e, id, view) => {
     if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return false;
     if (!MODS.includes(id)) return false;
-    if (view != null && (id !== 'econ' || !ECON_VIEWS.includes(view))) return false;
+    if (view != null && !moduleHasView(id, view)) return false;
     switchTo(id);
-    if (view) openEconView(view);
+    if (view) openModuleView(id, view);
     return true;
   });
   // תצוגות חדשות במודול הכלכלי שעוד לא נכנסו לקטלוג — המעטפת מציגה אותן תחת "נוספו לאחרונה"
@@ -464,8 +489,18 @@ app.whenReady().then(async () => {
     const v = views.econ;
     if (!v || v.webContents.isDestroyed() || e.sender.id !== v.webContents.id) return false;
     if (!ECON_VIEWS.includes(view)) return false;
-    if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view);
+    if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view, 'econ');
     if (active === 'econ') recordNav({ mod: 'econ', view });
+    return true;
+  });
+  // מודול האימונים מדווח על המסך הפעיל (לפי הטקסט בסרגל הפנימי) — רק מתצוגת המודול עצמה
+  ipcMain.handle('shell:trainer-view', (e, label) => {
+    const v = views.trainer;
+    if (!v || v.webContents.isDestroyed() || e.sender.id !== v.webContents.id) return false;
+    const view = typeof label === 'string' ? TRAINER_BY_LABEL[label] : undefined;
+    if (!view) return false;
+    if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view, 'trainer');
+    if (active === 'trainer') recordNav({ mod: 'trainer', view });
     return true;
   });
   ipcMain.handle('shell:history-go', (e, delta) => {

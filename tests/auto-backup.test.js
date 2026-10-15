@@ -147,3 +147,18 @@ test('גיבוי אוטומטי: כתיבה שנכשלת ביעד (כונן מל
   assert.equal(fs.existsSync(path.join(dir, 'auto-2026-10-14.ssbk')), false);
   assert.match(AutoBk.describeStatus(r), /הכתיבה ליעד נכשלה/);
 });
+
+test('גיבוי אוטומטי: שם הקובץ והשעה בסטטוס לפי הזמן המקומי ולא UTC (בעבר: 03:22 במקום 06:22)', async () => {
+  // 00:30 מקומי — ב-UTC זה עדיין היום הקודם במזרח (ישראל), או אותו יום במערב; בכל מקרה השם לפי היום המקומי
+  const local = new Date(2026, 9, 15, 0, 30);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-bk-local-'));
+  const r = await AutoBk.runAutoBackup({
+    encryptionAvailable: true, customTarget: dir, defaultTarget: '', collect: async () => ({ x: 1 }),
+    getKey: () => KEY, write: AB.writeEncryptedAutoBackup, now: local,
+  });
+  assert.equal(r.ok, true);
+  assert.ok(fs.existsSync(path.join(dir, 'auto-2026-10-15.ssbk')), 'קובץ בשם היום המקומי');
+  assert.equal(AutoBk.localDay(local), '2026-10-15');
+  const status = AutoBk.describeStatus({ ok: true, at: new Date(2026, 9, 15, 6, 22).toISOString() });
+  assert.match(status, /2026-10-15 06:22/);
+});

@@ -19,6 +19,7 @@
   "build": {
     "appId": "com.bunimseller.supersuite",
     "productName": "SuperSuite",
+    "copyright": "© Bunim Seller",
     "files": [
       "main.js",
       "shell/**/*",
@@ -33,7 +34,7 @@
         "nsis",
         "portable"
       ],
-      "signAndEditExecutable": false,
+      "signExecutable": false,
       "icon": "build/icon.ico"
     },
     "portable": {

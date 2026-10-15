@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('shellAPI', {
   getCatalogExtras: () => ipcRenderer.invoke('shell:catalog-extras'),
   getCalendar: () => ipcRenderer.invoke('shell:get-calendar'),
   saveCalendar: (s) => ipcRenderer.invoke('shell:save-calendar', s),
-  onActiveView: cb => ipcRenderer.on('shell:active-view', (_e, view) => cb(view)),
+  onActiveView: cb => ipcRenderer.on('shell:active-view', (_e, view, mod) => cb(view, mod)),
   backupAll: (passphrase, scope) => ipcRenderer.invoke('shell:backup-all', passphrase, scope),
   restoreAll: (passphrase) => ipcRenderer.invoke('shell:restore-all', passphrase),
   isLoggedIn: () => ipcRenderer.invoke('shell:is-logged-in'),

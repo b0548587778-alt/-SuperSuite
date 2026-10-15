@@ -148,7 +148,7 @@ function parseProductsCsv(text) {
 function writeEncryptedAutoBackup({ dir, plainText, key, keep = 14, today }) {
   if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { ok: false, reason: 'target-missing' };
   if (typeof key !== 'string' || key.length < BK.MIN_PASSPHRASE) return { ok: false, reason: 'no-key' };
-  const day = today || new Date().toISOString().slice(0, 10);
+  const day = today || new Date().toLocaleDateString('en-CA'); // תאריך מקומי YYYY-MM-DD (לא UTC)
   const name = `auto-${day}.ssbk`;
   const existing = fs.readdirSync(dir).filter(f => /^auto-\d{4}-\d{2}-\d{2}\.(json|ssbk)$/.test(f)).sort();
   if (existing.includes(name)) return { ok: true, skipped: true, file: path.join(dir, name) };

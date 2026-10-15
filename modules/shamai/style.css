@@ -72,7 +72,7 @@ textarea { min-height: 70px; resize: vertical; }
 #app {
   min-height: 100vh;
   padding-bottom: calc(110px + var(--safe-bottom));
-  max-width: 720px;
+  max-width: 1080px;
   margin: 0 auto;
   position: relative;
 }
@@ -132,6 +132,7 @@ textarea { min-height: 70px; resize: vertical; }
 @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
 /* INSTALL BANNER */
+.install-banner[hidden] { display: none; }
 .install-banner {
   background: linear-gradient(135deg, var(--gold), var(--gold-light));
   color: var(--bg);
@@ -437,6 +438,10 @@ textarea { min-height: 70px; resize: vertical; }
   font-size: 24px;
   font-weight: 700;
 }
+/* הכותרת נשברה לשתי שורות כשהכפתור תפס את כל הרוחב */
+.page-header { gap: 16px; }
+.page-header h2 { white-space: nowrap; }
+.page-header .btn-primary { width: auto; flex: 0 1 260px; }
 
 /* FORMS */
 .field { margin-bottom: 14px; }
@@ -934,7 +939,7 @@ textarea { min-height: 70px; resize: vertical; }
   font-size: 11px;
   color: var(--text-faint);
   z-index: 40;
-  max-width: 720px;
+  max-width: 1080px;
   margin: 0 auto;
 }
 
@@ -1698,18 +1703,23 @@ select {
 
 /* ═══════ LIGHT THEME ═══════ */
 [data-theme="light"] {
-  --bg: #f5f5f7;
+  --bg: #f4f6fb;
   --bg-2: #ffffff;
   --surface: #ffffff;
-  --surface-2: #f0f0f5;
-  --border: #d2d2d7;
-  --border-light: #b8b8c2;
+  --surface-2: #eef1f7;
+  --border: #e3e7f0;
+  --border-light: #cfd6e4;
   --gold: #b8860b;
   --gold-light: #d4a017;
   --gold-dim: #8b6508;
-  --text: #1d1d1f;
-  --text-dim: #515159;
-  --text-faint: #8a8a92;
+  --text: #14213d;
+  --text-dim: #5d6b85;
+  --text-faint: #8a96ad;
+  --green: #13865b;
+  --green-bg: rgba(19, 134, 91, 0.1);
+  --red: #c43c3c;
+  --red-bg: rgba(196, 60, 60, 0.08);
+  --blue: #24479e;
 }
 [data-theme="light"] .hdr {
   background: linear-gradient(180deg, #ffffff, #f5f5f7);

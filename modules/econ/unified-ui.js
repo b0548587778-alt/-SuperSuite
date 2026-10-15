@@ -46,7 +46,7 @@
     'gemach': 'גמ"ח — הלוואות, ערבים והפקדות',
     'chesed': 'חסד וחלוקות — נזקקים, מתנדבים וסבבי חלוקה',
     'people': 'מאגר אנשים — כרטיס אחד לכל אדם',
-    'settings': 'הגדרות מתקדמות, משתמשים וייבוא/ייצוא',
+    'settings': 'הגדרות ומשתמשים — ייבוא/ייצוא ויומן ביקורת',
     'personal-finance': 'התוכנית הפיננסית — הגדרה ופריטים',
     'tasks': 'משימות',
     'contacts': 'אנשי קשר',
@@ -416,7 +416,7 @@
     if (!schema || !schema.search) return '';
     return `
       <div class="search-box">
-        <input id="viewSearch" type="search" placeholder="${placeholder}" autocomplete="off">
+        <input id="viewSearch" type="search" placeholder="${esc(placeholder)}" autocomplete="off">
       </div>
     `;
   }
@@ -493,9 +493,9 @@
           <div class="kpis">
             <div class="kpi"><small>יתרת בנק</small><strong>${money(cash)}</strong></div>
             <div class="kpi"><small>הכנסות מתחילת השנה</small><strong>${money(acc.incomeStatement.totalRevenue)}</strong></div>
-            <div class="kpi ${acc.incomeStatement.netProfit < 0 ? 'neg' : 'pos'}"><small>רווח נקי</small><strong>${money(acc.incomeStatement.netProfit)}</strong></div>
+            <div class="kpi ${tone(acc.incomeStatement.netProfit)}"><small>רווח נקי</small><strong>${money(acc.incomeStatement.netProfit)}</strong></div>
             <div class="kpi"><small>חייבים פתוחים</small><strong>${money(acc.openInvoices)}</strong></div>
-            <div class="kpi ${acc.vat.netPayable > 0 ? 'neg' : 'pos'}"><small>${acc.vat.netPayable >= 0 ? 'מע"מ לתשלום' : 'מע"מ לזיכוי'}</small><strong>${money(Math.abs(acc.vat.netPayable))}</strong></div>
+            <div class="kpi ${tone(-acc.vat.netPayable)}"><small>${acc.vat.netPayable >= 0 ? 'מע"מ לתשלום' : 'מע"מ לזיכוי'}</small><strong>${money(Math.abs(acc.vat.netPayable))}</strong></div>
             <div class="kpi"><small>מוצרים במחירון</small><strong>${(data.products || []).length}</strong></div>
           </div>
           <div class="hub-grid">
@@ -514,15 +514,15 @@
         <section class="modules">
           <h3 class="modules-title">מודולים נוספים בחבילה</h3>
           <div class="modules-grid">
-            <button class="module-card" data-module="shamai"><span class="module-ic">💎</span><strong>שמאי</strong><small>תיקי שומה והערכות</small></button>
-            <button class="module-card" data-module="trainer"><span class="module-ic">🏋️</span><strong>TrainerPro</strong><small>אימונים וכושר</small></button>
+            <button class="module-card" data-module="shamai"><span class="module-ic">💎</span><strong>שמאות נכסים</strong><small>הערכת שווי ופנקס הזדמנויות</small></button>
+            <button class="module-card" data-module="trainer"><span class="module-ic">🏋️</span><strong>ניהול אימונים</strong><small>למאמני כושר: מתאמנים ותוכניות</small></button>
             <button class="module-card" data-module="tools"><span class="module-ic">🧰</span><strong>ארגז כלים</strong><small>13 כלים שימושיים</small></button>
           </div>
         </section>
         <div class="dashboard-grid">
           <div class="card">
             <h3>💰 פיננסים</h3>
-            <p>נכסים: ${finance?.incomes?.length || 0}</p>
+            <p>הכנסות: ${finance?.incomes?.length || 0}</p>
             <p>הוצאות: ${finance?.expenses?.length || 0}</p>
             <p>השקעות: ${finance?.investments?.length || 0}</p>
           </div>
@@ -530,7 +530,7 @@
             <h3>📋 משימות</h3>
             <p>סה"כ: ${tasks?.tasks?.length || 0}</p>
             <p>דחופות: ${tasks?.tasks?.filter(t => t.priority === 'high').length || 0}</p>
-            <p>דחויות: ${tasks?.tasks?.filter(t => t.isOverdue).length || 0}</p>
+            <p>באיחור: ${tasks?.tasks?.filter(t => t.isOverdue).length || 0}</p>
           </div>
           <div class="card">
             <h3>📊 מודיעין שוק</h3>
@@ -583,9 +583,9 @@
     return `
       <div class="finance">
         <div class="kpis">
-          <div class="kpi pos"><small>הכנסות בחודש</small><strong>${money(round2(incomeMonthly))}</strong></div>
+          <div class="kpi ${tone(incomeMonthly)}"><small>הכנסות בחודש</small><strong>${money(round2(incomeMonthly))}</strong></div>
           <div class="kpi neg"><small>הוצאות בחודש</small><strong>${money(round2(expenseMonthly))}</strong></div>
-          <div class="kpi ${netMonthly < 0 ? 'neg' : 'pos'}"><small>תזרים חודשי נטו</small><strong>${money(round2(netMonthly))}</strong></div>
+          <div class="kpi ${tone(netMonthly)}"><small>תזרים חודשי נטו</small><strong>${money(round2(netMonthly))}</strong></div>
           <div class="kpi"><small>הוצאות קבועות</small><strong>${money(round2(fixedMonthly))}</strong></div>
         </div>
         <div class="section">
@@ -866,10 +866,10 @@
     return `
       <div class="fitness">
         <h3>כושר ובריאות</h3>
-        ${total === 0 ? renderEmpty('אין רשומות כושר עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל') : ''}
-        ${section('אימונים', workouts, workoutCard)}
-        ${section('תזונה', nutrition, nutritionCard)}
-        ${section('מדדים', metrics, metricCard)}
+        ${total === 0
+          // מסך ריק — הודעה אחת, ולא ארבע הודעות זהות זו מתחת לזו
+          ? renderEmpty('אין רשומות כושר עדיין — לחץ "＋ הוספת רשומה" ובחר אימון, תזונה או מדד')
+          : section('אימונים', workouts, workoutCard) + section('תזונה', nutrition, nutritionCard) + section('מדדים', metrics, metricCard)}
       </div>
     `;
   }
@@ -1103,6 +1103,8 @@
   // ============================================================
   // הנהלת חשבונות — דוחות, יומן, חשבוניות ותוכנית חשבונות
   // ============================================================
+  // צבע לפי סימן: אפס נשאר ניטרלי (לא ירוק)
+  const tone = (v) => (Number(v) < 0 ? 'neg' : Number(v) > 0 ? 'pos' : '');
   const money = (n) => '₪' + Number(n || 0).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const isoDate = (d) => d.toISOString().slice(0, 10);
   const yearStart = () => isoDate(new Date(new Date().getFullYear(), 0, 1));
@@ -1168,7 +1170,7 @@
           <div class="acct-row"><span>הכנסות</span><span>${money(r.summary.income)}</span></div>
           <div class="acct-row"><span>הוצאות</span><span>${money(r.summary.expenses)}</span></div>
           <div class="acct-row"><span>מע"מ לתשלום (עסקאות פחות תשומות)</span><span>${money(r.summary.vatPayable)}</span></div>
-          <div class="acct-row acct-big ${r.summary.profit < 0 ? 'neg' : 'pos'}"><span>רווח (הפסד) לפני מע"מ</span><span>${money(r.summary.profit)}</span></div>
+          <div class="acct-row acct-big ${tone(r.summary.profit)}"><span>רווח (הפסד) לפני מע"מ</span><span>${money(r.summary.profit)}</span></div>
         </div>
         <div class="card">
           <h3>ניתוח חשבוניות</h3>
@@ -1186,7 +1188,7 @@
           <div class="acct-row acct-total"><span>סה"כ הכנסות</span><span>${money(r.incomeStatement.totalRevenue)}</span></div>
           <h4>הוצאות</h4>${rows(r.incomeStatement.expenses)}
           <div class="acct-row acct-total"><span>סה"כ הוצאות</span><span>${money(r.incomeStatement.totalExpenses)}</span></div>
-          <div class="acct-row acct-big ${r.incomeStatement.netProfit < 0 ? 'neg' : 'pos'}"><span>רווח (הפסד) נקי</span><span>${money(r.incomeStatement.netProfit)}</span></div>
+          <div class="acct-row acct-big ${tone(r.incomeStatement.netProfit)}"><span>רווח (הפסד) נקי</span><span>${money(r.incomeStatement.netProfit)}</span></div>
         </div>
         <div class="card">
           <h3>מאזן ${r.balanceSheet.balanced ? '<span class="ok">✓ מאוזן</span>' : '<span class="bad">⚠ לא מאוזן</span>'}</h3>
@@ -1200,7 +1202,7 @@
           <h3>דוח מע"מ לתקופה</h3>
           <div class="acct-row"><span>מע"מ עסקאות (שהוצא)</span><span>${money(r.vat.outputVat)}</span></div>
           <div class="acct-row"><span>מע"מ תשומות (זיכוי)</span><span>${money(r.vat.inputVat)}</span></div>
-          <div class="acct-row acct-big ${r.vat.netPayable > 0 ? 'neg' : 'pos'}"><span>${r.vat.netPayable >= 0 ? 'לתשלום לרשות המסים' : 'זכות לקבל'}</span><span>${money(Math.abs(r.vat.netPayable))}</span></div>
+          <div class="acct-row acct-big ${tone(-r.vat.netPayable)}"><span>${r.vat.netPayable >= 0 ? 'לתשלום לרשות המסים' : 'זכות לקבל'}</span><span>${money(Math.abs(r.vat.netPayable))}</span></div>
         </div>
         <div class="card">
           <h3>גיול חייבים</h3>
@@ -1255,13 +1257,20 @@
 
   function renderAcctChart(chart) {
     const list = chart || [];
+    // טבלה אחת מקובצת לפי סוג החשבון — כרטיס לכל חשבון יצר גלילה של כמה מסכים
+    const order = Object.keys(ACCT_TYPE_LABELS);
+    const groups = [...order, ...[...new Set(list.map(a => a.type))].filter(t => !order.includes(t))]
+      .map(t => [t, list.filter(a => a.type === t)]).filter(([, rows]) => rows.length);
     return `
       <h3>תוכנית חשבונות (${list.length})</h3>
-      ${list.map(a => `
-        <div class="card">
-          <h4>${esc(a.code)} · ${esc(a.name)}</h4>
-          <small>${esc(ACCT_TYPE_LABELS[a.type] || a.type)}</small>
-        </div>`).join('')}`;
+      ${list.length === 0 ? renderEmpty('אין חשבונות בתוכנית') : `
+      <div class="card acct-chart-card"><div class="acct-scroll"><table class="acct-table">
+        <thead><tr><th>קוד</th><th>שם החשבון</th><th>סוג</th></tr></thead>
+        ${groups.map(([t, rows]) => `<tbody>
+          <tr class="acct-group"><th colspan="3">${esc(ACCT_TYPE_LABELS[t] || t)} (${rows.length})</th></tr>
+          ${rows.map(a => `<tr><td class="num">${esc(a.code)}</td><td>${esc(a.name)}</td><td class="muted">${esc(ACCT_TYPE_LABELS[a.type] || a.type)}</td></tr>`).join('')}
+        </tbody>`).join('')}
+      </table></div></div>`}`;
   }
 
   function renderAcctSettings(st) {
@@ -1359,7 +1368,7 @@
           <h3>סיכום כללי</h3>
           <div class="acct-row"><span>הכנסות</span><span>${money(s.income)}</span></div>
           <div class="acct-row"><span>הוצאות</span><span>${money(s.expense)}</span></div>
-          <div class="acct-row acct-big ${s.balance < 0 ? 'neg' : 'pos'}"><span>יתרה</span><span>${money(s.balance)}</span></div>
+          <div class="acct-row acct-big ${tone(s.balance)}"><span>יתרה</span><span>${money(s.balance)}</span></div>
         </div>
         <div class="card">
           <h3>לפי קטגוריה</h3>
@@ -1992,7 +2001,7 @@
       <div class="kpis">
         <div class="kpi"><small>הוראות פעילות</small><strong>${Number(st.activeCount) || 0}</strong></div>
         <div class="kpi"><small>צפוי החודש</small><strong>${money(st.expected)}</strong></div>
-        <div class="kpi pos"><small>התקבל החודש</small><strong>${money(st.received)}</strong></div>
+        <div class="kpi ${tone(st.received)}"><small>התקבל החודש</small><strong>${money(st.received)}</strong></div>
         <div class="kpi${st.missedCount ? ' neg' : ''}"><small>חודשים שלא סומנו</small><strong>${Number(st.missedCount) || 0}</strong></div>
         <div class="kpi${st.atRisk ? ' neg' : ''}"><small>נכשלו פעמיים ברצף ומעלה</small><strong>${Number(st.atRisk) || 0}</strong></div>
       </div>
@@ -2325,10 +2334,13 @@
   function renderPeople(o) {
     if (!o || !Array.isArray(o.rows)) return renderEmpty('אין נתונים להצגה');
     const q = state.peopleQuery || '';
+    // כותרת משנה ופעולות בשורה אחת — כמו במסכי העמותה והגמ"ח (בלי לחזור על כותרת המסך)
     return `<div class="acct">
-      <div class="card">
-        <div class="hub-head"><h3>מאגר אנשים</h3></div>
-        <p class="muted">כל מי שמופיע בעמותה, בהוראות הקבע, בהנצחות, בגמ"ח או בחסד — בכרטיס אחד. השיוך נעשה לפי ת.ז; רשומה בלי ת.ז משויכת לפי שם ומסומנת. לעריכה — במסך של כל תחום.</p>
+      <div class="acct-header">
+        <div>
+          <h3>חיפוש אנשים</h3>
+          <small class="muted">כל מי שמופיע בעמותה, בהוראות הקבע, בהנצחות, בגמ"ח או בחסד — בכרטיס אחד. השיוך נעשה לפי ת.ז; רשומה בלי ת.ז משויכת לפי שם ומסומנת. לעריכה — במסך של כל תחום.</small>
+        </div>
         <form id="peopleSearch" class="acct-actions" autocomplete="off">
           <input type="search" id="peopleQ" value="${esc(q)}" placeholder="חיפוש לפי שם, ת.ז או טלפון" style="min-width:260px">
           <button class="primary" type="submit">חיפוש</button>
@@ -2672,10 +2684,12 @@
         <div class="acct-grid">
           ${renderGemachApplications(o.applications)}
           <div class="card acct-wide">
-            <h3>הלוואות (${loans.length})</h3>
-            <div class="acct-actions">
-              <button class="secondary" data-gemach-export="loans">ייצוא הלוואות</button>
-              <button class="secondary" data-gemach-export="arrears">ייצוא פיגורים</button>
+            <div class="acct-header">
+              <h3>הלוואות (${loans.length})</h3>
+              <div class="acct-actions">
+                <button class="secondary" data-gemach-export="loans">ייצוא הלוואות</button>
+                <button class="secondary" data-gemach-export="arrears">ייצוא פיגורים</button>
+              </div>
             </div>
             ${loans.length === 0 ? renderEmpty('אין הלוואות עדיין — לחץ "＋ הוספת רשומה" לבקשת הלוואה חדשה') : loans.map(l => `
               <details class="gemach-loan">
@@ -2691,8 +2705,7 @@
               </details>`).join('')}
           </div>
           <div class="card">
-            <h3>הפקדות (${deposits.length})</h3>
-            <div class="acct-actions"><button class="secondary" data-gemach-export="deposits">ייצוא הפקדות</button></div>
+            <div class="acct-header"><h3>הפקדות (${deposits.length})</h3><button class="secondary small" data-gemach-export="deposits">ייצוא</button></div>
             ${deposits.map(d => `
               <div class="acct-row">
                 <span>${esc(d.depositorName)} <small class="muted">${esc(d.date)}${d.notes ? ' · ' + esc(d.notes) : ''}</small></span>
@@ -3191,6 +3204,7 @@
   const LAB_BUYERS = { SINGLE_HOME: 'דירה יחידה', HOME_UPGRADER: 'משפר דיור', ADDITIONAL_HOME: 'דירה נוספת' };
   const LAB_OBJECTIVES = { TOTAL_COST: 'עלות כוללת נמוכה', MAX_PAYMENT: 'החזר מקסימלי נמוך (יציבות)', TOTAL_COST_WITH_PAYMENT_CAP: 'עלות נמוכה עם תקרת החזר' };
   // שדות לפי סוג מסלול: מה נדרש בכל סוג
+  const ANCHOR_LABELS = { GOV_BOND_5Y: 'אג"ח ממשלתי 5 שנים' };
   const LAB_FIELD_FOR = {
     ratePct: (t) => !['PRIME', 'VARIABLE_LINKED', 'VARIABLE_UNLINKED'].includes(t),
     spreadPct: (t) => ['PRIME', 'VARIABLE_LINKED', 'VARIABLE_UNLINKED'].includes(t),
@@ -3233,7 +3247,8 @@
 
   // ----- עורך מסלולים: שורה לכל מסלול, השדות הרלוונטיים לפי הסוג -----
   function labEditorHtml(id, rows, { shareMode = false, bounds = false, anchors = [] } = {}) {
-    const anchorOpts = (sel) => anchors.map(a => `<option value="${esc(a)}"${a === sel ? ' selected' : ''}>${esc(a)}</option>`).join('');
+    // שם העוגן נשמר כמפתח באנגלית; למשתמש מוצג שם בעברית כשהוא מוכר
+    const anchorOpts = (sel) => anchors.map(a => `<option value="${esc(a)}"${a === sel ? ' selected' : ''}>${esc(ANCHOR_LABELS[a] || a)}</option>`).join('');
     const inp = (i, f, v, attrs = '') => `<input type="number" data-ed="${id}" data-i="${i}" data-f="${f}" value="${esc(labNum(v))}" ${attrs}>`;
     return `
       <div class="acct-scroll"><table class="acct-table lab-editor">
@@ -3923,8 +3938,9 @@
 
   // Attach view-specific handlers
   function attachViewHandlers(viewName) {
-    // כפתור הוספה — מושבת רק בתצוגות שאין להן טופס מוגדר
+    // כפתור הוספה — מושבת ומוסתר בתצוגות שאין להן טופס מוגדר (כפתור דהוי נראה כתקלה)
     elements.addBtn.disabled = !hasForm(viewName);
+    elements.addBtn.hidden = !hasForm(viewName);
 
     // כפתורי מחיקה בכרטיסים
     document.querySelectorAll('[data-action="delete"]').forEach(btn => {
