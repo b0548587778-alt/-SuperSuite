@@ -761,6 +761,7 @@ button.secondary:disabled {
 .brief-row.urgent .brief-level { color:#991b1b; }
 .brief-row.soon .brief-level { color:#92400e; }
 .brief-text { flex:1; display:flex; flex-direction:column; gap:2px; min-width:0; }
+.brief .brief-text strong { font-size:1rem; font-weight:600; margin:0; } /* גובר על .card strong (מספר גדול בכרטיס) */
 .brief-text small { color:var(--secondary); overflow-wrap:anywhere; }
 .brief-row button { flex:none; }
 .brief details summary { cursor:pointer; color:var(--secondary); padding:4px 0; }
