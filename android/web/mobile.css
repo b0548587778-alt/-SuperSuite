@@ -1,0 +1,29 @@
+/* פריסה לאנדרואיד: המודולים (iframes) מעל הבמה; בטלפון הסרגל הוא מגירה, בטאבלט הוא קבוע */
+:root{--ss-top:52px}
+.ss-frames{position:fixed;inset:var(--ss-top) 0 0 0;z-index:5;pointer-events:none}
+.ss-frame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;pointer-events:auto}
+.ss-frame[hidden]{display:none}
+.ss-top{position:fixed;top:0;left:0;right:0;height:var(--ss-top);z-index:30;display:flex;align-items:center;gap:10px;padding:0 10px;
+  background:linear-gradient(90deg,var(--navy-1),var(--navy-2));color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.ss-top button{width:42px;height:38px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.08);color:#fff;font-size:20px;line-height:1}
+.ss-top b{flex:1;min-width:0;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ss-scrim{display:none;position:fixed;inset:0;z-index:39;background:rgba(5,10,25,.45)}
+body.ss-drawer .ss-scrim{display:block}
+body{padding-top:var(--ss-top)}
+.stage{height:100%}
+/* טלפון: הסרגל נשלף מימין */
+@media (max-width:899px){
+  .side{position:fixed;top:0;bottom:0;right:0;z-index:40;width:min(300px,86vw);flex:none;transform:translateX(105%);transition:transform .2s ease;
+    box-shadow:-6px 0 24px rgba(0,0,0,.35)}
+  body.ss-drawer .side{transform:none}
+  .search kbd,.cta kbd{display:none}
+  .hero h1{font-size:26px}
+  dialog{width:min(380px,92vw);max-width:92vw}
+}
+/* טאבלט: הסרגל קבוע, המודולים לצידו */
+@media (min-width:900px){
+  .ss-top{display:none}
+  :root{--ss-top:0px}
+  .ss-frames{inset:0 264px 0 0}
+  #ssMenu{display:none}
+}
