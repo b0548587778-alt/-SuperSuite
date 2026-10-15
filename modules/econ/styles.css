@@ -972,3 +972,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .signup-terms{max-height:260px;overflow:auto;white-space:pre-wrap;border:1px solid #d6dde8;border-radius:8px;padding:12px;background:#fafbfd;line-height:1.7;font-size:13.5px}
 .signup-sig{display:block;width:100%;max-width:480px;height:140px;border:1px dashed #94a3b8;border-radius:8px;background:#fff;touch-action:none}
 .signup-wizard textarea{width:100%;font:inherit}
+
+/* שמירה על מפתח מנהל-העל */
+.owner-warn{background:#fff4d6;border:1px solid #f0d58a;color:#5c4000;border-radius:10px;padding:10px 12px;margin:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.owner-keys{margin:8px 0}
+.owner-keys summary{cursor:pointer;font-weight:600}
+.recovery-codes{font-size:14px;line-height:2}
+.recovery-codes code{user-select:all;background:#f1f5f9;padding:2px 6px;border-radius:6px}

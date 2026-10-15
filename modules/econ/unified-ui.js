@@ -4036,11 +4036,14 @@
     if (!o.initialized) {
       return `<div class="card"><h3>מצב מנהל-העל</h3>
         <p class="muted">למנהל-העל (הספק) בלבד: יצירת מפתח שורש שממנו מונפקים כל הרישיונות. המפתח נשמר מוצפן בסיסמה במחשב הזה.</p>
-        <button class="secondary" id="ownerInitBtn">🔑 הגדרת מצב מנהל-העל</button></div>`;
+        <div class="acct-actions"><button class="secondary" id="ownerInitBtn">🔑 הגדרת מצב מנהל-העל</button>
+        <button class="secondary" id="ownerRecoverBtn">♻ שחזור מקודי שחזור</button>
+        <button class="secondary" id="ownerImportBtn">📥 שחזור מגיבוי מלא</button></div></div>`;
     }
     if (!o.unlocked) {
       return `<div class="card"><h3>מצב מנהל-העל</h3>
-        <button class="primary" id="ownerUnlockBtn">🔓 כניסה למצב מנהל-העל</button></div>`;
+        <div class="acct-actions"><button class="primary" id="ownerUnlockBtn">🔓 כניסה למצב מנהל-העל</button>
+        <button class="secondary small" id="ownerRecoverBtn">♻ שכחתי סיסמה — שחזור מקודים</button></div></div>`;
     }
     const tenants = Array.isArray(o.tenants) ? o.tenants : [];
     const globalHolds = Array.isArray(o.globalHolds) ? o.globalHolds : [];
@@ -4054,6 +4057,16 @@
           <button class="secondary" id="ownerLockBtn">🔒 יציאה ממצב מנהל-העל</button>
         </div>
       </div>
+      ${o.recovery ? '' : `<div class="owner-warn" role="alert"><b>⚠ אין גיבוי למפתח מנהל-העל.</b> אם המחשב הזה ייפגע או שהסיסמה תישכח — לא ניתן יהיה לנהל את הלקוחות.
+        <button class="primary small" id="ownerCodesBtn">יצירת קודי שחזור עכשיו</button></div>`}
+      <details class="owner-keys"><summary>🛡 שמירה על המפתח</summary>
+        <div class="acct-actions">
+          <button class="secondary small" id="ownerCodesBtn2">🧩 קודי שחזור${o.recovery ? ' (נוצרו ' + esc(licDate(o.recovery.createdAt)) + ', ' + Number(o.recovery.k) + ' מתוך ' + Number(o.recovery.n) + ')' : ''}</button>
+          <button class="secondary small" id="ownerExportBtn">💾 גיבוי מלא מוצפן</button>
+          <button class="secondary small" id="ownerPassBtn">🔑 החלפת סיסמה</button>
+        </div>
+        <p class="muted">קודי שחזור: המפתח מחולק לכמה קודים, וכל מספר מסוים מהם משחזר אותו. מוסרים אותם לאנשים או למקומות שונים — כל אחד לבד אינו מגלה דבר.</p>
+      </details>
       ${remote && remote.url ? `<div class="acct-actions">
         <button class="primary" id="ownerRemoteReceiveBtn">📥 בדיקת בקשות חדשות</button>
         <button class="secondary" id="ownerRemotePushBtn">📤 שליחת עדכוני סטטוס לכל המערכות</button>
@@ -4105,6 +4118,28 @@
           <td>${x.status === 'issued' ? '' : `<button class="primary small" data-owner-signup-issue="${esc(x.id)}">✔ הנפקה ושליחה</button>`}
             <button class="secondary small" data-owner-signup-doc="${esc(x.id)}">📄 תקנון חתום (PDF)</button></td></tr>`).join('')}</tbody>
       </table></div>` : ''}`;
+  }
+
+  // קודי שחזור: מוצגים פעם אחת. הדפסה / העתקה, ואישור שנשמרו
+  function showRecoveryCodes(r) {
+    return openDialog((card, finish) => {
+      card.style.maxWidth = '640px';
+      card.innerHTML = `<h2>קודי שחזור — ${Number(r.k)} מתוך ${Number(r.n)}</h2>
+        <p>כל <b>${Number(r.k)}</b> קודים משחזרים את מפתח מנהל-העל, גם במחשב חדש. פחות מזה — אינם מגלים דבר.</p>
+        <p class="bad">הקודים מוצגים פעם אחת בלבד. רשמו או הדפיסו אותם, ומסרו כל קוד לאדם / מקום אחר (כספת, עו"ד, בן משפחה). אל תשמרו את כולם יחד.</p>
+        <ol class="recovery-codes">${r.codes.map(c => `<li dir="ltr"><code>${esc(c)}</code></li>`).join('')}</ol>`;
+      const chkL = document.createElement('label'); chkL.className = 'chk';
+      const chk = document.createElement('input'); chk.type = 'checkbox';
+      chkL.append(chk, document.createTextNode(' רשמתי את כל הקודים ושמרתי אותם במקומות נפרדים'));
+      const actions = document.createElement('div'); actions.className = 'modal-actions';
+      const print = document.createElement('button'); print.type = 'button'; print.className = 'secondary'; print.textContent = '🖨 הדפסה';
+      print.onclick = () => window.print();
+      const done = document.createElement('button'); done.type = 'button'; done.className = 'primary'; done.textContent = 'סיום'; done.disabled = true;
+      chk.onchange = () => { done.disabled = !chk.checked; };
+      done.onclick = () => finish(true);
+      actions.append(print, done);
+      card.append(chkL, actions);
+    });
   }
 
   // עורך תכניות ותקנון (מנהל-העל)
@@ -4631,6 +4666,58 @@
       await window.systemAPI.ownerUnlock(v.p);
     });
     on('ownerLockBtn', () => window.systemAPI.ownerLock());
+    // --- שמירה על המפתח ---
+    const makeCodes = async () => {
+      const v = await licForm('יצירת קודי שחזור', [
+        { name: 'n', label: 'כמה קודים ליצור', type: 'number', value: 5, required: true },
+        { name: 'k', label: 'כמה קודים נדרשים לשחזור', type: 'number', value: 3, required: true }], 'יצירה',
+      'מומלץ: 5 קודים, 3 לשחזור. יצירה מחדש מבטלת את הצורך בקודים הישנים — אבל הם עדיין משחזרים את אותו מפתח, לכן השמידו אותם.');
+      if (!v) return;
+      const r = await window.systemAPI.ownerRecoveryCodes(Number(v.n), Number(v.k));
+      await showRecoveryCodes(r);
+    };
+    on('ownerCodesBtn', makeCodes);
+    on('ownerCodesBtn2', makeCodes);
+    on('ownerExportBtn', async () => {
+      const v = await licForm('גיבוי מלא של מנהל-העל', [
+        { name: 'p', label: 'סיסמה לקובץ הגיבוי (לפחות 12 תווים)', type: 'password', required: true },
+        { name: 'p2', label: 'אימות', type: 'password', required: true }], 'שמירה',
+      'הגיבוי כולל את כל הלקוחות, האישורים, ההרשמות והגרסאות. המפתח בתוכו נשאר מוצפן גם בסיסמת מנהל-העל.');
+      if (!v) return;
+      if (v.p !== v.p2) throw new Error('הסיסמאות אינן זהות');
+      if (v.p.length < 12) throw new Error('הסיסמה קצרה מדי');
+      const r = await window.systemAPI.ownerExportBackup(v.p);
+      if (r && r.ok) showToast('הגיבוי נשמר');
+    });
+    on('ownerImportBtn', async () => {
+      const text = await pickFileText('.ssowner');
+      if (text == null) return;
+      const v = await licForm('שחזור מגיבוי מלא', [{ name: 'p', label: 'סיסמת קובץ הגיבוי', type: 'password', required: true }], 'שחזור');
+      if (!v) return;
+      const r = await window.systemAPI.ownerImportBackup(text, v.p);
+      showToast(`שוחזרו ${r.tenants} לקוחות. כניסה — בסיסמת מנהל-העל`);
+    });
+    on('ownerPassBtn', async () => {
+      const v = await licForm('החלפת סיסמת מנהל-העל', [
+        { name: 'o', label: 'סיסמה נוכחית', type: 'password', required: true },
+        { name: 'p1', label: 'סיסמה חדשה (לפחות 12 תווים)', type: 'password', required: true },
+        { name: 'p2', label: 'אימות', type: 'password', required: true }], 'החלפה');
+      if (!v) return;
+      if (v.p1 !== v.p2) throw new Error('הסיסמאות אינן זהות');
+      await window.systemAPI.ownerChangePassphrase(v.o, v.p1);
+      showToast('הסיסמה הוחלפה');
+    });
+    on('ownerRecoverBtn', async () => {
+      const v = await licForm('שחזור מקודי שחזור', [
+        { name: 'codes', label: 'הקודים — כל קוד בשורה, או מופרדים ברווח', required: true },
+        { name: 'p1', label: 'סיסמה חדשה (לפחות 12 תווים)', type: 'password', required: true },
+        { name: 'p2', label: 'אימות', type: 'password', required: true }], 'שחזור');
+      if (!v) return;
+      if (v.p1 !== v.p2) throw new Error('הסיסמאות אינן זהות');
+      const codes = String(v.codes).split(/[\s,;]+/).filter(x => /^SSK1-/i.test(x));
+      const r = await window.systemAPI.ownerRecover(codes, v.p1);
+      showToast(r.restoredRegistry ? 'המפתח שוחזר — אפשר להמשיך לעבוד' : 'המפתח שוחזר. לשחזור רשימת הלקוחות — "שחזור מגיבוי מלא"');
+    });
     on('ownerCopyKeyBtn', () => licSave(JSON.stringify((d.owner || {}).publicKey), 'מפתח-ציבורי-מנהל-העל', 'המפתח הציבורי נשמר — יש להוסיף אותו ל-root-keys.js בבניית התוכנה'));
 
     // הכפתור המרכזי: פתיחת כל בקשה מלקוח — רישיון חדש/חידוש, או אישור מערכת בת

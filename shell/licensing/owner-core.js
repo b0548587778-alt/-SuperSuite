@@ -8,6 +8,12 @@ const S = require('./status');
 const BK = require('../../modules/econ/core/backupCrypto');
 const { PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL } = require('./store');
 const OF = require('./offer');
+const SH = require('./shamir');
+const C = require('./crypto-lite');
+
+// כל קבצי מצב מנהל-העל — לגיבוי מלא (המפתח עצמו נשאר מוצפן בסיסמה גם בתוך הגיבוי)
+const OWNER_FILES = ['root.key', 'root.pub.json', 'registry.json', 'notices.json', 'inbox.json', 'releases.json', 'offer.json', 'signups.json'];
+const OWNER_BACKUP_TYPE = 'supersuite-owner-backup';
 const SU = require('./signup');
 
 const MIN_PASS = 12;
@@ -56,6 +62,62 @@ function createOwnerCore({ storage, clock = Date.now }) {
     return { keyId: L.keyId(k) };
   }
   const lock = () => { key = null; };
+
+  // ---------- שמירה על המפתח: החלפת סיסמה, קודי שחזור, גיבוי מלא ----------
+  function changePassphrase(oldPass, newPass) {
+    checkPass(newPass);
+    if (oldPass === newPass) throw new Error('הסיסמה החדשה זהה לישנה');
+    unlock(oldPass);
+    storage.write('root.key', BK.encryptBackup(JSON.stringify(rootKey()), newPass));
+    return { keyId: L.keyId(rootKey()) };
+  }
+
+  // קודי שחזור (Shamir): n קודים, כל k מהם משחזרים את המפתח; פחות מ-k אינם מגלים דבר.
+  // מומלץ: 5 קודים, 3 לשחזור — אצל אנשים שונים / במקומות שונים (כספת, עו"ד, בן משפחה)
+  function recoveryCodes(n = 5, k = 3) {
+    const seed = C.b64uDecode(rootKey().d);
+    const r = SH.splitToCodes(seed, n, k);
+    writeJson('recovery.json', { setId: r.setId, n, k, createdAt: clock() });
+    return { ...r, n, k };
+  }
+  const recoveryInfo = () => readJson('recovery.json', null);
+
+  // שחזור מקודים — גם במחשב חדש. אם כבר יש מפתח ציבורי — חייב להתאים לו
+  function recoverFromCodes(codes, newPass) {
+    checkPass(newPass);
+    const seed = SH.combineCodes(Array.isArray(codes) ? codes : []);
+    const x = C.b64uEncode(C.ed25519.getPublicKey(seed));
+    const priv = { kty: 'OKP', crv: 'Ed25519', d: C.b64uEncode(seed), x };
+    const existing = readJson('root.pub.json', null);
+    if (existing && existing.x !== x) throw new Error('הקודים שייכים למפתח אחר מזה של המחשב הזה');
+    storage.write('root.key', BK.encryptBackup(JSON.stringify(priv), newPass));
+    if (!existing) {
+      writeJson('root.pub.json', L.publicOf(priv));
+      if (!storage.read('registry.json')) writeJson('registry.json', { tenants: [], approvals: [] });
+      if (!storage.read('notices.json')) writeJson('notices.json', []);
+    }
+    key = priv;
+    return { keyId: L.keyId(priv), restoredRegistry: !!existing };
+  }
+
+  // גיבוי מלא של מצב מנהל-העל (לקוחות, אישורים, הודעות, הצעה, הרשמות, גרסאות) — מוצפן בסיסמה
+  function exportBackup(passphrase) {
+    rootKey(); // רק כשפתוח
+    const files = {};
+    for (const n of OWNER_FILES) { const t = storage.read(n); if (t != null) files[n] = t; }
+    return BK.encryptBackup(JSON.stringify({ type: OWNER_BACKUP_TYPE, v: 1, at: clock(), keyId: L.keyId(pubkey()), files }), passphrase);
+  }
+  function importBackup(text, passphrase) {
+    let d;
+    try { d = JSON.parse(BK.decryptBackup(String(text), passphrase)); } catch { throw new Error('הסיסמה שגויה או שקובץ הגיבוי פגום'); }
+    if (!d || d.type !== OWNER_BACKUP_TYPE || !d.files || !d.files['root.key']) throw new Error('הקובץ אינו גיבוי של מנהל-העל');
+    const existing = readJson('root.pub.json', null);
+    const incoming = JSON.parse(d.files['root.pub.json']);
+    if (existing && existing.x !== incoming.x) throw new Error('הגיבוי שייך למפתח אחר מזה של המחשב הזה');
+    for (const n of OWNER_FILES) if (typeof d.files[n] === 'string') storage.write(n, d.files[n]);
+    key = null;
+    return { keyId: d.keyId, at: d.at, tenants: (JSON.parse(d.files['registry.json'] || '{}').tenants || []).length };
+  }
   const isUnlocked = () => !!key;
 
   // המפתח הציבורי נשמר גלוי, כדי להציג אותו גם בלי לפתוח
@@ -293,7 +355,7 @@ function createOwnerCore({ storage, clock = Date.now }) {
       url: payload.url, notes: payload.notes, issuedAt: payload.issuedAt, text }].slice(-50));
   }
 
-  return { MIN_PASS, contacts, releases, addRelease, setOffer, offer, addSignup, signups, issueSignup, signedDocument, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
+  return { MIN_PASS, changePassphrase, recoveryCodes, recoveryInfo, recoverFromCodes, exportBackup, importBackup, contacts, releases, addRelease, setOffer, offer, addSignup, signups, issueSignup, signedDocument, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
     inbox, addToInbox, takeFromInbox, peekInbox, rootSigner, recipients };
 }
 

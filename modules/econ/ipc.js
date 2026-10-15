@@ -1032,7 +1032,7 @@ handle('auth:login', async (event, username, password) => {
     const unlocked = ownerCore.isUnlocked();
     if (!initialized || !unlocked) return { initialized, unlocked: false };
     const configured = (ROOT_KEYS_IN_USE() || []).some(k => k.x === ownerCore.pubkey().x);
-    return { initialized, unlocked, publicKey: ownerCore.pubkey(), configured, ...ownerCore.list() };
+    return { initialized, unlocked, publicKey: ownerCore.pubkey(), configured, recovery: ownerCore.recoveryInfo(), ...ownerCore.list() };
   });
   handle('owner:init', async (event, passphrase) => {
     const r = ownerCore.init(passphrase);
@@ -1179,6 +1179,38 @@ handle('auth:login', async (event, username, password) => {
     if (u.protocol !== 'https:' && !(u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname))) throw new Error('כתובת התשלום אינה מאובטחת');
     await require('electron').shell.openExternal(u.toString());
     return true;
+  });
+
+  // ---------- שמירה על מפתח מנהל-העל ----------
+  handle('owner:changePassphrase', async (event, oldPass, newPass) => {
+    const r = ownerCore.changePassphrase(String(oldPass || ''), String(newPass || ''));
+    await ownerAudit(event, 'passphrase.change', r);
+    return true;
+  });
+  handle('owner:recoveryCodes', async (event, n, k) => {
+    const r = ownerCore.recoveryCodes(Number(n) || 5, Number(k) || 3);
+    await ownerAudit(event, 'recovery.create', { setId: r.setId, n: r.n, k: r.k });
+    return r;
+  });
+  handle('owner:recoveryInfo', async () => ownerCore.recoveryInfo());
+  handle('owner:recover', async (event, codes, newPass) => {
+    const r = ownerCore.recoverFromCodes(Array.isArray(codes) ? codes.map(String).slice(0, 255) : [], String(newPass || ''));
+    await ownerAudit(event, 'recovery.use', { keyId: r.keyId });
+    return r;
+  });
+  handle('owner:exportBackup', async (event, passphrase) => {
+    const text = ownerCore.exportBackup(String(passphrase || ''));
+    const r = await dialog.showSaveDialog({ defaultPath: 'גיבוי-מנהל-העל.ssowner', filters: [{ name: 'גיבוי מנהל-העל', extensions: ['ssowner'] }] });
+    if (r.canceled || !r.filePath) return { ok: false };
+    fs.writeFileSync(r.filePath, text, 'utf8');
+    await ownerAudit(event, 'backup.export', {});
+    return { ok: true, path: r.filePath };
+  });
+  handle('owner:importBackup', async (event, text, passphrase) => {
+    if (typeof text !== 'string' || text.length > 50 * 1024 * 1024) throw new Error('קובץ הגיבוי אינו תקין');
+    const r = ownerCore.importBackup(text, String(passphrase || ''));
+    await ownerAudit(event, 'backup.import', r);
+    return r;
   });
 
   handle('owner:getOffer', async () => { const o = ownerCore.offer(); return o ? o.offer : null; });
