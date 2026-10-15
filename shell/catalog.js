@@ -58,7 +58,8 @@
     {
       id: 'system', title: 'מערכת', hue: 'slate',
       items: [
-        { mod: 'econ', view: 'settings',         icon: '⚙',  name: 'הגדרות ומשתמשים',      desc: 'הרשאות, ייבוא/ייצוא ויומן ביקורת' }
+        { mod: 'econ', view: 'settings',         icon: '⚙',  name: 'הגדרות ומשתמשים',      desc: 'הרשאות, ייבוא/ייצוא ויומן ביקורת' },
+        { mod: 'econ', view: 'licensing',        icon: '🔑', name: 'רישוי ומערכות',        desc: 'רישיון, מערכות בת ואישורים' }
       ]
     }
   ];

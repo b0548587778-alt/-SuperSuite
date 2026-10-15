@@ -83,7 +83,7 @@ test('Owner: מפתח השורש מוצפן בסיסמה, ולא נדרס', () =
   assert.doesNotMatch(fs.readFileSync(path.join(dir, 'root.key'), 'utf8'), /"d"/);
   assert.throws(() => o.init(), /לא נדרס/);
   assert.throws(() => createOwner({ dir, passphrase: 'wrong-pass-123456' }).pubkey(), /הסיסמה שגויה/);
-  assert.throws(() => createOwner({ dir: tmp('x-'), passphrase: 'short' }).init(), /SS_OWNER_PASSPHRASE/);
+  assert.throws(() => createOwner({ dir: tmp('x-'), passphrase: 'short' }).init(), /לפחות 12 תווים/);
   assert.ok(owner.pubkey().x);
 });
 

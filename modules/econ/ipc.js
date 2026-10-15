@@ -29,9 +29,11 @@ const path = require('path');
 const LG = require('../../shell/licensing/gate');
 const LS = require('../../shell/licensing/store');
 const ROOT_KEYS = require('../../shell/licensing/root-keys');
+const OC = require('../../shell/licensing/owner-core');
 
 let db;
 let licenseStore = null;
+let ownerCore = null;
 
 // מצב הרישיון הנוכחי (docs/LICENSING-DESIGN.md). לפני אתחול — כמו התקנה בלי רישוי
 const licenseState = () => (licenseStore ? licenseStore.current() : { mode: 'unlicensed' });
@@ -39,15 +41,24 @@ const licenseState = () => (licenseStore ? licenseStore.current() : { mode: 'unl
 // אחסון הרישוי: באנדרואיד הקוד רץ ב-WebView (יש window.localStorage, ו-fs הוא shim); בשולחן העבודה — קבצים ו-DPAPI
 function licenseAdapters(userDataPath) {
   const ls = typeof window !== 'undefined' && window.localStorage;
-  if (ls) return { storage: LS.webStorage(ls, 'supersuite.license'), secret: LS.webStorage(ls, 'supersuite.license.key') };
+  if (ls) return { storage: LS.webStorage(ls, 'supersuite.license'), secret: LS.webStorage(ls, 'supersuite.license.key'),
+    owner: OC.prefixedWebStorage(ls, 'supersuite.owner.') };
   return {
     storage: LS.fileStorage(fs, path.join(userDataPath, 'license.json')),
     secret: LS.encryptedFileSecret(fs, path.join(userDataPath, 'license-key.bin'), safeStorage),
+    owner: OC.dirStorage(fs, path, path.join(userDataPath, 'owner')),
   };
 }
 
-async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret } = {}) {
+// מפתחות השורש שבשימוש בהתקנה הזו — לסימון "המפתח שלך מוגדר בתוכנה"
+let rootKeysInUse = ROOT_KEYS;
+const ROOT_KEYS_IN_USE = () => rootKeysInUse;
+
+async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage } = {}) {
   const ad = licenseAdapters(userDataPath);
+  // מצב מנהל-העל: זמין בכל התקנה, אבל נפתח רק בסיסמה. המפתח נשמר מוצפן (SSBK1:)
+  ownerCore = OC.createOwnerCore({ storage: ownerStorage || ad.owner, clock });
+  rootKeysInUse = rootKeys;
   licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
   db = await initializeDatabase(userDataPath);
   authService.initialize(db);
@@ -97,6 +108,7 @@ function permissionFor(channel) {
   if (channel.startsWith('privacy:')) return 'users.manage';
   // רישוי: התקנה, הנפקת מערכות בת והשבתתן — מנהל בלבד. מצב הרישיון — לכל משתמש מחובר
   if (channel.startsWith('license:') && channel !== 'license:getStatus') return 'users.manage';
+  if (channel.startsWith('owner:')) return 'users.manage';
   if (/backup/i.test(name)) return 'data.backup';
   if (/restore/i.test(name)) return 'data.restore';
   if (/export/i.test(name)) return 'data.export';
@@ -940,6 +952,71 @@ handle('auth:login', async (event, username, password) => {
     await auditEvent(event, 'users.resetPassword', { id });
     return true;
   });
+  // שמירת קובץ רישוי (בקשה / רישיון / אישור / הודעות) בבוחר שמירה — המשתמש מעביר אותו בעצמו
+  async function saveLicenseFile(text, name) {
+    const safe = String(name || 'license').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').slice(0, 60) || 'license';
+    const r = await dialog.showSaveDialog({ defaultPath: safe + '.sslic', filters: [{ name: 'קובץ רישוי', extensions: ['sslic'] }] });
+    if (r.canceled || !r.filePath) return { ok: false };
+    fs.writeFileSync(r.filePath, String(text), 'utf8');
+    return { ok: true, path: r.filePath };
+  }
+  handle('license:saveFile', async (event, text, name) => {
+    if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('תוכן הקובץ אינו תקין');
+    return saveLicenseFile(text, name);
+  });
+
+  // ---------- מצב מנהל-העל (Owner) ----------
+  const ownerAudit = (event, action, details) => auditEvent(event, 'owner.' + action, details);
+  handle('owner:getState', async () => {
+    const initialized = ownerCore.isInitialized();
+    const unlocked = ownerCore.isUnlocked();
+    if (!initialized || !unlocked) return { initialized, unlocked: false };
+    const configured = (ROOT_KEYS_IN_USE() || []).some(k => k.x === ownerCore.pubkey().x);
+    return { initialized, unlocked, publicKey: ownerCore.pubkey(), configured, ...ownerCore.list() };
+  });
+  handle('owner:init', async (event, passphrase) => {
+    const r = ownerCore.init(passphrase);
+    await ownerAudit(event, 'init', { keyId: r.keyId });
+    return { keyId: r.keyId, publicKey: r.publicKey };
+  });
+  handle('owner:unlock', async (event, passphrase) => {
+    try { const r = ownerCore.unlock(passphrase); await ownerAudit(event, 'unlock', r); return r; }
+    catch (e) { await ownerAudit(event, 'unlock.failed', {}); throw e; }
+  });
+  handle('owner:lock', async () => { ownerCore.lock(); return true; });
+  handle('owner:openRequest', async (event, text) => {
+    if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('הקובץ אינו תקין');
+    return ownerCore.openRequest(text);
+  });
+  handle('owner:issue', async (event, input = {}) => {
+    const r = ownerCore.issue(input || {});
+    await ownerAudit(event, 'tenant.issue', { id: r.id, name: r.name, slot: r.slot, renewal: r.renewal, features: (input || {}).features, limits: (input || {}).limits });
+    return r;
+  });
+  handle('owner:approve', async (event, input = {}) => {
+    const r = ownerCore.approve(input || {});
+    await ownerAudit(event, 'child.approve', { childId: r.childId, name: r.name, parent: r.parentName, slot: r.slot });
+    return r;
+  });
+  handle('owner:reject', async (event, input = {}) => {
+    const rv = ownerCore.review(input || {});
+    const reason = String((input || {}).reason || '').trim();
+    if (!reason) throw new Error('חובה לציין סיבה');
+    await ownerAudit(event, 'child.reject', { childId: rv.childId, name: rv.name, parent: rv.parentName, reason });
+    return true;
+  });
+  handle('owner:notice', async (event, input = {}) => {
+    const n = ownerCore.notice(input || {});
+    await ownerAudit(event, 'notice.' + n.type, { target: n.target, kind: n.kind, holdId: n.holdId, reason: n.reason });
+    return n;
+  });
+  handle('owner:revoke', async (event, input = {}) => {
+    const n = ownerCore.revoke(input || {});
+    await ownerAudit(event, 'child.revoke', { childId: n.target, reason: n.reason });
+    return n;
+  });
+  handle('owner:noticesPackage', async (event, target) => ownerCore.noticesPackage(String(target || '')));
+
   // מצב הרישיון — לכל משתמש מחובר (פתוח גם במערכת מושבתת, כדי להציג את הסיבה)
   handle('license:getStatus', async () => {
     const s = licenseState();

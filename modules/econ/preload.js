@@ -239,6 +239,18 @@ contextBridge.exposeInMainWorld('systemAPI', {
   holdLicenseChild: (input) => ipcRenderer.invoke('license:holdChild', input),
   releaseLicenseChild: (input) => ipcRenderer.invoke('license:releaseChild', input),
   terminateLicenseChild: (input) => ipcRenderer.invoke('license:terminateChild', input),
+  saveLicenseFile: (text, name) => ipcRenderer.invoke('license:saveFile', text, name),
+  getOwnerState: () => ipcRenderer.invoke('owner:getState'),
+  ownerInit: (passphrase) => ipcRenderer.invoke('owner:init', passphrase),
+  ownerUnlock: (passphrase) => ipcRenderer.invoke('owner:unlock', passphrase),
+  ownerLock: () => ipcRenderer.invoke('owner:lock'),
+  ownerOpenRequest: (text) => ipcRenderer.invoke('owner:openRequest', text),
+  ownerIssue: (input) => ipcRenderer.invoke('owner:issue', input),
+  ownerApprove: (input) => ipcRenderer.invoke('owner:approve', input),
+  ownerReject: (input) => ipcRenderer.invoke('owner:reject', input),
+  ownerNotice: (input) => ipcRenderer.invoke('owner:notice', input),
+  ownerRevoke: (input) => ipcRenderer.invoke('owner:revoke', input),
+  ownerNoticesPackage: (target) => ipcRenderer.invoke('owner:noticesPackage', target),
 
   // ייבוא וייצוא
   listDataKinds: () => ipcRenderer.invoke('ports:listKinds'),

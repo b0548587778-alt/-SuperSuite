@@ -1,11 +1,8 @@
 #!/usr/bin/env node
-// כלי מנהל-העל (Owner): מפתח שורש, הנפקת רישיונות ללקוחות, השבתה/החזרה/סיום ונעילה גלובלית.
-// רץ במחשב של מנהל-העל בלבד — לא נארז בתוכנה. אופליין מלא. ראו docs/LICENSING-DESIGN.md.
+// כלי שורת פקודה למנהל-העל (Owner) — אותה ליבה כמו מסך "רישוי ומערכות" בתוכנה (shell/licensing/owner-core.js).
+// אופליין מלא. ראו docs/LICENSING-DESIGN.md.
 //
-// תיקיית העבודה (--dir, ברירת מחדל ./owner-data):
-//   root.key       מפתח השורש הפרטי, מוצפן בסיסמה (AES-256-GCM + scrypt, אותו פורמט כמו הגיבוי)
-//   registry.json  הלקוחות שהונפקו (משבצות, רישיונות)
-//   notices.json   כל הודעות הסטטוס שנחתמו
+// תיקיית העבודה (--dir, ברירת מחדל ./owner-data): root.key (מוצפן בסיסמה), root.pub.json, registry.json, notices.json.
 // הסיסמה נקראת מהמשתנה SS_OWNER_PASSPHRASE (לא משורת הפקודה — כדי שלא תישמר בהיסטוריה).
 //
 //   node tools/licensing/owner.js init
@@ -24,15 +21,9 @@
 //   node tools/licensing/owner.js revoke --child <id> --reason "..."          ביטול אישור: מסיים את מערכת הבת ומפנה משבצת
 'use strict';
 const fs = require('fs');
-const crypto = require('crypto');
 const path = require('path');
-const L = require('../../shell/licensing/license');
 const S = require('../../shell/licensing/status');
-const BK = require('../../modules/econ/core/backupCrypto');
-const { PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL } = require('../../shell/licensing/store');
-
-const MIN_PASS = 12;
-const MONTH_MS = 30 * L.DAY_MS;
+const { createOwnerCore, dirStorage } = require('../../shell/licensing/owner-core');
 
 function parseArgs(argv) {
   const out = { _: [] };
@@ -43,148 +34,22 @@ function parseArgs(argv) {
   return out;
 }
 
+// מעטפת תואמת לגרסה הקודמת: פותחת את המפתח בסיסמה לפי הצורך
 function createOwner({ dir, passphrase, clock = Date.now }) {
-  const file = (n) => path.join(dir, n);
-  const readJson = (n, def) => (fs.existsSync(file(n)) ? JSON.parse(fs.readFileSync(file(n), 'utf8')) : def);
-  const writeJson = (n, v) => { const t = file(n) + '.tmp'; fs.writeFileSync(t, JSON.stringify(v, null, 2)); fs.renameSync(t, file(n)); };
-
-  function needPass() {
-    if (typeof passphrase !== 'string' || passphrase.length < MIN_PASS) throw new Error(`יש להגדיר SS_OWNER_PASSPHRASE באורך ${MIN_PASS} תווים לפחות`);
-    return passphrase;
-  }
-  function rootKey() {
-    if (!fs.existsSync(file('root.key'))) throw new Error('אין מפתח שורש. יש להריץ init');
-    try { return JSON.parse(BK.decryptBackup(fs.readFileSync(file('root.key'), 'utf8'), needPass())); }
-    catch { throw new Error('הסיסמה שגויה או שקובץ המפתח פגום'); }
-  }
-  const issuer = () => ({ privateJwk: rootKey() });
-
-  function init() {
-    fs.mkdirSync(dir, { recursive: true });
-    if (fs.existsSync(file('root.key'))) throw new Error('כבר קיים מפתח שורש בתיקייה הזו — לא נדרס');
-    const k = L.generateKeyPair();
-    fs.writeFileSync(file('root.key'), BK.encryptBackup(JSON.stringify(k.privateJwk), needPass()));
-    writeJson('registry.json', { tenants: [], approvals: [] });
-    writeJson('notices.json', []);
-    return { keyId: k.keyId, publicKey: k.publicJwk };
-  }
-
-  function pubkey() { const k = rootKey(); return L.publicOf(k); }
-
-  function issue(opts) {
-    const req = typeof opts.request === 'string' ? JSON.parse(opts.request) : opts.request;
-    if (!req || req.type !== PKG_REQUEST) throw new Error('קובץ הבקשה אינו בקשת רישיון');
-    const reg = readJson('registry.json', { tenants: [] });
-    const id = L.keyId(req.publicKey);
-    const existing = reg.tenants.find(t => t.id === id);
-    // למנהל-העל אין מכסה: משבצת חדשה לכל לקוח, ושמירה על המשבצת בחידוש
-    const slot = existing ? existing.slot : reg.tenants.reduce((m, t) => Math.max(m, t.slot), 0) + 1;
-    const now = clock();
-    const lic = L.issueLicense(issuer(), {
-      name: opts.name || req.name, publicKey: req.publicKey, slot,
-      features: opts.features, limits: opts.limits,
-      issuedAt: now, expiresAt: now + (opts.months || 12) * MONTH_MS, graceDays: opts.graceDays,
-    });
-    reg.tenants = [...reg.tenants.filter(t => t.id !== id), { id, slot, name: lic.payload.name, license: lic, issuedAt: now }];
-    writeJson('registry.json', reg);
-    return { id, slot, package: JSON.stringify({ type: PKG_LICENSE, v: 1, chain: [lic], notices: noticesFor([id]) }) };
-  }
-
-  function noticesFor(ids) {
-    const set = new Set(ids);
-    return readJson('notices.json', []).filter(n => n.payload.target === S.ALL || set.has(n.payload.target));
-  }
-
-  function notice(input) {
-    const n = S.createNotice(issuer(), { ...input, issuedAt: clock() });
-    if (input.type === 'release') {
-      const h = readJson('notices.json', []).find(x => x.payload.id === input.holdId);
-      if (!h || h.payload.type !== 'hold' || h.payload.target !== input.target) throw new Error('ההשבתה לשחרור לא נמצאה על היעד הזה');
-    }
-    writeJson('notices.json', [...readJson('notices.json', []), n]);
-    return n.payload;
-  }
-
-  // מצב כל לקוח לפי ההודעות של מנהל-העל (מה שהלקוח יראה אחרי שיקבל אותן)
-  function list() {
-    const reg = readJson('registry.json', { tenants: [] });
-    const notices = readJson('notices.json', []);
-    const rootKeys = [pubkey()];
-    return reg.tenants.map(t => {
-      const st = S.effectiveStatus({ chain: [t.license], notices, rootKeys, now: clock() });
-      return { id: t.id, slot: t.slot, name: t.name, status: st.status, expiresAt: t.license.payload.expiresAt,
-        features: t.license.payload.features, limits: t.license.payload.limits,
-        holds: st.reasons.filter(r => r.holdId).map(r => ({ holdId: r.holdId, kind: r.kind, node: r.node, reason: r.reason })) };
-    }).sort((a, b) => a.slot - b.slot);
-  }
-
-  // ---------- אישור מערכות בת: לקוח מבקש, מנהל-העל מאשר (וסופר את המכסה) ----------
-  function readApprovalRequest(text) {
-    let pkg;
-    try { pkg = typeof text === 'string' ? JSON.parse(text) : text; } catch { throw new Error('הקובץ אינו בקשת אישור תקינה'); }
-    if (!pkg || pkg.type !== PKG_APPROVAL_REQUEST || !pkg.child) throw new Error('הקובץ אינו בקשת אישור למערכת בת');
-    const parent = L.verifyChain(pkg.parentChain, [pubkey()]);
-    return { parent, child: pkg.child, childId: L.keyId(pkg.child.publicKey) };
-  }
-
-  function activeApprovals(reg, parentId) {
-    return (reg.approvals || []).filter(x => x.parentId === parentId && !x.revoked);
-  }
-
-  // תצוגה לפני אישור: מי מבקש, מה, והאם יש מקום במכסה
-  function review(opts) {
-    const { parent, child, childId } = readApprovalRequest(opts.request);
-    const reg = readJson('registry.json', { tenants: [], approvals: [] });
-    const used = activeApprovals(reg, parent.id);
-    const renewal = used.some(x => x.childId === childId);
-    return { parentId: parent.id, parentName: parent.name, childId, name: child.name, features: child.features, limits: child.limits,
-      expiresAt: child.expiresAt, renewal, quota: { used: used.length, max: parent.limits.maxChildren },
-      problem: L.checkTerms(parent, child) || (!renewal && used.length >= parent.limits.maxChildren ? 'המכסה של הלקוח מלאה' : null) };
-  }
-
-  function approve(opts) {
-    const { parent, child, childId } = readApprovalRequest(opts.request);
-    const reg = readJson('registry.json', { tenants: [], approvals: [] });
-    const used = activeApprovals(reg, parent.id);
-    const prev = used.find(x => x.childId === childId);
-    let slot = prev && prev.slot;
-    if (!slot) {
-      const taken = new Set(used.map(x => x.slot));
-      for (let i = 1; i <= parent.limits.maxChildren; i++) if (!taken.has(i)) { slot = i; break; }
-      if (!slot) throw new Error(`המכסה של "${parent.name}" מלאה: עד ${parent.limits.maxChildren} מערכות בת`);
-    }
-    const problem = L.checkTerms(parent, { ...child, slot });
-    if (problem) throw new Error(problem);
-    const now = clock();
-    const approval = L.createApproval(rootKey(), {
-      id: crypto.randomUUID(), parentId: parent.id, childPublicKey: child.publicKey, depth: parent.depth + 1, slot,
-      name: child.name, features: child.features, limits: child.limits, expiresAt: child.expiresAt, graceDays: child.graceDays, approvedAt: now,
-    });
-    reg.approvals = [...(reg.approvals || []).filter(x => x !== prev),
-      { id: approval.payload.id, parentId: parent.id, parentName: parent.name, childId, slot, name: approval.payload.name, approvedAt: now }];
-    writeJson('registry.json', reg);
-    return { childId, slot, package: JSON.stringify({ type: PKG_APPROVAL, v: 1, approval }) };
-  }
-
-  function approvals() {
-    return (readJson('registry.json', { tenants: [], approvals: [] }).approvals || [])
-      .map(({ id, parentId, parentName, childId, slot, name, approvedAt, revoked }) => ({ id, parentId, parentName, childId, slot, name, approvedAt, revoked: !!revoked }));
-  }
-
-  // ביטול אישור: הודעת סיום למערכת הבת, והמשבצת מתפנה
-  function revoke({ childId, reason }) {
-    const reg = readJson('registry.json', { tenants: [], approvals: [] });
-    const a = (reg.approvals || []).find(x => x.childId === childId && !x.revoked);
-    if (!a) throw new Error('לא נמצא אישור פעיל למערכת הזו');
-    const n = notice({ type: 'terminate', target: childId, reason });
-    a.revoked = true;
-    writeJson('registry.json', reg);
-    return n;
-  }
-
-  const noticesPackage = (target) => JSON.stringify({ type: PKG_NOTICES, v: 1, notices: noticesFor([target]) });
-
-  return { init, pubkey, issue, notice, list, noticesPackage, review, approve, approvals, revoke };
+  const core = createOwnerCore({ storage: dirStorage(fs, path, dir), clock });
+  const unlocked = (fn) => (...args) => { if (!core.isUnlocked()) core.unlock(passphrase); return fn(...args); };
+  return {
+    init: () => core.init(passphrase),
+    pubkey: unlocked(core.pubkey),
+    issue: unlocked(core.issue),
+    notice: unlocked(core.notice),
+    list: () => core.list().tenants,
+    noticesPackage: core.noticesPackage,
+    review: core.review,
+    approve: unlocked(core.approve),
+    approvals: core.approvals,
+    revoke: unlocked(core.revoke),
+  };
 }
 
 function limitsFrom(a) {
@@ -216,8 +81,9 @@ function main(argv) {
       console.log(`הונפק רישיון ללקוח ${r.id} (משבצת ${r.slot})`);
       return out(r.package);
     }
-    case 'list': return console.table(owner.list().map(t => ({ ...t, expiresAt: new Date(t.expiresAt).toLocaleDateString('he-IL'),
-      features: t.features.join(','), holds: t.holds.map(h => `${h.holdId}:${h.kind}`).join(' ') })));
+    case 'list': return console.table(owner.list().map(t => ({ id: t.id, slot: t.slot, name: t.name, status: t.status,
+      expiresAt: new Date(t.expiresAt).toLocaleDateString('he-IL'), features: t.features.join(','),
+      children: t.children.filter(c => !c.revoked).length, holds: t.holds.map(h => `${h.holdId}:${h.kind}`).join(' ') })));
     case 'hold': return console.log(owner.notice({ type: 'hold', target: a.target, kind: a.kind, source: a.source || 'owner', reason: a.reason }));
     case 'release': return console.log(owner.notice({ type: 'release', target: a.target, holdId: a.hold, reason: a.reason }));
     case 'terminate': return console.log(owner.notice({ type: 'terminate', target: a.target, reason: a.reason }));

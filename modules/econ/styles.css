@@ -902,3 +902,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #cdd4e2; border-radius: 10px; border: 2px solid var(--light); }
 ::-webkit-scrollbar-thumb:hover { background: #b3bdd1; }
+
+/* רישוי ומערכות */
+.modal-form fieldset { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; margin: 0 0 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; }
+.modal-form fieldset legend { padding: 0 6px; font-weight: 600; }
+.modal-form label.check { display: flex; align-items: center; gap: 6px; font-size: .92rem; }
+.owner-panel { border-inline-start: 4px solid #b45309; }

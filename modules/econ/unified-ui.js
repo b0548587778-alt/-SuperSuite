@@ -47,6 +47,7 @@
     'chesed': 'חסד וחלוקות — נזקקים, מתנדבים וסבבי חלוקה',
     'people': 'מאגר אנשים — כרטיס אחד לכל אדם',
     'settings': 'הגדרות מתקדמות, משתמשים וייבוא/ייצוא',
+    'licensing': 'רישוי ומערכות — רישיון, מערכות בת ומנהל-העל',
     'personal-finance': 'התוכנית הפיננסית — הגדרה ופריטים',
     'tasks': 'משימות',
     'contacts': 'אנשי קשר',
@@ -211,6 +212,18 @@
           state.data.settings = { ...adv, users, audit, privacy };
           break;
         }
+        case 'licensing': {
+          const status = await window.systemAPI.getLicenseStatus();
+          const adv = await window.systemAPI.getAdvancedSettings();
+          const isAdmin = !!(adv && adv.isAdmin);
+          const [children, owner] = isAdmin
+            ? await Promise.all([
+              status.mode === 'licensed' ? window.systemAPI.listLicenseChildren().catch(() => []) : [],
+              window.systemAPI.getOwnerState().catch(() => null)])
+            : [[], null];
+          state.data.licensing = { status, isAdmin, children, owner };
+          break;
+        }
         case 'tasks':
           state.data.tasks = await window.systemAPI.getTasks();
           break;
@@ -363,6 +376,9 @@
         break;
       case 'settings':
         html = renderSettings(data);
+        break;
+      case 'licensing':
+        html = renderLicensing(data);
         break;
       case 'tasks':
         html = renderTasks(data);
@@ -3743,6 +3759,406 @@
   }
 
   // ============================================================
+  // רישוי ומערכות (docs/LICENSING-DESIGN.md): הרישיון של המערכת, מערכות בת, ומצב מנהל-העל.
+  // כל פעולה בכפתור; הקבצים (בקשה / רישיון / אישור / הודעות) נשמרים ונפתחים בבוחר קבצים.
+  // ============================================================
+  const LIC_STATUS = { active: 'פעילה', pending_payment: 'ממתינה לתשלום', suspended: 'מושבתת זמנית', locked: 'נעולה', terminated: 'הסתיימה' };
+  const LIC_HOLD_KINDS = { suspended: 'השבתה זמנית', locked: 'נעילה', pending_payment: 'ממתין לתשלום' };
+  const LIC_FEATURES = [
+    ['econ', 'מערכת כלכלית (בסיס)'], ['econ.accounting', 'הנהלת חשבונות'], ['econ.npo', 'עמותה ותרומות'], ['econ.gemach', 'גמ"ח'],
+    ['econ.chesed', 'חסד וחלוקות'], ['econ.mortgage', 'משכנתאות'], ['econ.mortgage-advisor', 'ייעוץ משכנתאות'], ['econ.mortgage-lab', 'מעבדת תמהיל'],
+    ['shamai', 'שמאות'], ['trainer', 'ניהול אימונים'], ['tools', 'ארגז כלים']
+  ];
+  const licFeatureLabel = (f) => (LIC_FEATURES.find(x => x[0] === f) || [f, f])[1];
+  const licDate = (ms) => (ms ? new Date(ms).toLocaleDateString('he-IL') : '');
+  const licBadge = (st) => `<span class="${st === 'active' ? 'good' : 'bad'}">${esc(LIC_STATUS[st] || st)}</span>`;
+  const licLimits = (l) => l ? `עד ${Number(l.maxUsers)} משתמשים · ${Number(l.maxChildren)} מערכות בת · ${Number(l.maxStorageMb)}MB` : '';
+
+  function renderLicensing(d) {
+    const st = (d && d.status) || { mode: 'unlicensed', status: 'active' };
+    const isAdmin = !!(d && d.isAdmin);
+    const children = Array.isArray(d && d.children) ? d.children : [];
+    const reasons = Array.isArray(st.reasons) ? st.reasons : [];
+    const mine = st.mode === 'unlicensed'
+      ? `<p class="muted">ההתקנה הזו פועלת ללא רישוי — כל התחומים פתוחים.</p>`
+      : `<div class="acct-row"><span>מצב</span><span>${licBadge(st.status)}</span></div>
+         ${reasons.map(r => `<div class="acct-row"><span>${esc(LIC_STATUS[r.kind] || r.kind)}</span><span>${esc(r.reason)}</span></div>`).join('')}
+         ${st.graceUntil ? `<div class="acct-row"><span>תקופת חסד</span><span class="bad">עד ${esc(licDate(st.graceUntil))} — יש לחדש</span></div>` : ''}
+         ${(st.features || []).length ? `<div class="acct-row"><span>תחומים פתוחים</span><span>${(st.features || []).map(f => esc(licFeatureLabel(f))).join(' · ')}</span></div>` : ''}
+         ${st.limits && st.limits.maxUsers != null ? `<div class="acct-row"><span>מכסות</span><span>${esc(licLimits(st.limits))}</span></div>` : ''}`;
+
+    const myCard = `<div class="card">
+      <h3>הרישיון של המערכת הזו</h3>
+      ${mine}
+      ${isAdmin ? `<div class="acct-actions">
+        <button class="secondary" id="licRequestBtn">📤 הפקת בקשת רישיון</button>
+        <button class="primary" id="licInstallBtn">📥 התקנת קובץ רישיון</button>
+        <button class="secondary" id="licNoticesBtn">📥 קבלת עדכון סטטוס</button>
+      </div>
+      <p class="muted">בקשת רישיון יוצרת מפתח שנשמר במכשיר הזה בלבד. שלחו את הקובץ לספק, והתקינו את קובץ הרישיון שיחזור.</p>` : '<p class="muted">ניהול הרישיון — למנהל בלבד.</p>'}
+    </div>`;
+
+    const canIssue = isAdmin && st.mode === 'licensed' && st.status === 'active' && st.limits && st.limits.maxChildren > 0;
+    const childCard = isAdmin && st.mode === 'licensed' ? `<div class="card">
+      <div class="acct-header"><h3>מערכות בת (${children.length}${st.limits && st.limits.maxChildren != null ? ' מתוך ' + Number(st.limits.maxChildren) : ''})</h3>
+        ${canIssue ? `<div class="acct-actions">
+          <button class="secondary" id="licChildRequestBtn">＋ בקשת אישור למערכת בת</button>
+          <button class="primary" id="licChildIssueBtn">✔ הנפקה לפי אישור</button>
+        </div>` : ''}
+      </div>
+      ${canIssue ? '<p class="muted">מערכת בת נפתחת רק באישור מנהל-העל: (1) במכשיר החדש — "הפקת בקשת רישיון"; (2) כאן — "בקשת אישור", בוחרים את הבקשה והתנאים ושולחים לספק; (3) עם קובץ האישור שחוזר — "הנפקה לפי אישור", ומעבירים את קובץ הרישיון למכשיר החדש.</p>' : ''}
+      <div class="acct-scroll"><table class="acct-table">
+        <thead><tr><th>#</th><th>שם</th><th>מצב</th><th>בתוקף עד</th><th>תחומים</th><th></th></tr></thead>
+        <tbody>${children.map(c => `<tr>
+          <td>${Number(c.slot)}</td><td>${esc(c.name)}</td><td>${licBadge(c.status)}${(c.holds || []).map(h => `<br><small>${esc(LIC_HOLD_KINDS[h.kind] || h.kind)}: ${esc(h.reason)}</small>`).join('')}</td>
+          <td>${esc(licDate(c.expiresAt))}</td><td><small>${(c.features || []).map(f => esc(licFeatureLabel(f))).join(', ')}</small></td>
+          <td>${c.status === 'terminated' ? '' : `
+            ${(c.holds || []).map(h => `<button class="secondary small" data-lic-child-release="${esc(c.id)}" data-hold="${esc(h.holdId)}">החזרה לפעילות</button>`).join('')}
+            <button class="secondary small" data-lic-child-hold="${esc(c.id)}">השבתה</button>
+            <button class="danger-outline" data-lic-child-terminate="${esc(c.id)}">סיום</button>`}
+          </td></tr>`).join('') || '<tr><td colspan="6" class="muted">לא הונפקו מערכות בת</td></tr>'}</tbody>
+      </table></div>
+    </div>` : '';
+
+    return `<div class="settings">${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner) : ''}</div>`;
+  }
+
+  // מצב מנהל-העל: נפתח בסיסמה. ממנו מנפיקים ללקוחות ומאשרים מערכות בת
+  function renderOwnerPanel(o) {
+    if (!o) return '';
+    if (!o.initialized) {
+      return `<div class="card"><h3>מצב מנהל-העל</h3>
+        <p class="muted">למנהל-העל (הספק) בלבד: יצירת מפתח שורש שממנו מונפקים כל הרישיונות. המפתח נשמר מוצפן בסיסמה במחשב הזה.</p>
+        <button class="secondary" id="ownerInitBtn">🔑 הגדרת מצב מנהל-העל</button></div>`;
+    }
+    if (!o.unlocked) {
+      return `<div class="card"><h3>מצב מנהל-העל</h3>
+        <button class="primary" id="ownerUnlockBtn">🔓 כניסה למצב מנהל-העל</button></div>`;
+    }
+    const tenants = Array.isArray(o.tenants) ? o.tenants : [];
+    const globalHolds = Array.isArray(o.globalHolds) ? o.globalHolds : [];
+    return `<div class="card owner-panel">
+      <div class="acct-header"><h3>מנהל-העל — כל המערכות (${tenants.length} לקוחות)</h3>
+        <div class="acct-actions">
+          <button class="primary" id="ownerOpenBtn">📂 פתיחת בקשה מלקוח</button>
+          ${globalHolds.length
+            ? globalHolds.map(h => `<button class="secondary" data-owner-release="*" data-hold="${esc(h.holdId)}">ביטול נעילה גלובלית</button>`).join('')
+            : '<button class="danger-outline" id="ownerKillBtn">⛔ נעילת כל המערכות</button>'}
+          <button class="secondary" id="ownerLockBtn">🔒 יציאה ממצב מנהל-העל</button>
+        </div>
+      </div>
+      ${o.configured ? '' : `<p class="bad">המפתח הציבורי שלך עדיין לא מוגדר בתוכנה (shell/licensing/root-keys.js), ולכן הרישוי אינו נאכף בהתקנות. <button class="secondary small" id="ownerCopyKeyBtn">שמירת המפתח הציבורי לקובץ</button></p>`}
+      ${globalHolds.map(h => `<p class="bad">נעילה גלובלית פעילה: ${esc(h.reason)}</p>`).join('')}
+      <div class="acct-scroll"><table class="acct-table">
+        <thead><tr><th>#</th><th>לקוח</th><th>מצב</th><th>בתוקף עד</th><th>מכסות</th><th></th></tr></thead>
+        <tbody>${tenants.map(t => `<tr>
+          <td>${Number(t.slot)}</td><td><b>${esc(t.name)}</b></td>
+          <td>${licBadge(t.status)}${(t.holds || []).map(h => `<br><small>${esc(LIC_HOLD_KINDS[h.kind] || h.kind)}: ${esc(h.reason)}</small>`).join('')}</td>
+          <td>${esc(licDate(t.expiresAt))}</td><td><small>${esc(licLimits(t.limits))}</small></td>
+          <td>
+            ${(t.holds || []).map(h => `<button class="secondary small" data-owner-release="${esc(t.id)}" data-hold="${esc(h.holdId)}">החזרה לפעילות</button>`).join('')}
+            <button class="secondary small" data-owner-hold="${esc(t.id)}">השבתה</button>
+            <button class="secondary small" data-owner-notices="${esc(t.id)}" data-name="${esc(t.name)}">קובץ עדכון</button>
+            ${t.status === 'terminated' ? '' : `<button class="danger-outline" data-owner-terminate="${esc(t.id)}">סיום</button>`}
+          </td></tr>
+          ${(t.children || []).map(c => `<tr class="${c.revoked ? 'muted' : ''}">
+            <td></td><td>↳ ${esc(c.name)} <small class="muted">(מערכת בת ${Number(c.slot)})</small></td>
+            <td>${c.revoked || c.terminated ? licBadge('terminated') : ((c.holds || []).length ? licBadge((c.holds[0] || {}).kind) : '<span class="muted">לפי הלקוח</span>')}</td>
+            <td><small>אושרה ${esc(licDate(c.approvedAt))}</small></td><td></td>
+            <td>${c.revoked ? '' : `
+              ${(c.holds || []).map(h => `<button class="secondary small" data-owner-release="${esc(c.id)}" data-hold="${esc(h.holdId)}">החזרה</button>`).join('')}
+              <button class="secondary small" data-owner-hold="${esc(c.id)}">השבתה</button>
+              <button class="danger-outline" data-owner-revoke="${esc(c.id)}">ביטול אישור</button>`}</td>
+          </tr>`).join('')}`).join('') || '<tr><td colspan="6" class="muted">עדיין לא הונפקו רישיונות. לקוח חדש: "פתיחת בקשה מלקוח"</td></tr>'}</tbody>
+      </table></div>
+      <p class="muted">שינוי סטטוס נכנס לתוקף אצל הלקוח כשהוא מקבל "קובץ עדכון" (או בהתקנת רישיון מחודש). השבתה של לקוח משביתה גם את כל מערכות הבת שלו.</p>
+    </div>`;
+  }
+
+  // ---------- חלונות קלט למסך הרישוי ----------
+  // טופס כללי: שדות טקסט/מספר/בחירה ותיבות סימון. מחזיר ערכים או null בביטול
+  function licForm(title, fields, submitText, intro) {
+    return openDialog((card, finish) => {
+      card.style.maxWidth = '520px';
+      const h = document.createElement('h2');
+      h.textContent = title;
+      card.appendChild(h);
+      if (intro) {
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.style.padding = '0 1.5rem';
+        p.textContent = intro;
+        card.appendChild(p);
+      }
+      const form = document.createElement('form');
+      form.className = 'modal-form';
+      form.noValidate = true;
+      const get = {};
+      for (const f of fields) {
+        if (f.type === 'checks') {
+          const box = document.createElement('fieldset');
+          const lg = document.createElement('legend');
+          lg.textContent = f.label;
+          box.appendChild(lg);
+          const inputs = [];
+          for (const [value, label] of f.options) {
+            const l = document.createElement('label');
+            l.className = 'check';
+            const c = document.createElement('input');
+            c.type = 'checkbox';
+            c.value = value;
+            c.checked = (f.value || []).includes(value);
+            if (f.allowed && !f.allowed.includes(value)) { c.disabled = true; c.checked = false; }
+            l.append(c, document.createTextNode(' ' + label));
+            box.appendChild(l);
+            inputs.push(c);
+          }
+          form.appendChild(box);
+          get[f.name] = () => inputs.filter(c => c.checked).map(c => c.value);
+          continue;
+        }
+        const label = document.createElement('label');
+        label.className = 'field';
+        const span = document.createElement('span');
+        span.textContent = f.label;
+        let input;
+        if (f.type === 'select') {
+          input = document.createElement('select');
+          for (const [value, text] of f.options) {
+            const o = document.createElement('option');
+            o.value = value;
+            o.textContent = text;
+            input.appendChild(o);
+          }
+        } else {
+          input = document.createElement('input');
+          input.type = f.type || 'text';
+          if (f.type === 'password') input.autocomplete = 'new-password';
+        }
+        input.value = f.value != null ? String(f.value) : '';
+        label.append(span, input);
+        form.appendChild(label);
+        get[f.name] = () => (f.type === 'password' ? input.value : input.value.trim());
+      }
+      const err = document.createElement('div');
+      err.style.color = '#b91c1c';
+      const actions = document.createElement('div');
+      actions.className = 'modal-actions';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'secondary';
+      cancel.textContent = 'ביטול';
+      const ok = document.createElement('button');
+      ok.type = 'submit';
+      ok.className = 'primary';
+      ok.textContent = submitText;
+      actions.append(cancel, ok);
+      form.append(err, actions);
+      card.appendChild(form);
+      cancel.addEventListener('click', () => finish(null));
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const values = {};
+        for (const f of fields) {
+          const v = get[f.name]();
+          if (f.required && (Array.isArray(v) ? !v.length : !v)) { err.textContent = 'יש למלא: ' + f.label; return; }
+          if (f.type === 'number') {
+            const n = Number(v);
+            if (!Number.isInteger(n) || n < (f.min ?? 0) || (f.max != null && n > f.max)) {
+              err.textContent = `${f.label}: מספר שלם${f.max != null ? ' עד ' + f.max : ''}`; return;
+            }
+            values[f.name] = n;
+          } else values[f.name] = v;
+        }
+        finish(values);
+      });
+    });
+  }
+
+  // תנאים לרישיון: תחומים, מכסות ותוקף. ceiling = המגבלות של ההורה (לא ניתן לחרוג)
+  function licTermsFields(ceiling, current) {
+    const c = ceiling || {};
+    const cur = current || {};
+    const limit = (name, label, def) => ({ name, label: label + (c.limits && c.limits[name] != null ? ` (עד ${c.limits[name]})` : ''),
+      type: 'number', min: 0, max: c.limits ? c.limits[name] : undefined, value: cur.limits && cur.limits[name] != null ? cur.limits[name] : def });
+    return [
+      { name: 'features', label: 'תחומים פתוחים', type: 'checks', options: LIC_FEATURES, allowed: c.features,
+        value: cur.features || (c.features ? ['econ'] : ['econ', 'tools']), required: true },
+      limit('maxUsers', 'משתמשים פעילים', c.limits ? Math.min(3, c.limits.maxUsers) : 5),
+      limit('maxChildren', 'מערכות בת', 0),
+      limit('maxDepth', 'עומק מרבי בעץ', 2),
+      limit('maxStorageMb', 'אחסון (MB)', c.limits ? Math.min(1000, c.limits.maxStorageMb) : 5000),
+      { name: 'months', label: 'תוקף (חודשים)', type: 'number', min: 1, max: 60, value: 12 },
+      { name: 'graceDays', label: 'ימי חסד אחרי התפוגה', type: 'number', min: 0, max: 90, value: 7 }
+    ];
+  }
+  const licTerms = (v) => ({ features: v.features, months: v.months, graceDays: v.graceDays,
+    limits: { maxUsers: v.maxUsers, maxChildren: v.maxChildren, maxDepth: v.maxDepth, maxStorageMb: v.maxStorageMb } });
+
+  const licReason = (title, extra = []) => licForm(title, [...extra, { name: 'reason', label: 'סיבה (חובה — נרשמת ביומן ומוצגת למשתמשי המערכת)', required: true }], 'אישור');
+  const licHoldFields = [{ name: 'kind', label: 'סוג', type: 'select', options: Object.entries(LIC_HOLD_KINDS) }];
+
+  async function licSave(text, name, doneMsg) {
+    const r = await window.systemAPI.saveLicenseFile(text, name);
+    if (r && r.ok) showToast(doneMsg || 'הקובץ נשמר');
+    return r;
+  }
+
+  // עטיפה לכל כפתור: שגיאה בעברית, ורענון המסך בסוף
+  const licAction = (fn) => async (e) => {
+    try { await fn(e); } catch (error) { showError(errMsg(error)); return; }
+    await switchView('licensing');
+  };
+
+  function attachLicensingHandlers() {
+    const d = state.data.licensing || {};
+    const st = d.status || {};
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', licAction(fn)); };
+    const each = (attr, fn) => document.querySelectorAll('[' + attr + ']').forEach(b => b.addEventListener('click', licAction(() => fn(b))));
+
+    // --- הרישיון של המערכת ---
+    on('licRequestBtn', async () => {
+      const v = await licForm('הפקת בקשת רישיון', [{ name: 'name', label: 'שם המערכת / הארגון', required: true }], 'הפקה ושמירה');
+      if (!v) return;
+      await licSave(await window.systemAPI.getLicenseRequest(v.name), 'בקשת-רישיון-' + v.name, 'הבקשה נשמרה — שלחו אותה לספק');
+    });
+    on('licInstallBtn', async () => {
+      const text = await pickFileText('.sslic,.json');
+      if (text == null) return;
+      const r = await window.systemAPI.installLicense(text);
+      showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
+    });
+    on('licNoticesBtn', async () => {
+      const text = await pickFileText('.sslic,.json');
+      if (text == null) return;
+      const r = await window.systemAPI.importLicenseNotices(text);
+      showToast(r.added ? `התקבלו ${r.added} עדכונים` : 'אין עדכונים חדשים');
+    });
+
+    // --- מערכות בת (לקוח) ---
+    on('licChildRequestBtn', async () => {
+      const text = await pickFileText('.sslic,.json');
+      if (text == null) return;
+      const v = await licForm('בקשת אישור למערכת בת', [{ name: 'name', label: 'שם מערכת הבת', required: true },
+        ...licTermsFields({ features: st.features, limits: st.limits })], 'הפקת בקשה ושמירה',
+      'התנאים לא יכולים לעלות על הרישיון של המערכת הזו. מנהל-העל יאשר או ידחה.');
+      if (!v) return;
+      const r = await window.systemAPI.requestLicenseChildApproval({ request: text, name: v.name, ...licTerms(v) });
+      await licSave(r.package, 'בקשת-אישור-' + v.name, 'בקשת האישור נשמרה — שלחו אותה לספק');
+    });
+    on('licChildIssueBtn', async () => {
+      const text = await pickFileText('.sslic,.json');
+      if (text == null) return;
+      const r = await window.systemAPI.issueLicenseChild({ approval: text });
+      await licSave(r.package, 'רישיון-' + r.child.name, `מערכת הבת "${r.child.name}" הונפקה — העבירו את הקובץ למכשיר שלה`);
+    });
+    each('data-lic-child-hold', async (b) => {
+      const v = await licReason('השבתת מערכת בת', licHoldFields);
+      if (!v) return;
+      const r = await window.systemAPI.holdLicenseChild({ childId: b.dataset.licChildHold, kind: v.kind, reason: v.reason });
+      await licSave(r.package, 'עדכון-סטטוס', 'ההשבתה נרשמה — העבירו את קובץ העדכון למערכת הבת');
+    });
+    each('data-lic-child-release', async (b) => {
+      const v = await licReason('החזרה לפעילות');
+      if (!v) return;
+      const r = await window.systemAPI.releaseLicenseChild({ childId: b.dataset.licChildRelease, holdId: b.dataset.hold, reason: v.reason });
+      await licSave(r.package, 'עדכון-סטטוס', 'ההחזרה נרשמה — העבירו את קובץ העדכון למערכת הבת');
+    });
+    each('data-lic-child-terminate', async (b) => {
+      if (!(await askConfirm('סיום מערכת בת הוא סופי ואינו ניתן לביטול. להמשיך?'))) return;
+      const v = await licReason('סיום מערכת בת');
+      if (!v) return;
+      const r = await window.systemAPI.terminateLicenseChild({ childId: b.dataset.licChildTerminate, reason: v.reason });
+      await licSave(r.package, 'עדכון-סטטוס', 'הסיום נרשם');
+    });
+
+    // --- מנהל-העל ---
+    on('ownerInitBtn', async () => {
+      const v = await licForm('הגדרת מצב מנהל-העל', [
+        { name: 'p1', label: 'סיסמה (לפחות 12 תווים)', type: 'password', required: true },
+        { name: 'p2', label: 'אימות סיסמה', type: 'password', required: true }], 'יצירת מפתח שורש',
+      'חשוב: בלי הסיסמה ובלי גיבוי של המחשב הזה לא ניתן יהיה לחדש רישיונות. שמרו את הסיסמה במקום בטוח.');
+      if (!v) return;
+      if (v.p1 !== v.p2) throw new Error('הסיסמאות אינן זהות');
+      await window.systemAPI.ownerInit(v.p1);
+      showToast('מצב מנהל-העל הוגדר');
+    });
+    on('ownerUnlockBtn', async () => {
+      const v = await licForm('כניסה למצב מנהל-העל', [{ name: 'p', label: 'סיסמה', type: 'password', required: true }], 'כניסה');
+      if (!v) return;
+      await window.systemAPI.ownerUnlock(v.p);
+    });
+    on('ownerLockBtn', () => window.systemAPI.ownerLock());
+    on('ownerCopyKeyBtn', () => licSave(JSON.stringify((d.owner || {}).publicKey), 'מפתח-ציבורי-מנהל-העל', 'המפתח הציבורי נשמר — יש להוסיף אותו ל-root-keys.js בבניית התוכנה'));
+
+    // הכפתור המרכזי: פתיחת כל בקשה מלקוח — רישיון חדש/חידוש, או אישור מערכת בת
+    on('ownerOpenBtn', async () => {
+      const text = await pickFileText('.sslic,.json');
+      if (text == null) return;
+      const req = await window.systemAPI.ownerOpenRequest(text);
+      if (req.kind === 'license') {
+        const v = await licForm(req.renewal ? `חידוש רישיון: ${req.name}` : `לקוח חדש: ${req.name}`, [
+          { name: 'name', label: 'שם הלקוח', value: req.name, required: true }, ...licTermsFields(null, req.current)], 'הנפקת רישיון');
+        if (!v) return;
+        const r = await window.systemAPI.ownerIssue({ request: text, name: v.name, ...licTerms(v) });
+        await licSave(r.package, 'רישיון-' + r.name, `הרישיון של "${r.name}" נשמר — שלחו אותו ללקוח`);
+        return;
+      }
+      // בקשת אישור למערכת בת: אישור או דחייה בלחיצה
+      const summary = `"${req.parentName}" מבקש ${req.renewal ? 'לחדש' : 'לפתוח'} מערכת בת "${req.name}". `
+        + `תחומים: ${(req.features || []).map(licFeatureLabel).join(', ')}. ${licLimits(req.limits)}. בתוקף עד ${licDate(req.expiresAt)}. `
+        + `מכסה: ${req.quota.used} מתוך ${req.quota.max}.` + (req.problem ? ` ⚠ ${req.problem}` : '');
+      const choice = await licForm('בקשה למערכת בת', [{ name: 'decision', label: 'החלטה', type: 'select',
+        options: req.problem ? [['reject', 'דחייה']] : [['approve', '✔ אישור'], ['reject', '✖ דחייה']] }], 'המשך', summary);
+      if (!choice) return;
+      if (choice.decision === 'approve') {
+        const r = await window.systemAPI.ownerApprove({ request: text });
+        await licSave(r.package, 'אישור-' + r.name, `מערכת הבת "${r.name}" אושרה — שלחו את קובץ האישור ל"${r.parentName}"`);
+      } else {
+        const v = await licReason('דחיית הבקשה');
+        if (!v) return;
+        await window.systemAPI.ownerReject({ request: text, reason: v.reason });
+        showToast('הבקשה נדחתה ונרשמה ביומן');
+      }
+    });
+    on('ownerKillBtn', async () => {
+      if (!(await askConfirm('נעילה גלובלית תנעל את כל המערכות של כל הלקוחות ברגע שיקבלו את העדכון. להמשיך?'))) return;
+      const v = await licReason('נעילת כל המערכות');
+      if (!v) return;
+      await window.systemAPI.ownerNotice({ type: 'hold', target: '*', kind: 'locked', reason: v.reason });
+      showToast('הנעילה הגלובלית נרשמה — שלחו "קובץ עדכון" ללקוחות');
+    });
+    each('data-owner-hold', async (b) => {
+      const v = await licReason('השבתה', licHoldFields);
+      if (!v) return;
+      await window.systemAPI.ownerNotice({ type: 'hold', target: b.dataset.ownerHold, kind: v.kind, reason: v.reason });
+      showToast('ההשבתה נרשמה — שלחו "קובץ עדכון" ללקוח');
+    });
+    each('data-owner-release', async (b) => {
+      const v = await licReason('החזרה לפעילות');
+      if (!v) return;
+      await window.systemAPI.ownerNotice({ type: 'release', target: b.dataset.ownerRelease, holdId: b.dataset.hold, reason: v.reason });
+      showToast('ההחזרה נרשמה — שלחו "קובץ עדכון" ללקוח');
+    });
+    each('data-owner-terminate', async (b) => {
+      if (!(await askConfirm('סיום לקוח הוא סופי ומסיים גם את כל מערכות הבת שלו. להמשיך?'))) return;
+      const v = await licReason('סיום לקוח');
+      if (!v) return;
+      await window.systemAPI.ownerNotice({ type: 'terminate', target: b.dataset.ownerTerminate, reason: v.reason });
+    });
+    each('data-owner-revoke', async (b) => {
+      if (!(await askConfirm('ביטול האישור מסיים את מערכת הבת ומפנה את המשבצת במכסה. להמשיך?'))) return;
+      const v = await licReason('ביטול אישור מערכת בת');
+      if (!v) return;
+      await window.systemAPI.ownerRevoke({ childId: b.dataset.ownerRevoke, reason: v.reason });
+    });
+    each('data-owner-notices', async (b) => {
+      const text = await window.systemAPI.ownerNoticesPackage(b.dataset.ownerNotices);
+      await licSave(text, 'עדכון-' + b.dataset.name, 'קובץ העדכון נשמר — שלחו אותו ללקוח');
+    });
+  }
+
+  // ============================================================
   // הגדרות מתקדמות: כללי, משתמשים ותפקידים, יומן ביקורת, מרכז ייבוא/ייצוא
   // ============================================================
   const ROLE_LABELS = { admin: 'מנהל — הכל כולל משתמשים', editor: 'עורך — צפייה, הזנה, ייצוא וגיבוי', viewer: 'צופה — קריאה בלבד' };
@@ -3980,6 +4396,7 @@
     if (viewName === 'people') attachPeopleHandlers();
     if (viewName === 'personal-finance') attachPersonalFinanceHandlers();
     if (viewName === 'settings') attachSettingsHandlers();
+    if (viewName === 'licensing') attachLicensingHandlers();
     attachPortsHandlers();
     if (viewName === 'mortgage-advisor') attachMadvHandlers();
     if (viewName === 'mortgage-lab') attachLabHandlers();
