@@ -9,6 +9,7 @@
       items: [
         { mod: 'econ', view: 'dashboard',        icon: '◈',  name: 'לוח בקרה',            desc: 'תמונת מצב של העסק במבט אחד' },
         { mod: 'econ', view: 'acct-invoices',    icon: '🧾', name: 'חשבוניות מס',          desc: 'הפקה, תשלום וביטול' },
+        { mod: 'econ', view: 'collect',          icon: '💳', name: 'גבייה וקישורי תשלום',   desc: 'קישור תשלום ללקוח, לתורם או ללווה, וקליטת דוח הסליקה' },
         { mod: 'econ', view: 'acct-reports',     icon: '📈', name: 'דוחות ומע"מ',          desc: 'רווח והפסד, מאזן בוחן ודוח מע"מ' },
         { mod: 'econ', view: 'acct-journal',     icon: '📒', name: 'יומן חשבונאי',         desc: 'פקודות יומן בהנה"ח כפולה' },
         { mod: 'econ', view: 'acct-chart',       icon: '🗂',  name: 'תוכנית חשבונות',       desc: 'מבנה החשבונות של העסק' },

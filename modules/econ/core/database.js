@@ -36,7 +36,8 @@ const collections = [
   'gemach',            // קופת גמ"ח: הלוואות ללא ריבית, ערבים, הפקדות — נפרד מהעמותה ומהיומן העסקי
   'chesed',            // חסד וחלוקות: נזקקים (כולל חסויים), מתנדבים וסבבי חלוקה
   'mortgageAdvisor',   // ייעוץ משכנתאות: תיקי לקוחות והצעות בנקים
-  'mortgageLab'        // מעבדת תמהיל: תחזית, אימותי כללים ותרחישים שמורים
+  'mortgageLab',       // מעבדת תמהיל: תחזית, אימותי כללים ותרחישים שמורים
+  'payments'           // גבייה מלקוחות: דרישות תשלום וקישורים לחברת הסליקה של הארגון — בלי פרטי אשראי
 ];
 
 const objectCollections = new Set([
@@ -50,7 +51,8 @@ const objectCollections = new Set([
   'gemach',
   'chesed',
   'mortgageAdvisor',
-  'mortgageLab'
+  'mortgageLab',
+  'payments'
 ]);
 
 const defaults = {
@@ -87,6 +89,7 @@ const defaults = {
   chesed: { beneficiaries: [], volunteers: [], rounds: [] },
   mortgageAdvisor: { clients: [], offers: [] },
   mortgageLab: { forecast: null, verifications: [], scenarios: [], rateConvention: 'NOMINAL' },
+  payments: { settings: {}, requests: [] },
   settings: { currency: 'ILS', vatRate: 0.18 }
 };
 

@@ -17,6 +17,7 @@ const { VoiceNotesService: voiceNotesService } = require('./services/voiceNotesS
 const { AccountingService: accountingService } = require('./services/accountingService');
 const { NpoService: npoService } = require('./services/npoService');
 const { GemachService: gemachService } = require('./services/gemachService');
+const { CollectService: collectService } = require('./services/collectService');
 const { ChesedService: chesedService } = require('./services/chesedService');
 const { PeopleService: peopleService } = require('./services/peopleService');
 const { PrivacyService: privacyService } = require('./services/privacyService');
@@ -141,6 +142,7 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStor
   accountingService.initialize(db);
   npoService.initialize(db);
   gemachService.initialize(db);
+  collectService.initialize(db);
   chesedService.initialize(db);
   peopleService.initialize(db);
   privacyService.initialize(db);
@@ -178,6 +180,10 @@ function permissionFor(channel) {
   // עדכוני גרסה: כל משתמש רואה שיש עדכון; הורדה והתקנה — מנהל בלבד
   if (channel === 'update:getStatus') return 'data.view';
   if (channel.startsWith('update:')) return 'users.manage';
+  // גבייה: קישור התשלום קובע לאן נכנס כסף — מנהל בלבד; קליטת דוח וסימון "שולם" — עריכה; ביטול — מחיקה (לפי השם)
+  if (channel === 'collect:saveSettings') return 'users.manage';
+  if (channel === 'collect:previewImport' || channel === 'collect:getMessage') return 'data.view';
+  if (channel === 'collect:importReport') return 'data.edit';
   // הודעות: קריאה — לכל משתמש; שליחה ועריכה — data.edit; מחיקה — data.delete; הגדרות העסק (תשובות אוטומטיות, פרופיל) — מנהל
   if (['chat:overview', 'chat:thread', 'chat:refresh', 'chat:search', 'chat:starred', 'chat:getSettings', 'chat:saveAttachment'].includes(channel)) return 'data.view';
   if (channel === 'chat:deleteForMe' || channel === 'chat:deleteForAll') return 'data.delete';
@@ -728,6 +734,53 @@ handle('auth:login', async (event, username, password) => {
   });
 
   // גמ"ח: הלוואות ללא ריבית, ערבים, לוח סילוקין, הפקדות ופיגורים — נפרד מהעמותה ומהיומן העסקי
+  // ---------- גבייה מלקוחות של הארגון (core/collect.js) ----------
+  // התשלום נרשם בתחום אחר (חשבוניות / עמותה / גמ"ח) — ולכן נבדק גם הרישיון של אותו תחום, לא רק של הערוץ
+  const COLLECT_DOMAIN = { invoice: 'acct:x', donation: 'npo:x', gemach: 'gemach:x' };
+  const assertCollectDomain = (kind) => {
+    const ch = COLLECT_DOMAIN[kind];
+    const denied = ch && LG.checkChannel(licenseState(), ch, 'data.edit');
+    if (denied) throw new Error(denied);
+  };
+  handle('collect:getOverview', async () => collectService.getOverview());
+  handle('collect:saveSettings', async (event, input) => {
+    const s = await collectService.saveSettings(input || {});
+    await auditEvent(event, 'collect.settings', { provider: s.provider, link: !!s.linkTemplate });
+    return s;
+  });
+  handle('collect:createRequest', async (event, input) => {
+    assertCollectDomain(input && input.kind);
+    const r = await collectService.createRequest(input || {});
+    await auditEvent(event, 'collect.request', { ref: r.ref, kind: r.kind, amountAg: r.amountAg });
+    return r;
+  });
+  handle('collect:getMessage', async (event, id) => {
+    const { npo } = await npoService._load();
+    return collectService.getMessage(String(id || ''), npo.settings.orgName);
+  });
+  handle('collect:cancelRequest', async (event, id) => {
+    const r = await collectService.cancelRequest(String(id || ''));
+    await auditEvent(event, 'collect.cancel', { ref: r.ref });
+    return r;
+  });
+  handle('collect:markPaid', async (event, id, input) => {
+    const { payments } = await collectService._load();
+    const req = payments.requests.find(x => x.id === id);
+    if (req) assertCollectDomain(req.kind);
+    const r = await collectService.markPaid(String(id || ''), input || {});
+    await auditEvent(event, 'collect.paid', { ref: r.ref, source: 'manual', txId: r.payment.txId });
+    return r;
+  });
+  handle('collect:previewImport', async (event, csvText) => collectService.previewImport(String(csvText || '')));
+  handle('collect:importReport', async (event, csvText, mapping) => {
+    // תחום שאינו ברישיון — לא קולטים (אחרת הייבוא היה רושם בו תשלומים)
+    const { payments } = await collectService._load();
+    for (const kind of new Set(payments.requests.filter(r => r.status === 'open').map(r => r.kind))) assertCollectDomain(kind);
+    const r = await collectService.importReport(String(csvText || ''), mapping || {});
+    await auditEvent(event, 'collect.import', { recorded: r.recorded.length, failed: r.failed.length, unmatched: r.unmatched.length });
+    return r;
+  });
+
   handle('gemach:getOverview', async (event, asOf) => gemachService.getOverview(asOf));
   handle('gemach:getLoan', async (event, id) => gemachService.getLoan(id));
   handle('gemach:saveSettings', async (event, input) => {
