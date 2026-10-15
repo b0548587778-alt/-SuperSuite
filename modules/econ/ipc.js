@@ -44,9 +44,12 @@ let chatStore = null;
 let ownerChatStore = null;
 let updateManager = null;
 let updatesDir = null;
-// הגרסה המותקנת (package.json). באנדרואיד החבילה מוזרקת בבנייה; אם חסרה — 0.0.0 (כל עדכון חתום חדש ממנה)
-let APP_VERSION = '0.0.0';
-try { APP_VERSION = require('../../package.json').version || APP_VERSION; } catch { /* אנדרואיד */ }
+// הגרסה המותקנת. באנדרואיד: build-info.js (window.__ssBuildInfo) שנוצר בבנייה; בשולחן העבודה: package.json מהדיסק
+// (לא require — ה-bundler של אנדרואיד אינו אורז JSON). אם חסרה — 0.0.0, וכל עדכון חתום חדש ממנה
+function appVersionOf() {
+  if (typeof window !== 'undefined' && window.__ssBuildInfo && window.__ssBuildInfo.version) return String(window.__ssBuildInfo.version);
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')).version || '0.0.0'; } catch { return '0.0.0'; }
+}
 
 // מצב הרישיון הנוכחי (docs/LICENSING-DESIGN.md). לפני אתחול — כמו התקנה בלי רישוי
 // כל שינוי סטטוס נרשם ביומן הביקורת ומודיע למאזינים (main.js — חסימת מודולים ומסך "מערכת מושבתת")
@@ -94,7 +97,7 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStor
   const ad = licenseAdapters(userDataPath);
   // עדכוני גרסה: קבצים מאומתים נשמרים בתיקיית updates בתוך נתוני המשתמש
   updatesDir = path.join(userDataPath, 'updates');
-  updateManager = UP.createUpdateManager({ storage: updateStorage || ad.updates, rootKeys, currentVersion: appVersion || APP_VERSION,
+  updateManager = UP.createUpdateManager({ storage: updateStorage || ad.updates, rootKeys, currentVersion: appVersion || appVersionOf(),
     platform: platform || ad.platform, fetchImpl: fetchImpl || globalThis.fetch, clock: clock || Date.now,
     saveFile: async (name, bytes) => {
       fs.mkdirSync(updatesDir, { recursive: true });

@@ -27,11 +27,13 @@ function chainable(props = {}) {
 }
 
 class WebContentsViewStub {
-  constructor() {
+  constructor(opts = {}) {
     this.id = created.views.length + 100;
     this.visible = undefined;
+    this.opts = opts;
+    this.sent = [];
     created.views.push(this);
-    this.webContents = chainable({ id: this.id, isDestroyed: () => false });
+    this.webContents = chainable({ id: this.id, isDestroyed: () => false, isLoading: () => false, send: (...a) => this.sent.push(a) });
   }
   setVisible(v) { this.visible = v; }
   setBounds() {}
@@ -215,6 +217,26 @@ test('shell:econ-view: רק המודול הכלכלי מדווח, ורק על ת
   assert.equal(await handlers['shell:econ-view'](shellSender(), 'tasks'), false);
 });
 
+test('מסכי האימונים בסרגל האחיד: פתיחה לפי הקטלוג, preload ייעודי, ודיווח רק מהמודול עצמו', async () => {
+  await boot();
+  const Catalog = require(path.join(ROOT, 'shell', 'catalog.js'));
+  const econView = created.views[0];
+  assert.equal(await handlers['shell:open'](shellSender(), 'trainer', 'nutrition'), true);
+  const trainerView = created.views.find(v => /trainer[\\/]preload\.js$/.test((v.opts.webPreferences || {}).preload || ''));
+  assert.ok(trainerView, 'מודול האימונים נטען עם ה-preload שלו');
+  assert.equal(trainerView.visible, true);
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(trainerView.sent.at(-1), ['trainer:goto', Catalog.TRAINER_LABELS.nutrition], 'נשלח הטקסט של הכפתור בסרגל הפנימי');
+  assert.equal(await handlers['shell:open'](shellSender(), 'trainer', 'acct-invoices'), false, 'תצוגה של מודול אחר נחסמת');
+  assert.equal(await handlers['shell:open'](shellSender(), 'econ', 'nutrition'), false);
+  // דיווח המסך הפעיל
+  assert.equal(await handlers['shell:trainer-view'](viewSender(trainerView), Catalog.TRAINER_LABELS.cardio), true);
+  assert.equal(await handlers['shell:trainer-view'](viewSender(trainerView), 'לא קיים'), false, 'טקסט לא מוכר נדחה');
+  assert.equal(await handlers['shell:trainer-view'](viewSender(trainerView), { x: 1 }), false);
+  assert.equal(await handlers['shell:trainer-view'](viewSender(econView), Catalog.TRAINER_LABELS.cardio), false, 'מודול אחר לא מדווח בשם האימונים');
+  assert.equal(await handlers['shell:trainer-view'](shellSender(), Catalog.TRAINER_LABELS.cardio), false);
+});
+
 test('shell:catalog-extras: רק המעטפת מקבלת את רשימת המסכים החדשים', async () => {
   await boot();
   const r = await handlers['shell:catalog-extras'](shellSender());
@@ -249,4 +271,16 @@ test('אחורה/קדימה: חזרה למודול הקודם ולמסך הבי�
   assert.equal(await handlers['shell:history-go'](shellSender(), 1), true, 'קדימה');
   assert.equal(visible(), 1);
   assert.equal(await handlers['shell:history-go'](viewSender(created.views[0]), -1), false, 'מודול לא מנווט בהיסטוריה');
+});
+
+test('מכשירים מחוברים: כל ערוצי sync: רשומים, ונדחים משולח זר ומהמעטפת בלי כניסת מנהל', async () => {
+  await boot();
+  const channels = ['sync:status', 'sync:set-enabled', 'sync:rename', 'sync:set-port', 'sync:create-invite', 'sync:cancel-invite',
+    'sync:join', 'sync:approve', 'sync:reject', 'sync:connect', 'sync:ping', 'sync:revoke'];
+  for (const ch of channels) {
+    assert.equal(typeof handlers[ch], 'function', ch + ' רשום');
+    assert.throws(() => handlers[ch]({ sender: { id: 999 } }), /מתוך המעטפת בלבד/, ch + ': שולח זר');
+  }
+  // תצוגת מודול (לא המעטפת) — נדחית גם היא
+  assert.throws(() => handlers['sync:set-enabled'](viewSender(created.views[0]), true), /מתוך המעטפת בלבד/);
 });

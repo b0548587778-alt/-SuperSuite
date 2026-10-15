@@ -29,7 +29,12 @@ function loadAutoBackupKey({ file, safeStorage, create }) {
   return k;
 }
 
-const todayName = (now) => `auto-${now.toISOString().slice(0, 10)}.ssbk`;
+// תאריך ושעה מקומיים. toISOString הוא UTC: בישראל גיבוי בין חצות ל-03:00 קיבל את התאריך של אתמול,
+// והשעה בסטטוס הוצגה מוקדמת בשעתיים-שלוש
+const pad = (n) => String(n).padStart(2, '0');
+const localDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const localStamp = (d) => `${localDay(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const todayName = (now) => `auto-${localDay(now)}.ssbk`;
 
 // מריץ סבב גיבוי אחד ומחזיר סטטוס { ok, reason?, file?, at, target }.
 // customTarget: יעד שהמשתמש בחר (USB) — לעולם לא נוצר אם חסר (כונן לא מחובר).
@@ -46,14 +51,15 @@ async function runAutoBackup({ encryptionAvailable, customTarget, defaultTarget,
   const name = todayName(now);
   if (fs.existsSync(path.join(target, name))) return { ok: true, skipped: true, file: path.join(target, name), target, at };
   const plainText = JSON.stringify(await collect());
-  const r = write({ dir: target, plainText, key: getKey(), keep: 14, today: now.toISOString().slice(0, 10) });
+  const r = write({ dir: target, plainText, key: getKey(), keep: 14, today: localDay(now) });
   return { ...r, target, at };
 }
 
 // טקסט למשתמש עבור סטטוס הגיבוי האחרון
 function describeStatus(s) {
   if (!s || !s.at) return '';
-  const when = String(s.at).slice(0, 16).replace('T', ' ');
+  const at = new Date(s.at);
+  const when = isNaN(at) ? String(s.at) : localStamp(at);
   if (s.ok) return `גיבוי אחרון הצליח (${when})`;
   const why = {
     'no-encryption': 'הצפנת המערכת אינה זמינה — גיבוי אוטומטי כבוי',
@@ -67,4 +73,4 @@ function describeStatus(s) {
   return `⚠ ${why} (${when})`;
 }
 
-module.exports = { loadAutoBackupKey, runAutoBackup, describeStatus };
+module.exports = { loadAutoBackupKey, runAutoBackup, describeStatus, localDay };

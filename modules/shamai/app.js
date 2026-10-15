@@ -479,7 +479,7 @@ function verdictHTML(profit, marginPct) {
 
 // אין שליפת מחירים מהרשת: האפליקציה פועלת אופליין (CLAUDE.md, כלל 6). המחירים מוזנים ידנית.
 async function fetchAllPrices(silent = false) {
-  if (!silent) toast('מחירי שוק חיים לא זמינים במצב אופליין — ניתן להזין מחירים ידנית', 'info');
+  if (!silent) toast('אין עדכון מחירים אוטומטי (אופליין) — ניתן להזין מחירים ידנית', 'info');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -520,12 +520,12 @@ function renderHeader() {
 }
 
 function renderDashboard() {
-  // Greeting
+  // Greeting — אותם גבולות שעה כמו בברכה של המעטפת (shell.js), כדי שלא יוצגו שתי ברכות שונות
   const hr = new Date().getHours();
   let greet = 'בוקר טוב';
   if (hr >= 12 && hr < 17) greet = 'צהריים טובים';
   else if (hr >= 17 && hr < 21) greet = 'ערב טוב';
-  else if (hr >= 21 || hr < 6) greet = 'לילה טוב';
+  else if (hr >= 21 || hr < 5) greet = 'לילה טוב';
   $('#hero-greet').textContent = greet;
 
   // Stats
@@ -3287,7 +3287,7 @@ function renderCryptoFull() {
       <div class="c-name">${d.name}</div>
       <div class="c-price">$${fmt(d.usd, d.usd >= 100 ? 0 : 2)}</div>
       <div class="c-sub">₪${fmt0(d.ils)}</div>
-      <div class="c-change ${d.change >= 0 ? 'up' : 'down'}">${d.change >= 0 ? '▲' : '▼'} ${fmt(Math.abs(d.change), 2)}%</div>
+      ${d.change ? `<div class="c-change ${d.change > 0 ? 'up' : 'down'}">${d.change > 0 ? '▲' : '▼'} ${fmt(Math.abs(d.change), 2)}%</div>` : '<div class="c-change">ערך ייחוס</div>'}
     </div>
   `).join('');
 }
@@ -4405,8 +4405,10 @@ function renderAnalytics() {
     $('#analytics-bycat').innerHTML = '';
     $('#analytics-bystatus').innerHTML = '';
     $('#analytics-history').innerHTML = '';
+    $('#analytics-details').hidden = true;
     return;
   }
+  $('#analytics-details').hidden = false;
 
   const watching = ops.filter(o => o.status === 'watching');
   const bought = ops.filter(o => o.status === 'bought');
@@ -4808,7 +4810,7 @@ async function generateBackupQR() {
     container.innerHTML = `
       <div class="qr-warning">
         ⚠️ הנתונים גדולים מדי ל-QR יחיד (${sizeKB}KB).
-        <br>השתמש בייצוא JSON או "העלה לענן" במקום.
+        <br>השתמש בגיבוי מלא (JSON) במקום.
       </div>
     `;
     return;
@@ -6272,7 +6274,7 @@ function setTheme(theme) {
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
   setTheme(current === 'dark' ? 'light' : 'dark');
 }
 
@@ -6449,7 +6451,7 @@ function renderInsights() {
   }
   setTimeout(() => {
     // Theme
-    const savedTheme = localStorage.getItem('shamai_theme') || 'dark';
+    const savedTheme = localStorage.getItem('shamai_theme') || 'light';
     setTheme(savedTheme);
     $('#btn-theme')?.addEventListener('click', () => {
       toggleTheme();
@@ -7254,7 +7256,8 @@ document.addEventListener('visibilitychange', () => {
 function getLivePriceBanner(category) {
   const lastUpdate = state.prices.lastUpdate ? new Date(state.prices.lastUpdate) : null;
   const ageMin = lastUpdate ? Math.round((Date.now() - lastUpdate.getTime()) / 60000) : null;
-  const updateText = ageMin === null ? 'אין נתונים' :
+  // אין עדכון אוטומטי (אופליין) — בלי תאריך עדכון אלה ערכי ייחוס קבועים
+  const updateText = ageMin === null ? 'ערכי ייחוס · עדכון ידני' :
                      ageMin === 0 ? 'עודכן עכשיו' :
                      ageMin === 1 ? 'עודכן לפני דקה' :
                      ageMin < 60 ? `עודכן לפני ${ageMin} דקות` :
@@ -7329,7 +7332,7 @@ function getLivePriceBanner(category) {
   return `
     <div class="live-price-banner">
       <div class="lpb-header">
-        <span class="lpb-title">📊 מחירי שוק חיים</span>
+        <span class="lpb-title">📊 מחירי ייחוס</span>
         <span class="lpb-update">${updateText}</span>
         <button class="lpb-refresh" onclick="fetchAllPrices()">↻</button>
       </div>

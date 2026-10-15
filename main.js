@@ -10,6 +10,8 @@ const AutoBk = require('./shell/auto-backup');
 const Catalog = require('./shell/catalog');
 const Hebcal = require('./shell/hebcal');
 const NavHistory = require('./shell/history');
+const Layout = require('./shell/layout');
+const SyncService = require('./shell/sync/service');
 const LG = require('./shell/licensing/gate');
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
@@ -17,6 +19,11 @@ const ECON_EXTRAS = (() => {
   catch { return []; }
 })();
 const ECON_VIEWS = [...Catalog.ECON_VIEWS, ...ECON_EXTRAS.map(x => x.view)];
+// מסכי מודול האימונים בסרגל האחיד: תצוגה ← הטקסט של הכפתור בסרגל הפנימי של המודול
+const TRAINER_VIEWS = Catalog.TRAINER_VIEWS;
+const TRAINER_BY_LABEL = Object.fromEntries(Object.entries(Catalog.TRAINER_LABELS).map(([v, l]) => [l, v]));
+// האם מותר לפתוח תצוגה פנימית במודול
+const moduleHasView = (id, view) => (id === 'econ' && ECON_VIEWS.includes(view)) || (id === 'trainer' && TRAINER_VIEWS.includes(view));
 
 const SIDEBAR = 264;
 // היסטוריית ניווט (אחורה/קדימה). replaying: מעבר שמקורו בהיסטוריה עצמה לא נרשם כצעד חדש
@@ -71,7 +78,8 @@ function isExternal(u) { return /^(https?:|mailto:|tel:)/i.test(u); }
 function layout() {
   if (!win) return;
   const [w, h] = win.getContentSize();
-  const b = { x: 0, y: 0, width: Math.max(0, w - SIDEBAR), height: h };
+  // בממשק Windows בעברית Electron מודד את x מהימין — viewBounds מתקן, אחרת המודול מכסה את הסרגל
+  const b = Layout.viewBounds(w, h, SIDEBAR, app.getLocale());
   for (const id of Object.keys(views)) views[id].setBounds(b);
 }
 
@@ -118,7 +126,7 @@ function navigateHistory(delta) {
   replaying = true;
   try {
     if (!loc.mod) goHome();
-    else { switchTo(loc.mod); if (loc.view) openEconView(loc.view); }
+    else { switchTo(loc.mod); if (loc.view) openModuleView(loc.mod, loc.view); }
   } finally { replaying = false; }
   if (win && !win.isDestroyed()) win.webContents.send('shell:history', history.state());
   return true;
@@ -150,6 +158,8 @@ function ensureView(id) {
   if (views[id]) return views[id];
   const prefs = { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true };
   if (id === 'econ') prefs.preload = path.join(modulesRoot(), 'econ', 'preload.js');
+  // מודול האימונים: preload בלי חשיפה לעמוד — ניווט מהסרגל האחיד ודיווח המסך הפעיל
+  if (id === 'trainer') prefs.preload = path.join(modulesRoot(), 'trainer', 'preload.js');
   const v = new WebContentsView({ webPreferences: prefs });
   views[id] = v;
   v.setVisible(false); // תצוגות מוסתרות לא מציירות ולא קולטות קלט
@@ -214,6 +224,22 @@ function openEconView(view) {
     if (!v.webContents.isDestroyed()) v.webContents.send('econ:goto', view);
   });
   return true;
+}
+
+// פתיחת תצוגה במודול האימונים: ה-preload לוחץ על הכפתור המתאים בסרגל הפנימי (ושומר את הבקשה עד שהוא קיים)
+function openTrainerView(view) {
+  if (!TRAINER_VIEWS.includes(view)) return false;
+  const v = ensureView('trainer');
+  waitLoaded(v.webContents).then(() => {
+    if (!v.webContents.isDestroyed()) v.webContents.send('trainer:goto', Catalog.TRAINER_LABELS[view]);
+  });
+  return true;
+}
+
+function openModuleView(id, view) {
+  if (id === 'econ') return openEconView(view);
+  if (id === 'trainer') return openTrainerView(view);
+  return false;
 }
 
 // דיאלוג במעטפת: מסתירים את המודול הפעיל בזמן שהדיאלוג פתוח, ומחזירים אותו בסגירה
@@ -420,6 +446,35 @@ function econLoggedIn() {
   try { econ.assertAccess(v.webContents.id, 'data.view'); return true; } catch { return false; }
 }
 
+/* ---------- מכשירים מחוברים (סנכרון עמית-לעמית, docs/SYNC-DESIGN.md) ----------
+   כבוי כברירת מחדל. כל פעולה — מהמעטפת בלבד ולמנהל בלבד (users.manage): צימוד נותן למכשיר אחר
+   גישה לכל הנתונים. בשבת וביום טוב (מצב שבת) השירות לא מאזין ולא מתחבר. */
+let sync = null;
+function syncPaused() {
+  const cal = calendarSettings();
+  return !!(cal.shabbatMode && Hebcal.shabbatStatus(Date.now(), cal).active);
+}
+function registerSyncHandlers() {
+  sync = SyncService.createSyncService({ dir: app.getPath('userData'), safeStorage, isPaused: syncPaused });
+  sync.on('changed', () => { if (win && !win.isDestroyed()) win.webContents.send('shell:sync-changed'); });
+  const h = (ch, fn) => ipcMain.handle(ch, (e, ...args) => { shellGuard(e, 'users.manage'); return fn(...args); });
+  const str = (v) => (typeof v === 'string' ? v : '');
+  h('sync:status', () => sync.status());
+  h('sync:set-enabled', (on) => sync.setEnabled(on === true));
+  h('sync:rename', (name) => sync.rename(str(name)));
+  h('sync:set-port', (port) => sync.setPort(Number(port)));
+  h('sync:create-invite', (host) => sync.createInvite(str(host)));
+  h('sync:cancel-invite', () => sync.cancelInvite());
+  h('sync:join', (code, endpoint) => sync.join(str(code), str(endpoint)));
+  h('sync:approve', (reqId) => sync.approve(str(reqId)));
+  h('sync:reject', (reqId) => sync.reject(str(reqId)));
+  h('sync:connect', (peerId, endpoint) => sync.connect(str(peerId), str(endpoint)));
+  h('sync:ping', (peerId) => sync.ping(str(peerId)));
+  h('sync:revoke', (peerId) => sync.revoke(str(peerId)));
+  sync.init().catch((err) => console.error('sync init failed', err));
+}
+app.on('will-quit', () => { if (sync) sync.close().catch(() => {}); });
+
 /* ---------- הפעלה ---------- */
 if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
@@ -466,9 +521,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('shell:open', (e, id, view) => {
     if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return false;
     if (!MODS.includes(id)) return false;
-    if (view != null && (id !== 'econ' || !ECON_VIEWS.includes(view))) return false;
+    if (view != null && !moduleHasView(id, view)) return false;
     switchTo(id);
-    if (view) openEconView(view);
+    if (view) openModuleView(id, view);
     return true;
   });
   // תצוגות חדשות במודול הכלכלי שעוד לא נכנסו לקטלוג — המעטפת מציגה אותן תחת "נוספו לאחרונה"
@@ -501,8 +556,18 @@ app.whenReady().then(async () => {
     if (!ECON_VIEWS.includes(view)) return false;
     econView = view;
     if (!LG.viewAllowed(licenseNow(), 'econ', view)) { openEconView('licensing'); return false; }
-    if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view);
+    if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view, 'econ');
     if (active === 'econ') recordNav({ mod: 'econ', view });
+    return true;
+  });
+  // מודול האימונים מדווח על המסך הפעיל (לפי הטקסט בסרגל הפנימי) — רק מתצוגת המודול עצמה
+  ipcMain.handle('shell:trainer-view', (e, label) => {
+    const v = views.trainer;
+    if (!v || v.webContents.isDestroyed() || e.sender.id !== v.webContents.id) return false;
+    const view = typeof label === 'string' ? TRAINER_BY_LABEL[label] : undefined;
+    if (!view) return false;
+    if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view, 'trainer');
+    if (active === 'trainer') recordNav({ mod: 'trainer', view });
     return true;
   });
   ipcMain.handle('shell:history-go', (e, delta) => {
@@ -537,6 +602,7 @@ app.whenReady().then(async () => {
     return r.filePaths[0];
   });
 
+  registerSyncHandlers();
   createWindow();
   setTimeout(autoBackup, 15000);
   setInterval(autoBackup, 6 * 3600 * 1000);

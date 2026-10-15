@@ -66,9 +66,11 @@ python -m unittest test_encryption -v
 - **`shell/nav-guard.js`** — כללי ההרשאה למעבר בין מודולים (`shell:switch` למעטפת בלבד, `shell:open-module` לתצוגות מודול). נבדק בטסטים.
 - **`ENTRY`** — נתיבי הכניסה למודול (`app://econ/views/index.html` וכו').
 - **`SIDEBAR = 264`** — רוחב סרגל הצד. חייב להישאר מסונכרן עם `.side{width:264px}` ב-`shell/shell.html`.
+- **מיקום התצוגות — `shell/layout.js`**: כששפת הממשק של Windows היא עברית, Electron מודד את x של `setBounds` **מהקצה הימני**. `viewBounds` מתקן לפי `app.getLocale()`. בלי זה המודול מכסה את הסרגל ואין דרך לצאת ממנו (נבדק ב-`tests/layout.test.js`). בדיקה ידנית: `--lang=he` מול `--lang=en-US`.
 - **`shell/catalog.js`** — מקור אמת יחיד לכל פריטי הסרגל (תחום → פריט → מודול/תצוגה). `ECON_VIEWS` נגזר ממנו ו-`main.js` מאמת מולו. **תצוגה חדשה במודול הכלכלי חייבת להתווסף גם לקטלוג** (נבדק ב-`tests/catalog.test.js`).
 - **`shell:open`** (מעטפת בלבד) — פותח מודול ובמודול הכלכלי גם תצוגה (`econ:goto`). **`shell:overlay`** — מסתיר את המודול בזמן דיאלוג במעטפת. **`shell:econ-view`** — המודול הכלכלי מדווח על התצוגה הפעילה לסימון בסרגל.
 - המודול הכלכלי נטען עם `?embedded=1` ומסתיר את הסרגל הפנימי שלו (`.embedded aside`).
+- **מודול האימונים בסרגל האחיד** — תחום `trainer` בקטלוג (`TRAINER_VIEWS` / `TRAINER_LABELS`: תצוגה ← הטקסט של הכפתור בסרגל הפנימי של החבילה המהודרת). `modules/trainer/preload.js` (בלי `contextBridge`) מסתיר את ה-`aside`, לוחץ על הכפתור לפי `trainer:goto` (ושומר את הבקשה עד שהסרגל קיים — מסך הגדרה ראשונית), ומדווח על המסך הפעיל ב-`shell:trainer-view` (נבדק מול `views.trainer`). בנייה חדשה של המודול ששינתה טקסט בסרגל — `tests/trainer-nav.test.js` ייכשל.
 - **`registerProtocol()`** — מגיש קבצים מ-`modules/<mod>/` בלבד. חוסם path traversal אחרי `path.normalize`.
 - **`ensureView(id)`** — יוצר `WebContentsView` עצלן עם `contextIsolation:true, nodeIntegration:false, sandbox:true`.
 - **`switchTo` / `goHome`** — ניווט בין מודולים. `goHome` מסתיר את כולם ומחזיר למסך הראשי.
@@ -233,6 +235,11 @@ tests/                   — בדיקות
 - **`e.sender.id`** — כל handler רגיש חייב לאמת אותו. ראו את התיקון ב-`shell:switch`.
 - **מודול לא מנווט לבד.** אין לחזור ל-`MODS.includes(id)` ב-`shell:switch`: זה עוקף את האימות. מעבר בין מודולים מתוך מודול עובר דרך `shell:open-module` בלבד.
 - **קיצורי מקלדת** נתפסים גם בתוך שדות קלט במודולים — יש דילוג על `isAutoRepeat`.
+- **מראה אחיד בין המודולים.** מודול האימונים הוא חבילה מהודרת (Tailwind, צבעים כהים קבועים); `modules/trainer/suite-theme.css` נטען אחריה וממפה את מחלקות הצבע לפלטת התוכנה. בנייה חדשה של המודול עם מחלקות צבע חדשות — יש להוסיף אותן לקובץ (`tests/ui-consistency.test.js` ייכשל ויפרט אותן). מודול השמאות: ערכה בהירה כברירת מחדל (`shamai_theme`), בצבעי התוכנה.
+- **`[hidden]` מול `display`** — כלל CSS עם `display:flex` גובר על המאפיין `hidden`. רכיב שמוסתר ב-`hidden` צריך גם `.x[hidden]{display:none}`.
+- **פרטי קובץ ה-EXE** — `signAndEditExecutable:false` מבטל גם את האייקון, השם והגרסה של הקובץ (הוא נראה כ-"Electron / GitHub, Inc."). אין תעודת חתימה, ולכן `signExecutable:false` — מדלג על החתימה בלבד (נבדק ב-`tests/build-config.test.js`).
+- **הרצה עם פרופיל זמני (`--user-data-dir`) לבדיקות** — הגיבוי האוטומטי רץ 15 שניות אחרי העלייה ונכתב ל-`DocumentsSuperSuite-Backups` **האמיתי**, ואז הגיבוי האמיתי של אותו יום מדולג ("כבר קיים"). לפני ההרצה יש לכתוב לפרופיל `backup-settings.json` עם `targetDir` בתוך הפרופיל.
+- **תאריכים ושעות למשתמש** — לא `toISOString()` (UTC): בישראל זה מזיז את השעה ב-2–3 שעות ואת התאריך בין חצות ל-03:00. בגיבוי: `localDay` ב-`shell/auto-backup.js`.
 
 ---
 

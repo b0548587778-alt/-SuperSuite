@@ -41,3 +41,7 @@ venv/
 /verify-*.json
 /sm*.js
 /sm*.log
+
+# Android (android/build-apk.js) — תוצרי בנייה ומפתח החתימה (לא לשתף! לגבות בנפרד)
+android/build/
+android/keystore/

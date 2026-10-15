@@ -903,6 +903,43 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 ::-webkit-scrollbar-thumb { background: #cdd4e2; border-radius: 10px; border: 2px solid var(--light); }
 ::-webkit-scrollbar-thumb:hover { background: #b3bdd1; }
 
+/* ---------- אחידות (סקירת מסכים) ---------- */
+/* כותרות ותוכן בכרטיסים — מיושרים לימין כמו בשאר המסכים; מרכוז רק היכן שמוגדר במפורש */
+.card { text-align: start; }
+.card .empty, .card .loading { text-align: center; }
+/* כרטיסי סטטיסטיקה: עד 7 בשורה אחת, בלי כרטיס יתום בשורה שנייה */
+.kpis { display: flex; flex-wrap: wrap; }
+.kpis > .kpi { flex: 1 1 130px; min-width: 0; }
+/* שדות וכפתורים בתוך המסכים — אותו עיצוב כמו בטפסים (לא ברירת המחדל של הדפדפן) */
+#view input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),
+#view select, #view textarea {
+    font: inherit; color: var(--dark);
+    border: 1px solid var(--border); border-radius: 8px; background: #fbfcfe;
+    padding: .35rem .55rem; min-height: 2.1rem;
+}
+#view input:focus, #view select:focus, #view textarea:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(36,71,158,.12); }
+#view button:not([class]) {
+    background: #fff; color: var(--dark); border: 1px solid var(--border);
+    border-radius: 10px; padding: .45rem 1rem; font-weight: 500;
+}
+#view button:not([class]):hover { background: #f0f3f9; border-color: #cfd6e4; }
+/* רשת הכרטיסים: כל שורה מתמלאת לרוחב המלא — בגריד, כרטיס רחב (acct-wide) קיבע עמודות
+   והשאיר שליש ריק כשבשורה האחרונה היו פחות כרטיסים (עמותה, גמ"ח, חסד) */
+.acct-grid { display: flex; flex-wrap: wrap; gap: 14px; align-items: stretch; }
+.acct-grid > * { flex: 1 1 300px; min-width: 0; }
+.acct-grid > .acct-wide { flex-basis: 100%; }
+/* כותרות אזורים — באותו צבע בכל המסכים (חלקן יצאו אפורות מצבע ה-acct-header) */
+.acct-header h3 { color: var(--navy, #13264a); }
+/* תוכנית חשבונות — טבלה מקובצת לפי סוג */
+.acct-chart-card { padding: 0; overflow: hidden; }
+.acct-chart-card .acct-table td.num { font-variant-numeric: tabular-nums; width: 6rem; font-weight: 600; }
+.acct-chart-card .acct-group th { background: #f3f5fa; color: var(--secondary); font-size: .85rem; }
+/* מעבדת תמהיל: שמות המסלולים והעוגנים נחתכו בבחירה צרה */
+.mortgage-lab .acct-table select { min-width: 9rem; padding-inline: .4rem; }
+/* לוח הבקרה: כרטיסי הסיכום נצמדו זה לזה בלי רווח */
+.dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.dashboard-grid > .card { margin: 0; }
+
 /* רישוי ומערכות */
 .modal-form fieldset { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; margin: 0 0 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; }
 .modal-form fieldset legend { padding: 0 6px; font-weight: 600; }

@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="שמאי" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="description" content="שמאי - פלטפורמה רב-תחומית לסוחרים. שמאות, מחירי שוק חיים, ניהול הזדמנויות." />
+  <meta name="description" content="שמאי - פלטפורמה רב-תחומית לסוחרים. שמאות, מחירי ייחוס, ניהול הזדמנויות." />
 
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
@@ -124,7 +124,7 @@
           </button>
         </div>
 
-        <div class="section-title">שווקים חיים</div>
+        <div class="section-title">מחירי ייחוס</div>
         <div class="cards" id="market-cards"></div>
 
         <div class="section-title">קריפטו</div>
@@ -1416,12 +1416,14 @@
         <div class="sub-view" data-tool="analytics" hidden>
           <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>אנליטיקה</h2></div>
           <div id="analytics-summary"></div>
-          <div class="section-title">פילוח לפי קטגוריה</div>
-          <div id="analytics-bycat" class="cat-pie"></div>
-          <div class="section-title">סטטוס</div>
-          <div id="analytics-bystatus"></div>
-          <div class="section-title">היסטוריית מכירות</div>
-          <div id="analytics-history"></div>
+          <div id="analytics-details">
+            <div class="section-title">פילוח לפי קטגוריה</div>
+            <div id="analytics-bycat" class="cat-pie"></div>
+            <div class="section-title">סטטוס</div>
+            <div id="analytics-bystatus"></div>
+            <div class="section-title">היסטוריית מכירות</div>
+            <div id="analytics-history"></div>
+          </div>
         </div>
 
         <div class="sub-view" data-tool="compare" hidden>
@@ -1462,14 +1464,6 @@
             <button class="btn-secondary" id="btn-show-qr">📱 הצג QR לגיבוי</button>
             <button class="btn-secondary" id="btn-scan-qr">📷 סרוק QR לשחזור</button>
             <div id="qr-container" hidden></div>
-          </div>
-
-          <div class="settings-card">
-            <h3>גיבוי בענן (אופציונלי)</h3>
-            <p class="text-faint">צור קוד סנכרון שתוכל להזין במכשיר אחר. הנתונים נשמרים מוצפנים בשרת ציבורי למשך 30 יום.</p>
-            <button class="btn-secondary" id="btn-cloud-upload">☁️ העלה לענן</button>
-            <button class="btn-secondary" id="btn-cloud-download">⬇️ הורד מענן (עם קוד)</button>
-            <div id="cloud-status" class="text-faint" style="margin-top:8px"></div>
           </div>
 
           <div class="settings-card">
