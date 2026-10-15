@@ -25,6 +25,10 @@ const CLOCK_SKEW_MS = 5 * 60 * 1000;  // חלון זמן לחתימה
 const RATE = { perMinute: 60 };       // בקשות לדקה לכל כתובת
 const ID_RE = /^[A-Za-z0-9_-]{22}$/;  // מזהה מפתח (keyId)
 const KINDS = new Set(['license-request', 'approval-request', 'approval', 'rejection', 'license', 'notices', 'message', 'update', 'signup']);
+const MAX_FROM_SENDER_IN_BOX = 100;   // הודעות של שולח אחד שממתינות בתיבה של אחר — שולח אחד לא ממלא תיבה
+const SEND_PER_HOUR = 500;            // הודעות שמפתח אחד שולח בשעה
+const MAX_NONCES = 200000;            // זיכרון — מעבר לזה השרת עמוס
+const MAX_PREKEYS = 100000;           // מפתחות זמניים שמורים
 const MAX_PENDING_PAYMENTS = 5;            // תשלומים פתוחים למכשיר
 const PAYMENT_TTL_MS = 24 * 60 * 60 * 1000; // תשלום שלא הושלם — פג
 
@@ -36,6 +40,18 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
   const writeBox = (id, msgs) => { const f = boxFile(id); fs.writeFileSync(f + '.tmp', JSON.stringify(msgs)); fs.renameSync(f + '.tmp', f); };
   const nonces = new Map(); // nonce ← תפוגה; מונע שידור חוזר של בקשה חתומה
   const hits = new Map();   // כתובת ← [זמנים]
+  const sends = new Map();  // מפתח שולח ← [זמנים]
+  let lastSweep = 0;
+  // ניקוי תקופתי של המפות שבזיכרון (ולא בכל בקשה — O(n))
+  function sweep(now) {
+    if (now - lastSweep < 10000 && nonces.size < MAX_NONCES) return;
+    lastSweep = now;
+    for (const [n, exp] of nonces) if (exp < now) nonces.delete(n);
+    for (const m of [hits, sends]) {
+      const win = m === hits ? 60000 : 3600000;
+      for (const [k, list] of m) { const live = list.filter(t => now - t < win); if (live.length) m.set(k, live); else m.delete(k); }
+    }
+  }
 
   function authenticate(req) {
     const { pub, ts, nonce, op, payload, sig } = req || {};
@@ -45,8 +61,10 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     if (typeof nonce !== 'string' || nonce.length < 16 || nonce.length > 64) throw httpError(401, 'בקשה לא תקינה');
     if (!L.verifyObject({ pub: L.publicOf(pub), ts, nonce, op, payload }, sig, pub)) throw httpError(401, 'חתימה לא תקינה');
     const now = clock();
-    for (const [n, exp] of nonces) if (exp < now) nonces.delete(n);
-    if (nonces.has(nonce)) throw httpError(401, 'בקשה כפולה');
+    sweep(now);
+    const seen = nonces.get(nonce);
+    if (seen && seen >= now) throw httpError(401, 'בקשה כפולה');
+    if (nonces.size >= MAX_NONCES) throw httpError(503, 'השרת עמוס — נסו שוב בעוד כמה דקות');
     nonces.set(nonce, now + 2 * CLOCK_SKEW_MS);
     return id;
   }
@@ -57,6 +75,14 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     if (list.length >= RATE.perMinute) throw httpError(429, 'יותר מדי בקשות — נסו שוב בעוד דקה');
     list.push(now);
     hits.set(ip, list);
+  }
+
+  function sendQuota(from, n) {
+    const now = clock();
+    const list = (sends.get(from) || []).filter(t => now - t < 3600000);
+    if (list.length + n > SEND_PER_HOUR) throw httpError(429, 'יותר מדי הודעות בשעה האחרונה — נסו מאוחר יותר');
+    for (let i = 0; i < n; i++) list.push(now);
+    sends.set(from, list);
   }
 
   const readJsonFileSafe = (n) => { try { return JSON.parse(fs.readFileSync(path.join(dataDir, n), 'utf8')) || {}; } catch { return {}; } };
@@ -107,7 +133,9 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     const paymentId = crypto.randomUUID();
     const co = await billing.provider.createCheckout({ paymentId, amountAgorot: v.plan.priceAgorot,
       description: `${v.plan.name} — ${v.body.customer.org}`, customer: v.body.customer });
-    writeJsonFile('payments.json', [...all, { id: paymentId, keyId: from, signupId: v.body.id, amountAgorot: v.plan.priceAgorot,
+    // הקריאה לספק אסינכרונית — בינתיים בקשות אחרות אולי עדכנו את הקובץ
+    const fresh = readJsonFile('payments.json', []).filter(x => x.status !== 'pending' || clock() - x.createdAt < PAYMENT_TTL_MS);
+    writeJsonFile('payments.json', [...fresh, { id: paymentId, keyId: from, signupId: v.body.id, amountAgorot: v.plan.priceAgorot,
       checkoutId: co.checkoutId, url: co.url, status: 'pending', createdAt: now, signup: p.signup }]);
     return { ok: true, paymentId, url: co.url, status: 'pending' };
   }
@@ -150,8 +178,10 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
       const b = p.bundle;
       const { sig, ...payload } = b || {};
       if (!b || payload.owner !== from || typeof sig !== 'string' || !L.verifyObject(payload, sig, body.pub)) throw httpError(400, 'מפתח זמני לא תקין');
-      if (JSON.stringify(b).length > 2048) throw httpError(400, 'מפתח זמני לא תקין');
+      if (JSON.stringify(b).length > 2048 || typeof payload.id !== 'string' || !Number.isSafeInteger(payload.createdAt)
+        || !/^[A-Za-z0-9_-]{43}$/.test(String(payload.pub))) throw httpError(400, 'מפתח זמני לא תקין');
       const all = readJsonFileSafe('prekeys.json');
+      if (!all[from] && Object.keys(all).length >= MAX_PREKEYS) throw httpError(507, 'השרת מלא');
       all[from] = b;
       writeJsonFileSafe('prekeys.json', all);
       return { ok: true };
@@ -174,14 +204,20 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
         if (!it || !ID_RE.test(String(it.to)) || !KINDS.has(it.kind) || typeof it.body !== 'string' || it.body.length > MAX_MESSAGE) {
           throw httpError(400, 'הודעה לא תקינה');
         }
+        if (it.to === from) throw httpError(400, 'הודעה לא תקינה');
         const msg = { id: crypto.randomUUID(), from, kind: it.kind, body: it.body, at: clock() };
         byBox.set(it.to, [...(byBox.get(it.to) || []), msg]);
       }
+      // כל הבדיקות לפני כתיבה כלשהי — שליחה נכשלת כולה או מצליחה כולה
+      const boxes = new Map();
       for (const [to, msgs] of byBox) {
         const box = readBox(to);
         if (box.length + msgs.length > MAX_MAILBOX) throw httpError(507, 'תיבת היעד מלאה');
-        writeBox(to, [...box, ...msgs]);
+        if (box.filter(m => m.from === from).length + msgs.length > MAX_FROM_SENDER_IN_BOX) throw httpError(429, 'יותר מדי הודעות שטרם נקראו אצל הנמען');
+        boxes.set(to, [...box, ...msgs]);
       }
+      sendQuota(from, items.length);
+      for (const [to, all] of boxes) writeBox(to, all);
       return { ok: true, sent: items.length };
     }
     if (body.op === 'fetch') return { ok: true, messages: readBox(from) };
@@ -194,7 +230,7 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     throw httpError(400, 'פעולה לא מוכרת');
   }
 
-  return { handle, webhook, billing };
+  return { handle, webhook, billing, rateLimit };
 }
 
 function httpError(status, message) { const e = new Error(message); e.status = status; return e; }
@@ -223,6 +259,9 @@ function createServer({ dataDir, cert, key, clock, billing }) {
       res.end(JSON.stringify(obj));
     };
     if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, service: 'supersuite-license-relay' });
+    if (req.url.startsWith('/pay/')) {
+      try { relay.rateLimit(req.socket.remoteAddress || ''); } catch (e) { return send(e.status, { ok: false, error: e.message }); }
+    }
     // webhook מספק התשלום
     if (req.method === 'POST' && req.url === '/pay/webhook') {
       return readBody(req, res, 64 * 1024, (rawBody) => {
@@ -260,9 +299,14 @@ function createServer({ dataDir, cert, key, clock, billing }) {
       catch (e) { fail(e); }
     });
   };
-  return cert && key
+  const server = cert && key
     ? https.createServer({ cert: fs.readFileSync(cert), key: fs.readFileSync(key), minVersion: 'TLSv1.2' }, onRequest)
     : http.createServer(onRequest);
+  // חיבורים איטיים (slowloris) לא מחזיקים את השרת
+  server.headersTimeout = 15000;
+  server.requestTimeout = 30000;
+  server.maxHeadersCount = 50;
+  return server;
 }
 
 if (require.main === module) {

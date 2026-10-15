@@ -9,7 +9,8 @@ const SU = require('./signup');
 const PK = require('./prekeys');
 const { PKG_REQUEST, PKG_APPROVAL_REQUEST } = require('./store');
 
-function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, ownerChat, updates, prekeys, ownerPrekeys }) {
+// isRestTime(): בשבת וביום טוב (מצב שבת) — אין תשובות אוטומטיות
+function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, ownerChat, updates, prekeys, ownerPrekeys, isRestTime = () => false }) {
   const now = () => (clock ? clock() : Date.now());
   const remote = () => {
     const r = store.getRemoteSettings();
@@ -57,6 +58,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     const errors = [];
     const forward = [];
     let pending = (store.getRemoteSettings().pendingChildRequests || []);
+    const autos = [];
     for (const m of msgs) {
       try {
         if (m.kind === 'license') store.install(m.body);
@@ -72,7 +74,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
           // תעודת גרסה — נבדקת בחתימה מול מפתח השורש; מה שאינו תקין נדחה
           if (updates) updates.offer(m.body);
         } else if (m.kind === 'message') {
-          if (chat) receiveMessage(store.syncKey(false), m.body, myContacts(), chat, prekeys);
+          if (chat) receiveMessage(store.syncKey(false), m.body, myContacts(), chat, prekeys, autos);
         } else if (m.kind === 'license-request') {
           const req = JSON.parse(m.body);
           if (!req || req.type !== PKG_REQUEST) throw new Error('בקשה לא תקינה');
@@ -93,6 +95,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     }
     for (let i = 0; i < forward.length; i += 50) await rm.send(key, forward.slice(i, i + 50));
     await rm.ack(key, done);
+    if (chat) await sendAutoReplies(key, myContacts(), chat, prekeys, autos);
     store.invalidate();
     return { handled: done.length, pending: pending.map(({ keyId, name, at }) => ({ keyId, name, at })), errors };
   }
@@ -126,16 +129,18 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     let added = 0;
     let messages = 0;
     let signups = 0;
+    const autos = [];
     for (const m of msgs) {
       if (m.kind === 'license-request' || m.kind === 'approval-request') { if (owner.addToInbox(m)) added++; }
       else if (m.kind === 'signup' && m.from === 'relay') {
         try { if (owner.addSignup(m.body).added) signups++; } catch { /* הרשמה לא תקינה — נדחית */ }
       }
       else if (m.kind === 'message' && ownerChat) {
-        try { if (receiveMessage(signer, m.body, owner.contacts(), ownerChat, ownerPrekeys)) messages++; } catch { /* הודעה פגומה — מדולגת */ }
+        try { if (receiveMessage(signer, m.body, owner.contacts(), ownerChat, ownerPrekeys, autos)) messages++; } catch { /* הודעה פגומה — מדולגת */ }
       }
     }
     await rm.ack(signer, msgs.map(m => m.id));
+    if (ownerChat) await sendAutoReplies(signer, owner.contacts(), ownerChat, ownerPrekeys, autos);
     return { added, messages, signups, inbox: owner.inbox().length };
   }
 
@@ -209,11 +214,22 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     if (!info.nodeId) return [];
     return M.contactsOf({ chain: info.chain, children: info.children, rootKeys: rootKeys.slice(0, 1) });
   }
-  // פענוח ושמירה; אישור קריאה מעדכן את ההודעות היוצאות. מחזיר true אם נוספה הודעה חדשה
-  function receiveMessage(myKey, body, contacts, box, pks) {
+  // פענוח ושמירה. מחזיר true אם נוספה הודעה חדשה; תשובות אוטומטיות נאספות ל-autos ונשלחות אחרי הקבלה
+  function receiveMessage(myKey, body, contacts, box, pks, autos) {
     const msg = M.open(myKey, body, contacts, { prekeyPriv: pks ? (id) => pks.privOf(id) : null });
     if (msg.kind === 'receipt') { box.setStatus(msg.mids, 'read'); return false; }
-    return box.addIncoming({ mid: msg.mid, peer: msg.from, subject: msg.subject, text: msg.text, sentAt: msg.sentAt });
+    if (msg.kind === 'edit') { box.applyRemoteEdit(msg.from, msg.target, msg.text, msg.sentAt); return false; }
+    if (msg.kind === 'delete') { box.applyRemoteDelete(msg.from, msg.target); return false; }
+    if (msg.kind === 'profile') { box.setPeerProfile(msg.from, msg.profile); return false; }
+    const added = box.addIncoming({ mid: msg.mid, peer: msg.from, subject: msg.subject, text: msg.text, sentAt: msg.sentAt,
+      replyTo: msg.replyTo, forwarded: msg.forwarded, auto: msg.auto, bc: msg.bc, att: msg.att });
+    if (added && autos && !isRestTime()) for (const r of box.autoReplies(msg.from, msg, now())) autos.push({ peer: msg.from, ...r });
+    return added;
+  }
+  async function sendAutoReplies(signer, contacts, box, pks, autos) {
+    for (const a of autos) {
+      try { await sendSealed(signer, contacts, box, a.peer, { text: a.text, auto: a.auto }, pks); } catch { /* לא קריטי */ }
+    }
   }
   // פרסום המפתח הזמני שלי (כשהתחלף או עוד לא פורסם)
   async function publishPrekey(signer, pks) {
@@ -227,16 +243,21 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
   async function peerPrekey(signer, peer) {
     try { return PK.verifyBundle(await remote().getPrekey(signer, peer.id), peer.publicKey, now()); } catch { return null; }
   }
-  async function sendSealed(signer, contacts, box, peerId, { subject, text }, pks) {
+  // שליחה מוצפנת. הודעת טקסט נשמרת בתיבה כיוצאת; עריכה/מחיקה/פרופיל — רק נשלחות
+  async function sendSealed(signer, contacts, box, peerId, msg, pks) {
     const peer = contacts.find(c => c.id === peerId);
     if (!peer) throw new Error('איש הקשר אינו מוכר');
     const sentAt = now();
     try { await publishPrekey(signer, pks); } catch { /* לא חוסם שליחה */ }
     const prekey = await peerPrekey(signer, peer);
-    const { mid, envelope } = M.seal(signer, peer.publicKey, { subject, text, sentAt }, { prekey });
+    const kind = msg.kind || 'text';
+    const { mid, envelope } = M.seal(signer, peer.publicKey, { ...msg, kind, sentAt }, { prekey });
     await remote().send(signer, [{ to: peer.id, kind: 'message', body: envelope }]);
-    box.addOutgoing({ mid, peer: peer.id, subject, text, sentAt });
-    box.setStatus([mid], 'delivered');
+    if (kind === 'text') {
+      box.addOutgoing({ mid, peer: peer.id, subject: M.cleanText(msg.subject, M.MAX_SUBJECT), text: M.cleanText(msg.text, M.MAX_TEXT), sentAt,
+        replyTo: msg.replyTo, forwarded: msg.forwarded, auto: msg.auto, bc: msg.bc, att: msg.att ? M.cleanAttachment(msg.att) : null });
+      box.setStatus([mid], 'delivered');
+    }
     return { mid };
   }
   async function sendReceipt(signer, contacts, peerId, mids) {
@@ -245,20 +266,79 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     const { envelope } = M.seal(signer, peer.publicKey, { kind: 'receipt', mids, sentAt: now() }, { prekey: await peerPrekey(signer, peer) });
     await remote().send(signer, [{ to: peer.id, kind: 'message', body: envelope }]);
   }
-  const chatSend = (peerId, msg) => sendSealed(store.syncKey(false), myContacts(), chat, peerId, msg, prekeys);
-  async function chatMarkRead(peerId) {
-    const ids = chat.markRead(peerId);
-    try { await sendReceipt(store.syncKey(false), myContacts(), peerId, ids); } catch { /* אישור קריאה אינו קריטי */ }
-    return ids.length;
+  // פעולות הצ'אט — לתיבה של המערכת (asOwner=false) או של מנהל-העל
+  function chatOps(asOwner) {
+    const signer = () => (asOwner ? owner.rootSigner() : store.syncKey(false));
+    const contacts = () => (asOwner ? owner.contacts() : myContacts());
+    const box = asOwner ? ownerChat : chat;
+    const pks = asOwner ? ownerPrekeys : prekeys;
+    // שליחה ידנית — אף פעם לא מסומנת כאוטומטית
+    const send = (peerId, msg) => sendSealed(signer(), contacts(), box, peerId, { ...msg, kind: 'text', auto: undefined }, pks);
+    return {
+      send,
+      async markRead(peerId) {
+        const ids = box.markRead(peerId);
+        try { await sendReceipt(signer(), contacts(), peerId, ids); } catch { /* אישור קריאה אינו קריטי */ }
+        return ids.length;
+      },
+      // עריכה: נבדקת מקומית (חלון זמן), נשלחת, ורק אז נשמרת
+      async edit(mid, text) {
+        const m = box.get(mid);
+        if (!box.canEdit(m, now())) throw new Error('אפשר לערוך הודעה ששלחתם בתוך 15 דקות בלבד');
+        if (!m.text && m.att) throw new Error('אי אפשר לערוך קובץ מצורף');
+        await sendSealed(signer(), contacts(), box, m.peer, { kind: 'edit', target: mid, text }, pks);
+        return box.editOwn(mid, text, now());
+      },
+      async deleteForAll(mid) {
+        const m = box.get(mid);
+        if (!box.canDeleteForAll(m, now())) throw new Error('אפשר למחוק אצל כולם הודעה ששלחתם ביומיים האחרונים בלבד');
+        await sendSealed(signer(), contacts(), box, m.peer, { kind: 'delete', target: mid }, pks);
+        return box.deleteOwnForAll(mid, now());
+      },
+      // העברה לאיש קשר אחר — הטקסט והקובץ, עם סימון "הועברה"
+      forward(mid, peerId) {
+        const m = box.get(mid);
+        if (!m || m.deleted) throw new Error('ההודעה לא נמצאה');
+        let att = null;
+        if (m.att) {
+          if (!m.att.data) throw new Error('הקובץ אינו זמין עוד במחשב הזה');
+          att = { name: m.att.name, type: m.att.type, data: m.att.data };
+        }
+        return send(peerId, { subject: m.subject, text: m.text, att, forwarded: true });
+      },
+      // רשימת תפוצה: כל נמען מקבל הודעה נפרדת (לא קבוצה — הנמענים לא רואים זה את זה)
+      async broadcast(listId, msg) {
+        const list = box.settings().lists.find(l => l.id === listId);
+        if (!list) throw new Error('רשימת התפוצה לא נמצאה');
+        const known = new Map(contacts().map(c => [c.id, c]));
+        const members = list.members.filter(id => known.has(id));
+        if (!members.length) throw new Error('אין ברשימה אנשי קשר פעילים');
+        const failed = [];
+        let sent = 0;
+        for (const id of members) {
+          try { await send(id, { ...msg, replyTo: undefined, bc: true }); sent++; }
+          catch (e) { failed.push({ name: known.get(id).name, error: e.message }); }
+        }
+        return { sent, failed, skipped: list.members.length - members.length };
+      },
+      // הפרופיל העסקי — נשלח לכל אנשי הקשר (מוצג אצלם בראש השיחה)
+      async publishProfile() {
+        const profile = box.settings().profile;
+        let sent = 0;
+        for (const c of contacts()) {
+          try { await sendSealed(signer(), contacts(), box, c.id, { kind: 'profile', profile }, pks); sent++; } catch { /* ינוסה בפעם הבאה */ }
+        }
+        return { sent };
+      },
+      receive: () => (asOwner ? ownerReceive() : receive()),
+    };
   }
-  const ownerChatSend = (peerId, msg) => sendSealed(owner.rootSigner(), owner.contacts(), ownerChat, peerId, msg, ownerPrekeys);
-  async function ownerChatMarkRead(peerId) {
-    const ids = ownerChat.markRead(peerId);
-    try { await sendReceipt(owner.rootSigner(), owner.contacts(), peerId, ids); } catch { /* לא קריטי */ }
-    return ids.length;
-  }
+  const chatSend = (peerId, msg) => chatOps(false).send(peerId, msg);
+  const chatMarkRead = (peerId) => chatOps(false).markRead(peerId);
+  const ownerChatSend = (peerId, msg) => chatOps(true).send(peerId, msg);
+  const ownerChatMarkRead = (peerId) => chatOps(true).markRead(peerId);
 
-  return { myContacts, chatSend, chatMarkRead, ownerChatSend, ownerChatMarkRead, sendLicenseRequest, sendApprovalRequest, sendRequestToParent, receive, forwardChildRequest, dismissChildRequest, pushToChild,
+  return { myContacts, chatOps, chatSend, chatMarkRead, ownerChatSend, ownerChatMarkRead, sendLicenseRequest, sendApprovalRequest, sendRequestToParent, receive, forwardChildRequest, dismissChildRequest, pushToChild,
     ownerReceive, ownerReply, ownerPushNotices, ownerPublishUpdate, ownerPublishOffer, getOffer, signup, signupStatus, ownerBox };
 }
 

@@ -42,6 +42,7 @@ let licenseStore = null;
 let ownerCore = null;
 let licenseSync = null;
 let chatStore = null;
+let restTime = () => false; // מצב שבת (מוזרק מ-main.js)
 let ownerChatStore = null;
 let updateManager = null;
 let updatesDir = null;
@@ -98,7 +99,8 @@ let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
 async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
-  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage } = {}) {
+  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false } = {}) {
+  restTime = isRestTime;
   const ad = licenseAdapters(userDataPath);
   // עדכוני גרסה: קבצים מאומתים נשמרים בתיקיית updates בתוך נתוני המשתמש
   updatesDir = path.join(userDataPath, 'updates');
@@ -115,10 +117,12 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStor
   ownerCore = OC.createOwnerCore({ storage: ownerStorage || ad.owner, clock });
   rootKeysInUse = rootKeys;
   // עבודה מרחוק דרך שרת הרישוי — פעיל רק אחרי שהמנהל הגדיר כתובת (בלי כתובת: אופליין לגמרי)
-  chatStore = createChatStore({ storage: chatStorage || ad.chat, clock });
-  ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock });
+  // קבצים מצורפים שמורים מקומית: באנדרואיד (localStorage מוגבל) — מעט מאוד
+  const maxAttachmentBytes = ad.platform === 'android' ? 1024 * 1024 : 40 * 1024 * 1024;
+  chatStore = createChatStore({ storage: chatStorage || ad.chat, clock, maxAttachmentBytes });
+  ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock, maxAttachmentBytes });
   licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock,
-    chat: chatStore, ownerChat: ownerChatStore, updates: updateManager,
+    chat: chatStore, ownerChat: ownerChatStore, updates: updateManager, isRestTime: () => restTime(),
     prekeys: PK.createPrekeyStore({ storage: prekeyStorage || ad.prekeys, clock: clock || Date.now }),
     ownerPrekeys: PK.createPrekeyStore({ storage: ownerPrekeyStorage || ad.ownerPrekeys, clock: clock || Date.now }) });
   licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
@@ -174,8 +178,11 @@ function permissionFor(channel) {
   // עדכוני גרסה: כל משתמש רואה שיש עדכון; הורדה והתקנה — מנהל בלבד
   if (channel === 'update:getStatus') return 'data.view';
   if (channel.startsWith('update:')) return 'users.manage';
-  if (channel === 'chat:send') return 'data.edit';
-  if (channel.startsWith('chat:')) return 'data.view';
+  // הודעות: קריאה — לכל משתמש; שליחה ועריכה — data.edit; מחיקה — data.delete; הגדרות העסק (תשובות אוטומטיות, פרופיל) — מנהל
+  if (['chat:overview', 'chat:thread', 'chat:refresh', 'chat:search', 'chat:starred', 'chat:getSettings', 'chat:saveAttachment'].includes(channel)) return 'data.view';
+  if (channel === 'chat:deleteForMe' || channel === 'chat:deleteForAll') return 'data.delete';
+  if (channel === 'chat:saveSettings' || channel === 'chat:publishProfile') return 'users.manage';
+  if (channel.startsWith('chat:')) return 'data.edit';
   if (/backup/i.test(name)) return 'data.backup';
   if (/restore/i.test(name)) return 'data.restore';
   if (/export/i.test(name)) return 'data.export';
@@ -1342,34 +1349,91 @@ handle('auth:login', async (event, username, password) => {
     return true;
   };
   const chatContacts = (owner) => (owner ? ownerCore.contacts() : licenseSync.myContacts()).map(({ id, name, role }) => ({ id, name, role }));
-  handle('chat:overview', async (event, as) => {
+  const chatBox = (owner) => (owner ? ownerChatStore : chatStore);
+  const str = (v, max = 64) => String(v == null ? '' : v).slice(0, max);
+  handle('chat:overview', async (event, as, filter) => {
     const owner = asOwner(event, as);
-    const box = owner ? ownerChatStore : chatStore;
-    return { conversations: box.conversations(chatContacts(owner)), remote: !!licenseStore.getRemoteSettings().url, unread: box.unreadTotal() };
+    const box = chatBox(owner);
+    const s = box.settings();
+    const contacts = chatContacts(owner);
+    return { conversations: box.conversations(contacts, str(filter, 40) || 'all'), contacts, remote: !!licenseStore.getRemoteSettings().url,
+      unread: box.unreadTotal(), labels: s.labels, quickReplies: s.quickReplies, lists: s.lists.map(({ id, name, members }) => ({ id, name, count: members.length })) };
   });
+  // השיחה + פרטי איש הקשר (תוויות, הערה פנימית, הפרופיל העסקי שלו)
   handle('chat:thread', async (event, peerId, as) => {
     const owner = asOwner(event, as);
-    const box = owner ? ownerChatStore : chatStore;
-    const thread = box.thread(String(peerId || ''));
-    try { if (owner) await licenseSync.ownerChatMarkRead(peerId); else await licenseSync.chatMarkRead(peerId); } catch { /* לא קריטי */ }
-    return thread;
+    const box = chatBox(owner);
+    const id = str(peerId);
+    const thread = box.thread(id);
+    try { await licenseSync.chatOps(owner).markRead(id); } catch { /* לא קריטי */ }
+    return { messages: thread, meta: box.meta(id), now: Date.now() };
   });
   handle('chat:send', async (event, input = {}, as) => {
     const owner = asOwner(event, as);
-    const { peerId, subject, text } = input || {};
-    const r = owner ? await licenseSync.ownerChatSend(peerId, { subject, text }) : await licenseSync.chatSend(peerId, { subject, text });
-    await auditEvent(event, 'chat.send', { to: peerId, mid: r.mid, owner });
+    const { peerId, subject, text, replyTo, att } = input || {};
+    const r = await licenseSync.chatOps(owner).send(str(peerId), { subject, text, replyTo, att });
+    await auditEvent(event, 'chat.send', { to: peerId, mid: r.mid, owner, attachment: att ? str(att.name, 100) : undefined });
     return r;
   });
-  handle('chat:refresh', async (event, as) => {
+  handle('chat:edit', async (event, input = {}, as) => {
     const owner = asOwner(event, as);
-    if (owner) return licenseSync.ownerReceive();
-    return licenseSync.receive();
+    const r = await licenseSync.chatOps(owner).edit(str(input.mid), input.text);
+    await auditEvent(event, 'chat.edit', { mid: input.mid, owner });
+    return r;
   });
-  handle('chat:search', async (event, q, as) => {
+  handle('chat:deleteForAll', async (event, mid, as) => {
     const owner = asOwner(event, as);
-    return (owner ? ownerChatStore : chatStore).search(q);
+    const r = await licenseSync.chatOps(owner).deleteForAll(str(mid));
+    await auditEvent(event, 'chat.deleteForAll', { mid, owner });
+    return r;
   });
+  handle('chat:deleteForMe', async (event, mids, as) => {
+    const owner = asOwner(event, as);
+    return chatBox(owner).deleteForMe((Array.isArray(mids) ? mids : [mids]).slice(0, 500).map(m => str(m)));
+  });
+  handle('chat:forward', async (event, input = {}, as) => {
+    const owner = asOwner(event, as);
+    const r = await licenseSync.chatOps(owner).forward(str(input.mid), str(input.peerId));
+    await auditEvent(event, 'chat.forward', { mid: input.mid, to: input.peerId, owner });
+    return r;
+  });
+  handle('chat:star', async (event, input = {}, as) => chatBox(asOwner(event, as)).star(str(input.mid), !!input.on));
+  handle('chat:starred', async (event, as) => chatBox(asOwner(event, as)).starred());
+  handle('chat:setMeta', async (event, input = {}, as) => {
+    const owner = asOwner(event, as);
+    const { peerId, ...patch } = input || {};
+    if (!chatContacts(owner).some(c => c.id === peerId)) throw new Error('איש הקשר אינו מוכר');
+    return chatBox(owner).setMeta(str(peerId), patch);
+  });
+  handle('chat:broadcast', async (event, input = {}, as) => {
+    const owner = asOwner(event, as);
+    const { listId, subject, text, att } = input || {};
+    const r = await licenseSync.chatOps(owner).broadcast(str(listId), { subject, text, att });
+    await auditEvent(event, 'chat.broadcast', { listId, sent: r.sent, failed: r.failed.length, owner });
+    return r;
+  });
+  handle('chat:getSettings', async (event, as) => {
+    const owner = asOwner(event, as);
+    return { settings: chatBox(owner).settings(), contacts: chatContacts(owner) };
+  });
+  handle('chat:saveSettings', async (event, input = {}, as) => {
+    const owner = asOwner(event, as);
+    const s = chatBox(owner).saveSettings(input);
+    await auditEvent(event, 'chat.settings', { owner, greeting: s.greeting.enabled, away: s.away.enabled, autoFetch: s.autoFetch });
+    return s;
+  });
+  handle('chat:publishProfile', async (event, as) => licenseSync.chatOps(asOwner(event, as)).publishProfile());
+  // שמירת קובץ מצורף לדיסק — בחלון שמירה של מערכת ההפעלה
+  handle('chat:saveAttachment', async (event, mid, as) => {
+    const owner = asOwner(event, as);
+    const a = chatBox(owner).attachment(str(mid));
+    const r = await dialog.showSaveDialog({ defaultPath: path.basename(a.name) });
+    if (r.canceled || !r.filePath) return { saved: false };
+    fs.writeFileSync(r.filePath, Buffer.from(a.data, 'base64'));
+    return { saved: true };
+  });
+  handle('chat:refresh', async (event, as) => licenseSync.chatOps(asOwner(event, as)).receive());
+  handle('chat:search', async (event, q, as) => chatBox(asOwner(event, as)).search(str(q, 200)));
 
   // מצב הרישיון — לכל משתמש מחובר (פתוח גם במערכת מושבתת, כדי להציג את הסיבה)
   handle('license:getStatus', async () => {
@@ -1477,4 +1541,19 @@ handle('auth:login', async (event, username, password) => {
     return await db.restore(backupData);
   });
 }
-module.exports = { toUserError, initEcon, licenseState, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess };
+// קבלת הודעות אוטומטית (כדי שהודעות פתיחה והיעדרות יישלחו גם כשאיש לא לוחץ "קבלת הודעות").
+// רק כשהמנהל הפעיל זאת בהגדרות, יש שרת מוגדר, ולא בשבת וביום טוב. תיבת מנהל-העל — רק כשהמצב פתוח
+let autoFetchBusy = false;
+async function chatAutoFetch() {
+  if (autoFetchBusy || !licenseSync || !licenseStore || restTime()) return { skipped: true };
+  if (!licenseStore.getRemoteSettings().url) return { skipped: true };
+  autoFetchBusy = true;
+  const out = {};
+  try {
+    if (chatStore.settings().autoFetch && licenseStore.syncKey(false)) { try { out.system = await licenseSync.receive(); } catch (e) { out.systemError = e.message; } }
+    if (ownerChatStore.settings().autoFetch && ownerCore && ownerCore.isUnlocked()) { try { out.owner = await licenseSync.ownerReceive(); } catch (e) { out.ownerError = e.message; } }
+  } finally { autoFetchBusy = false; }
+  return out;
+}
+
+module.exports = { toUserError, initEcon, chatAutoFetch, permissionFor, licenseState, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess };

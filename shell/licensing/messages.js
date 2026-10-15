@@ -9,6 +9,13 @@ const C = require('./crypto');
 
 const MAX_TEXT = 4000;
 const MAX_SUBJECT = 120;
+// קובץ מצורף: מוגבל כך שההודעה המוצפנת תיכנס בתקרה של שרת הממסר (256KB להודעה)
+const MAX_ATTACHMENT = 110 * 1024;
+const ATTACHMENT_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'application/pdf': 'pdf',
+  'text/plain': 'txt', 'text/csv': 'csv',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx' };
+const MID_RE = /^[A-Za-z0-9_-]{8,32}$/;
 const INFO = C.utf8('supersuite-message-v1');
 const INFO2 = C.utf8('supersuite-message-v2');
 
@@ -60,15 +67,50 @@ function cleanText(s, max) {
   return String(s == null ? '' : s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, max);
 }
 
+// קובץ מצורף: { name, type, data (base64) } — סוג מרשימה סגורה, שם בלי נתיב, גודל מוגבל
+function cleanAttachment(att) {
+  if (att == null) return null;
+  const type = String(att.type || '');
+  if (!ATTACHMENT_TYPES[type]) throw new Error('סוג הקובץ אינו נתמך (תמונה, PDF, טקסט, CSV, Excel או Word)');
+  const data = String(att.data || '');
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data) || !data) throw new Error('הקובץ פגום');
+  const size = Math.floor(data.length * 3 / 4) - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
+  if (size > MAX_ATTACHMENT) throw new Error('הקובץ גדול מדי — עד ' + Math.floor(MAX_ATTACHMENT / 1024) + 'KB');
+  let name = cleanText(att.name, 100).replace(/[\\/:*?"<>|]/g, '_').replace(/^\.+/, '');
+  if (!name) name = 'קובץ';
+  if (!name.toLowerCase().endsWith('.' + ATTACHMENT_TYPES[type])) name += '.' + ATTACHMENT_TYPES[type];
+  return { name, type, size, data };
+}
+const cleanMid = (v) => (MID_RE.test(String(v || '')) ? String(v) : null);
+function cleanProfileFields(p) {
+  const v = p && typeof p === 'object' ? p : {};
+  const out = {};
+  for (const [k, max] of [['name', 80], ['about', 500], ['address', 200], ['phone', 30], ['email', 120], ['website', 200]]) out[k] = cleanText(v[k], max);
+  return out;
+}
+
 // הצפנה וחתימה של הודעה לנמען. from/to = מזהי מפתח
-// kind: 'text' (הודעה) או 'receipt' (אישור קריאה של mids)
+// kind: 'text' (הודעה; אופציונלי: replyTo, forwarded, auto, bc, att), 'receipt' (אישור קריאה של mids),
+//       'edit' (target + text — עריכת הודעה שלי), 'delete' (target — מחיקה אצל כולם), 'profile' (פרופיל עסקי)
 // prekey: { id, pub } — המפתח הזמני המאומת של הנמען (verifyBundle). בלי — סודיות קדימה מצד השולח בלבד
-function seal(senderJwk, recipientPub, { subject, text, sentAt, mid, kind = 'text', mids }, { prekey } = {}) {
+function seal(senderJwk, recipientPub, { subject, text, sentAt, mid, kind = 'text', mids, target, replyTo, forwarded, auto, bc, att, profile }, { prekey } = {}) {
   const body = { v: 1, kind, mid: mid || C.b64uEncode(randomBytes(12)), from: L.keyId(senderJwk), to: L.keyId(recipientPub), sentAt,
     subject: cleanText(subject, MAX_SUBJECT), text: cleanText(text, MAX_TEXT) };
   if (kind === 'receipt') body.mids = (Array.isArray(mids) ? mids : []).map(String).slice(0, 500);
-  else if (kind !== 'text') throw new Error('סוג הודעה לא מוכר');
-  else if (!body.text) throw new Error('ההודעה ריקה');
+  else if (kind === 'edit' || kind === 'delete') {
+    body.target = cleanMid(target);
+    if (!body.target) throw new Error('הודעה לא תקינה');
+    if (kind === 'edit' && !body.text) throw new Error('ההודעה ריקה');
+  } else if (kind === 'profile') body.profile = cleanProfileFields(profile);
+  else if (kind === 'text') {
+    const a = cleanAttachment(att);
+    if (a) body.att = a;
+    if (!body.text && !a) throw new Error('ההודעה ריקה');
+    if (cleanMid(replyTo)) body.replyTo = String(replyTo);
+    if (forwarded) body.forwarded = true;
+    if (auto === 'greeting' || auto === 'away') body.auto = auto;
+    if (bc) body.bc = true;
+  } else throw new Error('סוג הודעה לא מוכר');
   const salt = randomBytes(16), iv = randomBytes(12), eph = randomBytes(32);
   const ephPub = C.x25519.scalarMult(eph, C.x25519.BASE);
   const plain = C.utf8(JSON.stringify({ ...body, sig: L.signObject(body, senderJwk) }));
@@ -110,7 +152,18 @@ function open(myJwk, envelopeText, contacts, { prekeyPriv } = {}) {
   const msg = JSON.parse(new TextDecoder().decode(plain));
   const { sig, ...body } = msg;
   if (body.from !== env.from || body.to !== env.to || !L.verifyObject(body, sig, peer.publicKey)) throw new Error('חתימת ההודעה אינה תקינה');
-  return { kind: body.kind || 'text', mid: body.mid, mids: body.mids || [], from: body.from, fromName: peer.name, subject: body.subject, text: body.text, sentAt: body.sentAt };
+  const out = { kind: body.kind || 'text', mid: body.mid, mids: body.mids || [], from: body.from, fromName: peer.name, subject: body.subject, text: body.text, sentAt: body.sentAt };
+  // גם השולח (מוכר וחתום) עלול לשלוח תוכן חריג — נבדק שוב כאן
+  if (out.kind === 'edit' || out.kind === 'delete') out.target = cleanMid(body.target);
+  if (out.kind === 'profile') out.profile = cleanProfileFields(body.profile);
+  if (out.kind === 'text') {
+    if (body.att) { try { out.att = cleanAttachment(body.att); } catch { out.att = null; } }
+    if (cleanMid(body.replyTo)) out.replyTo = body.replyTo;
+    if (body.forwarded) out.forwarded = true;
+    if (body.auto === 'greeting' || body.auto === 'away') out.auto = body.auto;
+    if (body.bc) out.bc = true;
+  }
+  return out;
 }
 
 // אנשי הקשר של מערכת לפי הרישיונות: ההורה הישיר, הילדים הישירים, ומנהל-העל
@@ -125,4 +178,4 @@ function contactsOf({ chain, children = [], rootKeys = [], ownerName = 'מנהל
   return out;
 }
 
-module.exports = { seal, open, contactsOf, MAX_TEXT, MAX_SUBJECT };
+module.exports = { seal, open, contactsOf, cleanAttachment, cleanText, MAX_TEXT, MAX_SUBJECT, MAX_ATTACHMENT, ATTACHMENT_TYPES };
