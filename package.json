@@ -10,7 +10,8 @@
     "dist": "electron-builder --win nsis portable",
     "dist:local": "node build-local.js",
     "dist:check": "node build-local.js --check",
-    "test": "node --test \"tests/*.test.js\"",
+    "test": "node --test --test-concurrency=6 \"tests/*.test.js\"",
+    "test:serial": "node --test --test-concurrency=1 \"tests/*.test.js\"",
     "dist:android": "node android/build-apk.js",
     "dist:android:check": "node android/build-apk.js --check"
   },
