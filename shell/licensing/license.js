@@ -1,14 +1,42 @@
 // רישיונות חתומים בשרשרת: שורש (Owner) ← לקוח ← מערכת בת ← ... (docs/LICENSING-DESIGN.md).
 // כל רישיון חתום ב-Ed25519 ע"י מפתח הצומת של ההורה; רישיון של לקוח — ע"י מפתח השורש.
 // האימות בודק גם חתימות וגם שהילד אינו מקבל יותר מההורה. ללא תלות ב-Electron או ברשת.
+// קריפטוגרפיה: node:crypto בשולחן העבודה; באנדרואיד (node-shims, בלי sign/verify) — crypto-lite.js.
+// בלי Buffer: ה-shim של אנדרואיד אינו תומך ב-base64url.
 const crypto = require('crypto');
+const C = require('./crypto-lite');
 
 const LICENSE_VERSION = 1;
 const LIMIT_KEYS = ['maxChildren', 'maxUsers', 'maxStorageMb', 'maxDepth'];
 const FEATURE_RE = /^[a-z][a-z0-9.-]{0,63}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const b64u = (buf) => Buffer.from(buf).toString('base64url');
+const NATIVE = !!(crypto && typeof crypto.sign === 'function' && typeof crypto.createPrivateKey === 'function');
+// לבדיקות: כפיית המימוש הטהור, כמו באנדרואיד
+let forceLite = false;
+const useNative = () => NATIVE && !forceLite;
+function _forceLite(v) { forceLite = !!v; }
+
+const backend = {
+  sha256: (bytes) => (useNative() ? new Uint8Array(crypto.createHash('sha256').update(bytes).digest()) : C.sha256(bytes)),
+  randomSeed: () => new Uint8Array(crypto.randomBytes(32)),
+  publicFromSeed(seed) {
+    if (!useNative()) return C.ed25519.getPublicKey(seed);
+    const jwk = crypto.createPrivateKey({ key: { kty: 'OKP', crv: 'Ed25519', d: C.b64uEncode(seed), x: C.b64uEncode(C.ed25519.getPublicKey(seed)) }, format: 'jwk' })
+      .export({ format: 'jwk' });
+    return C.b64uDecode(jwk.x);
+  },
+  sign(msg, privateJwk) {
+    if (!useNative()) return C.ed25519.sign(msg, C.b64uDecode(privateJwk.d));
+    return new Uint8Array(crypto.sign(null, msg, crypto.createPrivateKey({ key: privateJwk, format: 'jwk' })));
+  },
+  verify(msg, sig, publicJwk) {
+    if (!useNative()) return C.ed25519.verify(sig, msg, C.b64uDecode(publicJwk.x));
+    return crypto.verify(null, msg, crypto.createPublicKey({ key: publicJwk, format: 'jwk' }), sig);
+  },
+};
+const b64u = C.b64uEncode;
+const b64uLen = (s) => { try { return C.b64uDecode(s).length; } catch { return -1; } };
 
 // JSON קנוני: מפתחות ממוינים, בלי רווחים — כדי שאותו תוכן ייתן תמיד אותם בתים לחתימה
 function canonical(value) {
@@ -23,32 +51,37 @@ function canonical(value) {
 
 function keyId(publicJwk) {
   if (!publicJwk || publicJwk.kty !== 'OKP' || publicJwk.crv !== 'Ed25519' || typeof publicJwk.x !== 'string'
-    || Buffer.from(publicJwk.x, 'base64url').length !== 32) {
+    || b64uLen(publicJwk.x) !== 32) {
     throw new Error('מפתח ציבורי לא תקין');
   }
-  return b64u(crypto.createHash('sha256').update(Buffer.from(publicJwk.x, 'base64url')).digest().subarray(0, 16));
+  return b64u(backend.sha256(C.b64uDecode(publicJwk.x)).subarray(0, 16));
 }
 
 const publicOf = (jwk) => ({ kty: 'OKP', crv: 'Ed25519', x: jwk.x });
 
 function generateKeyPair() {
-  const { privateKey } = crypto.generateKeyPairSync('ed25519');
-  const priv = privateKey.export({ format: 'jwk' });
+  const seed = backend.randomSeed();
+  const x = b64u(backend.publicFromSeed(seed));
+  const priv = { kty: 'OKP', crv: 'Ed25519', d: b64u(seed), x };
   return { privateJwk: priv, publicJwk: publicOf(priv), keyId: keyId(priv) };
 }
 
 function signObject(obj, privateJwk) {
-  const key = crypto.createPrivateKey({ key: privateJwk, format: 'jwk' });
-  return b64u(crypto.sign(null, Buffer.from(canonical(obj)), key));
+  if (!privateJwk || typeof privateJwk.d !== 'string' || b64uLen(privateJwk.d) !== 32) throw new Error('מפתח פרטי לא תקין');
+  return b64u(backend.sign(C.utf8(canonical(obj)), privateJwk));
 }
 
 function verifyObject(obj, sig, publicJwk) {
   if (typeof sig !== 'string') return false;
   try {
-    const key = crypto.createPublicKey({ key: publicOf(publicJwk), format: 'jwk' });
-    return crypto.verify(null, Buffer.from(canonical(obj)), key, Buffer.from(sig, 'base64url'));
+    const raw = C.b64uDecode(sig);
+    if (raw.length !== 64) return false;
+    return backend.verify(C.utf8(canonical(obj)), raw, publicOf(publicJwk));
   } catch { return false; }
 }
+
+// SHA-256 של טקסט, ב-hex — לרישום ביומן ולהשוואת תוכן
+const sha256Hex = (text) => Array.from(backend.sha256(C.utf8(text)), b => b.toString(16).padStart(2, '0')).join('');
 
 function normalizeFeatures(features) {
   if (!Array.isArray(features)) throw new Error('רשימת תכונות חסרה');
@@ -172,6 +205,6 @@ function validity(payload, now) {
 
 module.exports = {
   LICENSE_VERSION, LIMIT_KEYS, DAY_MS,
-  canonical, keyId, publicOf, generateKeyPair, signObject, verifyObject,
+  canonical, keyId, publicOf, generateKeyPair, signObject, verifyObject, sha256Hex, _forceLite,
   issueLicense, verifyChain, checkAgainstParent, validity,
 };

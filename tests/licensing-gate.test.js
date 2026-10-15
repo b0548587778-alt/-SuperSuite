@@ -7,7 +7,8 @@ const path = require('path');
 const L = require('../shell/licensing/license');
 const S = require('../shell/licensing/status');
 const G = require('../shell/licensing/gate');
-const { createLicenseStore } = require('../shell/licensing/store');
+const { createLicenseStore, fileStorage } = require('../shell/licensing/store');
+const mem = () => { let v = null; return { read: () => v, write: (t) => { v = t; } }; };
 
 // stub של Electron, כמו ב-ipc-guard.test.js
 const handlers = {};
@@ -76,7 +77,7 @@ test('מגבלת משתמשים', () => {
 
 test('store: עם מפתח שורש ובלי קובץ — נעול; מחיקת הקובץ לא פותחת', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-lic-'));
-  const st = createLicenseStore({ file: path.join(dir, 'license.json'), rootKeys, clock: () => T0 + DAY }).current();
+  const st = createLicenseStore({ storage: fileStorage(fs, path.join(dir, 'license.json')), secret: mem(), rootKeys, clock: () => T0 + DAY }).current();
   assert.equal(st.status, 'locked');
   assert.match(st.reasons[0].reason, /לא הותקן/);
 });
@@ -85,17 +86,17 @@ test('store: קובץ פגום — נעול; בלי מפתחות שורש — ל
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-lic-'));
   const file = path.join(dir, 'license.json');
   fs.writeFileSync(file, '{not json');
-  assert.match(createLicenseStore({ file, rootKeys, clock: () => T0 }).current().reasons[0].reason, /פגום/);
-  assert.equal(createLicenseStore({ file, rootKeys: [], clock: () => T0 }).current().mode, 'unlicensed');
+  assert.match(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 }).current().reasons[0].reason, /פגום/);
+  assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys: [], clock: () => T0 }).current().mode, 'unlicensed');
 });
 
 test('store: שומר lastSeen, והחזרת השעון אחורה לא מחזירה רישיון שפג', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-lic-'));
   const file = path.join(dir, 'license.json');
   fs.writeFileSync(file, JSON.stringify({ chain: [tenantLicense()], notices: [] }));
-  assert.equal(createLicenseStore({ file, rootKeys, clock: () => T0 + 40 * DAY }).current().status, 'pending_payment');
+  assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 + 40 * DAY }).current().status, 'pending_payment');
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).lastSeen, T0 + 40 * DAY);
-  assert.equal(createLicenseStore({ file, rootKeys, clock: () => T0 + DAY }).current().status, 'pending_payment');
+  assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 + DAY }).current().status, 'pending_payment');
 });
 
 test('store: מטמון מתרענן ב-invalidate', () => {
@@ -103,7 +104,7 @@ test('store: מטמון מתרענן ב-invalidate', () => {
   const file = path.join(dir, 'license.json');
   const lic = tenantLicense();
   fs.writeFileSync(file, JSON.stringify({ chain: [lic], notices: [] }));
-  const store = createLicenseStore({ file, rootKeys, clock: () => T0 + DAY });
+  const store = createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 + DAY });
   assert.equal(store.current().status, 'active');
   const hold = S.createNotice({ privateJwk: root.privateJwk }, { type: 'hold', target: lic.payload.id, kind: 'locked',
     source: 'owner', reason: 'בדיקה', issuedAt: T0 + DAY });

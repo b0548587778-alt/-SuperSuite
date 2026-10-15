@@ -230,6 +230,14 @@ contextBridge.exposeInMainWorld('systemAPI', {
   listAudit: (filter) => ipcRenderer.invoke('audit:list', filter),
   exportAudit: (filter) => ipcRenderer.invoke('audit:export', filter),
   getLicenseStatus: () => ipcRenderer.invoke('license:getStatus'),
+  getLicenseRequest: (name) => ipcRenderer.invoke('license:getRequest', name),
+  installLicense: (text) => ipcRenderer.invoke('license:install', text),
+  importLicenseNotices: (text) => ipcRenderer.invoke('license:importNotices', text),
+  listLicenseChildren: () => ipcRenderer.invoke('license:listChildren'),
+  issueLicenseChild: (input) => ipcRenderer.invoke('license:issueChild', input),
+  holdLicenseChild: (input) => ipcRenderer.invoke('license:holdChild', input),
+  releaseLicenseChild: (input) => ipcRenderer.invoke('license:releaseChild', input),
+  terminateLicenseChild: (input) => ipcRenderer.invoke('license:terminateChild', input),
 
   // ייבוא וייצוא
   listDataKinds: () => ipcRenderer.invoke('ports:listKinds'),

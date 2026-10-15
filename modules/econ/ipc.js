@@ -1,5 +1,5 @@
 // Main Electron Application Entry Point
-const { ipcMain, dialog, BrowserWindow } = require('electron');
+const { ipcMain, dialog, BrowserWindow, safeStorage } = require('electron');
 const fs = require('fs');
 const X = require('./core/exports');
 const { initializeDatabase } = require('./core/database');
@@ -27,7 +27,7 @@ const DP = require('./core/dataPorts');
 const { IDLE_MIN_RANGE } = require('./services/authService');
 const path = require('path');
 const LG = require('../../shell/licensing/gate');
-const { createLicenseStore } = require('../../shell/licensing/store');
+const LS = require('../../shell/licensing/store');
 const ROOT_KEYS = require('../../shell/licensing/root-keys');
 
 let db;
@@ -36,8 +36,19 @@ let licenseStore = null;
 // מצב הרישיון הנוכחי (docs/LICENSING-DESIGN.md). לפני אתחול — כמו התקנה בלי רישוי
 const licenseState = () => (licenseStore ? licenseStore.current() : { mode: 'unlicensed' });
 
-async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock } = {}) {
-  licenseStore = createLicenseStore({ file: path.join(userDataPath, 'license.json'), rootKeys, clock });
+// אחסון הרישוי: באנדרואיד הקוד רץ ב-WebView (יש window.localStorage, ו-fs הוא shim); בשולחן העבודה — קבצים ו-DPAPI
+function licenseAdapters(userDataPath) {
+  const ls = typeof window !== 'undefined' && window.localStorage;
+  if (ls) return { storage: LS.webStorage(ls, 'supersuite.license'), secret: LS.webStorage(ls, 'supersuite.license.key') };
+  return {
+    storage: LS.fileStorage(fs, path.join(userDataPath, 'license.json')),
+    secret: LS.encryptedFileSecret(fs, path.join(userDataPath, 'license-key.bin'), safeStorage),
+  };
+}
+
+async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret } = {}) {
+  const ad = licenseAdapters(userDataPath);
+  licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
   db = await initializeDatabase(userDataPath);
   authService.initialize(db);
   financialService.initialize(db);
@@ -84,6 +95,8 @@ function permissionFor(channel) {
   if (channel === 'mlab:verifyRule' || channel === 'mlab:unverifyRule') return 'users.manage';
   // מיפוי מאגרים ומזעור נתונים (תיקון 13) — מנהל בלבד
   if (channel.startsWith('privacy:')) return 'users.manage';
+  // רישוי: התקנה, הנפקת מערכות בת והשבתתן — מנהל בלבד. מצב הרישיון — לכל משתמש מחובר
+  if (channel.startsWith('license:') && channel !== 'license:getStatus') return 'users.manage';
   if (/backup/i.test(name)) return 'data.backup';
   if (/restore/i.test(name)) return 'data.restore';
   if (/export/i.test(name)) return 'data.export';
@@ -934,6 +947,38 @@ handle('auth:login', async (event, username, password) => {
     return { mode: s.mode, status: s.status, reasons: (s.reasons || []).map(r => ({ kind: r.kind, reason: r.reason })),
       graceUntil: s.graceUntil || null, features: s.features, limits: s.limits };
   });
+  handle('license:getRequest', async (event, name) => {
+    const r = licenseStore.request(name);
+    await auditEvent(event, 'license.request', { keyId: r.keyId });
+    return JSON.stringify(r);
+  });
+  handle('license:install', async (event, text) => {
+    if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('קובץ הרישוי אינו תקין');
+    const r = licenseStore.install(text);
+    await auditEvent(event, 'license.install', r);
+    return r;
+  });
+  handle('license:importNotices', async (event, text) => {
+    if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('קובץ ההודעות אינו תקין');
+    const r = licenseStore.importNotices(text);
+    await auditEvent(event, 'license.notices.import', r);
+    return r;
+  });
+  handle('license:listChildren', async () => licenseStore.listChildren());
+  handle('license:issueChild', async (event, input = {}) => {
+    const r = licenseStore.issueChild(input || {});
+    await auditEvent(event, 'license.child.issue', { id: r.child.id, name: r.child.name, slot: r.child.slot, features: r.child.features, limits: r.child.limits });
+    return r;
+  });
+  // השבתה / החזרה / סיום של מערכת בת — סיבה חובה (נבדק ב-createNotice)
+  const childNotice = (type) => async (event, input = {}) => {
+    const r = licenseStore.noticeForChild({ ...(input || {}), type });
+    await auditEvent(event, 'license.child.' + type, { childId: r.notice.target, kind: r.notice.kind, holdId: r.notice.holdId, reason: r.notice.reason });
+    return r;
+  };
+  handle('license:holdChild', childNotice('hold'));
+  handle('license:releaseChild', childNotice('release'));
+  handle('license:terminateChild', childNotice('terminate'));
   handle('audit:list', async (event, filter = {}) => db.listAudit(filter || {}));
   handle('audit:export', async (event, filter = {}) => {
     const rows = await db.listAudit({ ...(filter || {}), limit: 5000 });
