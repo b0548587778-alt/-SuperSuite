@@ -497,7 +497,8 @@ app.whenReady().then(async () => {
 
   try {
     econ = require('./modules/econ/ipc');
-    await econ.initEcon(app.getPath('userData'));
+    // בשבת וביום טוב (מצב שבת) — אין תשובות אוטומטיות בהודעות
+    await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused });
   } catch (err) {
     dialog.showErrorBox('שגיאה בפתיחת המערכת הכלכלית', String(err && err.message ? err.message : err) + '\n\nנתיב: ' + app.getPath('userData'));
     app.quit(); return;
@@ -507,6 +508,11 @@ app.whenReady().then(async () => {
   if (econ.onLicenseChange) econ.onLicenseChange(enforceLicense);
   const licTimer = setInterval(licenseNow, 60 * 1000);
   if (licTimer.unref) licTimer.unref();
+  // הודעות: קבלה אוטומטית כל 3 דקות — רק אם הופעלה בהגדרות העסק (ולא בשבת — נבדק בפנים)
+  if (econ.chatAutoFetch) {
+    const chatTimer = setInterval(() => { econ.chatAutoFetch().catch(() => {}); }, 3 * 60 * 1000);
+    if (chatTimer.unref) chatTimer.unref();
+  }
   ipcMain.handle('shell:license-state', (e) => {
     if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return null;
     return LG.shellState(licenseNow());

@@ -252,6 +252,7 @@ function encryptedFileSecret(fs, file, safeStorage) {
     },
     write(text) {
       if (!safeStorage || !safeStorage.isEncryptionAvailable()) throw new Error('הצפנת המערכת (DPAPI) אינה זמינה — לא ניתן לשמור את מפתח המערכת בבטחה');
+      fs.mkdirSync(file.replace(/[\\/][^\\/]*$/, ''), { recursive: true }); // התיקייה (למשל owner/) אולי עוד לא קיימת
       fs.writeFileSync(file, safeStorage.encryptString(text));
     },
   };
