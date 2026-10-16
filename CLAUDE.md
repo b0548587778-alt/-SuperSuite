@@ -85,6 +85,7 @@ python -m unittest test_encryption -v
 | `shell.js` | סרגל אחיד, מסך בית, חיפוש, אחרונים, גיבוי/שחזור, זיהוי יעד גיבוי |
 | `preload.js` | חשיפת `window.shellAPI` מעל `contextBridge` |
 | `google-signin.js` | כניסה עם Google — **אפשרות נוספת, הסיסמה נשארת תמיד** (אופליין). דפדפן המערכת + כתובת מקומית 127.0.0.1, PKCE ו-state, אימות מלא של id_token (RS256, iss, aud, exp, nonce). לא נשמר אסימון — רק `sub` בטבלה `auth_google_links`. ההמתנה לדפדפן (עד 3 דק') רצה **מחוץ** ל-`enqueue` (`handleGoogle` ב-`ipc.js`). מדיניות אופציונלית: `chat:*` רק בפגישה עם `via: 'google'`. מדריך: `docs/GOOGLE-SIGNIN.md` |
+| `licensing/activation.js` | **תנאי הפעלה למערכת ברישיון**: רישיון שנתי (365 יום לפחות — `termMs`), חיבור לשרת וכניסה עם Google ב-7 הימים האחרונים. בלי שלושתם — `locked` (`withActivation` ב-`ipc.js`). הזמנים ב-`remote.lastSync` / `remote.lastGoogle` בקובץ הרישוי; בבדיקות — `tests/helpers/activation.js` (`markActivated`). **בקשת אישור למערכת בת דורשת תשלום שנתי להורה** (`requireChildPayment`, דרישה מסוג `license` במסך הגבייה, תשלום אחד לבקשה). ראו docs/LICENSING-DESIGN.md |
 | `login-gate.js` | **שמאי ואימונים נפתחים רק אחרי כניסה** (בסיסמה או עם Google; ארגז הכלים פתוח). בלי כניסה ← המודול הכלכלי (מסך הכניסה), והמודול המבוקש נפתח מיד אחרי הכניסה. יציאה/ניתוק במודול נעול ← חזרה למסך הכניסה. נבדק **אחרי** הרישוי (מודול שלא ברישיון לא מבקש כניסה). משותף ל-`main.js` ולאנדרואיד. עבודה במודול נעול מאריכה את הפגישה (`econ.touchSession`); בדיקה שקטה — `peekSession`. `auth:setup` מחבר את המנהל הראשון מיד |
 
 ### מודול כלכלי — `modules/econ/`

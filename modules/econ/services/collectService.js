@@ -114,6 +114,28 @@ class CollectService {
     return this._setPaid(id, { date, txId, source: 'manual', applied });
   }
 
+  // ---------- תשלום מערכת בת להורה שלה ----------
+  // מצב התשלום של מערכת בת: הדרישה האחרונה שלה. paid + בלי usedAt = תשלום שעוד לא נוצל לבקשת רישיון
+  async licensePayment(childId) {
+    const { payments } = await this._load();
+    const mine = payments.requests.filter(r => r.kind === 'license' && r.target && r.target.id === childId && r.status !== 'cancelled');
+    const unused = mine.find(r => r.status === 'paid' && !r.usedAt);
+    const open = mine.find(r => r.status === 'open');
+    const r = unused || open || null;
+    return r && { id: r.id, ref: r.ref, status: r.status, amount: P.fromAg(r.amountAg), months: r.target.months, link: r.link, ready: r === unused };
+  }
+
+  // תשלום משמש לבקשת רישיון אחת בלבד — חידוש שנתי דורש תשלום חדש
+  async useLicensePayment(id, info = {}) {
+    const data = await this._load();
+    const r = data.payments.requests.find(x => x.id === id);
+    if (!r || r.kind !== 'license' || r.status !== 'paid' || r.usedAt) throw new Error('התשלום על הרישיון לא נמצא או שכבר נוצל');
+    r.usedAt = new Date().toISOString();
+    r.usedFor = { childId: String(info.childId || '').slice(0, 64) };
+    await this.db.save(data);
+    return r;
+  }
+
   async _setPaid(id, payment) {
     const data = await this._load();
     const r = data.payments.requests.find(x => x.id === id);

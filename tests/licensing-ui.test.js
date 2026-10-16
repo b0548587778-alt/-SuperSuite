@@ -101,6 +101,48 @@ test('מסך רישוי: לקוח פעיל — מערכות בת עם כפתור
   assert.match(html, /ownerUnlockBtn/);
 });
 
+test('מסך רישוי: כרטיס הפעלה — מה חסר, וכפתור לכל תנאי', async () => {
+  const activation = { required: true, ok: false, missing: ['server', 'google'], nextDue: null, steps: [
+    { id: 'license', label: 'רישיון שנתי פעיל', ok: true, reason: '', until: T0 + 365 * DAY },
+    { id: 'server', label: 'חיבור לשרת הרישוי', ok: false, reason: 'עדיין לא היה חיבור לשרת', until: null },
+    { id: 'google', label: 'כניסה עם Google', ok: false, reason: 'עדיין לא הייתה כניסה עם Google', until: null }] };
+  const html = await render('licensing', {
+    getLicenseStatus: { mode: 'licensed', status: 'locked', features: ['econ'], limits, reasons: [], activation },
+    getAdvancedSettings: { isAdmin: true },
+    getLicenseRemote: { url: 'https://lic.example.org', pending: [] },
+    googleStatus: { enabled: true, link: null },
+    getOwnerState: { initialized: false, unlocked: false }
+  });
+  assert.match(html, /הפעלת המערכת/);
+  assert.match(html, /נדרשת השלמה/);
+  assert.match(html, /עדיין לא היה חיבור לשרת/);
+  assert.match(html, /licActSyncBtn/);
+  assert.match(html, /licActGoogleBtn/);
+  assert.match(html, /קישור חשבון Google/);
+  assert.doesNotMatch(html, /licActInstallBtn/, 'הרישיון תקין — אין כפתור התקנה');
+
+  // התקנה בלי רישוי — אין כרטיס הפעלה
+  const free = await render('licensing', { getLicenseStatus: { mode: 'unlicensed', status: 'active' }, getAdvancedSettings: { isAdmin: true } });
+  assert.doesNotMatch(free, /הפעלת המערכת/);
+});
+
+test('מסך רישוי: בקשה ממערכת בת — "שליחה לאישור" רק אחרי תשלום', async () => {
+  const base = { getLicenseStatus: { mode: 'licensed', status: 'active', features: ['econ'], limits, reasons: [] },
+    getAdvancedSettings: { isAdmin: true }, getOwnerState: { initialized: false, unlocked: false } };
+  const pend = (payment) => ({ url: 'https://lic.example.org', pending: [{ keyId: 'K'.repeat(22), name: 'סניף אלעד', at: T0, payment }] });
+  let html = await render('licensing', { ...base, getLicenseRemote: pend(null) });
+  assert.match(html, /data-lic-remote-pay=/);
+  assert.doesNotMatch(html, /data-lic-remote-forward=/);
+  html = await render('licensing', { ...base, getLicenseRemote: pend({ id: 'p1', ref: 'P00003', status: 'open', amount: 600, months: 12, ready: false }) });
+  assert.match(html, /ממתין לתשלום \(P00003/);
+  assert.match(html, /data-lic-pay-msg="p1"/);
+  assert.doesNotMatch(html, /data-lic-remote-forward=/);
+  html = await render('licensing', { ...base, getLicenseRemote: pend({ id: 'p1', ref: 'P00003', status: 'paid', amount: 600, months: 12, ready: true }) });
+  assert.match(html, /✔ שולם/);
+  assert.match(html, /data-lic-remote-forward=/);
+  assert.match(html, /licChildPayBtn/);
+});
+
 test('מסך רישוי: מערכת ממתינה לתשלום — הסיבה מוצגת, ואין הנפקת מערכות בת', async () => {
   const html = await render('licensing', {
     getLicenseStatus: { mode: 'licensed', status: 'pending_payment', features: ['econ'], limits,

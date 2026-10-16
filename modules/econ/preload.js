@@ -265,6 +265,8 @@ contextBridge.exposeInMainWorld('systemAPI', {
   licenseRemoteRequestFromParent: (name, code) => ipcRenderer.invoke('license:remoteRequestFromParent', name, code),
   licenseRemoteSync: () => ipcRenderer.invoke('license:remoteSync'),
   licenseRemoteForwardChild: (input) => ipcRenderer.invoke('license:remoteForwardChild', input),
+  licenseChildPaymentRequest: (input) => ipcRenderer.invoke('license:childPaymentRequest', input),
+  licenseChildPaymentStatus: (keyId) => ipcRenderer.invoke('license:childPaymentStatus', keyId),
   licenseRemoteDismissChild: (keyId) => ipcRenderer.invoke('license:remoteDismissChild', keyId),
   licenseRemotePushChild: (childId) => ipcRenderer.invoke('license:remotePushChild', childId),
   ownerRemoteReceive: () => ipcRenderer.invoke('owner:remoteReceive'),

@@ -18,7 +18,7 @@ function cleanPlan(p, i) {
   const priceAgorot = Number(p.priceAgorot);
   if (!Number.isSafeInteger(priceAgorot) || priceAgorot < 0 || priceAgorot > 100000000) throw new Error(`המחיר בתכנית "${name}" אינו תקין`);
   const months = Number(p.months);
-  if (!Number.isSafeInteger(months) || months < 1 || months > 60) throw new Error(`התקופה בתכנית "${name}" אינה תקינה (1–60 חודשים)`);
+  if (!Number.isSafeInteger(months) || months < 12 || months > 60) throw new Error(`התקופה בתכנית "${name}" אינה תקינה — הרישיון שנתי (12–60 חודשים)`);
   const features = [...new Set((Array.isArray(p.features) ? p.features : []).map(String))].filter(f => FEATURES.includes(f));
   if (!features.length) throw new Error(`בתכנית "${name}" לא נבחר אף תחום`);
   const lim = p.limits || {};

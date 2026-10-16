@@ -20,6 +20,7 @@ const ipc = require('../modules/econ/ipc');
 const ev = (id) => ({ sender: { id } });
 
 const DAY = L.DAY_MS;
+const { markActivated } = require('./helpers/activation');
 const T0 = Date.UTC(2026, 9, 1);
 const root = L.generateKeyPair();
 const rootKeys = [root.publicJwk];
@@ -29,7 +30,7 @@ function tenantLicense(over = {}) {
   return L.issueLicense({ privateJwk: root.privateJwk }, {
     name: 'ישיבת תפארת ציון', publicKey: keys.publicJwk, slot: 1, features: ['econ', 'econ.npo', 'tools'],
     limits: { maxChildren: 0, maxUsers: 2, maxStorageMb: 100, maxDepth: 1 },
-    issuedAt: T0, expiresAt: T0 + 30 * DAY, graceDays: 7, ...over,
+    issuedAt: T0, expiresAt: T0 + 365 * DAY, graceDays: 7, ...over,
   });
 }
 const active = (over = {}) => ({ mode: 'licensed', status: 'active', features: ['econ', 'econ.npo'], limits: { maxUsers: 3 }, reasons: [], ...over });
@@ -94,8 +95,8 @@ test('store: שומר lastSeen, והחזרת השעון אחורה לא מחזי
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-lic-'));
   const file = path.join(dir, 'license.json');
   fs.writeFileSync(file, JSON.stringify({ chain: [tenantLicense()], notices: [] }));
-  assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 + 40 * DAY }).current().status, 'pending_payment');
-  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).lastSeen, T0 + 40 * DAY);
+  assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 + 380 * DAY }).current().status, 'pending_payment');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).lastSeen, T0 + 380 * DAY);
   assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 + DAY }).current().status, 'pending_payment');
 });
 
@@ -119,6 +120,7 @@ test('ipc: הרישיון נאכף מעל התפקיד — תחום סגור, מ
   const file = path.join(dir, 'license.json');
   const lic = tenantLicense();
   fs.writeFileSync(file, JSON.stringify({ chain: [lic], notices: [] }));
+  markActivated(dir, T0 + DAY);
   await ipc.initEcon(dir, { rootKeys, clock: () => T0 + DAY });
 
   await handlers['auth:setup'](ev(5), 'menahel_1', 'a-very-long-pass-2026');
@@ -141,6 +143,7 @@ test('ipc: הרישיון נאכף מעל התפקיד — תחום סגור, מ
   const hold = S.createNotice({ privateJwk: root.privateJwk }, { type: 'hold', target: lic.payload.id, kind: 'pending_payment',
     source: 'billing', reason: 'החיוב החודשי נכשל', issuedAt: T0 + DAY });
   fs.writeFileSync(file, JSON.stringify({ chain: [lic], notices: [hold] }));
+  markActivated(dir, T0 + DAY);
   ipc.invalidateLicense();
   assert.ok(Array.isArray((await handlers['tasks:get'](ev(5))).tasks));
   await assert.rejects(handlers['tasks:create'](ev(5), { title: 'הכנת דוח שנתי' }), /ממתינה לתשלום: החיוב החודשי נכשל/);

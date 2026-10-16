@@ -19,7 +19,7 @@ const TERMS = 'תקנון השימוש במערכת SuperSuite.\n1. השימוש
 const OFFER = {
   seller: { name: 'בונים סלר בע"מ' },
   plans: [
-    { id: 'basic', name: 'בסיסי', priceAgorot: 0, months: 1, features: ['econ'], limits: { maxUsers: 1, maxChildren: 0 } },
+    { id: 'basic', name: 'בסיסי', priceAgorot: 0, months: 12, features: ['econ'], limits: { maxUsers: 1, maxChildren: 0 } },
     { id: 'pro', name: 'מוסדות', desc: 'עמותה וגמ"ח', priceAgorot: 49900, months: 12, features: ['econ', 'econ.npo', 'econ.gemach'], limits: { maxUsers: 10, maxChildren: 3 } },
   ],
   terms: { version: '1.0', title: 'תקנון ותנאי שימוש', text: TERMS },

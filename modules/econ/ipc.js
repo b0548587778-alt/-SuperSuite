@@ -38,6 +38,8 @@ const { createChatStore } = require('../../shell/licensing/chat');
 const UP = require('../../shell/licensing/update');
 const PK = require('../../shell/licensing/prekeys');
 const OF = require('../../shell/licensing/offer');
+const ACT = require('../../shell/licensing/activation');
+const LIC = require('../../shell/licensing/license');
 
 let db;
 let licenseStore = null;
@@ -59,8 +61,33 @@ function appVersionOf() {
 // כל שינוי סטטוס נרשם ביומן הביקורת ומודיע למאזינים (main.js — חסימת מודולים ומסך "מערכת מושבתת")
 let lastLicenseKey = null;
 const licenseListeners = [];
+// תנאי ההפעלה (shell/licensing/activation.js): רישיון שנתי, חיבור לשרת וכניסה עם Google ב-7 הימים האחרונים
+function activationState(base) {
+  const s = base || (licenseStore ? licenseStore.current() : { mode: 'unlicensed' });
+  if (!licenseStore || s.mode !== 'licensed') return ACT.evaluate({ state: s });
+  const r = licenseStore.getRemoteSettings();
+  const now = Math.max(clockNow(), Number(s.seenAt) || 0);
+  return ACT.evaluate({ state: s, leaf: licenseStore.leafPayload(), lastSync: Number(r.lastSync) || 0, lastGoogle: Number(r.lastGoogle) || 0, now });
+}
+// מערכת שלא הופעלה = נעולה (רק רישוי, כניסה והודעות פתוחים). רישיון לא פעיל — נשאר הסטטוס שלו (חוב: קריאה בלבד)
+function withActivation(s) {
+  if (!s || s.mode !== 'licensed' || s.status !== 'active') return s;
+  const act = activationState(s);
+  if (act.ok) return s;
+  const first = act.steps.find(x => !x.ok);
+  return { ...s, status: 'locked', activation: act, reasons: [{ kind: 'locked', reason: ACT.message(act), source: 'activation', step: first && first.id }, ...(s.reasons || [])] };
+}
+let clockNow = () => Date.now();
+// כניסה/קישור עם Google שאומתו מול Google — תנאי ההפעלה מתעדכן, והמערכת נפתחת מיד אם זה היה התנאי החסר
+function markGoogleActivation() {
+  if (!licenseStore) return;
+  try { licenseStore.markGoogleSignIn(clockNow()); } catch (e) { console.error('activation google mark failed', e); }
+  licenseStore.invalidate();
+  licenseState();
+}
+
 function licenseState() {
-  const s = licenseStore ? licenseStore.current() : { mode: 'unlicensed' };
+  const s = withActivation(licenseStore ? licenseStore.current() : { mode: 'unlicensed' });
   const key = s.mode === 'unlicensed' ? 'unlicensed' : s.status;
   if (key !== lastLicenseKey) {
     const from = lastLicenseKey;
@@ -103,6 +130,7 @@ const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
   updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal } = {}) {
   restTime = isRestTime;
+  clockNow = clock || (() => Date.now());
   googleDeps = { signIn: googleSignIn || GS.signIn, fetchImpl: fetchImpl || globalThis.fetch,
     openBrowser: openExternal || ((url) => { const sh = require('electron').shell; if (!sh || typeof sh.openExternal !== 'function') throw new Error('כניסה עם Google אינה זמינה במכשיר הזה'); return sh.openExternal(url); }) };
   const ad = licenseAdapters(userDataPath);
@@ -352,6 +380,7 @@ function registerIpcHandlers() {
   handleGoogle('auth:google-login', {}, async (event, g) => {
     const user = await db.authenticateGoogle(g.sub);
     authService.setSession(event.sender.id, user, 'google');
+    markGoogleActivation();
     emitAuthChange();
     await db.audit(user.id, 'auth.google.login', JSON.stringify({ email: g.email }));
     return user;
@@ -364,6 +393,7 @@ function registerIpcHandlers() {
   } }, async (event, g) => {
     const me = authService.getSession(event.sender.id);
     const r = await db.linkGoogle(me.id, g);
+    markGoogleActivation();
     await auditEvent(event, 'auth.google.link', { email: g.email });
     return r;
   });
@@ -843,6 +873,8 @@ function registerIpcHandlers() {
     return s;
   });
   handle('collect:createRequest', async (event, input) => {
+    // רישיון למערכת בת — רק ממסך הרישוי (license:childPaymentRequest, מנהל בלבד)
+    if (input && input.kind === 'license') throw new Error('דרישת תשלום על רישיון נוצרת ממסך הרישוי');
     assertCollectDomain(input && input.kind);
     const r = await collectService.createRequest(input || {});
     await auditEvent(event, 'collect.request', { ref: r.ref, kind: r.kind, amountAg: r.amountAg });
@@ -1264,12 +1296,20 @@ function registerIpcHandlers() {
   });
   handle('owner:noticesPackage', async (event, target) => ownerCore.noticesPackage(String(target || '')));
 
+  // כל מערכת משלמת להורה שלה: בקשת אישור לרישיון של מערכת בת (חדש או חידוש) — רק אחרי תשלום שעוד לא נוצל
+  async function requireChildPayment(childId) {
+    const p = await collectService.licensePayment(String(childId || ''));
+    if (!p) throw new Error('לפני בקשת רישיון למערכת הבת יש ליצור דרישת תשלום על הרישיון השנתי — כל מערכת משלמת למערכת שמעליה');
+    if (!p.ready) throw new Error(`דרישת התשלום ${p.ref} עדיין ממתינה לתשלום. כשהתשלום יתקבל — סמנו "שולם" במסך הגבייה או קלטו את דוח חברת הסליקה`);
+    return p;
+  }
+
   // ---------- עבודה מרחוק (שרת רישוי) ----------
   handle('license:getRemote', async () => {
     const r = licenseStore.getRemoteSettings();
     const info = licenseStore.syncInfo();
     return { url: r.url || '', lastSync: r.lastSync || null, myCode: info.nodeId,
-      pending: (r.pendingChildRequests || []).map(({ keyId, name, at }) => ({ keyId, name, at })) };
+      pending: await Promise.all((r.pendingChildRequests || []).map(async ({ keyId, name, at }) => ({ keyId, name, at, payment: await collectService.licensePayment(keyId) }))) };
   });
   handle('license:setRemote', async (event, url) => {
     const clean = url ? validateUrl(url) : '';
@@ -1290,15 +1330,40 @@ function registerIpcHandlers() {
   handle('license:remoteSync', async (event) => {
     const r = await licenseSync.receive();
     if (r.handled) await auditEvent(event, 'license.remote.sync', { handled: r.handled, errors: r.errors.length });
+    licenseStore.invalidate();
     licenseState();
     return r;
   });
   handle('license:remoteForwardChild', async (event, input = {}) => {
     const { keyId, ...terms } = input || {};
-    const r = await licenseSync.forwardChildRequest(keyId, terms);
-    await auditEvent(event, 'license.remote.childApprovalRequest', { childId: r.childId, features: terms.features, limits: terms.limits });
+    const pay = await requireChildPayment(keyId);
+    const r = await licenseSync.forwardChildRequest(keyId, { ...terms, months: pay.months });
+    await collectService.useLicensePayment(pay.id, { childId: keyId });
+    await auditEvent(event, 'license.remote.childApprovalRequest', { childId: r.childId, features: terms.features, limits: terms.limits, paid: pay.ref });
     return r;
   });
+  // תשלום מערכת בת להורה: דרישת תשלום במסך הגבייה, לפי קוד המערכת (בקשה מהשרת) או לפי קובץ הבקשה
+  handle('license:childPaymentRequest', async (event, input = {}) => {
+    const v = input || {};
+    let childId = String(v.keyId || '');
+    let name = String(v.name || '');
+    if (v.request) {
+      let req;
+      try { req = typeof v.request === 'string' ? JSON.parse(v.request) : v.request; } catch { throw new Error('קובץ הבקשה אינו תקין'); }
+      if (!req || !req.publicKey) throw new Error('קובץ הבקשה אינו תקין');
+      childId = LIC.keyId(req.publicKey);
+      name = name || String(req.name || '');
+    } else if (!name) {
+      const p = (licenseStore.getRemoteSettings().pendingChildRequests || []).find(x => x.keyId === childId);
+      name = p ? p.name : '';
+    }
+    const r = await collectService.createRequest({ kind: 'license', targetId: childId, months: v.months, amount: v.amount,
+      payerName: name || 'מערכת בת', payerPhone: v.payerPhone, payerEmail: v.payerEmail,
+      description: 'רישיון שנתי' + (name ? ' — ' + name : '') });
+    await auditEvent(event, 'license.child.paymentRequest', { childId, ref: r.ref, amountAg: r.amountAg, months: r.target.months });
+    return r;
+  });
+  handle('license:childPaymentStatus', async (event, keyId) => collectService.licensePayment(String(keyId || '')));
   handle('license:remoteDismissChild', async (event, keyId) => {
     licenseSync.dismissChildRequest(keyId);
     await auditEvent(event, 'license.remote.childDismiss', { keyId });
@@ -1606,8 +1671,12 @@ function registerIpcHandlers() {
   handle('license:getStatus', async () => {
     const s = licenseState();
     if (s.mode === 'unlicensed') return { mode: 'unlicensed', status: 'active' };
+    // תנאי ההפעלה — למסך הרישוי: מה חסר, ועד מתי צריך להתחבר שוב
+    const act = activationState();
     return { mode: s.mode, status: s.status, reasons: (s.reasons || []).map(r => ({ kind: r.kind, reason: r.reason })),
-      graceUntil: s.graceUntil || null, features: s.features, limits: s.limits };
+      graceUntil: s.graceUntil || null, features: s.features, limits: s.limits,
+      activation: { required: act.required, ok: act.ok, missing: act.missing, nextDue: act.nextDue,
+        steps: act.steps.map(({ id, label, ok, reason, until }) => ({ id, label, ok, reason, until })) } };
   });
   handle('license:getRequest', async (event, name) => {
     const r = licenseStore.request(name);
@@ -1631,8 +1700,12 @@ function registerIpcHandlers() {
   handle('license:listChildren', async () => licenseStore.listChildren());
   // מערכת בת: קודם בקשת אישור ממנהל-העל, ורק עם האישור החתום — הנפקה
   handle('license:requestChildApproval', async (event, input = {}) => {
-    const r = licenseStore.requestChildApproval(input || {});
-    await auditEvent(event, 'license.child.approvalRequest', { childId: r.childId, features: (input || {}).features, limits: (input || {}).limits });
+    // קודם בדיקת הבקשה והתנאים (בלי תופעות לוואי), ואז התשלום — ומשך הרישיון לפי מה ששולם
+    const { childId } = licenseStore.requestChildApproval(input || {});
+    const pay = await requireChildPayment(childId);
+    const r = licenseStore.requestChildApproval({ ...(input || {}), months: pay.months });
+    await collectService.useLicensePayment(pay.id, { childId });
+    await auditEvent(event, 'license.child.approvalRequest', { childId: r.childId, features: (input || {}).features, limits: (input || {}).limits, paid: pay.ref });
     return r;
   });
   handle('license:issueChild', async (event, input = {}) => {
@@ -1717,7 +1790,12 @@ async function chatAutoFetch() {
   autoFetchBusy = true;
   const out = {};
   try {
-    if (chatStore.settings().autoFetch && licenseStore.syncKey(false)) { try { out.system = await licenseSync.receive(); } catch (e) { out.systemError = e.message; } }
+    // מערכת ברישיון מסתנכרנת תמיד (תנאי ההפעלה: חיבור לשרת כל 7 ימים) — לא רק כשקבלת הודעות אוטומטית מופעלת.
+    // בשבת וביום טוב אין סנכרון (למעלה) — 7 ימים מספיקים גם אחרי יום טוב של שלושה ימים
+    const licensed = licenseStore.current().mode === 'licensed' && !!licenseStore.leafPayload();
+    if ((chatStore.settings().autoFetch || licensed) && licenseStore.syncKey(false)) {
+      try { out.system = await licenseSync.receive(); licenseStore.invalidate(); licenseState(); } catch (e) { out.systemError = e.message; }
+    }
     if (ownerChatStore.settings().autoFetch && ownerCore && ownerCore.isUnlocked()) { try { out.owner = await licenseSync.ownerReceive(); } catch (e) { out.ownerError = e.message; } }
   } finally { autoFetchBusy = false; }
   return out;

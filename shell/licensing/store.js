@@ -2,6 +2,7 @@
 // האחסון מוזרק (adapter) כדי שאותו קוד ירוץ בשולחן העבודה (קבצים + DPAPI) ובאנדרואיד (localStorage של ה-WebView).
 // המצב נשמר מחוץ למסד הנתונים, ולכן שחזור גיבוי ישן אינו מוחק השבתה. אין קריאה לרשת (כלל 6).
 const L = require('./license');
+const ACT = require('./activation');
 const S = require('./status');
 
 const CACHE_MS = 60 * 1000;
@@ -12,7 +13,6 @@ const PKG_REQUEST = 'supersuite-license-request';
 const PKG_NOTICES = 'supersuite-license-notices';
 const PKG_APPROVAL_REQUEST = 'supersuite-approval-request';
 const PKG_APPROVAL = 'supersuite-approval';
-const MONTH_MS = 30 * L.DAY_MS;
 
 // storage / secret: { read(): string|null, write(text) }. secret מחזיק את המפתח הפרטי של הצומת — חייב להיות מוצפן/פרטי.
 // rootKeys ריק = התקנה בלי רישוי: הכול פתוח, כמו לפני שלב הרישוי
@@ -136,11 +136,11 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now }
     const { d, own } = issuerContext();
     const req = parsePackage(input.request, PKG_REQUEST);
     const now = Math.max(clock(), d.lastSeen || 0);
-    const months = Number.isSafeInteger(input.months) && input.months > 0 ? input.months : 12;
+    const termMs = ACT.termMs(input.months == null ? 12 : input.months);
     const child = {
       publicKey: req.publicKey, name: String(input.name || req.name || '').trim().slice(0, 80),
       features: input.features, limits: input.limits,
-      expiresAt: Math.min(now + months * MONTH_MS, own.payload.expiresAt),
+      expiresAt: Math.min(now + termMs, own.payload.expiresAt),
       graceDays: input.graceDays == null ? 7 : input.graceDays,
     };
     const childId = L.keyId(child.publicKey);
@@ -230,7 +230,18 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now }
     save({ ...base, remote: { ...(base.remote || {}), ...r } });
   }
 
-  return { current, invalidate() { cached = null; }, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
+  // תנאי ההפעלה (activation.js): הרישיון של המערכת, וזמן הכניסה האחרונה עם Google
+  function leafPayload() {
+    const d = load();
+    return d && Array.isArray(d.chain) && d.chain.length ? d.chain[d.chain.length - 1].payload : null;
+  }
+  // הזמן נשמר רק קדימה — אי אפשר לחדש כניסה ישנה בהחזרת שעון
+  function markGoogleSignIn(at = clock()) {
+    const r = getRemoteSettings();
+    if (!(Number(r.lastGoogle) >= at)) setRemoteSettings({ lastGoogle: at });
+  }
+
+  return { current, invalidate() { cached = null; }, leafPayload, markGoogleSignIn, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
     syncKey, syncInfo, noticesForChild, getRemoteSettings, setRemoteSettings };
 }
 

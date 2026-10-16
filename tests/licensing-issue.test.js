@@ -16,6 +16,7 @@ const Module = require('module');
 Module._resolveFilename_orig = Module._resolveFilename;
 Module._resolveFilename = function (req, ...rest) { return req === 'electron' ? '/__electron_stub__.js' : Module._resolveFilename_orig.call(this, req, ...rest); };
 require.cache['/__electron_stub__.js'] = { id: '/__electron_stub__.js', filename: '/__electron_stub__.js', loaded: true, exports: { ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } } } };
+const { markActivated, markActivatedStorage } = require('./helpers/activation');
 const ipc = require('../modules/econ/ipc');
 const ev = (id) => ({ sender: { id } });
 
@@ -63,7 +64,7 @@ test('crypto-lite: תואם ל-node:crypto (SHA, מפתח ציבורי, חתימ
 test('אנדרואיד: רישיון שנחתם בשולחן העבודה מאומת במימוש הטהור, ולהפך', () => {
   const { owner, rootKeys, install, tenantLimits } = setup();
   const store = install();
-  const pkg = owner.issue({ request: store.request('ישיבה'), features: ['econ'], limits: tenantLimits, months: 1 }).package;
+  const pkg = owner.issue({ request: store.request('ישיבה'), features: ['econ'], limits: tenantLimits, months: 12 }).package;
   L._forceLite(true);
   try {
     assert.equal(L.verifyChain(JSON.parse(pkg).chain, rootKeys).name, 'ישיבה');
@@ -113,7 +114,7 @@ test('לקוח מנפיק מערכות בת במסגרת המכסה, וחידו�
   const tenant = install();
   tenant.install(owner.issue({ request: tenant.request('רשת'), features: ['econ', 'econ.npo'], limits: tenantLimits }).package);
   const c1 = install(); const c2 = install(); const c3 = install();
-  const r1 = approveAndIssue(owner, tenant, c1, 'סניף א', { features: ['econ'], limits: childLimits, months: 6 });
+  const r1 = approveAndIssue(owner, tenant, c1, 'סניף א', { features: ['econ'], limits: childLimits, months: 12 });
   approveAndIssue(owner, tenant, c2, 'סניף ב', { features: ['econ'], limits: childLimits });
   assert.throws(() => approveAndIssue(owner, tenant, c3, 'סניף ג', { features: ['econ'], limits: childLimits }), /מלאה/);
   assert.match(owner.review({ request: tenant.requestChildApproval({ request: c3.request('סניף ג'), features: ['econ'], limits: childLimits }).package }).problem, /מלאה/);
@@ -213,6 +214,8 @@ test('ipc: ניהול רישוי למנהל בלבד; מצב הרישיון לכ
   const req = await handlers['license:getRequest'](ev(9), 'קהילת אור');
   assert.doesNotMatch(fs.readFileSync(path.join(dir, 'license-key.bin'), 'utf8'), /"d"/);
   await handlers['license:install'](ev(9), owner.issue({ request: req, features: ['econ'], limits: tenantLimits }).package);
+  markActivated(dir, T0 + DAY);
+  ipc.invalidateLicense();
   assert.equal((await handlers['license:getStatus'](ev(9))).status, 'active');
   assert.ok(await handlers['tasks:get'](ev(9)));
 
@@ -239,6 +242,8 @@ test('אנדרואיד: ipc בוחר localStorage כשרץ ב-WebView, עם המ
     const req = await handlers['license:getRequest'](ev(11), 'טלפון');
     assert.ok(items.has('supersuite.license.key'));
     await handlers['license:install'](ev(11), owner.issue({ request: req, features: ['econ'], limits: tenantLimits }).package);
+    markActivatedStorage(items, T0 + DAY);
+    ipc.invalidateLicense();
     assert.ok(items.has('supersuite.license'));
     assert.equal(fs.existsSync(path.join(dir, 'license.json')), false);
     assert.equal((await handlers['license:getStatus'](ev(11))).status, 'active');

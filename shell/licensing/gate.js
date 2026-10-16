@@ -15,8 +15,9 @@ const ECON_SUB_FEATURES = {
   mortgage: 'econ.mortgage',
 };
 
-// ערוצים שתמיד פתוחים, גם במערכת מושבתת: כניסה/יציאה, כדי שהמשתמש יראה את מסך הסיבה
-const ALWAYS_OPEN = /^(auth|license|owner|chat|update):/;
+// ערוצים שתמיד פתוחים, גם במערכת מושבתת: כניסה/יציאה, כדי שהמשתמש יראה את מסך הסיבה.
+// הגדרות Google — כדי שמנהל יוכל להפעיל מערכת שנעולה עד כניסה עם Google (תנאי ההפעלה; ההרשאה עצמה: users.manage)
+const ALWAYS_OPEN = /^(auth|license|owner|chat|update):|^settings:(getGoogle|saveGoogle)$/;
 // במצב חוב/השבתה זמנית: קריאה, ייצוא וגיבוי בלבד — הנתונים של הלקוח לא "נלקחים כבני ערובה"
 const READ_ONLY_PERMS = new Set(['data.view', 'data.export', 'data.backup']);
 

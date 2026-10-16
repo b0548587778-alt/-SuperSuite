@@ -91,7 +91,7 @@ test('זרימה מלאה מרחוק: רישיון, מערכת בת באישור
     await K.sync.sendRequestToParent('סניף רכסים', tenantCode);
     const recv = await T.sync.receive();
     assert.equal(recv.pending.length, 1);
-    await T.sync.forwardChildRequest(recv.pending[0].keyId, { name: 'סניף רכסים', features: ['econ'], limits: childLimits, months: 6 });
+    await T.sync.forwardChildRequest(recv.pending[0].keyId, { name: 'סניף רכסים', features: ['econ'], limits: childLimits, months: 12 });
     await O.sync.ownerReceive();
     const ask = owner.inbox()[0];
     assert.equal(ask.summary.kind, 'approval');

@@ -4,6 +4,7 @@
 // כמו הגיבוי), ונפתח לזיכרון בלבד עד נעילה. ראו docs/LICENSING-DESIGN.md.
 const crypto = require('crypto');
 const L = require('./license');
+const ACT = require('./activation');
 const S = require('./status');
 const BK = require('../../modules/econ/core/backupCrypto');
 const { PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL } = require('./store');
@@ -17,7 +18,6 @@ const OWNER_BACKUP_TYPE = 'supersuite-owner-backup';
 const SU = require('./signup');
 
 const MIN_PASS = 12;
-const MONTH_MS = 30 * L.DAY_MS;
 
 function createOwnerCore({ storage, clock = Date.now }) {
   let key = null; // המפתח הפרטי — בזיכרון בלבד, אחרי פתיחה בסיסמה
@@ -142,11 +142,12 @@ function createOwnerCore({ storage, clock = Date.now }) {
     const existing = reg.tenants.find(t => t.id === id);
     const slot = existing ? existing.slot : reg.tenants.reduce((m, t) => Math.max(m, t.slot), 0) + 1;
     const now = clock();
-    const months = Number.isSafeInteger(opts.months) && opts.months > 0 ? opts.months : 12;
+    // שנה לפחות (ACT.termMs) — מערכת עם רישיון קצר משנה לא נפתחת (shell/licensing/activation.js)
+    const termMs = ACT.termMs(opts.months == null ? 12 : opts.months);
     const lic = L.issueLicense(issuer(), {
       name: opts.name || req.name, publicKey: req.publicKey, slot,
       features: opts.features, limits: opts.limits,
-      issuedAt: now, expiresAt: now + months * MONTH_MS, graceDays: opts.graceDays,
+      issuedAt: now, expiresAt: now + termMs, graceDays: opts.graceDays,
     });
     reg.tenants = [...reg.tenants.filter(t => t.id !== id), { id, slot, name: lic.payload.name, license: lic, issuedAt: now }];
     writeJson('registry.json', reg);

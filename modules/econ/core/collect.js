@@ -15,7 +15,7 @@ const PROVIDERS = {
   cardcom: 'Cardcom', tranzila: 'Tranzila', grow: 'Grow (משולם)', payplus: 'PayPlus', icount: 'iCount',
   nedarim: 'נדרים פלוס', other: 'אחר',
 };
-const KINDS = { invoice: 'חשבונית', donation: 'תרומה', gemach: 'החזר הלוואה (גמ"ח)', other: 'אחר' };
+const KINDS = { invoice: 'חשבונית', donation: 'תרומה', gemach: 'החזר הלוואה (גמ"ח)', license: 'רישיון שנתי למערכת בת', other: 'אחר' };
 const STATUSES = { open: 'ממתין לתשלום', paid: 'שולם', cancelled: 'בוטל' };
 // משתנים בתבנית הקישור — מקודדים תמיד (encodeURIComponent), כך ששם לקוח לא יכול לשבור את הכתובת
 const PLACEHOLDERS = ['{amount}', '{agorot}', '{ref}', '{name}', '{desc}'];
@@ -85,6 +85,11 @@ function createRequest(input, settings, count) {
       target.seq = Number(v.seq);
       if (!Number.isSafeInteger(target.seq)) throw new Error('יש לבחור תשלום בלוח הסילוקין');
     }
+  } else if (kind === 'license') {
+    // רישיון למערכת בת: היעד הוא קוד המערכת (מזהה המפתח שלה) ומשך הרישיון ששולם. ראו ipc → requireChildPayment
+    target = { kind, id: clean(v.targetId, 64), months: v.months == null ? 12 : Number(v.months) };
+    if (!/^[A-Za-z0-9_-]{22}$/.test(target.id)) throw new Error('קוד מערכת הבת אינו תקין');
+    if (!Number.isSafeInteger(target.months) || target.months < 12 || target.months > 60) throw new Error('הרישיון שנתי (12–60 חודשים)');
   } else if (kind === 'donation') {
     target = { kind, fundId: clean(v.fundId, 64), campaignId: clean(v.campaignId, 64), donorId: clean(v.donorId, 12).replace(/\D/g, '') };
   }

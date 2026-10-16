@@ -240,7 +240,8 @@
           const signup = isAdmin && remote && remote.url && status.mode !== 'licensed' ? await window.systemAPI.licenseSignupStatus().catch(() => null) : null;
           const ownerOffer = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerGetOffer().catch(() => null) : null;
           const signups = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerSignups().catch(() => []) : [];
-          state.data.licensing = { status, isAdmin, children, owner, remote, inbox, update, releases, signup, ownerOffer, signups };
+          const google = status.activation && status.activation.required && window.systemAPI.googleStatus ? await window.systemAPI.googleStatus().catch(() => null) : null;
+          state.data.licensing = { status, isAdmin, children, owner, remote, inbox, update, releases, signup, ownerOffer, signups, google };
           break;
         }
         case 'collect':
@@ -3837,6 +3838,32 @@
   const licBadge = (st) => `<span class="${st === 'active' ? 'good' : 'bad'}">${esc(LIC_STATUS[st] || st)}</span>`;
   const licLimits = (l) => l ? `עד ${Number(l.maxUsers)} משתמשים · ${Number(l.maxChildren)} מערכות בת · ${Number(l.maxStorageMb)}MB` : '';
 
+  // תנאי ההפעלה (shell/licensing/activation.js): רישיון שנתי, חיבור לשרת וכניסה עם Google — מה חסר ומה עושים
+  function renderActivationCard(act, d) {
+    if (!act || !act.required) return '';
+    const isAdmin = !!d.isAdmin;
+    const g = d.google || {};
+    const remoteOn = !!(d.remote && d.remote.url);
+    const fix = {
+      license: isAdmin ? '<button class="primary small" id="licActInstallBtn">📥 התקנת קובץ רישיון</button>' : '<small class="muted">פנו למנהל המערכת</small>',
+      server: !isAdmin ? '<small class="muted">פנו למנהל המערכת</small>'
+        : remoteOn ? '<button class="primary small" id="licActSyncBtn">🔄 התחברות לשרת עכשיו</button>'
+          : '<small class="muted">יש להגדיר שרת רישוי ("עבודה מרחוק" למטה)</small>',
+      google: g.enabled ? `<button class="primary small" id="licActGoogleBtn">🔑 ${g.link ? 'כניסה עם Google' : 'קישור חשבון Google'}</button>`
+        : `<small class="muted">${isAdmin ? 'יש להפעיל כניסה עם Google בהגדרות' : 'פנו למנהל המערכת להפעלת כניסה עם Google'}</small>`,
+    };
+    const rows = (act.steps || []).map(s => `<tr>
+      <td>${s.ok ? '<span class="ok">✔</span>' : '<span class="bad">✖</span>'} ${esc(s.label)}</td>
+      <td>${s.ok ? (s.until ? `<small class="muted">${s.id === 'license' ? 'בתוקף עד' : 'נדרש שוב עד'} ${esc(licDate(s.until))}</small>` : '') : `<small class="bad">${esc(s.reason)}</small>`}</td>
+      <td>${s.ok ? '' : fix[s.id] || ''}</td></tr>`).join('');
+    return `<div class="card">
+      <div class="acct-header"><h3>הפעלת המערכת</h3><span>${act.ok ? '<span class="ok">✔ המערכת פעילה</span>' : '<span class="bad">נדרשת השלמה — עד אז המערכת נעולה</span>'}</span></div>
+      <table class="acct-table"><tbody>${rows}</tbody></table>
+      ${act.ok && act.nextDue ? `<p class="muted">כדי שהמערכת תישאר פתוחה: חיבור לשרת וכניסה עם Google לפחות פעם בשבוע. המועד הקרוב: ${esc(licDate(act.nextDue))}.</p>`
+        : '<p class="muted">מערכת ברישיון נפתחת רק עם רישיון שנתי בתוקף, חיבור לשרת הרישוי וכניסה עם Google — ושני האחרונים חוזרים לפחות פעם בשבוע.</p>'}
+    </div>`;
+  }
+
   function renderLicensing(d) {
     const st = (d && d.status) || { mode: 'unlicensed', status: 'active' };
     const isAdmin = !!(d && d.isAdmin);
@@ -3865,11 +3892,12 @@
     const childCard = isAdmin && st.mode === 'licensed' ? `<div class="card">
       <div class="acct-header"><h3>מערכות בת (${children.length}${st.limits && st.limits.maxChildren != null ? ' מתוך ' + Number(st.limits.maxChildren) : ''})</h3>
         ${canIssue ? `<div class="acct-actions">
+          <button class="secondary" id="licChildPayBtn">💳 דרישת תשלום למערכת בת</button>
           <button class="secondary" id="licChildRequestBtn">＋ בקשת אישור למערכת בת</button>
           <button class="primary" id="licChildIssueBtn">✔ הנפקה לפי אישור</button>
         </div>` : ''}
       </div>
-      ${canIssue ? '<p class="muted">מערכת בת נפתחת רק באישור מנהל-העל: (1) במכשיר החדש — "הפקת בקשת רישיון"; (2) כאן — "בקשת אישור", בוחרים את הבקשה והתנאים ושולחים לספק; (3) עם קובץ האישור שחוזר — "הנפקה לפי אישור", ומעבירים את קובץ הרישיון למכשיר החדש.</p>' : ''}
+      ${canIssue ? '<p class="muted">מערכת בת נפתחת רק באישור מנהל-העל ואחרי תשלום שנתי למערכת הזו: (1) במכשיר החדש — "הפקת בקשת רישיון"; (2) כאן — "דרישת תשלום" עם קובץ הבקשה, וכשהתשלום מתקבל מסמנים "שולם" במסך הגבייה; (3) "בקשת אישור", בוחרים את הבקשה והתנאים ושולחים לספק; (4) עם קובץ האישור שחוזר — "הנפקה לפי אישור", ומעבירים את קובץ הרישיון למכשיר החדש.</p>' : ''}
       <div class="acct-scroll"><table class="acct-table">
         <thead><tr><th>#</th><th>שם</th><th>מצב</th><th>בתוקף עד</th><th>תחומים</th><th></th></tr></thead>
         <tbody>${children.map(c => `<tr>
@@ -3884,7 +3912,7 @@
     </div>` : '';
 
     const signupCard = isAdmin && st.mode !== 'licensed' && d.remote && d.remote.url ? renderSignupCard(d.signup) : '';
-    return `<div class="settings">${signupCard}${renderUpdateCard(d.update, isAdmin)}${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote, d.releases, d.ownerOffer, d.signups) : ''}</div>`;
+    return `<div class="settings">${renderActivationCard(st.activation, d)}${signupCard}${renderUpdateCard(d.update, isAdmin)}${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote, d.releases, d.ownerOffer, d.signups) : ''}</div>`;
   }
 
   // הרשמה: מערכת חדשה בוחרת תכנית, חותמת על התקנון ומשלמת בדף המאובטח של חברת הסליקה
@@ -4050,11 +4078,22 @@
         ${pending.length ? `<h4>מערכות בת שביקשו רישיון (${pending.length})</h4>
           <div class="acct-scroll"><table class="acct-table"><tbody>${pending.map(p => `<tr>
             <td>${esc(p.name)}</td><td><small>${esc(new Date(p.at).toLocaleString('he-IL'))}</small></td>
-            <td>${canIssue ? `<button class="primary small" data-lic-remote-forward="${esc(p.keyId)}" data-name="${esc(p.name)}">שליחה לאישור</button>` : ''}
+            <td>${licPayCell(p.payment)}</td>
+            <td>${!canIssue ? '' : p.payment && p.payment.ready
+              ? `<button class="primary small" data-lic-remote-forward="${esc(p.keyId)}" data-name="${esc(p.name)}">שליחה לאישור</button>`
+              : p.payment ? `<button class="secondary small" data-lic-pay-msg="${esc(p.payment.id)}">📋 הודעת תשלום</button>`
+                : `<button class="primary small" data-lic-remote-pay="${esc(p.keyId)}" data-name="${esc(p.name)}">💳 דרישת תשלום</button>`}
               <button class="secondary small" data-lic-remote-dismiss="${esc(p.keyId)}">התעלמות</button></td></tr>`).join('')}</tbody></table></div>` : ''}
         <p class="muted">השרת משמש רק להעברה: כל רישיון, אישור ועדכון חתומים, והתוכנה בודקת אותם בעצמה. בלי חיבור — הכול ממשיך לעבוד, ואפשר להעביר קבצים ידנית.</p>`
       : '<p class="muted">בלי שרת — העברת קבצים ידנית (הכפתורים למטה). עם שרת — בקשות, אישורים ועדכוני השבתה עוברים בלחיצה, גם למחשב מרוחק.</p>'}
     </div>`;
+  }
+
+  // מצב התשלום של מערכת בת למערכת הזו (דרישה במסך הגבייה)
+  function licPayCell(pay) {
+    if (!pay) return '<small class="muted">טרם שולם</small>';
+    const sum = `${esc(pay.ref)} · ${Number(pay.amount).toLocaleString('he-IL')} ₪ · ${Number(pay.months)} חודשים`;
+    return pay.ready ? `<small>✔ שולם (${sum})</small>` : `<small class="muted">ממתין לתשלום (${sum})</small>`;
   }
 
   // מצב מנהל-העל: נפתח בסיסמה. ממנו מנפיקים ללקוחות ומאשרים מערכות בת
@@ -5077,7 +5116,7 @@
       limit('maxChildren', 'מערכות בת', 0),
       limit('maxDepth', 'עומק מרבי בעץ', 2),
       limit('maxStorageMb', 'אחסון (MB)', c.limits ? Math.min(1000, c.limits.maxStorageMb) : 5000),
-      { name: 'months', label: 'תוקף (חודשים)', type: 'number', min: 1, max: 60, value: 12 },
+      { name: 'months', label: 'תוקף (חודשים — שנה לפחות)', type: 'number', min: 12, max: 60, value: 12 },
       { name: 'graceDays', label: 'ימי חסד אחרי התפוגה', type: 'number', min: 0, max: 90, value: 7 }
     ];
   }
@@ -5103,6 +5142,19 @@
     const d = state.data.licensing || {};
     const st = d.status || {};
     const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', licAction(fn)); };
+    // --- הפעלת המערכת ---
+    on('licActInstallBtn', async () => { const b = document.getElementById('licInstallBtn'); if (b) b.click(); });
+    on('licActSyncBtn', async () => {
+      const r = await window.systemAPI.licenseRemoteSync();
+      (r.errors || []).forEach(e => showError(e));
+      showToast('החיבור לשרת הצליח');
+    });
+    on('licActGoogleBtn', async () => {
+      const g = (state.data.licensing || {}).google || {};
+      showToast('המשיכו את הכניסה בדפדפן שנפתח…');
+      if (g.link) await window.systemAPI.googleLogin(); else await window.systemAPI.googleLink();
+      showToast('הכניסה עם Google נרשמה');
+    });
     const each = (attr, fn) => document.querySelectorAll('[' + attr + ']').forEach(b => b.addEventListener('click', licAction(() => fn(b))));
 
     // --- הרישיון של המערכת ---
@@ -5125,12 +5177,37 @@
     });
 
     // --- מערכות בת (לקוח) ---
+    // תשלום מערכת בת להורה: דרישת תשלום במסך הגבייה, ואחריה הודעה עם הקישור לתשלום
+    const licPayFields = (name) => [{ name: 'name', label: 'שם מערכת הבת', value: name || '', required: true },
+      { name: 'amount', label: 'סכום לתשלום (₪)', type: 'number', min: 1, required: true },
+      { name: 'months', label: 'תקופה (חודשים — שנה לפחות)', type: 'number', min: 12, max: 60, value: 12, required: true },
+      { name: 'payerPhone', label: 'טלפון המשלם (לא חובה)' }, { name: 'payerEmail', label: 'דוא"ל המשלם (לא חובה)' }];
+    const licPayIntro = 'הרישיון למערכת הבת שנתי ומשולם מראש למערכת הזו. הדרישה נוספת למסך הגבייה; כשהתשלום מתקבל — מסמנים "שולם" שם (או קולטים את דוח חברת הסליקה), ואז אפשר לשלוח את בקשת האישור.';
+    const licPayCreate = async (input) => {
+      const r = await window.systemAPI.licenseChildPaymentRequest(input);
+      await collectMessageDialog(await window.systemAPI.collectGetMessage(r.id));
+    };
+    on('licChildPayBtn', async () => {
+      const text = await pickFileText('.sslic,.json');
+      if (text == null) return;
+      const v = await licForm('דרישת תשלום למערכת בת', licPayFields(''), 'יצירת דרישת תשלום', licPayIntro);
+      if (!v) return;
+      await licPayCreate({ request: text, ...v });
+    });
+    each('data-lic-remote-pay', async (b) => {
+      const v = await licForm(`דרישת תשלום: ${b.dataset.name}`, licPayFields(b.dataset.name), 'יצירת דרישת תשלום', licPayIntro);
+      if (!v) return;
+      await licPayCreate({ keyId: b.dataset.licRemotePay, ...v });
+    });
+    each('data-lic-pay-msg', async (b) => {
+      await collectMessageDialog(await window.systemAPI.collectGetMessage(b.dataset.licPayMsg));
+    });
     on('licChildRequestBtn', async () => {
       const text = await pickFileText('.sslic,.json');
       if (text == null) return;
       const v = await licForm('בקשת אישור למערכת בת', [{ name: 'name', label: 'שם מערכת הבת', required: true },
-        ...licTermsFields({ features: st.features, limits: st.limits })], 'הפקת בקשה ושמירה',
-      'התנאים לא יכולים לעלות על הרישיון של המערכת הזו. מנהל-העל יאשר או ידחה.');
+        ...licTermsFields({ features: st.features, limits: st.limits }).filter(f => f.name !== 'months')], 'הפקת בקשה ושמירה',
+      'התנאים לא יכולים לעלות על הרישיון של המערכת הזו. התוקף — לפי התקופה ששולמה. מנהל-העל יאשר או ידחה.');
       if (!v) return;
       const r = await window.systemAPI.requestLicenseChildApproval({ request: text, name: v.name, ...licTerms(v) });
       await licSave(r.package, 'בקשת-אישור-' + v.name, 'בקשת האישור נשמרה — שלחו אותה לספק');
@@ -5193,8 +5270,8 @@
     });
     each('data-lic-remote-forward', async (b) => {
       const v = await licForm(`בקשת אישור: ${b.dataset.name}`, [{ name: 'name', label: 'שם מערכת הבת', value: b.dataset.name, required: true },
-        ...licTermsFields({ features: st.features, limits: st.limits })], 'שליחה למנהל-העל',
-      'אחרי שמנהל-העל יאשר, הרישיון יונפק ויישלח למערכת הבת אוטומטית בסנכרון הבא.');
+        ...licTermsFields({ features: st.features, limits: st.limits }).filter(f => f.name !== 'months')], 'שליחה למנהל-העל',
+      'התוקף — לפי התקופה ששולמה. אחרי שמנהל-העל יאשר, הרישיון יונפק ויישלח למערכת הבת אוטומטית בסנכרון הבא.');
       if (!v) return;
       await window.systemAPI.licenseRemoteForwardChild({ keyId: b.dataset.licRemoteForward, name: v.name, ...licTerms(v) });
       showToast('הבקשה נשלחה לאישור');
