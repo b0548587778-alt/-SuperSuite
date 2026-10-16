@@ -10,8 +10,9 @@
 // הסכום תמיד באגורות שלמות (כלל 1).
 'use strict';
 const { createTestProvider } = require('./test-provider');
+const { createCardcomProvider } = require('./cardcom-provider');
 
-const PROVIDERS = { test: createTestProvider };
+const PROVIDERS = { test: createTestProvider, cardcom: createCardcomProvider };
 
 function createProvider(name, opts = {}) {
   const make = PROVIDERS[name];

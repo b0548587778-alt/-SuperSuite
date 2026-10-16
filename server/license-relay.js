@@ -154,11 +154,18 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     return { ok: true, status: x.status, url: x.status === 'pending' ? x.url : undefined };
   }
 
-  // הודעת הספק (webhook): מאומתת אצל הספק; הסכום חייב להיות זהה. תשלום שהושלם — ההרשמה נמסרת למנהל-העל
+  // הודעת הספק (webhook): מאומתת אצל הספק; הסכום חייב להיות זהה. תשלום שהושלם — ההרשמה נמסרת למנהל-העל.
+  // ספק שמאמת בפנייה חוזרת אליו (Cardcom) מחזיר Promise — ואז גם התוצאה כאן Promise
   function webhook({ rawBody, headers }) {
     needBilling();
     let ev;
     try { ev = billing.provider.parseWebhook({ rawBody, headers }); } catch (e) { throw httpError(400, e.message); }
+    if (ev && typeof ev.then === 'function') return ev.then(applyPaymentEvent, (e) => { throw httpError(400, e.message); });
+    return applyPaymentEvent(ev);
+  }
+  function applyPaymentEvent(ev) {
+    // ניסיון שעוד לא הסתיים (למשל כרטיס שנדחה בדף התשלום, והלקוח יכול לנסות שוב) — לא משנים דבר
+    if (ev.status === 'pending') return { ok: true, pending: true };
     const all = readJsonFile('payments.json', []);
     const x = all.find(y => y.checkoutId === ev.checkoutId);
     if (!x) throw httpError(404, 'התשלום לא נמצא');
@@ -300,9 +307,18 @@ function createServer({ dataDir, cert, key, clock, billing, trustProxy = false }
     // webhook מספק התשלום
     if (req.method === 'POST' && req.url === '/pay/webhook') {
       return readBody(req, res, 64 * 1024, (rawBody) => {
-        try { send(200, relay.webhook({ rawBody, headers: req.headers })); }
-        catch (e) { send(e.status || 500, { ok: false, error: e.status ? e.message : 'שגיאה בשרת' }); }
+        const fail = (e) => send(e.status || 500, { ok: false, error: e.status ? e.message : 'שגיאה בשרת' });
+        try { Promise.resolve(relay.webhook({ rawBody, headers: req.headers })).then(r => send(200, r), fail); }
+        catch (e) { fail(e); }
       });
+    }
+    // חזרה מדף התשלום של הספק (Cardcom וכו') — הודעה ללקוח בלבד; התשלום נקבע לפי ה-webhook המאומת, לא לפי הכתובת הזו
+    if (req.method === 'GET' && /^\/pay\/(done|failed)(\?|$)/.test(req.url)) {
+      const ok = req.url.startsWith('/pay/done');
+      return sendHtml(res, 200, `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>SuperSuite</title></head>
+<body style="font-family:Arial,sans-serif;max-width:460px;margin:60px auto;text-align:center">
+<h2>${ok ? '✔ התשלום התקבל' : '✖ התשלום לא הושלם'}</h2>
+<p>${ok ? 'אפשר לסגור את הדף ולחזור לתוכנה — הרישיון יגיע בסנכרון הקרוב.' : 'אפשר לחזור לתוכנה ולנסות שוב.'}</p></body></html>`);
     }
     // דף התשלום של ספק הבדיקות
     const tm = /^\/pay\/test\/([A-Za-z0-9_]{1,64})$/.exec(req.url);
@@ -356,7 +372,7 @@ if (require.main === module) {
     if (a['root-pub']) {
       const rootKeys = [JSON.parse(fs.readFileSync(a['root-pub'], 'utf8'))];
       assertPaymentConfig({ pay: a.pay, cert: a.cert, publicUrl: a['public-url'], env: process.env });
-      const provider = a.pay ? createProvider(a.pay, { publicUrl: a['public-url'], secret: process.env.SS_PAY_SECRET }) : null;
+      const provider = a.pay ? createProvider(a.pay, { publicUrl: a['public-url'], secret: process.env.SS_PAY_SECRET, env: process.env }) : null;
       if (provider && provider.name === 'test') console.warn('⚠ ספק תשלום לבדיקות — אין חיוב אמיתי');
       billing = { rootKeys, provider };
     }
