@@ -125,11 +125,12 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStor
   const maxAttachmentBytes = ad.platform === 'android' ? 1024 * 1024 : 40 * 1024 * 1024;
   chatStore = createChatStore({ storage: chatStorage || ad.chat, clock, maxAttachmentBytes });
   ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock, maxAttachmentBytes });
+  // קודם המאגר ואז הסנכרון: הסנכרון מחזיק את המאגר שקיבל (בהפעלה ראשונה הוא היה null — מסך ההודעות נתקע)
+  licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
   licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock,
     chat: chatStore, ownerChat: ownerChatStore, updates: updateManager, isRestTime: () => restTime(),
     prekeys: PK.createPrekeyStore({ storage: prekeyStorage || ad.prekeys, clock: clock || Date.now }),
     ownerPrekeys: PK.createPrekeyStore({ storage: ownerPrekeyStorage || ad.ownerPrekeys, clock: clock || Date.now }) });
-  licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
   db = await initializeDatabase(userDataPath);
   authService.initialize(db);
   financialService.initialize(db);
