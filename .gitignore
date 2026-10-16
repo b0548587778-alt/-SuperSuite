@@ -49,3 +49,7 @@ android/keystore/
 # מפתח השורש של מנהל-העל — לעולם לא במאגר (tools/licensing/owner.js)
 owner-data/
 root.key
+
+# הגדרות שרת הרישוי בפריסה (דומיין) ונתוני ממסר מקומיים
+deploy/relay/.env
+relay-data/
