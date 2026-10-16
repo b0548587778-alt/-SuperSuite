@@ -124,7 +124,8 @@ test('תצוגות מודול מתווספות לחלון ומוחלפות לפ�
   await boot();
   const win = created.windows[0];
   await handlers['shell:switch'](shellSender(), 'econ');
-  await handlers['shell:switch'](shellSender(), 'shamai');
+  // ארגז הכלים לא דורש כניסה (שמאי ואימונים — כן; ראו בדיקות login-gate)
+  await handlers['shell:switch'](shellSender(), 'tools');
 
   const econView = created.views.find(v => v.id >= 100 && v.webContents.id === v.id);
   const added = win.calls.filter(c => c[0] === 'addChildView').map(c => c[1]);
@@ -283,4 +284,44 @@ test('מכשירים מחוברים: כל ערוצי sync: רשומים, ונד�
   }
   // תצוגת מודול (לא המעטפת) — נדחית גם היא
   assert.throws(() => handlers['sync:set-enabled'](viewSender(created.views[0]), true), /מתוך המעטפת בלבד/);
+});
+
+test('שמאי ואימונים: בלי כניסה — מסך הכניסה, ואחרי כניסה המודול נפתח; יציאה — חזרה למסך הכניסה', async () => {
+  await boot();
+  const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
+  const econView = created.views[0];
+  const econSender = viewSender(econView);
+  await handlers['shell:home'](shellSender());
+  AuthService.sessions.clear();
+  const visibleViews = () => created.views.filter(v => v.visible);
+
+  await handlers['shell:open'](shellSender(), 'trainer', 'nutrition');
+  assert.deepEqual(visibleViews(), [econView], 'במקום האימונים — המודול הכלכלי (מסך הכניסה)');
+  await new Promise(r => setImmediate(r));
+  assert.ok(econView.sent.some(([ch]) => ch === 'econ:auth-check'), 'הממשק הכלכלי מתבקש לבדוק שוב את הכניסה');
+
+  // כניסה ← האימונים נפתחים, כולל המסך שנבחר
+  await handlers['auth:login'](econSender, 'restore_viewer', 'viewer-pass-long-1');
+  const trainerView = created.views.find(v => /trainer[\\/]preload\.js$/.test((v.opts.webPreferences || {}).preload || ''));
+  assert.deepEqual(visibleViews(), [trainerView], 'אחרי הכניסה — מודול האימונים');
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(trainerView.sent.at(-1), ['trainer:goto', require(path.join(ROOT, 'shell', 'catalog.js')).TRAINER_LABELS.nutrition]);
+
+  // יציאה בזמן שהאימונים פתוחים ← חזרה למסך הכניסה, והאימונים חוזרים אחרי כניסה נוספת
+  await handlers['auth:logout'](econSender);
+  assert.deepEqual(visibleViews(), [econView]);
+  await handlers['auth:login'](econSender, 'restore_viewer', 'viewer-pass-long-1');
+  assert.deepEqual(visibleViews(), [trainerView]);
+
+  // ארגז הכלים פתוח גם בלי כניסה
+  AuthService.sessions.clear();
+  await handlers['shell:switch'](shellSender(), 'tools');
+  assert.equal(visibleViews().length, 1);
+  assert.notEqual(visibleViews()[0], econView);
+  // בלי כניסה, מעבר לארגז הכלים ביטל בקשה ישנה: כניסה לא פותחת שום מודול אחר
+  await handlers['shell:switch'](shellSender(), 'shamai');
+  await handlers['shell:switch'](shellSender(), 'tools');
+  const toolsView = visibleViews()[0];
+  await handlers['auth:login'](econSender, 'restore_viewer', 'viewer-pass-long-1');
+  assert.deepEqual(visibleViews(), [toolsView]);
 });

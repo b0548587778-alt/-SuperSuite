@@ -13,6 +13,7 @@ const NavHistory = require('./shell/history');
 const Layout = require('./shell/layout');
 const SyncService = require('./shell/sync/service');
 const LG = require('./shell/licensing/gate');
+const LoginGate = require('./shell/login-gate');
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
   try { return Catalog.extrasFromHtml(fs.readFileSync(path.join(__dirname, 'modules', 'econ', 'views', 'index.html'), 'utf8')); }
@@ -143,7 +144,11 @@ function wireView(id, wc) {
     e.preventDefault();
     if (isExternal(url)) shell.openExternal(url);
   });
-  wc.on('before-input-event', (e, input) => { if (handleShortcut(input, wc)) e.preventDefault(); });
+  wc.on('before-input-event', (e, input) => {
+    // עבודה במודול שדורש כניסה נחשבת פעילות — אחרת הניתוק האוטומטי מוציא באמצע עבודה
+    if (loginGate.isLocked(id) && views.econ && econ && econ.touchSession) econ.touchSession(views.econ.webContents.id);
+    if (handleShortcut(input, wc)) e.preventDefault();
+  });
 }
 
 // כפתורי העכבר הצדדיים (אחורה/קדימה) — Windows שולח אותם כ-app-command לחלון
@@ -187,6 +192,25 @@ function enforceLicense(state) {
   else if (!LG.moduleAllowed(state, active)) goHome();
 }
 
+// שמאי ואימונים — רק אחרי כניסה. בלי כניסה: מסך הכניסה במודול הכלכלי, והמודול נפתח אחרי הכניסה
+const loginGate = LoginGate.createLoginGate({ isLoggedIn: () => econSessionAlive() });
+function econSessionAlive() {
+  const v = views.econ;
+  return !!(v && !v.webContents.isDestroyed() && econ && econ.hasSession && econ.hasSession(v.webContents.id));
+}
+// אחרי כניסה — פותחים את המודול שחיכה. אחרי יציאה/ניתוק — יוצאים ממודול נעול למסך הכניסה
+function onEconAuthChange() {
+  if (loginGate.mustLeave(active)) { showLoginForLocked(); return; }
+  const p = loginGate.takePending();
+  if (p && (active === 'econ' || active === null)) { switchTo(p.id); if (p.view) openModuleView(p.id, p.view); }
+}
+function showLoginForLocked() {
+  switchTo('econ');
+  const v = views.econ;
+  // הממשק הכלכלי בודק מחדש את הכניסה (אחרי ניתוק שקט הוא עוד לא יודע שהפגישה פגה)
+  if (v) waitLoaded(v.webContents).then(() => { if (!v.webContents.isDestroyed()) v.webContents.send('econ:auth-check'); });
+}
+
 function switchTo(id) {
   if (!MODS.includes(id)) return;
   const lic = licenseNow();
@@ -195,6 +219,8 @@ function switchTo(id) {
     if (win && !win.isDestroyed()) win.webContents.send('shell:active', active);
     return;
   }
+  // אחרי הרישוי: מודול שלא ברישיון לא מבקש כניסה
+  if (loginGate.route(id) !== id) { showLoginForLocked(); return; }
   const v = ensureView(id);
   active = id;
   for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === id);
@@ -208,6 +234,7 @@ function switchTo(id) {
 // חזרה למסך הבית: מסתירים את כל התצוגות כך שהמעטפת נשארת לבדה.
 // זו הדרך "לצאת" ממודול בלי לסגור את התוכנה.
 function goHome() {
+  loginGate.clear();
   for (const k of Object.keys(views)) views[k].setVisible(false);
   active = null;
   overlay = false;
@@ -229,6 +256,8 @@ function openEconView(view) {
 // פתיחת תצוגה במודול האימונים: ה-preload לוחץ על הכפתור המתאים בסרגל הפנימי (ושומר את הבקשה עד שהוא קיים)
 function openTrainerView(view) {
   if (!TRAINER_VIEWS.includes(view)) return false;
+  // לפני כניסה — התצוגה נשמרת עם המודול הממתין ונפתחת אחרי הכניסה
+  if (loginGate.pending && loginGate.pending.id === 'trainer') { loginGate.setPendingView('trainer', view); return true; }
   const v = ensureView('trainer');
   waitLoaded(v.webContents).then(() => {
     if (!v.webContents.isDestroyed()) v.webContents.send('trainer:goto', Catalog.TRAINER_LABELS[view]);
@@ -499,6 +528,10 @@ app.whenReady().then(async () => {
 
   // רישוי: שינוי סטטוס (התקנה, עדכון, סנכרון, או פקיעה עם הזמן — נבדק כל דקה) נאכף מיד
   if (econ.onLicenseChange) econ.onLicenseChange(enforceLicense);
+  if (econ.onAuthChange) econ.onAuthChange(onEconAuthChange);
+  // ניתוק אוטומטי (חוסר פעילות) קורה בשקט — בודקים מדי פעם אם מודול נעול פתוח בלי כניסה
+  const gateTimer = setInterval(() => { if (loginGate.mustLeave(active)) showLoginForLocked(); }, 20 * 1000);
+  if (gateTimer.unref) gateTimer.unref();
   const licTimer = setInterval(licenseNow, 60 * 1000);
   if (licTimer.unref) licTimer.unref();
   // הודעות: קבלה אוטומטית כל 3 דקות — רק אם הופעלה בהגדרות העסק (ולא בשבת — נבדק בפנים)

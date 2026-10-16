@@ -109,7 +109,10 @@ test('המודול הכלכלי עולה מעל ה-shims: הקמת מנהל, כ�
   const { call, bridge } = await boot();
   assert.deepStrictEqual(bridge.calls[0], ['open', '/data/unified_economics.db']);
   const S = 2;
+  await assert.rejects(() => call(S, 'contacts:get'), /נדרשת כניסה/);
   await call(S, 'auth:setup', 'admin', 'סיסמה-חזקה-123');
+  // יצירת המנהל הראשון מחברת אותו; אחרי יציאה — שוב נדרשת כניסה
+  await call(S, 'auth:logout');
   await assert.rejects(() => call(S, 'contacts:get'), /נדרשת כניסה/);
   await assert.rejects(() => call(S, 'auth:login', 'admin', 'wrong-password-xx'), /.+/);
   await call(S, 'auth:login', 'admin', 'סיסמה-חזקה-123');

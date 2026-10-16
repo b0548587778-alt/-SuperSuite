@@ -7,6 +7,7 @@ const Catalog = require('../../shell/catalog');
 const Hebcal = require('../../shell/hebcal');
 const NavHistory = require('../../shell/history');
 const { canShellNavigate, canModuleOpen } = require('../../shell/nav-guard');
+const LoginGate = require('../../shell/login-gate');
 
 const MODS = ['econ', 'shamai', 'trainer', 'tools'];
 const LS_MODS = ['shamai', 'trainer', 'tools'];
@@ -50,8 +51,22 @@ function start(ctx) {
     return true;
   }
   function show() { for (const id of MODS) frames.setVisible(id, !overlay && id === active); }
+  // שמאי ואימונים — רק אחרי כניסה (shell/login-gate.js). באנדרואיד אין בדיקה תקופתית:
+  // אין דרך לדעת על פעילות בתוך המודול, ובלי זה הניתוק האוטומטי היה מוציא באמצע עבודה
+  const loginGate = LoginGate.createLoginGate({
+    isLoggedIn: () => frames.exists('econ') && !!(econ.hasSession && econ.hasSession(ctx.senderOf('econ'))) });
+  function showLoginForLocked() {
+    switchTo('econ');
+    frames.whenReady('econ').then(() => frames.send('econ', 'econ:auth-check'));
+  }
+  if (econ.onAuthChange) econ.onAuthChange(() => {
+    if (loginGate.mustLeave(active)) { showLoginForLocked(); return; }
+    const p = loginGate.takePending();
+    if (p && (active === 'econ' || active === null)) { switchTo(p.id); if (p.view) openModuleView(p.id, p.view); }
+  });
   function switchTo(id) {
     if (!MODS.includes(id)) return;
+    if (loginGate.route(id) !== id) { showLoginForLocked(); return; }
     frames.ensure(id, ENTRY[id]);
     active = id;
     show();
@@ -59,6 +74,7 @@ function start(ctx) {
     recordNav({ mod: id, view: null });
   }
   function goHome() {
+    loginGate.clear();
     active = null;
     overlay = false;
     show();
@@ -72,6 +88,7 @@ function start(ctx) {
       return true;
     }
     if (id === 'trainer' && TRAINER_VIEWS.includes(view)) {
+      if (loginGate.pending && loginGate.pending.id === 'trainer') { loginGate.setPendingView('trainer', view); return true; }
       frames.ensure('trainer', ENTRY.trainer);
       frames.whenReady('trainer').then(() => frames.send('trainer', 'trainer:goto', Catalog.TRAINER_LABELS[view]));
       return true;

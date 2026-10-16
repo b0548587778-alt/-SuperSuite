@@ -213,3 +213,14 @@ test('הרשאות: הגדרות Google למנהל בלבד, וכניסה עם G
   const pub = src.match(/const PUBLIC_CHANNELS = new Set\(\[([^\]]*)\]\)/)[1];
   assert.deepEqual(pub.match(/'[^']+'/g), ["'auth:status'", "'auth:setup'", "'auth:login'", "'auth:logout'", "'auth:google-login'"]);
 });
+
+test('יצירת המנהל הראשון מחברת אותו מיד (רגרסיה: הממשק נראה מחובר בלי פגישה בשרת)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-setup-'));
+  await ipc.initEcon(dir);
+  await handlers['auth:setup'](ev(77), 'first_admin', 'a-very-long-pass-2026');
+  const st = await handlers['auth:status'](ev(77));
+  assert.equal(st.user && st.user.username, 'first_admin');
+  await assert.doesNotReject(handlers['users:list'](ev(77)));
+  await assert.rejects(handlers['auth:setup'](ev(78), 'second', 'a-very-long-pass-2026'), /כבר קיים מנהל/);
+  assert.equal((await handlers['auth:status'](ev(78))).user, null, 'ניסיון כושל לא פותח פגישה');
+});

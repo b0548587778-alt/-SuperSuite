@@ -284,6 +284,12 @@ function handleGoogle(channel, { loginHint } = {}, fn) {
   });
 }
 
+// כניסה/יציאה — המעטפת פותחת או סוגרת את המודולים שדורשים כניסה (shell/login-gate.js)
+const authListeners = [];
+function emitAuthChange() {
+  for (const fn of authListeners) { try { fn(); } catch (e) { console.error('auth listener failed', e); } }
+}
+
 // תאריך מקומי (לא UTC — בישראל toISOString מזיז את היום בין חצות ל-03:00)
 function localDay(ms) {
   const d = new Date(ms);
@@ -325,13 +331,19 @@ function registerIpcHandlers() {
     return { ...st, google: { enabled: googlePolicy.enabled } };
   });
   
+  // יצירת המנהל הראשון (רק כשאין אף משתמש) — והוא מחובר מיד. בלי זה הממשק נראה מחובר
+  // אבל לשרת אין פגישה, וכל פעולה נכשלת עד כניסה נוספת
   handle('auth:setup', async (event, username, password) => {
-    return await authService.setupAdmin(username, password);
+    const user = await authService.setupAdmin(username, password);
+    authService.setSession(event.sender.id, user, 'password');
+    emitAuthChange();
+    return user;
   });
   
   handle('auth:login', async (event, username, password) => {
     const user = await authService.login(username, password);
     authService.setSession(event.sender.id, user, 'password');
+    emitAuthChange();
     return user;
   });
 
@@ -339,6 +351,7 @@ function registerIpcHandlers() {
   handleGoogle('auth:google-login', {}, async (event, g) => {
     const user = await db.authenticateGoogle(g.sub);
     authService.setSession(event.sender.id, user, 'google');
+    emitAuthChange();
     await db.audit(user.id, 'auth.google.login', JSON.stringify({ email: g.email }));
     return user;
   });
@@ -366,7 +379,9 @@ function registerIpcHandlers() {
   });
   
   handle('auth:logout', async (event) => {
-    return await authService.logout(event.sender.id);
+    const r = await authService.logout(event.sender.id);
+    emitAuthChange();
+    return r;
   });
   
   handle('auth:change-password', async (event, currentPassword, newPassword) => {
@@ -1707,4 +1722,8 @@ async function chatAutoFetch() {
   return out;
 }
 
-module.exports = { toUserError, initEcon, chatAutoFetch, permissionFor, licenseState, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess };
+module.exports = { toUserError, initEcon, chatAutoFetch, permissionFor, licenseState, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
+  // מודולים שדורשים כניסה: בדיקה שקטה, רישום פעילות (עבודה במודול כזה מונעת ניתוק), ואירוע כניסה/יציאה
+  hasSession: (senderId) => authService.peekSession(senderId),
+  touchSession: (senderId) => { authService.getSession(senderId); },
+  onAuthChange: (fn) => { authListeners.push(fn); } };

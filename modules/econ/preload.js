@@ -104,6 +104,8 @@ contextBridge.exposeInMainWorld('systemAPI', {
     if (pendingGoto) { const v = pendingGoto; pendingGoto = null; cb(v); }
   },
   reportView: (view) => ipcRenderer.invoke('shell:econ-view', view),
+  // המעטפת מבקשת לבדוק שוב את הכניסה (פגישה שפגה בזמן שמודול שדורש כניסה היה פתוח)
+  onAuthCheck: (cb) => { ipcRenderer.on('econ:auth-check', () => cb()); },
 
   // Accounting
   getChart: () => ipcRenderer.invoke('acct:getChart'),

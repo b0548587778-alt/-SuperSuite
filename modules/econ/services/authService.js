@@ -59,6 +59,12 @@ async login(username, password) {
     return s;
   }
 
+  // בדיקה שקטה: האם יש פגישה בתוקף — בלי לרשום פעילות (לבדיקות תקופתיות של המעטפת)
+  peekSession(senderId) {
+    const s = this.sessions.get(senderId);
+    return !!(s && this.now() - s.lastSeen <= this.idleMs);
+  }
+
   hasPermission(senderId, permission) {
     const s = this.getSession(senderId);
     return !!(s && Array.isArray(s.permissions) && s.permissions.includes(permission));

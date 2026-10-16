@@ -79,6 +79,14 @@
           if (state.user) switchView(view); else state.requestedView = view;
         });
       }
+      // פגישה שפגה בשקט: הממשק עוד "מחובר" — מציגים שוב את מסך הכניסה
+      if (typeof window.systemAPI.onAuthCheck === 'function') {
+        window.systemAPI.onAuthCheck(async () => {
+          if (!state.user) return; // מסך הכניסה כבר מוצג
+          const st = await window.systemAPI.authStatus().catch(() => null);
+          if (st && !st.user) maybeRelogin('נדרשת כניסה');
+        });
+      }
 
       elements.today.textContent = new Date().toLocaleDateString('he-IL', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
