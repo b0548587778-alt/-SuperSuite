@@ -230,6 +230,13 @@ function start(ctx) {
     shellGuard(e, 'data.backup');
     throw new Error('באנדרואיד אין גיבוי אוטומטי — השתמש בגיבוי הידני המוצפן (⬇)');
   });
+  // קוד שחזור שייך לגיבוי האוטומטי — שאינו קיים כאן. גיבוי ידני נפתח בסיסמה שלו בכל מכשיר
+  for (const ch of ['shell:get-recovery-code', 'shell:recovery-code-saved']) {
+    ipcMain.handle(ch, e => {
+      shellGuard(e, 'data.backup');
+      throw new Error('באנדרואיד אין גיבוי אוטומטי, ולכן אין קוד שחזור — הגיבוי הידני (⬇) נפתח בסיסמה שלו בכל מכשיר');
+    });
+  }
 
   return { switchTo, goHome, navigateHistory, get active() { return active; } };
 }

@@ -1,5 +1,6 @@
 // הודעות מאובטחות בין המערכות: הצפנה מקצה לקצה, חתימה, אנשי קשר לפי העץ, סטטוס מסירה/קריאה, ומסך ההודעות
 const test = require('node:test');
+const EconUI = require('./helpers/econ-ui');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -149,7 +150,7 @@ function fakeElement(id = '', extra = {}) {
 }
 async function render(responses) {
   const ROOT = path.join(__dirname, '..');
-  const UI_SRC = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+  const UI_SRC = EconUI.source();
   const HTML = fs.readFileSync(path.join(ROOT, 'modules/econ/views/index.html'), 'utf8');
   const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]))];
   const elements = {};
@@ -163,7 +164,7 @@ async function render(responses) {
   const context = { document, console, setTimeout, clearTimeout, Date, Intl };
   context.window = context; context.window.systemAPI = systemAPI;
   vm.createContext(context);
-  vm.runInContext(UI_SRC, context, { filename: 'unified-ui.js' });
+  EconUI.run(context);
   for (let i = 0; i < 14; i++) await new Promise(r => setImmediate(r));
   navButtons[VIEWS.indexOf('messages')]._listeners.click[0]();
   for (let i = 0; i < 14; i++) await new Promise(r => setImmediate(r));

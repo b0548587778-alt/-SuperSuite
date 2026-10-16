@@ -28,6 +28,16 @@ const STATUS_TEXT = {
   terminated: 'השימוש במערכת הסתיים',
 };
 
+// מאגר האנשים נבנה מתחומים אחרים — הוא פתוח רק אם לפחות אחד מהם פתוח, ומציג רק את הפתוחים
+const PEOPLE_SOURCES = { npo: 'econ.npo', gemach: 'econ.gemach', chesed: 'econ.chesed' };
+
+// התחומים שמותר לבנות מהם את מאגר האנשים. null = בלי רישוי (הכול)
+function peopleSources(state) {
+  if (!state || state.mode === 'unlicensed') return null;
+  const have = new Set(state.features || []);
+  return Object.keys(PEOPLE_SOURCES).filter(s => have.has(PEOPLE_SOURCES[s]));
+}
+
 function featuresForChannel(channel) {
   const prefix = String(channel).split(':')[0];
   const sub = ECON_SUB_FEATURES[prefix];
@@ -52,6 +62,7 @@ function checkChannel(state, channel, permission) {
   const have = new Set(state.features || []);
   const missing = featuresForChannel(channel).filter(f => !have.has(f));
   if (missing.length) return 'התחום הזה אינו כלול ברישיון של המערכת';
+  if (String(channel).startsWith('people:') && !peopleSources(state).length) return 'התחום הזה אינו כלול ברישיון של המערכת';
   return null;
 }
 
@@ -88,4 +99,4 @@ function checkUserLimit(state, activeCount) {
   return null;
 }
 
-module.exports = { MODULE_FEATURES, ECON_SUB_FEATURES, ALWAYS_VIEWS, featuresForChannel, checkChannel, moduleAllowed, viewAllowed, shellState, checkUserLimit, statusMessage };
+module.exports = { MODULE_FEATURES, ECON_SUB_FEATURES, PEOPLE_SOURCES, ALWAYS_VIEWS, peopleSources, featuresForChannel, checkChannel, moduleAllowed, viewAllowed, shellState, checkUserLimit, statusMessage };

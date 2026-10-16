@@ -218,6 +218,18 @@ async function main() {
     console.log('  אין ארכיון מקומי — electron-builder ינסה להוריד (עלול להיחסם).');
   }
 
+  // חתימת קוד — רק אם הוגדרה תעודה במשתני הסביבה (docs/CODE-SIGNING.md). בלי תעודה: לא חתום, כמו קודם
+  let signing;
+  try { signing = require('./tools/code-signing').signingArgs(process.env); }
+  catch (e) {
+    bad('הגדרות חתימת הקוד: ' + e.message);
+    process.exitCode = 1;
+    return;
+  }
+  builderArgs.push(...signing.args);
+  console.log('  חתימת קוד: ' + require('./tools/code-signing').MODE_TEXT[signing.mode]);
+  if (signing.mode !== 'none') info('החתימה פונה לשרת חותמת הזמן של ספק התעודה — אם הוא חסום בסינון, הבנייה תיכשל בשלב החתימה.');
+
   console.log('  מריץ: electron-builder --win nsis portable');
   console.log('  (ייתכן שייקח מספר דקות)\n');
 

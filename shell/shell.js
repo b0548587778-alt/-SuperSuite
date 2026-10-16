@@ -111,6 +111,78 @@ function pushRecent(key) {
   } catch { /* אין אחסון — לא קריטי */ }
 }
 
+/* ---------- אשף התחלה: "המסכים שלי" וצעדים ראשונים ---------- */
+const OB = window.SUITE_ONBOARDING;
+const OB_KEY = 'suite.onboarding';
+function obState() {
+  try { return OB.normalizeState(JSON.parse(localStorage.getItem(OB_KEY) || 'null')); } catch { return OB.normalizeState(null); }
+}
+function obSave(patch) {
+  try { localStorage.setItem(OB_KEY, JSON.stringify({ ...obState(), ...patch })); } catch { /* אין אחסון — לא קריטי */ }
+  if (!ui.active) renderHome();
+}
+function obMarkDone(stepId) {
+  const st = obState();
+  if (OB && st.completed && !st.done.includes(stepId)) obSave({ done: [...st.done, stepId] });
+}
+function renderOnboarding() {
+  if (!OB) return;
+  const st = obState();
+  $('obInvite').hidden = st.completed || st.dismissed;
+  const p = OB.plan(st.profiles, [...BY_KEY.keys()]);
+  const mine = st.completed ? p.screens.map(k => BY_KEY.get(k)).filter(Boolean) : [];
+  $('mineSec').hidden = !mine.length;
+  $('mine').innerHTML = mine.map(card).join('');
+  const show = st.completed && !st.dismissed && p.steps.length;
+  $('obSteps').hidden = !show;
+  if (!show) return;
+  const done = new Set(st.done);
+  $('obProgress').textContent = `${p.steps.filter(s => done.has(s.id)).length} מתוך ${p.steps.length}`;
+  $('obList').innerHTML = p.steps.map(s => `<li class="${done.has(s.id) ? 'done' : ''}">` +
+    `<button type="button" data-ob-step="${esc(s.id)}">${esc(s.title)}</button>` +
+    `<label><input type="checkbox" data-ob-done="${esc(s.id)}"${done.has(s.id) ? ' checked' : ''}> בוצע</label>` +
+    `<small>${esc(s.detail)}</small></li>`).join('');
+}
+function openOnboarding() {
+  const dlg = $('obDlg');
+  const st = obState();
+  $('obErr').textContent = '';
+  $('obChoices').innerHTML = OB.PROFILES.map(p => `<label><input type="checkbox" name="ob" value="${esc(p.id)}"${st.profiles.includes(p.id) ? ' checked' : ''}>` +
+    `<span>${esc(p.icon)} <b>${esc(p.name)}</b><small>${esc(p.desc)}</small></span></label>`).join('');
+  const done = () => { $('obForm').onsubmit = null; dlg.oncancel = null; closeDialog(dlg); };
+  $('obForm').onsubmit = (e) => {
+    e.preventDefault();
+    const picked = [...$('obChoices').querySelectorAll('input[name="ob"]:checked')].map(i => i.value);
+    if (!picked.length) { $('obErr').textContent = 'בחרו לפחות אפשרות אחת'; return; }
+    done();
+    obSave({ profiles: picked, completed: true, dismissed: false });
+  };
+  $('obCancel').onclick = done;
+  dlg.oncancel = (e) => { e.preventDefault(); done(); };
+  showDialog(dlg);
+}
+if (OB) {
+  $('obStart').onclick = openOnboarding;
+  $('obEdit').onclick = openOnboarding;
+  $('obLater').onclick = () => obSave({ dismissed: true });
+  $('obHide').onclick = () => obSave({ dismissed: true });
+  $('obList').onclick = (e) => {
+    const b = e.target.closest('[data-ob-step]');
+    if (!b) return;
+    const s = OB.plan(obState().profiles, [...BY_KEY.keys()]).steps.find(x => x.id === b.dataset.obStep);
+    if (!s) return;
+    if (s.action === 'backup-target') $('tg').click();
+    else if (s.action === 'recovery-code') showRecoveryCode();
+    else if (s.key) open(s.key);
+  };
+  $('obList').onchange = (e) => {
+    const c = e.target.closest('[data-ob-done]');
+    if (!c) return;
+    const st = obState();
+    obSave({ done: c.checked ? [...new Set([...st.done, c.dataset.obDone])] : st.done.filter(x => x !== c.dataset.obDone) });
+  };
+}
+
 /* ---------- מסך הבית ---------- */
 function greeting(h) {
   if (h < 5) return 'לילה טוב';
@@ -131,6 +203,7 @@ function renderHome() {
   $('dates').innerHTML = heb ? `<b>${esc(heb.text)}</b>${heb.night ? ' <i>(אור ליום ' + esc(HC.WEEKDAYS[heb.weekday]) + ')</i>' : ''} · ${esc(greg)}` : esc(greg);
   renderDay(now.getTime());
   renderLicense();
+  renderOnboarding();
 
   const recent = getRecent().slice(0, 4).map(k => BY_KEY.get(k));
   $('recentSec').hidden = !recent.length;
@@ -259,7 +332,7 @@ async function runBackup() {
   catch (e) { alert(e.message || 'שגיאה בגיבוי'); }
 }
 async function runRestore() {
-  const r = await askPassphrase({ title: 'שחזור מגיבוי', text: 'אם הגיבוי מוצפן, הזן את סיסמת הגיבוי. בגיבוי אוטומטי השאר ריק.', optional: true });
+  const r = await askPassphrase({ title: 'שחזור מגיבוי', text: 'אם הגיבוי מוצפן, הזן את סיסמת הגיבוי. גיבוי אוטומטי מהמחשב הזה — השאר ריק; ממחשב אחר — הזן את קוד השחזור (🔑).', optional: true });
   if (r === null) return;
   try { await window.shellAPI.restoreAll(r.pass); }
   catch (e) { alert(e.message || 'שגיאה בשחזור'); }
@@ -300,9 +373,35 @@ $('qt').onclick = () => {
 $('tg').onclick = async () => {
   try {
     const t = await window.shellAPI.pickBackupTarget();
-    if (t) $('tgInfo').textContent = 'גיבוי אוטומטי ליעד: ' + t;
+    if (t) { $('tgInfo').textContent = 'גיבוי אוטומטי ליעד: ' + t; obMarkDone('backup-target'); }
   } catch (e) { alert(e.message || 'נדרשת כניסה למערכת כדי להגדיר יעד גיבוי'); }
 };
+// קוד שחזור: בלעדיו גיבוי אוטומטי נפתח רק במחשב שבו נוצר
+async function showRecoveryCode() {
+  const dlg = $('rkDlg');
+  let code;
+  try { code = await window.shellAPI.getRecoveryCode(); }
+  catch (e) { alert(e.message || 'נדרשת כניסה למערכת עם הרשאת גיבוי'); return; }
+  $('rkCode').textContent = code;
+  $('rkErr').textContent = '';
+  const close = () => { dlg.oncancel = null; closeDialog(dlg); };
+  $('rkClose').onclick = close;
+  dlg.oncancel = (e) => { e.preventDefault(); close(); };
+  $('rkCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText(code); $('rkErr').textContent = 'הקוד הועתק. מומלץ גם לרשום אותו על נייר.'; }
+    catch { $('rkErr').textContent = 'ההעתקה נכשלה — סמנו את הקוד והעתיקו ידנית'; }
+  };
+  $('rkSaved').onclick = async () => {
+    try { await window.shellAPI.recoveryCodeSaved(); } catch { /* לא קריטי */ }
+    close();
+    obMarkDone('recovery-code');
+    targetShown = false;
+    refreshTargetIfLoggedIn();
+  };
+  showDialog(dlg);
+}
+$('rk').onclick = showRecoveryCode;
+
 // יעד הגיבוי תלוי בהרשאת גיבוי, ולכן לפני הכניסה אין מה לבקש אותו.
 // שואלים קודם (בשקט) אם יש כניסה, ורק אז מבקשים את היעד — כדי לא לייצר חריגה בכל הפעלה.
 // בכל מעבר לחלק הכספי מנסים שוב, עד שהמשתמש מתחבר והטקסט מתעדכן.

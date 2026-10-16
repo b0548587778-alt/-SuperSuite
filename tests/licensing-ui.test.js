@@ -1,5 +1,6 @@
 // רישוי — מסך "רישוי ומערכות" וערוצי מנהל-העל (owner:*): כל הזרימה בכפתורים, דרך ipc.js האמיתי
 const test = require('node:test');
+const EconUI = require('./helpers/econ-ui');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -10,7 +11,7 @@ const { createLicenseStore } = require('../shell/licensing/store');
 const { createOwnerCore } = require('../shell/licensing/owner-core');
 
 const ROOT = path.join(__dirname, '..');
-const UI_SRC = fs.readFileSync(path.join(ROOT, 'modules/econ/unified-ui.js'), 'utf8');
+const UI_SRC = EconUI.source();
 const HTML = fs.readFileSync(path.join(ROOT, 'modules/econ/views/index.html'), 'utf8');
 const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]))];
 
@@ -63,7 +64,7 @@ async function render(view, responses) {
   context.window = context;
   context.window.systemAPI = systemAPI;
   vm.createContext(context);
-  vm.runInContext(UI_SRC, context, { filename: 'unified-ui.js' });
+  EconUI.run(context);
   await settle();
   const i = VIEWS.indexOf(view);
   assert.ok(i >= 0, 'התצוגה קיימת בסרגל: ' + view);

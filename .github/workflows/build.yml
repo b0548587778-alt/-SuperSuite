@@ -11,7 +11,24 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm install
-      - run: npm run dist
+      # חתימת קוד — רק אם הוגדרו סודות במאגר (docs/CODE-SIGNING.md). בלי סודות: בנייה לא חתומה, כמו קודם.
+      # טוקן USB אינו זמין בשרת של GitHub — כאן אפשר רק PFX או Azure Trusted Signing.
+      - name: Build
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          SS_AZURE_ENDPOINT: ${{ secrets.SS_AZURE_ENDPOINT }}
+          SS_AZURE_ACCOUNT: ${{ secrets.SS_AZURE_ACCOUNT }}
+          SS_AZURE_PROFILE: ${{ secrets.SS_AZURE_PROFILE }}
+          SS_SIGN_PUBLISHER: ${{ secrets.SS_SIGN_PUBLISHER }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          ARGS="$(node tools/code-signing.js --args)"
+          node tools/code-signing.js
+          npx electron-builder --win nsis portable $ARGS
       - uses: actions/upload-artifact@v4
         with:
           name: SuperSuite-Windows

@@ -84,6 +84,8 @@ python -m unittest test_encryption -v
 | `hebcal.js` | לוח עברי (ICU מובנה), מועדים ודחיית צומות, זמני היום לפי עיר, מצב שבת/יו"ט. משותף ל-main.js ולמעטפת. הגדרות ב-`ui-settings.json` → `calendar` (ערוצי `shell:get-calendar` / `shell:save-calendar`). **במצב שבת אין פעולות אוטומטיות** — הגיבוי האוטומטי נדחה (`reason: 'shabbat'`) |
 | `shell.js` | סרגל אחיד, מסך בית, חיפוש, אחרונים, גיבוי/שחזור, זיהוי יעד גיבוי |
 | `preload.js` | חשיפת `window.shellAPI` מעל `contextBridge` |
+| `onboarding.js` | אשף התחלה: פרופילים (עמותה, גמ"ח, עסק...) ← "המסכים שלי" וצעדים ראשונים במסך הבית. מצב ב-`localStorage` (`suite.onboarding`), מנורמל כקלט לא מהימן. **רק סידור מסכים — לא יוצר נתונים.** כל מפתח בו חייב להיות בקטלוג (`tests/onboarding.test.js`). נטען גם באנדרואיד (`android/build-apk.js`) |
+| `auto-backup.js` → קוד שחזור | מפתח הגיבוי האוטומטי מוגן ב-DPAPI — בלי קוד שחזור, תקלה במחשב = אובדן כל הגיבויים האוטומטיים. `recoveryCodeFromKey` / `keyFromRecoveryCode`: Base32 של Crockford, 55 תווים עם 2 בתי ביקורת. כפתור 🔑 (`shell:get-recovery-code`, הרשאת `data.backup`); בשחזור — מזוהה לפי הצורה במקום סיסמה. אין באנדרואיד (אין שם גיבוי אוטומטי) |
 | `google-signin.js` | כניסה עם Google — **אפשרות נוספת, הסיסמה נשארת תמיד** (אופליין). דפדפן המערכת + כתובת מקומית 127.0.0.1, PKCE ו-state, אימות מלא של id_token (RS256, iss, aud, exp, nonce). לא נשמר אסימון — רק `sub` בטבלה `auth_google_links`. ההמתנה לדפדפן (עד 3 דק') רצה **מחוץ** ל-`enqueue` (`handleGoogle` ב-`ipc.js`). מדיניות אופציונלית: `chat:*` רק בפגישה עם `via: 'google'`. מדריך: `docs/GOOGLE-SIGNIN.md` |
 | `licensing/activation.js` | **תנאי הפעלה למערכת ברישיון**: רישיון שנתי (365 יום לפחות — `termMs`), חיבור לשרת וכניסה עם Google ב-7 הימים האחרונים. בלי שלושתם — `locked` (`withActivation` ב-`ipc.js`). הזמנים ב-`remote.lastSync` / `remote.lastGoogle` בקובץ הרישוי; בבדיקות — `tests/helpers/activation.js` (`markActivated`). **בקשת אישור למערכת בת דורשת תשלום שנתי להורה** (`requireChildPayment`, דרישה מסוג `license` במסך הגבייה, תשלום אחד לבקשה). ראו docs/LICENSING-DESIGN.md |
 | `login-gate.js` | **שמאי ואימונים נפתחים רק אחרי כניסה** (בסיסמה או עם Google; ארגז הכלים פתוח). בלי כניסה ← המודול הכלכלי (מסך הכניסה), והמודול המבוקש נפתח מיד אחרי הכניסה. יציאה/ניתוק במודול נעול ← חזרה למסך הכניסה. נבדק **אחרי** הרישוי (מודול שלא ברישיון לא מבקש כניסה). משותף ל-`main.js` ולאנדרואיד. עבודה במודול נעול מאריכה את הפגישה (`econ.touchSession`); בדיקה שקטה — `peekSession`. `auth:setup` מחבר את המנהל הראשון מיד |
@@ -93,6 +95,7 @@ python -m unittest test_encryption -v
 |------|--------|
 | `ipc.js` | רישום כל ערוצי ה-IPC + אכיפת הרשאות. **כל** ערוץ (מלבד `auth:`) דורש session פעיל. |
 | `preload.js` | חשיפת `window.systemAPI` |
+| `ui/*.js` | הממשק (לשעבר `unified-ui.js`), קובץ לכל תחום. **סקריפטים רגילים — לא מודולים ולא IIFE**: כולם חולקים טווח שמות גלובלי אחד, לפי סדר תגי ה-`script` ב-`views/index.html`; `boot.js` אחרון. כל שם ברמה העליונה הוא גלובלי — שם כפול בין קבצים מפיל את הטעינה, ושם כמו `open`/`name`/`print` דורס את `window` (`tests/econ-ui-split.test.js`). מחוץ ל-`boot.js` — הצהרות בלבד, בלי קוד שרץ בטעינה. קובץ חדש — להוסיף תג ב-`index.html` לפני `boot.js`. בבדיקות: `tests/helpers/econ-ui.js` (`run(context)` / `source()`) |
 | `core/database.js` | SQLite דרך `node:sqlite`. טבלת `collections` (key-value) + טבלאות auth/roles/audit. |
 | `core/accounting.js` | לוגיקת הנה"ח כפולה |
 | `core/backupCrypto.js` | הצפנת גיבוי AES-256-GCM |
@@ -111,6 +114,7 @@ python -m unittest test_encryption -v
 | `core/gemachExtra.js` | הרחבות גמ"ח (בשירות `gemachService`): **בקשות הלוואה** `gemach.applications` — draft→interview→verified→approved/rejected; נבדקות ב-`validateLoanInput` כבר בשמירה, אישור יוצר הלוואה באותה שמירה (`applicationId`), שינוי ערבים אחרי אימות מחזיר לראיון. **גמ"ח חפצים** `gemach.items` + `gemach.lendings` — השאלה אחת פתוחה לפריט, פיקדון באגורות, החזרה מעדכנת מצב; פריט עם היסטוריה לא נמחק. **פיגורים לפי ערב** — ייצוא `guarantor-arrears`. אין תזכורות אוטומטיות |
 | `core/chesed.js` + `services/chesedService.js` | חסד וחלוקות: נזקקים (רמת חיסיון), מתנדבים (מחלקות none/men/women), סבבי חלוקה — שיוך לפי משפחה/גודל, שיבוץ לפי מחלקת הסבב, מסירה, סגירה. ערוצי `chesed:*`. אוסף `chesed`. **נזקק חסוי מוסתר בצד השרת (`maskBeneficiary`) לכל מי שאין לו `users.manage` — כולל בייצוא** |
 | `core/mortgageAdvisor.js` + `services/mortgageAdvisorService.js` | ייעוץ משכנתאות: תיקים, מסלולים ולוח סילוקין באגורות, השוואה, עמלה, מסמכים. ערוצי `madv:*` |
+| `core/dashboard.js` | לוח בוקר למנהל העמותה (`morningBrief`): תמיכות, "תרומות ישראל", הוראות קבע, פיגורי גמ"ח, חפצים באיחור, בקשות, סבבי חלוקה ויארצייט בשבוע הקרוב — ממוין לפי דחיפות, כל שורה עם `view` למסך שלה. **קריאה בלבד, בלי פנייה אוטומטית.** `sources` = התחומים הפתוחים ברישיון. ערוץ `dashboard:getMorningBrief` (`data.view`), מוצג בראש לוח הבקרה (`renderMorningBrief` ב-`ui/views-general.js`) רק כשיש פריטים |
 | `core/mixEngine.js` + `core/mortgageRules.js` + `services/mortgageLabService.js` | מעבדת תמהיל (הועבר מ-tamhil): 7 סוגי מסלולים, פריים לפי מסלול ריבית, משתנה לפי עוגן, גרייס, בדיקות 329, סלים אחידים, כושר החזר, מחזור, השוואת אישורים, עמלת פירעון, אופטימייזר ושימור. ערוצי `mlab:*`. אוסף `mortgageLab`. אימות כלל — `users.manage` בלבד |
 | `core/collect.js` + `services/collectService.js` | גבייה מלקוחות של הארגון (מסך `collect`): דרישת תשלום לחשבונית / תרומה / תשלום בגמ"ח, עם קישור לדף התשלום של **חשבון הסוחר של הארגון** — הכסף לא עובר דרכנו. **בלי פרטי אשראי ובלי רשת**: הקישור נבנה מתבנית (https בלבד, משתנים מקודדים), והתשלומים נקלטים מדוח CSV של חברת הסליקה — התאמה לפי מספר הדרישה (P00012), אחרת שם+סכום ייחודיים; עסקה שנקלטה לא נרשמת שוב. התשלום נרשם בשירות של התחום (`recordPayment` / `addDonation` / גמ"ח) — ולכן ה-IPC בודק גם את הרישיון של אותו תחום (`COLLECT_DOMAIN`). אוסף `payments`. הגדרת הקישור — `users.manage` |
 
@@ -130,9 +134,12 @@ python -m unittest test_encryption -v
 - `data.delete` — מחיקה/ביטול (`delete*`, `reverse*`, `cancel*`)
 - `data.backup` / `data.restore` / `data.export`
 - `users.manage` — `users:*`, `audit:*`, `settings:saveAdvanced` (מנהל בלבד)
+- תפקידים (`core/database.js` → `ROLES`): `admin`, `editor`, `viewer`, `accountant` (רואה חשבון — `data.view` + `data.export` בלבד)
 ערוצים ציבוריים מוגדרים ב-`PUBLIC_CHANNELS` — **אל תוסיף לשם בלי סיבה מוצדקת**. (`auth:google-login` ציבורי: הוא מאמת את הזהות מול Google בעצמו, ונכנס רק למשתמש שקושר מראש.)
 
 **רישוי:** אחרי בדיקת התפקיד, `runGuarded` בודק גם את הרישיון (`shell/licensing/gate.js`). ההרשאה בפועל היא חיתוך של התפקיד עם הרישיון. תחילית ערוצים חדשה לתחום שנפתח בנפרד → להוסיף ל-`ECON_SUB_FEATURES` (ראו docs/LICENSING-DESIGN.md).
+**קובץ הרישוי גלוי, השומר מוצפן:** `license-key.bin` (DPAPI) מחזיק `{ v: 2, key, guard: { lastSeen, notices } }` — מזהי ההודעות שקובעות את מצב המערכת הזו. כל כתיבה דרך `save()` ב-`store.js` מעדכנת אותו; **אל תכתוב ל-`storage` של הרישוי ישירות** (חוץ מ-lastSeen ב-`compute`, שמעדכן גם את השומר). הודעה שחסרה בקובץ אבל קיימת בשומר = נעול (`tests/licensing-tamper.test.js`).
+**מסך שמצרף נתונים מכמה תחומים** (מאגר אנשים, לוח בוקר) — חייב לסנן לפי `gate.peopleSources(licenseState())`, אחרת הוא עוקף את הרישיון של התחומים הסגורים.
 
 ### 3. אטומיות במסד הנתונים
 כל פעולה על ה-DB עוברת דרך `enqueue()` — תור שמבטיח הרצה סדרתית.
@@ -219,14 +226,14 @@ tests/                   — בדיקות
 
 התוכנה מוצגת למשתמש כ**תוכנה אחת** עם סרגל אחד (`shell/`). מסך חדש במודול הכלכלי:
 
-1. כפתור ב-`modules/econ/views/index.html` (`<button class="nav" data-view="...">אייקון <span>שם</span></button>`), כותרת ב-`viewTitles` וטעינה/רינדור ב-`unified-ui.js`.
+1. כפתור ב-`modules/econ/views/index.html` (`<button class="nav" data-view="...">אייקון <span>שם</span></button>`), כותרת ב-`viewTitles` (`ui/core.js`) וטעינה/רינדור בקובץ התחום ב-`modules/econ/ui/` (או קובץ חדש שם — ראו `ui/*.js` למעלה).
 2. **פריט בקטלוג** `shell/catalog.js` בתחום המתאים (כספים / משק בית ותכנון / משכנתאות ונדל"ן / ארגון ועבודה / בריאות וכושר / מערכת), עם `icon`, `name`, `desc` בעברית.
 3. ערוצי IPC חדשים — דרך `handle()` ב-`ipc.js` בלבד, וחשיפה ב-`modules/econ/preload.js`.
 4. קובץ בדיקות `tests/<name>.test.js` — נאסף אוטומטית.
 
 **רשת ביטחון:** מסך ששלב 2 נשכח בו לא נעלם — `catalog.extrasFromHtml` מזהה אותו מהסרגל הפנימי ו-`main.js` מציג אותו בסרגל האחיד תחת "נוספו לאחרונה". אבל `tests/catalog.test.js` ייכשל עד שיתווסף לקטלוג במקומו הנכון — זו התזכורת.
 
-**עבודה מקבילה:** לפני עריכה של `shell/catalog.js`, `main.js`, `preload.js` או `unified-ui.js` — קרא את הגרסה העדכנית מהדיסק (ייתכן שסשן אחר שינה אותה), ערוך בעריכה נקודתית ולא בכתיבה מחדש של הקובץ כולו, והרץ `npm test` בסוף.
+**עבודה מקבילה:** לפני עריכה של `shell/catalog.js`, `main.js`, `preload.js` או `modules/econ/ui/*.js` — קרא את הגרסה העדכנית מהדיסק (ייתכן שסשן אחר שינה אותה), ערוך בעריכה נקודתית ולא בכתיבה מחדש של הקובץ כולו, והרץ `npm test` בסוף.
 
 ---
 

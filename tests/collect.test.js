@@ -179,7 +179,7 @@ test('הרשאות וערוצים: הגדרות הקישור — מנהל בלב
 test('מסך הגבייה רשום בכל המקומות: סרגל פנימי, קטלוג, כותרת, טעינה ורינדור', () => {
   const root = path.join(__dirname, '..');
   const html = fs.readFileSync(path.join(root, 'modules/econ/views/index.html'), 'utf8');
-  const ui = fs.readFileSync(path.join(root, 'modules/econ/unified-ui.js'), 'utf8');
+  const ui = require('./helpers/econ-ui').source();
   const catalog = require('../shell/catalog');
   assert.match(html, /data-view="collect"/);
   assert.match(ui, /'collect': 'גבייה וקישורי תשלום'/);

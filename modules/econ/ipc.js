@@ -25,6 +25,7 @@ const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/m
 const { MortgageLabService: mortgageLabService } = require('./services/mortgageLabService');
 const BK = require('./core/backupCrypto');
 const DP = require('./core/dataPorts');
+const MB = require('./core/dashboard');
 const { IDLE_MIN_RANGE } = require('./services/authService');
 const path = require('path');
 const LG = require('../../shell/licensing/gate');
@@ -153,7 +154,7 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStor
   const maxAttachmentBytes = ad.platform === 'android' ? 1024 * 1024 : 40 * 1024 * 1024;
   chatStore = createChatStore({ storage: chatStorage || ad.chat, clock, maxAttachmentBytes });
   ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock, maxAttachmentBytes });
-  // קודם המאגר ואז הסנכרון: הסנכרון מחזיק את המאגר שקיבל (בהפעלה ראשונה הוא היה null — מסך ההודעות נתקע)
+  // מחסן הרישוי נוצר לפני הסנכרון: createLicenseSync שומר את ההפניה, ו-null כאן הפיל כל פעולה מרחוק
   licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
   licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock,
     chat: chatStore, ownerChat: ownerChatStore, updates: updateManager, isRestTime: () => restTime(),
@@ -985,11 +986,17 @@ function registerIpcHandlers() {
   // חסד וחלוקות: נזקקים, מתנדבים וסבבי חלוקה. פרטי נזקק חסוי (מתן בסתר) — למנהל בלבד
   const canSeeConfidential = (event) => authService.hasPermission(event.sender.id, 'users.manage');
   // מאגר אנשים — קריאה בלבד. נזקק חסוי נכלל רק למי שמורשה לראות חסויים (כמו במסך החסד)
-  handle('people:search', async (event, query) => peopleService.search(query, canSeeConfidential(event)));
+  // רק התחומים הפתוחים ברישיון — כרטיס אדם לא חושף תחום סגור (סקירת אבטחה 10.2026, ממצא 6)
+  handle('people:search', async (event, query) => peopleService.search(query, canSeeConfidential(event), LG.peopleSources(licenseState())));
   handle('people:getCard', async (event, key) => {
-    const c = await peopleService.getCard(key, canSeeConfidential(event));
+    const c = await peopleService.getCard(key, canSeeConfidential(event), LG.peopleSources(licenseState()));
     if (c.beneficiary.some(b => b.confidential)) await auditEvent(event, 'chesed.confidential.view', { via: 'people', key });
     return c;
+  });
+  // לוח בוקר: מה דורש טיפול היום בעמותה, בגמ"ח ובחסד. מצרף כמה תחומים — ולכן רק הפתוחים ברישיון
+  handle('dashboard:getMorningBrief', async () => {
+    const sources = LG.peopleSources(licenseState());
+    return MB.morningBrief(await db.load(), localDay(Date.now()), { sources: sources || MB.SOURCES });
   });
   handle('chesed:getOverview', async (event) => {
     const o = await chesedService.getOverview(canSeeConfidential(event));

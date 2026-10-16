@@ -90,6 +90,8 @@ require.cache['/__electron_stub_act__.js'] = { id: '/__electron_stub_act__.js', 
   exports: { ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } } } };
 const ipc = require('../modules/econ/ipc');
 const ev = (id) => ({ sender: { id } });
+// מפתח המכשיר שהרישיון הונפק אליו (הרישיון קשור למפתח — store.js)
+const keySecret = (k) => { let v = JSON.stringify(k.privateJwk); return { read: () => v, write: (t) => { v = t; } }; };
 
 test('ipc: מערכת ברישיון שנתי נעולה עד חיבור לשרת וכניסה עם Google, ונפתחת מיד אחריהם', async () => {
   const root = L.generateKeyPair();
@@ -102,7 +104,7 @@ test('ipc: מערכת ברישיון שנתי נעולה עד חיבור לשר�
     issuedAt: T0, expiresAt: T0 + 365 * DAY, graceDays: 7 });
   fs.writeFileSync(path.join(dir, 'license.json'), JSON.stringify({ chain: [lic], notices: [] }));
   const CLIENT_ID = '1234567890-abcdefghijk.apps.googleusercontent.com';
-  await ipc.initEcon(dir, { rootKeys, clock: () => now,
+  await ipc.initEcon(dir, { rootKeys, clock: () => now, licenseSecret: keySecret(node),
     googleSignIn: async () => ({ sub: 'g-act-1', email: 'moshe@example.org' }) });
 
   await handlers['auth:setup'](ev(21), 'menahel_act', 'a-very-long-pass-2026');
@@ -150,7 +152,7 @@ test('ipc: חוב (pending_payment) נשאר קריאה בלבד — תנאי ה
   const hold = S.createNotice({ privateJwk: root.privateJwk }, { type: 'hold', target: lic.payload.id, kind: 'pending_payment',
     source: 'billing', reason: 'החיוב השנתי נכשל', issuedAt: T0 + DAY });
   fs.writeFileSync(path.join(dir, 'license.json'), JSON.stringify({ chain: [lic], notices: [hold] }));
-  await ipc.initEcon(dir, { rootKeys: [root.publicJwk], clock: () => T0 + 2 * DAY });
+  await ipc.initEcon(dir, { rootKeys: [root.publicJwk], clock: () => T0 + 2 * DAY, licenseSecret: keySecret(node) });
   await handlers['auth:setup'](ev(31), 'menahel_hov', 'a-very-long-pass-2026');
   assert.ok(Array.isArray((await handlers['tasks:get'](ev(31))).tasks), 'הנתונים של הלקוח לא נלקחים כבני ערובה');
   await assert.rejects(handlers['tasks:create'](ev(31), { title: 'משימה' }), /ממתינה לתשלום: החיוב השנתי נכשל/);

@@ -26,6 +26,7 @@ const RATE = { perMinute: 60 };       // בקשות לדקה לכל כתובת
 const ID_RE = /^[A-Za-z0-9_-]{22}$/;  // מזהה מפתח (keyId)
 const KINDS = new Set(['license-request', 'approval-request', 'approval', 'rejection', 'license', 'notices', 'message', 'update', 'signup']);
 const MAX_FROM_SENDER_IN_BOX = 100;   // הודעות של שולח אחד שממתינות בתיבה של אחר — שולח אחד לא ממלא תיבה
+const MAX_SYSTEM_IN_BOX = 5000;       // הודעות מהשרת עצמו (הרשמות ששולמו) — לא נספרות ב-MAX_MAILBOX
 const SEND_PER_HOUR = 500;            // הודעות שמפתח אחד שולח בשעה
 const MAX_NONCES = 200000;            // זיכרון — מעבר לזה השרת עמוס
 const MAX_PREKEYS = 100000;           // מפתחות זמניים שמורים
@@ -93,9 +94,12 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
   const writeJsonFile = (n, v) => { const f = path.join(dataDir, n); fs.writeFileSync(f + '.tmp', JSON.stringify(v)); fs.renameSync(f + '.tmp', f); };
   const ownerBox = () => L.keyId(billing.rootKeys[0]);
   const needBilling = () => { if (!billing || !billing.rootKeys || !billing.rootKeys.length) throw httpError(404, 'השרת אינו מוגדר להרשמה'); };
+  // מסירה מהשרת עצמו (הרשמה ששולמה): לא כפופה לתקרת התיבה של השולחים — אחרת כל אחד יכול למלא את
+  // תיבת מנהל-העל (המזהה ציבורי) ולחסום מסירה של הרשמות ששולמו (סקירת אבטחה 10.2026, ממצא 1).
+  // תקרה נפרדת וגבוהה — רק כדי שהדיסק לא יתמלא
   function deliver(to, kind, bodyText) {
     const box = readBox(to);
-    if (box.length >= MAX_MAILBOX) throw httpError(507, 'תיבת היעד מלאה');
+    if (box.filter(m => m.from === 'relay').length >= MAX_SYSTEM_IN_BOX) throw httpError(507, 'תיבת היעד מלאה');
     writeBox(to, [...box, { id: crypto.randomUUID(), from: 'relay', kind, body: bodyText, at: clock() }]);
   }
 
@@ -133,8 +137,12 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     const paymentId = crypto.randomUUID();
     const co = await billing.provider.createCheckout({ paymentId, amountAgorot: v.plan.priceAgorot,
       description: `${v.plan.name} — ${v.body.customer.org}`, customer: v.body.customer });
-    // הקריאה לספק אסינכרונית — בינתיים בקשות אחרות אולי עדכנו את הקובץ
+    // הקריאה לספק אסינכרונית — בינתיים בקשות אחרות אולי עדכנו את הקובץ. הקריאה-כתיבה עצמה
+    // סינכרונית (בלי await באמצע), ולכן webhook או checkout אחר לא יכולים להיכנס בין הקריאה לכתיבה
     const fresh = readJsonFile('payments.json', []).filter(x => x.status !== 'pending' || clock() - x.createdAt < PAYMENT_TTL_MS);
+    // ייתכן ששתי בקשות לאותה הרשמה רצו במקביל, והראשונה כבר נרשמה — לא פותחים תשלום שני
+    const raced = fresh.find(x => x.signupId === v.body.id && (x.status === 'paid' || x.status === 'pending'));
+    if (raced) return { ok: true, paymentId: raced.id, url: raced.status === 'pending' ? raced.url : undefined, status: raced.status };
     writeJsonFile('payments.json', [...fresh, { id: paymentId, keyId: from, signupId: v.body.id, amountAgorot: v.plan.priceAgorot,
       checkoutId: co.checkoutId, url: co.url, status: 'pending', createdAt: now, signup: p.signup }]);
     return { ok: true, paymentId, url: co.url, status: 'pending' };
@@ -156,14 +164,17 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     if (!x) throw httpError(404, 'התשלום לא נמצא');
     if (x.status !== 'pending') return { ok: true, duplicate: true }; // הודעה כפולה מהספק
     if (ev.status === 'paid' && ev.amountAgorot !== x.amountAgorot) throw httpError(400, 'הסכום ששולם אינו תואם');
-    x.status = ev.status;
-    x.providerRef = ev.providerRef;
-    x.updatedAt = clock();
-    writeJsonFile('payments.json', all);
+    const at = clock();
+    // קודם מוסרים, ורק אז מסמנים "שולם": אם המסירה נכשלה, התשלום נשאר pending והספק ינסה שוב.
+    // בסדר ההפוך, ניסיון חוזר של הספק קיבל "כפול" — והלקוח שילם בלי לקבל רישיון
     if (ev.status === 'paid') {
       deliver(ownerBox(), 'signup', JSON.stringify({ type: 'supersuite-signup-delivery', signup: x.signup,
-        payment: { id: x.id, amountAgorot: x.amountAgorot, provider: billing.provider.name, providerRef: x.providerRef, paidAt: x.updatedAt } }));
+        payment: { id: x.id, amountAgorot: x.amountAgorot, provider: billing.provider.name, providerRef: ev.providerRef, paidAt: at } }));
     }
+    x.status = ev.status;
+    x.providerRef = ev.providerRef;
+    x.updatedAt = at;
+    writeJsonFile('payments.json', all);
     return { ok: true };
   }
 
@@ -212,7 +223,8 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
       const boxes = new Map();
       for (const [to, msgs] of byBox) {
         const box = readBox(to);
-        if (box.length + msgs.length > MAX_MAILBOX) throw httpError(507, 'תיבת היעד מלאה');
+        // התקרה סופרת רק הודעות של שולחים — הודעות מהשרת (הרשמות ששולמו) לא תופסות מקום של אחרים
+        if (box.filter(m => m.from !== 'relay').length + msgs.length > MAX_MAILBOX) throw httpError(507, 'תיבת היעד מלאה');
         if (box.filter(m => m.from === from).length + msgs.length > MAX_FROM_SENDER_IN_BOX) throw httpError(429, 'יותר מדי הודעות שטרם נקראו אצל הנמען');
         boxes.set(to, [...box, ...msgs]);
       }
@@ -235,15 +247,27 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
 
 function httpError(status, message) { const e = new Error(message); e.status = status; return e; }
 
-// כתובת הלקוח. מאחורי שרת TLS באותו מחשב (trustProxy) — הכתובת האחרונה ב-X-Forwarded-For, שהשרת הקדמי מוסיף.
-// רק כשהחיבור עצמו מגיע מהמחשב המקומי — אחרת כל אחד יכול לזייף כותרת ולעקוף את הגבלת הקצב
-const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-function clientIp(req, trustProxy) {
-  const direct = req.socket.remoteAddress || '';
-  if (!trustProxy || !LOOPBACK.has(direct)) return direct;
-  const xff = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
-  const last = xff[xff.length - 1];
-  return last && last.length <= 64 ? last : direct;
+// ספק הבדיקות נותן לכל אחד ללחוץ "שולם" ולקבל רישיון בחינם. טעות בפקודת ההפעלה בשרת אמיתי
+// לא תפעיל אותו בשקט (ממצא 8): דורשים הסכמה מפורשת, ואף פעם לא עם תעודה או כתובת https ציבורית
+function assertPaymentConfig({ pay, cert, publicUrl, env = {} }) {
+  if (pay !== 'test') return;
+  if (env.SS_ALLOW_TEST_PAYMENTS !== '1') throw new Error('ספק הבדיקות (--pay test) מאשר תשלומים בלי חיוב. להפעלה בבדיקות בלבד: SS_ALLOW_TEST_PAYMENTS=1');
+  if (cert) throw new Error('ספק הבדיקות אינו מופעל עם תעודת HTTPS — זה נראה כמו שרת אמיתי');
+  let host = '';
+  try { host = new URL(String(publicUrl || '')).hostname; } catch { /* ייבדק אצל הספק */ }
+  if (host && !['localhost', '127.0.0.1', '[::1]'].includes(host) && !host.endsWith('.test') && !host.endsWith('.localhost')) {
+    throw new Error('ספק הבדיקות מופעל רק עם כתובת מקומית (localhost / ‎.test) — לא ' + host);
+  }
+}
+
+// כתובת הלקוח להגבלת קצב. מאחורי שרת TLS (nginx וכו') remoteAddress הוא תמיד הפרוקסי, וכל הלקוחות
+// חולקים מכסה אחת (ממצא 5). trustProxy — רק כשהשרת באמת מאחורי פרוקסי: אחרת כל לקוח יכול לזייף את הכותרת.
+// לוקחים את הכתובת האחרונה ברשימה — זו שהפרוקסי שלנו הוסיף, ולא מה שהלקוח שלח
+function clientAddress(req, trustProxy) {
+  const direct = (req.socket && req.socket.remoteAddress) || '';
+  if (!trustProxy) return direct;
+  const fwd = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
+  return fwd.length ? fwd[fwd.length - 1] : direct;
 }
 
 function createServer({ dataDir, cert, key, clock, billing, trustProxy = false }) {
@@ -271,7 +295,7 @@ function createServer({ dataDir, cert, key, clock, billing, trustProxy = false }
     };
     if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, service: 'supersuite-license-relay' });
     if (req.url.startsWith('/pay/')) {
-      try { relay.rateLimit(clientIp(req, trustProxy)); } catch (e) { return send(e.status, { ok: false, error: e.message }); }
+      try { relay.rateLimit(clientAddress(req, trustProxy)); } catch (e) { return send(e.status, { ok: false, error: e.message }); }
     }
     // webhook מספק התשלום
     if (req.method === 'POST' && req.url === '/pay/webhook') {
@@ -306,7 +330,7 @@ function createServer({ dataDir, cert, key, clock, billing, trustProxy = false }
       let body;
       try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return send(400, { ok: false, error: 'בקשה לא תקינה' }); }
       const fail = (e) => { send(e.status || 500, { ok: false, error: e.status ? e.message : 'שגיאה בשרת' }); if (!e.status) console.error(e); };
-      try { Promise.resolve(relay.handle(body, clientIp(req, trustProxy))).then(r => send(200, r), fail); }
+      try { Promise.resolve(relay.handle(body, clientAddress(req, trustProxy))).then(r => send(200, r), fail); }
       catch (e) { fail(e); }
     });
   };
@@ -326,18 +350,25 @@ if (require.main === module) {
   for (let i = 0; i < argv.length; i += 2) a[argv[i].replace(/^--/, '')] = argv[i + 1];
   const port = Number(a.port || process.env.PORT || 8443);
   // הרשמה ותשלום: --root-pub <קובץ המפתח הציבורי של מנהל-העל> --pay test|<ספק> --public-url https://...
+  // מאחורי פרוקסי TLS: --trust-proxy 1 (הגבלת הקצב לפי X-Forwarded-For)
   let billing = null;
-  if (a['root-pub']) {
-    const rootKeys = [JSON.parse(fs.readFileSync(a['root-pub'], 'utf8'))];
-    const provider = a.pay ? createProvider(a.pay, { publicUrl: a['public-url'], secret: process.env.SS_PAY_SECRET }) : null;
-    if (provider && provider.name === 'test') console.warn('⚠ ספק תשלום לבדיקות — אין חיוב אמיתי');
-    billing = { rootKeys, provider };
+  try {
+    if (a['root-pub']) {
+      const rootKeys = [JSON.parse(fs.readFileSync(a['root-pub'], 'utf8'))];
+      assertPaymentConfig({ pay: a.pay, cert: a.cert, publicUrl: a['public-url'], env: process.env });
+      const provider = a.pay ? createProvider(a.pay, { publicUrl: a['public-url'], secret: process.env.SS_PAY_SECRET }) : null;
+      if (provider && provider.name === 'test') console.warn('⚠ ספק תשלום לבדיקות — אין חיוב אמיתי');
+      billing = { rootKeys, provider };
+    }
+  } catch (e) {
+    console.error('שגיאה בהגדרות השרת: ' + e.message);
+    process.exit(1);
   }
-  // מאחורי שרת TLS באותו מחשב (Caddy): --host 127.0.0.1 --trust-proxy yes
-  const trustProxy = a['trust-proxy'] === 'yes';
+  // מאחורי שרת TLS (Caddy / nginx): --trust-proxy 1 (או yes). --host 127.0.0.1 — כשהשרת הקדמי באותו מחשב
+  const trustProxy = a['trust-proxy'] === '1' || a['trust-proxy'] === 'yes';
   const host = a.host || '0.0.0.0';
   const server = createServer({ dataDir: path.resolve(a.data || 'relay-data'), cert: a.cert, key: a.key, billing, trustProxy });
   server.listen(port, host, () => console.log(`שרת הרישוי פועל ב-${host}:${port}${a.cert ? ' (HTTPS)' : ' (HTTP — יש להפעיל מאחורי TLS)'}${trustProxy ? ', מאחורי שרת קדמי' : ''}`));
 }
 
-module.exports = { createRelay, createServer, clientIp, KINDS };
+module.exports = { createRelay, createServer, KINDS, clientAddress, assertPaymentConfig, MAX_MAILBOX };

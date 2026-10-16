@@ -7,6 +7,7 @@
 //
 //   node tools/licensing/owner.js init
 //   node tools/licensing/owner.js pubkey
+//   node tools/licensing/owner.js install-root      הוספת המפתח הציבורי ל-shell/licensing/root-keys.js (בלי סיסמה)
 //   node tools/licensing/owner.js issue --request req.json --features econ,econ.npo,tools --max-children 3 \
 //        --max-users 10 --max-storage 5000 --max-depth 2 --months 12 [--grace 7] [--name "..."] --out lic.sslic
 //   node tools/licensing/owner.js list
@@ -24,6 +25,40 @@ const fs = require('fs');
 const path = require('path');
 const S = require('../../shell/licensing/status');
 const { createOwnerCore, dirStorage } = require('../../shell/licensing/owner-core');
+const L = require('../../shell/licensing/license');
+
+const ROOT_KEYS_FILE = path.join(__dirname, '..', '..', 'shell', 'licensing', 'root-keys.js');
+
+// root-keys.js עם המפתח הציבורי הנוסף. מפתחות קיימים נשמרים (החלפת מפתח בלי לפסול רישיונות), ומפתח קיים לא נוסף פעמיים.
+// מפתח ציבורי בלבד: JWK עם d (מפתח פרטי) נדחה — כדי שלא ייארז בטעות בתוכנה שנשלחת ללקוחות
+function rootKeysSource(existing, publicJwk) {
+  if (!publicJwk || typeof publicJwk !== 'object') throw new Error('המפתח הציבורי אינו תקין');
+  if ('d' in publicJwk) throw new Error('זה מפתח פרטי! לקובץ נכנס רק המפתח הציבורי (root.pub.json)');
+  const id = L.keyId(publicJwk);
+  const keys = Array.isArray(existing) ? existing : [];
+  const added = !keys.some(k => L.keyId(k) === id);
+  const all = added ? [...keys, { kty: publicJwk.kty, crv: publicJwk.crv, x: publicJwk.x }] : keys;
+  const text = [
+    '// מפתחות השורש (Owner) המהימנים — מפתחות ציבוריים בלבד, בפורמט JWK.',
+    '// ריק = התקנה בלי רישוי: הכול פתוח. נוסף ב: node tools/licensing/owner.js install-root',
+    '// יותר ממפתח אחד מאפשר החלפת מפתח בלי לפסול רישיונות קיימים.',
+    'module.exports = [',
+    ...all.map(k => '  ' + JSON.stringify(k) + ', // ' + L.keyId(k)),
+    '];',
+    '',
+  ].join('\n');
+  return { text, added, keyId: id, count: all.length };
+}
+
+function installRoot(dir, file = ROOT_KEYS_FILE) {
+  let pub;
+  try { pub = JSON.parse(fs.readFileSync(path.join(dir, 'root.pub.json'), 'utf8')); }
+  catch { throw new Error('לא נמצא root.pub.json בתיקייה ' + dir + ' — יש להריץ קודם init'); }
+  delete require.cache[require.resolve(file)];
+  const r = rootKeysSource(require(file), pub);
+  if (r.added) fs.writeFileSync(file, r.text);
+  return r;
+}
 
 function parseArgs(argv) {
   const out = { _: [] };
@@ -66,11 +101,16 @@ function main(argv) {
     case 'init': {
       const r = owner.init();
       console.log('נוצר מפתח שורש ' + r.keyId);
-      console.log('יש להוסיף ל-shell/licensing/root-keys.js:\n' + JSON.stringify(r.publicKey));
+      console.log('השלב הבא — הוספת המפתח הציבורי לתוכנה: node tools/licensing/owner.js install-root');
       console.log('חשוב: גבו את התיקייה ואת הסיסמה. בלי מפתח השורש אי אפשר לחדש רישיונות.');
       return;
     }
     case 'pubkey': return console.log(JSON.stringify(owner.pubkey()));
+    case 'install-root': {
+      const r = installRoot(path.resolve(a.dir || 'owner-data'));
+      console.log(r.added ? `המפתח ${r.keyId} נוסף ל-root-keys.js (${r.count} מפתחות). מהבנייה הבאה — הרישוי פעיל.` : `המפתח ${r.keyId} כבר קיים ב-root-keys.js — לא שונה דבר`);
+      return;
+    }
     case 'issue': {
       if (!a.request) throw new Error('חסר --request');
       const r = owner.issue({
@@ -99,7 +139,7 @@ function main(argv) {
     case 'revoke': return console.log(owner.revoke({ childId: a.child, reason: a.reason }));
     case 'notices': if (!a.target) throw new Error('חסר --target'); return out(owner.noticesPackage(a.target));
     default:
-      console.log('פקודות: init | pubkey | issue | list | hold | release | terminate | kill | notices | review | approve | approvals | revoke (פירוט בראש הקובץ)');
+      console.log('פקודות: init | pubkey | install-root | issue | list | hold | release | terminate | kill | notices | review | approve | approvals | revoke (פירוט בראש הקובץ)');
   }
 }
 
@@ -108,4 +148,4 @@ if (require.main === module) {
   catch (e) { console.error('שגיאה: ' + e.message); process.exitCode = 1; }
 }
 
-module.exports = { createOwner, main };
+module.exports = { createOwner, main, rootKeysSource, installRoot };

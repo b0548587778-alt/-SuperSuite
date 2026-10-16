@@ -25,13 +25,19 @@ const T0 = Date.UTC(2026, 9, 1);
 const root = L.generateKeyPair();
 const rootKeys = [root.publicJwk];
 
+// מפתח הצומת של כל רישיון — רישיון מותקן תמיד יחד עם המפתח שלו (store בודק, סקירת אבטחה ממצא 7)
+const NODE_KEYS = new WeakMap();
+// הקובץ המוצפן בפורמט הישן (המפתח בלבד) — כך נבדקת גם ההמרה לשומר
+const secretFor = (lic) => { const m = mem(); m.write(JSON.stringify(NODE_KEYS.get(lic))); return m; };
 function tenantLicense(over = {}) {
   const keys = L.generateKeyPair();
-  return L.issueLicense({ privateJwk: root.privateJwk }, {
+  const lic = L.issueLicense({ privateJwk: root.privateJwk }, {
     name: 'ישיבת תפארת ציון', publicKey: keys.publicJwk, slot: 1, features: ['econ', 'econ.npo', 'tools'],
     limits: { maxChildren: 0, maxUsers: 2, maxStorageMb: 100, maxDepth: 1 },
     issuedAt: T0, expiresAt: T0 + 365 * DAY, graceDays: 7, ...over,
   });
+  NODE_KEYS.set(lic, keys.privateJwk);
+  return lic;
 }
 const active = (over = {}) => ({ mode: 'licensed', status: 'active', features: ['econ', 'econ.npo'], limits: { maxUsers: 3 }, reasons: [], ...over });
 
@@ -94,10 +100,12 @@ test('store: קובץ פגום — נעול; בלי מפתחות שורש — ל
 test('store: שומר lastSeen, והחזרת השעון אחורה לא מחזירה רישיון שפג', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-lic-'));
   const file = path.join(dir, 'license.json');
-  fs.writeFileSync(file, JSON.stringify({ chain: [tenantLicense()], notices: [] }));
-  assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 + 380 * DAY }).current().status, 'pending_payment');
+  const lic = tenantLicense();
+  const sec = secretFor(lic);
+  fs.writeFileSync(file, JSON.stringify({ chain: [lic], notices: [] }));
+  assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: sec, rootKeys, clock: () => T0 + 380 * DAY }).current().status, 'pending_payment');
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).lastSeen, T0 + 380 * DAY);
-  assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 + DAY }).current().status, 'pending_payment');
+  assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: sec, rootKeys, clock: () => T0 + DAY }).current().status, 'pending_payment');
 });
 
 test('store: מטמון מתרענן ב-invalidate', () => {
@@ -105,7 +113,7 @@ test('store: מטמון מתרענן ב-invalidate', () => {
   const file = path.join(dir, 'license.json');
   const lic = tenantLicense();
   fs.writeFileSync(file, JSON.stringify({ chain: [lic], notices: [] }));
-  const store = createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 + DAY });
+  const store = createLicenseStore({ storage: fileStorage(fs, file), secret: secretFor(lic), rootKeys, clock: () => T0 + DAY });
   assert.equal(store.current().status, 'active');
   const hold = S.createNotice({ privateJwk: root.privateJwk }, { type: 'hold', target: lic.payload.id, kind: 'locked',
     source: 'owner', reason: 'בדיקה', issuedAt: T0 + DAY });
@@ -121,7 +129,7 @@ test('ipc: הרישיון נאכף מעל התפקיד — תחום סגור, מ
   const lic = tenantLicense();
   fs.writeFileSync(file, JSON.stringify({ chain: [lic], notices: [] }));
   markActivated(dir, T0 + DAY);
-  await ipc.initEcon(dir, { rootKeys, clock: () => T0 + DAY });
+  await ipc.initEcon(dir, { rootKeys, clock: () => T0 + DAY, licenseStorage: fileStorage(fs, file), licenseSecret: secretFor(lic) });
 
   await handlers['auth:setup'](ev(5), 'menahel_1', 'a-very-long-pass-2026');
   await handlers['auth:login'](ev(5), 'menahel_1', 'a-very-long-pass-2026');
@@ -129,6 +137,14 @@ test('ipc: הרישיון נאכף מעל התפקיד — תחום סגור, מ
   // מנהל עם כל ההרשאות — ובכל זאת הנה"ח אינה ברישיון
   await assert.rejects(handlers['acct:getJournal'](ev(5), {}), /אינו כלול ברישיון/);
   assert.ok(Array.isArray((await handlers['tasks:get'](ev(5))).tasks));
+
+  // מאגר האנשים: הרישיון כולל עמותה ולא גמ"ח — לווה מהגמ"ח אינו נחשף בכרטיס אדם (סקירת אבטחה, ממצא 6)
+  const data = await ipc.getDb().load();
+  await ipc.getDb().save({ ...data,
+    npo: { ...(data.npo || {}), donations: [{ id: 'd1', donorName: 'אברהם כהן', date: '2026-09-01', amount: 180, status: 'active' }] },
+    gemach: { ...(data.gemach || {}), loans: [{ id: 'l1', borrowerName: 'יצחק לוי', amount: 1000, installments: 1, issueDate: '2026-01-01', status: 'active', schedule: [], guarantors: [] }] } });
+  const people = (await handlers['people:search'](ev(5), '')).rows.map(r => r.name);
+  assert.deepEqual(people, ['אברהם כהן']);
 
   // maxUsers = 2: המנהל + עוד אחד
   await handlers['users:create'](ev(5), { username: 'mazkir_1', password: 'another-long-pass-2026', role: 'editor' });

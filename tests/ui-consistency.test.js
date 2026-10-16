@@ -1,7 +1,8 @@
 // אחידות חזותית בין המסכים והמודולים (רגרסיות מסקירת צילומי המסכים).
-// המודול הכלכלי: unified-ui.js רץ ב-vm עם DOM מדומה ונבדק מה המשתמש רואה.
+// המודול הכלכלי: ממשק המודול (modules/econ/ui) רץ ב-vm עם DOM מדומה ונבדק מה המשתמש רואה.
 // שמאות ואימונים: בדיקות סטטיות לקבצי הסגנון והתבנית (המודולים אינם נטענים ב-Node).
 const test = require('node:test');
+const EconUI = require('./helpers/econ-ui');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -9,7 +10,7 @@ const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
-const UI_SRC = read('modules/econ/unified-ui.js');
+const UI_SRC = EconUI.source();
 const HTML = read('modules/econ/views/index.html');
 const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]))];
 
@@ -49,7 +50,7 @@ async function makeHarness(responses = {}) {
   context.window = context;
   context.window.systemAPI = systemAPI;
   vm.createContext(context);
-  vm.runInContext(UI_SRC, context, { filename: 'unified-ui.js' });
+  EconUI.run(context);
   await settle();
   return { elements, navButtons };
 }

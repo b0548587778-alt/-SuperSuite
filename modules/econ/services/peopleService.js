@@ -10,14 +10,15 @@ class PeopleService {
     if (db) this.db = db;
   }
 
-  async search(query, canSeeConfidential) {
+  // sources: התחומים הפתוחים ברישיון (gate.peopleSources). בלי ערך — כל התחומים (התקנה בלי רישוי)
+  async search(query, canSeeConfidential, sources) {
     const data = await this.db.load();
-    return P.search(data, String(query ?? '').slice(0, 100), { canSeeConfidential: !!canSeeConfidential });
+    return P.search(data, String(query ?? '').slice(0, 100), { canSeeConfidential: !!canSeeConfidential, sources: sources || P.SOURCES });
   }
 
-  async getCard(key, canSeeConfidential) {
+  async getCard(key, canSeeConfidential, sources) {
     const data = await this.db.load();
-    return P.card(data, key, { canSeeConfidential: !!canSeeConfidential });
+    return P.card(data, key, { canSeeConfidential: !!canSeeConfidential, sources: sources || P.SOURCES });
   }
 }
 

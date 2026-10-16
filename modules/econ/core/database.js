@@ -175,8 +175,16 @@ const migrations = [
           SELECT 'viewer', id FROM permissions WHERE name IN ('data.view')`
   },
   {
-    // קישור משתמש מקומי לחשבון Google (כניסה נוספת — לא מחליפה את הסיסמה). נשמרת רק הזהות, בלי אסימונים
+    // רואה חשבון: צפייה וייצוא בלבד — בלי עריכה, מחיקה, גיבוי/שחזור או ניהול משתמשים.
+    // נזקק חסוי מוסתר ממנו כמו מכל מי שאין לו users.manage
     version: 8,
+    sql: `INSERT OR IGNORE INTO roles (id, name) VALUES ('accountant', 'accountant');
+          INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+          SELECT 'accountant', id FROM permissions WHERE name IN ('data.view', 'data.export')`
+  },
+  {
+    // קישור משתמש מקומי לחשבון Google (כניסה נוספת — לא מחליפה את הסיסמה). נשמרת רק הזהות, בלי אסימונים
+    version: 9,
     sql: `CREATE TABLE IF NOT EXISTS auth_google_links (
       user_id TEXT PRIMARY KEY,
       google_sub TEXT NOT NULL UNIQUE,
@@ -187,7 +195,7 @@ const migrations = [
   }
 ];
 
-const ROLES = ['admin', 'editor', 'viewer'];
+const ROLES = ['admin', 'editor', 'viewer', 'accountant'];
 
 const PASSWORD_MIN_LENGTH = 12;
 const LOCKOUT_MS = 15 * 60 * 1000;

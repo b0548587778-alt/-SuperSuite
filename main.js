@@ -405,12 +405,19 @@ async function backupAll(passphrase, scope = 'all') {
 
 function openBackupText(text, passphrase) {
   if (!BK.isEncryptedBackup(text)) return text; // גיבוי ישן (JSON גלוי) — נקרא בלבד, לא נכתב
+  // קוד שחזור (גיבוי אוטומטי ממחשב אחר) — מזוהה לפי הצורה; אם לא נפתח בו, ננסה אותו כסיסמה רגילה
+  if (passphrase && AutoBk.looksLikeRecoveryCode(passphrase)) {
+    let codeError;
+    try { return BK.decryptBackup(text, AutoBk.keyFromRecoveryCode(passphrase)); } catch (e) { codeError = e; }
+    try { return BK.decryptBackup(text, passphrase); } catch { /* לא סיסמה — מדווחים על הקוד */ }
+    throw /קוד השחזור/.test(codeError.message) ? codeError : new Error('קוד השחזור אינו של הגיבוי הזה — ייתכן שהגיבוי נוצר במחשב אחר');
+  }
   if (passphrase) return BK.decryptBackup(text, passphrase);
   let key;
   try { key = autoBackupKey(false); }
   catch (e) {
     // אין מפתח מקומי: ייתכן שזה גיבוי ידני (סיסמה) או גיבוי אוטומטי ממחשב אחר — אומרים את שתי האפשרויות
-    throw new Error('הקובץ מוצפן. אם זה גיבוי ידני — הזן את סיסמת הגיבוי. ' + e.message);
+    throw new Error('הקובץ מוצפן. אם זה גיבוי ידני — הזן את סיסמת הגיבוי; אם זה גיבוי אוטומטי ממחשב אחר — הזן את קוד השחזור שלו. ' + e.message);
   }
   try { return BK.decryptBackup(text, key); } catch {
     throw new Error('הקובץ מוצפן בסיסמת גיבוי — הזן אותה כדי לשחזר');
@@ -631,7 +638,20 @@ app.whenReady().then(async () => {
   ipcMain.handle('shell:get-backup-status', (e) => {
     if (!win || e.sender.id !== win.webContents.id) throw new Error('הפעולה מותרת מתוך המעטפת בלבד');
     if (!econLoggedIn()) return null;
-    return AutoBk.describeStatus(loadJson(backupSettingsFile()).lastAutoBackup);
+    const s = loadJson(backupSettingsFile());
+    const text = AutoBk.describeStatus(s.lastAutoBackup);
+    // בלי קוד שחזור רשום, תקלה במחשב = אובדן כל הגיבויים האוטומטיים — מזכירים עד שנרשם
+    return s.recoveryCodeSavedAt || !safeStorage.isEncryptionAvailable() ? text : [text, '⚠ טרם נרשם קוד שחזור (🔑)'].filter(Boolean).join(' · ');
+  });
+  // קוד השחזור של הגיבוי האוטומטי: נוצר מהמפתח (ויוצר אותו אם אין עדיין). מי שמורשה לגבות — מורשה לראות
+  ipcMain.handle('shell:get-recovery-code', (e) => {
+    shellGuard(e, 'data.backup');
+    return AutoBk.recoveryCodeFromKey(autoBackupKey(true));
+  });
+  ipcMain.handle('shell:recovery-code-saved', (e) => {
+    shellGuard(e, 'data.backup');
+    saveJson(backupSettingsFile(), { ...loadJson(backupSettingsFile()), recoveryCodeSavedAt: new Date().toISOString() });
+    return true;
   });
   ipcMain.handle('shell:pick-backup-target', async (e) => {
     shellGuard(e, 'data.backup');

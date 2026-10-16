@@ -188,6 +188,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   minimizePrivacy: (ids, years) => ipcRenderer.invoke('privacy:minimize', ids, years),
   searchPeople: (query) => ipcRenderer.invoke('people:search', query),
   getPersonCard: (key) => ipcRenderer.invoke('people:getCard', key),
+  getMorningBrief: () => ipcRenderer.invoke('dashboard:getMorningBrief'),
   addChesedBeneficiary: (input) => ipcRenderer.invoke('chesed:addBeneficiary', input),
   updateChesedBeneficiary: (id, input) => ipcRenderer.invoke('chesed:updateBeneficiary', id, input),
   deleteChesedBeneficiary: (id) => ipcRenderer.invoke('chesed:deleteBeneficiary', id),

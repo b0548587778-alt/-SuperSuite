@@ -1,0 +1,24 @@
+# Caddy מנפיק ומחדש לבד תעודת HTTPS לדומיין שב-RELAY_DOMAIN (קובץ .env).
+# בהתקנה בלי Docker: להחליף את {$RELAY_HOST:relay} ב-127.0.0.1, ואת {$RELAY_DOMAIN} בדומיין עצמו.
+{$RELAY_DOMAIN} {
+	encode gzip
+
+	# רק הנתיבים שהשרת מגיש; כל השאר — 404 כבר כאן
+	@relay path /v1 /health /pay/*
+	handle @relay {
+		reverse_proxy {$RELAY_HOST:relay}:8443
+	}
+	handle {
+		respond 404
+	}
+
+	# גודל בקשה מרבי — מעט מעל MAX_BODY של השרת (512KB)
+	request_body {
+		max_size 1MB
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

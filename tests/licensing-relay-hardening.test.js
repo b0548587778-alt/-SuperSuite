@@ -75,14 +75,15 @@ test('שרת: זמני המתנה לחיבורים איטיים מוגדרים',
   assert.ok(server.requestTimeout > 0 && server.requestTimeout <= 60000);
 });
 
-test('כתובת הלקוח מאחורי שרת קדמי: נלקחת מ-X-Forwarded-For רק כשהחיבור מקומי ו-trustProxy פעיל', () => {
-  const { clientIp } = require('../server/license-relay');
+// הלוגיקה עצמה נבדקת ב-relay-security-review.test.js (clientAddress). כאן: שתי צורות הדגל (Docker: 1, התקנה ב-Linux: yes)
+test('כתובת הלקוח מאחורי שרת קדמי: X-Forwarded-For רק עם trustProxy, והכתובת האחרונה בלבד', () => {
+  const { clientAddress } = require('../server/license-relay');
   const req = (remote, xff) => ({ socket: { remoteAddress: remote }, headers: xff ? { 'x-forwarded-for': xff } : {} });
-  assert.equal(clientIp(req('127.0.0.1', '1.1.1.1, 9.9.9.9'), true), '9.9.9.9', 'הכתובת שהשרת הקדמי הוסיף (האחרונה)');
-  assert.equal(clientIp(req('::ffff:127.0.0.1', '9.9.9.9'), true), '9.9.9.9');
-  assert.equal(clientIp(req('5.5.5.5', '9.9.9.9'), true), '5.5.5.5', 'חיבור ישיר מבחוץ — הכותרת מזויפת ולא נלקחת');
-  assert.equal(clientIp(req('127.0.0.1', '9.9.9.9'), false), '127.0.0.1', 'בלי trustProxy — מתעלמים מהכותרת');
-  assert.equal(clientIp(req('127.0.0.1', ''), true), '127.0.0.1');
+  assert.equal(clientAddress(req('127.0.0.1', '1.1.1.1, 9.9.9.9'), true), '9.9.9.9', 'הכתובת שהשרת הקדמי הוסיף (האחרונה)');
+  assert.equal(clientAddress(req('127.0.0.1', '9.9.9.9'), false), '127.0.0.1', 'בלי trustProxy — מתעלמים מהכותרת');
+  assert.equal(clientAddress(req('127.0.0.1', ''), true), '127.0.0.1');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'license-relay.js'), 'utf8');
+  assert.ok(src.includes("a['trust-proxy'] === '1' || a['trust-proxy'] === 'yes'"), 'שתי צורות הדגל נתמכות');
 });
 
 test('הגבלת קצב מאחורי שרת קדמי: לכל לקוח בנפרד ולא לכולם יחד', async () => {

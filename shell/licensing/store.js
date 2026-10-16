@@ -29,19 +29,47 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now }
       return d && typeof d === 'object' ? d : { corrupt: true };
     } catch { return { corrupt: true }; }
   }
-  const save = (d) => { storage.write(JSON.stringify(d)); cached = null; };
   const blank = () => ({ chain: null, notices: [], children: [], lastSeen: 0 });
 
-  function nodeKey(create) {
+  // הקובץ המוצפן (DPAPI) מחזיק את מפתח הצומת וגם "שומר" (סקירת אבטחה 10.2026, ממצא 7): מזהי כל הודעות
+  // הסטטוס שנקלטו והזמן המאוחר ביותר שנצפה. קובץ הרישוי עצמו גלוי — מחיקת השבתה ממנו או איפוס lastSeen
+  // מתגלים מול השומר. גרסה 1 (ישנה): המפתח בלבד, בלי שומר — השומר נבנה מהמצב הנוכחי בקריאה הראשונה
+  function readSecret() {
     const raw = secret.read();
-    if (raw) {
-      const k = JSON.parse(raw);
-      L.keyId(k); // תקינות
-      return k;
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    const v2 = o && o.v === 2;
+    const key = v2 ? o.key : o;
+    L.keyId(key); // תקינות
+    const g = v2 && o.guard && typeof o.guard === 'object' ? o.guard : null;
+    const guard = g ? { lastSeen: Number.isSafeInteger(g.lastSeen) ? g.lastSeen : 0, notices: Array.isArray(g.notices) ? g.notices.filter(x => typeof x === 'string') : [] } : null;
+    return { key, guard };
+  }
+  const writeSecret = (key, guard) => secret.write(JSON.stringify({ v: 2, key, guard: guard || { lastSeen: 0, notices: [] } }));
+
+  // עדכון השומר אחרי כל שמירה: איחוד מזהי ההודעות, והזמן — רק קדימה. רק הודעות שקובעות את המצב של
+  // המערכת הזו (לכולם / לשרשרת שלה) — לא הודעות שהיא הוציאה למערכות הבת שלה
+  function guardFrom(d, prev) {
+    const ids = new Set(prev ? prev.notices : []);
+    const chainIds = new Set((Array.isArray(d.chain) ? d.chain : []).map(l => l && l.payload && l.payload.id));
+    for (const n of d.notices || []) {
+      const p = n && n.payload;
+      if (p && typeof p.id === 'string' && (p.target === S.ALL || chainIds.has(p.target))) ids.add(p.id);
     }
+    return { lastSeen: Math.max(prev ? prev.lastSeen : 0, Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0), notices: [...ids] };
+  }
+  function syncGuard(d) {
+    const sec = readSecret();
+    if (sec) writeSecret(sec.key, guardFrom(d, sec.guard));
+  }
+  const save = (d) => { storage.write(JSON.stringify(d)); cached = null; syncGuard(d); };
+
+  function nodeKey(create) {
+    const sec = readSecret();
+    if (sec) return sec.key;
     if (!create) return null;
     const { privateJwk } = L.generateKeyPair();
-    secret.write(JSON.stringify(privateJwk));
+    writeSecret(privateJwk, null);
     return privateJwk;
   }
 
@@ -51,11 +79,24 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now }
     if (!rootKeys.length) return { mode: 'unlicensed' };
     const d = load();
     if (!d || !Array.isArray(d.chain)) return lockedState(d && d.corrupt ? 'קובץ הרישיון פגום' : 'לא הותקן רישיון למערכת');
-    const lastSeen = Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0;
+    // רישיון מותקן תמיד יחד עם מפתח הצומת שלו (install בודק). בלי המפתח — הקובץ הועתק או שהשומר נמחק
+    let sec;
+    try { sec = readSecret(); } catch { return lockedState('לא ניתן לקרוא את מפתח המערכת (הצפנת המערכת אינה זמינה או שהקובץ פגום)'); }
+    const leaf = d.chain[d.chain.length - 1];
+    if (!sec || !leaf || !leaf.payload || L.keyId(sec.key) !== leaf.payload.id) return lockedState('מפתח המערכת חסר או אינו תואם לרישיון — יש לפנות לספק הרישיון');
+    if (!sec.guard) { // התקנה מגרסה קודמת: השומר נבנה פעם אחת מהמצב הנוכחי
+      sec.guard = guardFrom(d, null);
+      try { writeSecret(sec.key, sec.guard); } catch { /* ינוסה שוב בפעם הבאה */ }
+    }
+    const have = new Set((d.notices || []).map(n => n && n.payload && n.payload.id));
+    const missing = sec.guard.notices.filter(id => !have.has(id)).length;
+    if (missing) return lockedState(`קובץ הרישוי שונה מחוץ לתוכנה: חסרות ${missing} הודעות סטטוס. יש לייבא שוב את קובץ ההודעות מהספק (או לסנכרן)`);
+    const lastSeen = Math.max(Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0, sec.guard.lastSeen);
     const r = S.effectiveStatus({ chain: d.chain, notices: d.notices || [], rootKeys, now: clock(), lastSeen });
-    // הזמן המאוחר ביותר שנצפה נשמר — הגנה מהחזרת שעון גם בין הפעלות
+    // הזמן המאוחר ביותר שנצפה נשמר — הגנה מהחזרת שעון גם בין הפעלות (בקובץ ובשומר)
     if (r.seenAt && r.seenAt > lastSeen + LASTSEEN_WRITE_MS) {
       try { storage.write(JSON.stringify({ ...d, lastSeen: r.seenAt })); } catch { /* לא קריטי */ }
+      try { writeSecret(sec.key, { ...sec.guard, lastSeen: r.seenAt }); } catch { /* לא קריטי */ }
     }
     return { mode: 'licensed', ...r, features: r.features || [], limits: r.limits || {} };
   }
