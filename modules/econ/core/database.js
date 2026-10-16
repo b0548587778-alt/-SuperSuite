@@ -173,6 +173,17 @@ const migrations = [
           SELECT 'editor', id FROM permissions WHERE name IN ('data.view', 'data.create', 'data.edit', 'data.export', 'data.backup');
           INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
           SELECT 'viewer', id FROM permissions WHERE name IN ('data.view')`
+  },
+  {
+    // קישור משתמש מקומי לחשבון Google (כניסה נוספת — לא מחליפה את הסיסמה). נשמרת רק הזהות, בלי אסימונים
+    version: 8,
+    sql: `CREATE TABLE IF NOT EXISTS auth_google_links (
+      user_id TEXT PRIMARY KEY,
+      google_sub TEXT NOT NULL UNIQUE,
+      email TEXT,
+      linked_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES auth_users(id) ON DELETE CASCADE
+    )`
   }
 ];
 
@@ -368,6 +379,11 @@ class Database {
       [new Date().toISOString(), user.id]
     );
 
+    return this._sessionUser(user);
+  }
+
+  // המשתמש כפי שנשמר בפגישה: תפקידים והרשאות נטענים מחדש בכל כניסה
+  async _sessionUser(user) {
     const roles = await this.all(
       'SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = ?',
       [user.id]
@@ -385,6 +401,41 @@ class Database {
       roles: roles.map(r => r.name),
       permissions: permissions.map(p => p.name)
     };
+  }
+
+  // ---------- כניסה עם Google ----------
+  // הזהות (sub) כבר אומתה מול Google; כאן רק מאתרים את המשתמש המקושר. חסום/נעול — אין כניסה
+  async authenticateGoogle(sub) {
+    if (typeof sub !== 'string' || !sub) throw new Error('חשבון Google לא מקושר לאף משתמש');
+    const rows = await this.all(
+      'SELECT u.* FROM auth_users u JOIN auth_google_links g ON g.user_id = u.id WHERE g.google_sub = ?', [sub]);
+    const user = rows[0];
+    if (!user) throw new Error('חשבון ה-Google הזה לא מקושר לאף משתמש. היכנסו בסיסמה וקשרו אותו בהגדרות');
+    if (!user.active) throw new Error('המשתמש חסום');
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      throw new Error('החשבון ננעל זמנית עקב ניסיונות כניסה כושלים — נסה שוב בעוד 15 דקות');
+    }
+    return this._sessionUser(user);
+  }
+
+  async linkGoogle(userId, { sub, email } = {}) {
+    if (typeof sub !== 'string' || !sub || sub.length > 255) throw new Error('תשובת Google אינה תקינה');
+    const other = await this.all('SELECT user_id FROM auth_google_links WHERE google_sub = ? AND user_id <> ?', [sub, userId]);
+    if (other.length) throw new Error('חשבון ה-Google הזה כבר מקושר למשתמש אחר');
+    const now = new Date().toISOString();
+    await this.run('INSERT OR REPLACE INTO auth_google_links (user_id, google_sub, email, linked_at) VALUES (?, ?, ?, ?)',
+      [userId, sub, String(email || '').slice(0, 254), now]);
+    return { email: String(email || ''), linkedAt: now };
+  }
+
+  async unlinkGoogle(userId) {
+    await this.run('DELETE FROM auth_google_links WHERE user_id = ?', [userId]);
+    return true;
+  }
+
+  async googleLinkOf(userId) {
+    const rows = await this.all('SELECT email, linked_at FROM auth_google_links WHERE user_id = ?', [userId]);
+    return rows[0] ? { email: rows[0].email || '', linkedAt: rows[0].linked_at } : null;
   }
 
   async changePassword(userId, currentPassword, newPassword) {
@@ -435,10 +486,11 @@ class Database {
   // ---------- ניהול משתמשים (הגדרות מתקדמות) ----------
   async listUsers() {
     const rows = await this.all(
-      'SELECT u.id, u.username, u.active, u.created_at, u.locked_until, ' +
-      "(SELECT GROUP_CONCAT(role_id) FROM user_roles ur WHERE ur.user_id = u.id) AS roles FROM auth_users u ORDER BY u.created_at"
+      'SELECT u.id, u.username, u.active, u.created_at, u.locked_until, g.email AS google_email, ' +
+      "(SELECT GROUP_CONCAT(role_id) FROM user_roles ur WHERE ur.user_id = u.id) AS roles FROM auth_users u " +
+      'LEFT JOIN auth_google_links g ON g.user_id = u.id ORDER BY u.created_at'
     );
-    return rows.map(r => ({ id: r.id, username: r.username, active: !!r.active, createdAt: r.created_at,
+    return rows.map(r => ({ id: r.id, username: r.username, active: !!r.active, createdAt: r.created_at, google: r.google_email || null,
       locked: !!(r.locked_until && new Date(r.locked_until) > new Date()), role: String(r.roles || '').split(',')[0] || 'viewer' }));
   }
 

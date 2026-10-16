@@ -42,8 +42,9 @@ async login(username, password) {
   }
   
   // Helper to set session after login
-  setSession(senderId, user) {
-    this.sessions.set(senderId, { ...user, lastSeen: this.now() });
+  // via: 'password' | 'google' — לפי מדיניות ההודעות של Google
+  setSession(senderId, user, via = 'password') {
+    this.sessions.set(senderId, { ...user, via, lastSeen: this.now() });
   }
 
   // מחזיר את המשתמש המחובר, או null אם אין כניסה או שהפגישה פגה (ואז הפגישה נמחקת)

@@ -211,7 +211,9 @@
             : [[], []];
           let privacy = null;
           if (adv && adv.isAdmin && window.systemAPI.getPrivacyMap) { try { privacy = await window.systemAPI.getPrivacyMap(); } catch { privacy = null; } }
-          state.data.settings = { ...adv, users, audit, privacy };
+          const google = window.systemAPI.googleStatus ? await window.systemAPI.googleStatus().catch(() => null) : null;
+          const googleCfg = adv && adv.isAdmin && window.systemAPI.getGoogleSettings ? await window.systemAPI.getGoogleSettings().catch(() => null) : null;
+          state.data.settings = { ...adv, users, audit, privacy, google, googleCfg };
           break;
         }
         case 'licensing': {
@@ -5543,13 +5545,15 @@
           </table></div>
         </div>
 
+        ${renderGoogleCard(st)}
+
         ${st.isAdmin ? `
         <div class="card">
           <div class="acct-header"><h3>משתמשים ותפקידים (${users.length})</h3><button class="secondary" id="advAddUserBtn">＋ משתמש חדש</button></div>
           <div class="acct-scroll"><table class="acct-table">
             <thead><tr><th>משתמש</th><th>תפקיד</th><th>מצב</th><th></th></tr></thead>
             <tbody>${users.map(u => `<tr class="${u.active ? '' : 'muted'}">
-              <td>${esc(u.username)}${st.me && st.me.id === u.id ? ' <small class="muted">(אתה)</small>' : ''}</td>
+              <td>${esc(u.username)}${st.me && st.me.id === u.id ? ' <small class="muted">(אתה)</small>' : ''}${u.google ? ` <small class="muted" title="מקושר ל-Google">· ${esc(u.google)}</small>` : ''}</td>
               <td><select data-user-role="${esc(u.id)}"${st.me && st.me.id === u.id ? ' disabled' : ''}>${Object.keys(ROLE_LABELS).map(r => `<option value="${r}"${u.role === r ? ' selected' : ''}>${esc(ROLE_LABELS[r].split(' — ')[0])}</option>`).join('')}</select></td>
               <td>${u.active ? (u.locked ? 'נעול זמנית' : 'פעיל') : 'חסום'}</td>
               <td>${st.me && st.me.id === u.id ? '' : `<button class="secondary small" data-user-toggle="${esc(u.id)}" data-active="${u.active ? '1' : '0'}">${u.active ? 'חסימה' : 'הפעלה'}</button>`}
@@ -5578,6 +5582,108 @@
       </div>`;
   }
 
+  // כניסה עם Google: אפשרות נוספת לצד הסיסמה (הסיסמה נשארת — עבודה בלי אינטרנט)
+  function renderGoogleCard(st) {
+    const g = st.google;
+    const cfg = st.googleCfg;
+    if (!g && !cfg) return '';
+    const enabled = !!(g && g.enabled);
+    const link = g && g.link;
+    return `
+        <div class="card">
+          <h3>כניסה עם Google</h3>
+          ${enabled ? `
+            <div class="acct-row"><span>החשבון שלך</span><span>${link ? esc(link.email || 'מקושר') : 'לא מקושר'}</span></div>
+            <div class="acct-row"><span>הכניסה הנוכחית</span><span>${g.via === 'google' ? 'עם Google' : 'בסיסמה'}</span></div>
+            ${g.onlineRequiresGoogle ? '<p class="muted">ההודעות זמינות רק אחרי כניסה עם Google.</p>' : ''}
+            <p class="muted">הכניסה נעשית בדפדפן של המחשב ודורשת אינטרנט. הכניסה בסיסמה נשארת תמיד.</p>
+            <div class="acct-actions">
+              <button class="secondary" id="googleLinkBtn">${link ? 'קישור לחשבון אחר' : 'קישור חשבון Google'}</button>
+              ${link ? '<button class="secondary" id="googleUnlinkBtn">ביטול הקישור</button>' : ''}
+            </div>` : '<p class="muted">כניסה עם Google לא הופעלה במערכת הזו.</p>'}
+          ${cfg ? `
+            <h4>הגדרות המערכת (מנהל)</h4>
+            <div class="acct-row"><span>מצב</span><span>${cfg.enabled ? 'פעיל' : 'כבוי'}</span></div>
+            ${cfg.clientId ? `<div class="acct-row"><span>מזהה לקוח</span><span><small><bdi dir="ltr">${esc(cfg.clientId)}</bdi></small></span></div>` : ''}
+            <button class="secondary" id="googleSettingsBtn">הגדרת כניסה עם Google</button>` : ''}
+        </div>`;
+  }
+
+  // הגדרות Google (מנהל): מזהה לקוח מ-Google Cloud (סוג "Desktop app"), סוד, ומדיניות ההודעות
+  function askGoogleSettings(cfg) {
+    const c = cfg || {};
+    return openDialog((card, finish) => {
+      const h = document.createElement('h2');
+      h.textContent = 'הגדרת כניסה עם Google';
+      const form = document.createElement('form');
+      form.className = 'modal-form';
+      form.noValidate = true;
+      const check = (label, checked) => {
+        const l = document.createElement('label');
+        const i = document.createElement('input');
+        i.type = 'checkbox';
+        i.checked = !!checked;
+        // בטופס כל input ברוחב מלא — תיבת סימון בשורה אחת עם הטקסט
+        i.style.width = 'auto';
+        i.style.margin = '0';
+        l.className = 'check';
+        l.style.flexDirection = 'row';
+        l.append(i, document.createTextNode(label));
+        form.appendChild(l);
+        return i;
+      };
+      const text = (label, value, type = 'text') => {
+        const l = document.createElement('label');
+        l.textContent = label;
+        const i = document.createElement('input');
+        i.type = type;
+        i.value = value || '';
+        i.autocomplete = 'off';
+        i.dir = 'ltr';
+        l.appendChild(i);
+        form.appendChild(l);
+        return i;
+      };
+      const enabled = check('הפעלת כניסה עם Google', c.enabled);
+      const clientId = text('מזהה לקוח (Client ID)', c.clientId);
+      const secret = text(c.hasSecret ? 'סוד לקוח (ריק = ללא שינוי)' : 'סוד לקוח (Client secret)', '', 'password');
+      const online = check('ההודעות — רק אחרי כניסה עם Google', c.onlineRequiresGoogle);
+      const note = document.createElement('p');
+      note.className = 'muted';
+      note.textContent = 'יוצרים ב-Google Cloud Console מזהה לקוח מסוג "Desktop app". הכניסה בסיסמה נשארת לכל המשתמשים.';
+      const err = document.createElement('div');
+      err.style.color = '#b91c1c';
+      err.style.fontSize = '0.9rem';
+      const actions = document.createElement('div');
+      actions.className = 'modal-actions';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'secondary';
+      cancel.textContent = 'ביטול';
+      const ok = document.createElement('button');
+      ok.type = 'submit';
+      ok.className = 'primary';
+      ok.textContent = 'שמירה';
+      actions.append(cancel, ok);
+      form.append(note, err, actions);
+      card.append(h, form);
+      cancel.addEventListener('click', () => finish(null));
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (enabled.checked && !clientId.value.trim()) { err.textContent = 'יש להזין מזהה לקוח'; clientId.focus(); return; }
+        finish({ enabled: enabled.checked, clientId: clientId.value.trim(), clientSecret: secret.value.trim(), onlineRequiresGoogle: online.checked });
+      });
+      enabled.focus();
+    });
+  }
+
+  async function googleLinkFlow() {
+    showToast('המשיכו את הכניסה בדפדפן שנפתח…');
+    try { const r = await window.systemAPI.googleLink(); showToast('החשבון קושר: ' + (r && r.email || 'Google')); }
+    catch (error) { showError('שגיאה בקישור: ' + errMsg(error)); }
+    await switchView('settings');
+  }
+
   function attachSettingsHandlers() {
     const privBtn = document.getElementById('privacyRetentionBtn');
     if (privBtn) privBtn.addEventListener('click', runPrivacyRetention);
@@ -5585,6 +5691,20 @@
     const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
     on('advGeneralBtn', () => openSubForm(advGeneralSchema, { idleMinutes: st.idleMinutes, startView: st.startView }));
     on('advAddUserBtn', () => openSubForm(advUserSchema, { role: 'editor' }));
+    on('googleLinkBtn', googleLinkFlow);
+    on('googleUnlinkBtn', async () => {
+      if (!(await askConfirm('לבטל את הקישור לחשבון Google? הכניסה תהיה בסיסמה בלבד.'))) return;
+      try { await window.systemAPI.googleUnlink(); showToast('הקישור בוטל'); }
+      catch (error) { showError('שגיאה: ' + errMsg(error)); }
+      await switchView('settings');
+    });
+    on('googleSettingsBtn', async () => {
+      const v = await askGoogleSettings(st.googleCfg);
+      if (!v) return;
+      try { await window.systemAPI.saveGoogleSettings(v); showToast('ההגדרות נשמרו'); }
+      catch (error) { showError('שגיאה: ' + errMsg(error)); }
+      await switchView('settings');
+    });
     on('auditExportBtn', async () => {
       try { const r = await window.systemAPI.exportAudit({ action: state.auditFilter || '' }); if (r && r.ok) showToast('היומן נשמר'); }
       catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
@@ -6051,7 +6171,8 @@
     });
   }
 
-  function askFields(title, fields, submitText, initial = {}) {
+  // opts.altText — כפתור נוסף (למשל "כניסה עם Google"); לחיצה עליו מחזירה { alt: true }
+  function askFields(title, fields, submitText, initial = {}, opts = {}) {
     return openDialog((card, finish) => {
       const h = document.createElement('h2');
       h.textContent = title;
@@ -6085,6 +6206,14 @@
       ok.className = 'primary';
       ok.textContent = submitText;
       actions.append(cancel, ok);
+      if (opts.altText) {
+        const alt = document.createElement('button');
+        alt.type = 'button';
+        alt.className = 'secondary';
+        alt.textContent = opts.altText;
+        alt.addEventListener('click', () => finish({ alt: true }));
+        actions.prepend(alt);
+      }
       form.append(err, actions);
       card.append(h, form);
 
@@ -6127,11 +6256,23 @@
   // Login user — שומר את שם המשתמש האחרון אחרי ניסיון כושל
   let lastLoginUser = '';
   async function loginUser() {
+    const st = await window.systemAPI.authStatus().catch(() => null);
+    const google = !!(st && st.google && st.google.enabled && window.systemAPI.googleLogin);
     const values = await askFields('התחברות למערכת', [
       { name: 'username', label: 'שם משתמש' },
       { name: 'password', label: 'סיסמה', type: 'password' }
-    ], 'התחבר', { username: lastLoginUser });
+    ], 'התחבר', { username: lastLoginUser }, google ? { altText: 'כניסה עם Google' } : {});
     if (!values) return;
+    if (values.alt) {
+      showToast('המשיכו את הכניסה בדפדפן שנפתח…');
+      try {
+        state.user = await window.systemAPI.googleLogin();
+        showToast('התחברות בהצלחה');
+      } catch (error) {
+        showError('שגיאה בכניסה עם Google: ' + errMsg(error));
+      }
+      return;
+    }
     lastLoginUser = values.username;
     try {
       state.user = await window.systemAPI.login(values.username, values.password);

@@ -28,6 +28,7 @@ const DP = require('./core/dataPorts');
 const { IDLE_MIN_RANGE } = require('./services/authService');
 const path = require('path');
 const LG = require('../../shell/licensing/gate');
+const GS = require('../../shell/google-signin');
 const LS = require('../../shell/licensing/store');
 const ROOT_KEYS = require('../../shell/licensing/root-keys');
 const OC = require('../../shell/licensing/owner-core');
@@ -100,8 +101,10 @@ let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
 async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
-  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false } = {}) {
+  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal } = {}) {
   restTime = isRestTime;
+  googleDeps = { signIn: googleSignIn || GS.signIn, fetchImpl: fetchImpl || globalThis.fetch,
+    openBrowser: openExternal || ((url) => { const sh = require('electron').shell; if (!sh || typeof sh.openExternal !== 'function') throw new Error('כניסה עם Google אינה זמינה במכשיר הזה'); return sh.openExternal(url); }) };
   const ad = licenseAdapters(userDataPath);
   // עדכוני גרסה: קבצים מאומתים נשמרים בתיקיית updates בתוך נתוני המשתמש
   updatesDir = path.join(userDataPath, 'updates');
@@ -148,13 +151,15 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStor
   privacyService.initialize(db);
   mortgageAdvisorService.initialize(db);
   mortgageLabService.initialize(db);
-  authService.setIdleMinutes(((await db.load()).settings || {}).idleMinutes);
+  const startSettings = (await db.load()).settings || {};
+  authService.setIdleMinutes(startSettings.idleMinutes);
+  googlePolicy = normalizeGoogle(startSettings.google);
   registerIpcHandlers();
   return db;
 }
 
 // כל ערוץ (מלבד כניסה/יציאה/סטטוס) דורש משתמש מחובר בצד השרת — לא רק במסך ה-UI
-const PUBLIC_CHANNELS = new Set(['auth:status', 'auth:setup', 'auth:login', 'auth:logout']);
+const PUBLIC_CHANNELS = new Set(['auth:status', 'auth:setup', 'auth:login', 'auth:logout', 'auth:google-login']);
 
 // כל הפעולות על מסד הנתונים רצות אחת-אחת: כל פעולה טוענת את כל הנתונים, משנה ושומרת.
 // הרצה במקביל גורמת לעדכונים שהולכים לאיבוד ולשגיאות טרנזקציה של SQLite.
@@ -170,6 +175,8 @@ function permissionFor(channel) {
   const name = channel.includes(':') ? channel.split(':')[1] : channel;
   if (channel.startsWith('auth:')) return null;
   if (channel.startsWith('users:') || channel.startsWith('audit:') || channel === 'settings:saveAdvanced') return 'users.manage';
+  // הגדרות Google קובעות מי נכנס לתוכנה — מנהל בלבד (גם הצפייה: כוללת את פרטי הלקוח)
+  if (channel === 'settings:getGoogle' || channel === 'settings:saveGoogle') return 'users.manage';
   // אימות כלל רגולטורי משנה את האזהרות לכל המשתמשים — מנהל בלבד
   if (channel === 'mlab:verifyRule' || channel === 'mlab:unverifyRule') return 'users.manage';
   // מיפוי מאגרים ומזעור נתונים (תיקון 13) — מנהל בלבד
@@ -231,10 +238,50 @@ async function runGuarded(channel, fn, event, args) {
   if (perm && !authService.hasPermission(event.sender.id, perm)) {
     throw new Error('אין הרשאה לפעולה זו');
   }
+  // מדיניות: ההודעות (החלק המקוון שמזהה את השולח) רק למי שנכנס עם Google — כשהמנהל הפעיל זאת
+  const gDenied = googleOnlineDenied(channel, authService.getSession(event.sender.id));
+  if (gDenied) throw new Error(gDenied);
   // ההרשאה בפועל = חיתוך של התפקיד עם הרישיון: תחום שלא נפתח / מערכת מושבתת
   const denied = LG.checkChannel(licenseState(), channel, perm);
   if (denied) throw new Error(denied);
   return fn(event, ...args);
+}
+
+// ---------- כניסה עם Google ----------
+// הגדרות (data.settings.google): enabled, clientId, clientSecret, onlineRequiresGoogle.
+// הכניסה בסיסמה נשארת תמיד — התוכנה עובדת גם בלי אינטרנט.
+let googleDeps = null;
+let googlePolicy = { enabled: false, clientId: '', clientSecret: '', onlineRequiresGoogle: false };
+let googleBusy = false;
+function normalizeGoogle(g) {
+  const x = g && typeof g === 'object' ? g : {};
+  return { enabled: x.enabled === true, clientId: String(x.clientId || ''), clientSecret: String(x.clientSecret || ''),
+    onlineRequiresGoogle: x.enabled === true && x.onlineRequiresGoogle === true };
+}
+const ONLINE_GOOGLE_CHANNELS = /^chat:/;
+function googleOnlineDenied(channel, session) {
+  if (!googlePolicy.onlineRequiresGoogle || !ONLINE_GOOGLE_CHANNELS.test(channel)) return null;
+  return session && session.via === 'google' ? null : 'ההודעות זמינות רק אחרי כניסה עם Google. צאו והיכנסו עם Google';
+}
+
+/* ערוץ שממתין לכניסה בדפדפן (עד 3 דקות). ההמתנה רצה מחוץ לתור של מסד הנתונים — אחרת כל התוכנה נתקעת;
+   הבדיקות והכתיבה (לפני ואחרי) עוברות בתור, דרך אותה אכיפת הרשאות כמו כל ערוץ */
+function handleGoogle(channel, { loginHint } = {}, fn) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    try {
+      if (googleBusy) throw new Error('כניסה עם Google כבר פתוחה בדפדפן — השלימו אותה או המתינו');
+      googleBusy = true;
+      try {
+        const pre = await enqueue(() => runGuarded(channel, async (ev) => {
+          if (!googlePolicy.enabled) throw new Error('כניסה עם Google לא הופעלה במערכת הזו');
+          return loginHint ? await loginHint(ev) : undefined;
+        }, event, []));
+        const identity = await googleDeps.signIn({ clientId: googlePolicy.clientId, clientSecret: googlePolicy.clientSecret },
+          { openBrowser: googleDeps.openBrowser, fetchImpl: googleDeps.fetchImpl, loginHint: pre || undefined });
+        return await enqueue(() => runGuarded(channel, (ev) => fn(ev, identity, ...args), event, []));
+      } finally { googleBusy = false; }
+    } catch (e) { throw toUserError(e); }
+  });
 }
 
 // תאריך מקומי (לא UTC — בישראל toISOString מזיז את היום בין חצות ל-03:00)
@@ -274,17 +321,48 @@ async function saveCsv({ headers, rows, name }) {
 function registerIpcHandlers() {
   // Auth handlers
   handle('auth:status', async (event) => {
-    return await authService.getStatus(event.sender.id);
+    const st = await authService.getStatus(event.sender.id);
+    return { ...st, google: { enabled: googlePolicy.enabled } };
   });
   
   handle('auth:setup', async (event, username, password) => {
     return await authService.setupAdmin(username, password);
   });
   
-handle('auth:login', async (event, username, password) => {
+  handle('auth:login', async (event, username, password) => {
     const user = await authService.login(username, password);
-    authService.setSession(event.sender.id, user);
+    authService.setSession(event.sender.id, user, 'password');
     return user;
+  });
+
+  // כניסה עם Google — רק למשתמש שכבר קישר את החשבון (אחרי כניסה בסיסמה)
+  handleGoogle('auth:google-login', {}, async (event, g) => {
+    const user = await db.authenticateGoogle(g.sub);
+    authService.setSession(event.sender.id, user, 'google');
+    await db.audit(user.id, 'auth.google.login', JSON.stringify({ email: g.email }));
+    return user;
+  });
+  // קישור החשבון של המשתמש המחובר. הדפדפן מציע את החשבון המקושר (אם יש) כברירת מחדל
+  handleGoogle('auth:google-link', { loginHint: async (ev) => {
+    const me = authService.getSession(ev.sender.id);
+    const cur = await db.googleLinkOf(me.id);
+    return cur && cur.email;
+  } }, async (event, g) => {
+    const me = authService.getSession(event.sender.id);
+    const r = await db.linkGoogle(me.id, g);
+    await auditEvent(event, 'auth.google.link', { email: g.email });
+    return r;
+  });
+  handle('auth:google-unlink', async (event) => {
+    const me = authService.getSession(event.sender.id);
+    await db.unlinkGoogle(me.id);
+    await auditEvent(event, 'auth.google.unlink', {});
+    return true;
+  });
+  handle('auth:google-status', async (event) => {
+    const me = authService.getSession(event.sender.id);
+    return { enabled: googlePolicy.enabled, onlineRequiresGoogle: googlePolicy.onlineRequiresGoogle,
+      link: await db.googleLinkOf(me.id), via: me.via || 'password' };
   });
   
   handle('auth:logout', async (event) => {
@@ -1051,6 +1129,26 @@ handle('auth:login', async (event, username, password) => {
     authService.setIdleMinutes(idle);
     await auditEvent(event, 'settings.advanced.save', { idleMinutes: idle, startView });
     return { idleMinutes: idle, startView };
+  });
+
+  // ---------- כניסה עם Google: הגדרות (מנהל בלבד) ----------
+  handle('settings:getGoogle', async () => {
+    const g = googlePolicy;
+    return { enabled: g.enabled, clientId: g.clientId, hasSecret: !!g.clientSecret, onlineRequiresGoogle: g.onlineRequiresGoogle };
+  });
+  handle('settings:saveGoogle', async (event, input = {}) => {
+    const i = input && typeof input === 'object' ? input : {};
+    const enabled = i.enabled === true;
+    // סוד ריק = משאירים את הקיים (המסך לא מציג אותו)
+    const secret = i.clientSecret === undefined || i.clientSecret === '' ? googlePolicy.clientSecret : String(i.clientSecret);
+    const next = { enabled, clientId: String(i.clientId || '').trim(), clientSecret: secret.trim(), onlineRequiresGoogle: enabled && i.onlineRequiresGoogle === true };
+    if (enabled) GS.validateConfig(next);
+    const data = await db.load();
+    data.settings = { ...(data.settings || {}), google: next };
+    await db.save(data);
+    googlePolicy = normalizeGoogle(next);
+    await auditEvent(event, 'settings.google.save', { enabled, clientId: next.clientId, onlineRequiresGoogle: next.onlineRequiresGoogle });
+    return { enabled, clientId: next.clientId, hasSecret: !!next.clientSecret, onlineRequiresGoogle: next.onlineRequiresGoogle };
   });
 
   // ---------- משתמשים ותפקידים (מנהל בלבד) ----------

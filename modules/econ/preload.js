@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld('systemAPI', {
   login: (username, password) => ipcRenderer.invoke('auth:login', username, password),
   logout: () => ipcRenderer.invoke('auth:logout'),
   changePassword: (currentPassword, newPassword) => ipcRenderer.invoke('auth:change-password', currentPassword, newPassword),
+  googleLogin: () => ipcRenderer.invoke('auth:google-login'),
+  googleLink: () => ipcRenderer.invoke('auth:google-link'),
+  googleUnlink: () => ipcRenderer.invoke('auth:google-unlink'),
+  googleStatus: () => ipcRenderer.invoke('auth:google-status'),
+  getGoogleSettings: () => ipcRenderer.invoke('settings:getGoogle'),
+  saveGoogleSettings: (input) => ipcRenderer.invoke('settings:saveGoogle', input),
 
   // Financial
   calculateFinancialMetrics: (data) => ipcRenderer.invoke('financial:calculateMetrics', data),
