@@ -245,10 +245,13 @@ function assertAccess(senderId, permission) {
 // רשת ביטחון לכלל 8: שגיאה שאינה בעברית (SQLite, מערכת קבצים, באג) לא מוצגת למשתמש כמו שהיא.
 // המקור נרשם ללוג, והמשתמש מקבל הודעה בעברית.
 const HEBREW = /[֐-׿]/;
+// יומן התקלות (shell/logger.js) — main.js מחבר אותו דרך setErrorLogger. בלעדיו (בדיקות) — הקונסול
+let errorLogger = (scope, e) => console.error(scope, e);
+function setErrorLogger(fn) { errorLogger = typeof fn === 'function' ? fn : errorLogger; }
 function toUserError(e) {
   const msg = String((e && e.message) || e || '');
   if (HEBREW.test(msg)) return e instanceof Error ? e : new Error(msg);
-  console.error('econ: internal error', e);
+  try { errorLogger('econ', e); } catch { /* היומן לא מפיל פעולה */ }
   return new Error('הפעולה נכשלה עקב שגיאה פנימית. אם התקלה חוזרת — יש לבצע גיבוי ולפנות לתמיכה.');
 }
 
@@ -1808,7 +1811,7 @@ async function chatAutoFetch() {
   return out;
 }
 
-module.exports = { toUserError, initEcon, chatAutoFetch, permissionFor, licenseState, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
+module.exports = { toUserError, setErrorLogger, initEcon, chatAutoFetch, permissionFor, licenseState, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
   // מודולים שדורשים כניסה: בדיקה שקטה, רישום פעילות (עבודה במודול כזה מונעת ניתוק), ואירוע כניסה/יציאה
   hasSession: (senderId) => authService.peekSession(senderId),
   touchSession: (senderId) => { authService.getSession(senderId); },

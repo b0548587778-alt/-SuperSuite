@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('shellAPI', {
   historyGo: (delta) => ipcRenderer.invoke('shell:history-go', delta),
   onHistory: cb => ipcRenderer.on('shell:history', (_e, st) => cb(st)),
   quit: () => ipcRenderer.invoke('shell:quit'),
+  saveCrashReport: () => ipcRenderer.invoke('shell:save-crash-report'),
   onActive: cb => ipcRenderer.on('shell:active', (_e, id) => cb(id)),
   onCmd: cb => ipcRenderer.on('shell:cmd', (_e, cmd) => cb(cmd)),
   getLicenseState: () => ipcRenderer.invoke('shell:license-state'),

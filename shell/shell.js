@@ -349,6 +349,8 @@ $('bk').onclick = runBackup;
 $('rs').onclick = runRestore;
 $('hp').onclick = showGuide;
 $('guideOk').onclick = () => closeDialog($('guide'));
+// דוח תקלה לתמיכה (PLAN.md 2.2) — נשמר מהתהליך הראשי, היומן בלבד
+$('crashReportBtn').onclick = () => { if (window.shellAPI.saveCrashReport) window.shellAPI.saveCrashReport().catch(() => {}); };
 $('hm').onclick = goHome;
 
 /* ---------- אחורה / קדימה ---------- */

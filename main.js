@@ -14,6 +14,12 @@ const Layout = require('./shell/layout');
 const SyncService = require('./shell/sync/service');
 const LG = require('./shell/licensing/gate');
 const LoginGate = require('./shell/login-gate');
+const { createLogger } = require('./shell/logger');
+const { createCrashGuard } = require('./shell/crash');
+// יומן תקלות ורשת ביטחון לקריסות (PLAN.md 2.1–2.2) — מותקנים לפני כל דבר אחר, כדי לתפוס גם תקלה בעלייה
+const logger = createLogger({ dir: app.getPath('userData') });
+const crash = createCrashGuard({ logger, dialog, app, getWin: () => win, version: app.getVersion ? String(app.getVersion()) : '' });
+crash.installProcessHandlers();
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
   try { return Catalog.extrasFromHtml(fs.readFileSync(path.join(__dirname, 'modules', 'econ', 'views', 'index.html'), 'utf8')); }
@@ -149,6 +155,8 @@ function wireView(id, wc) {
     if (loginGate.isLocked(id) && views.econ && econ && econ.touchSession) econ.touchSession(views.econ.webContents.id);
     if (handleShortcut(input, wc)) e.preventDefault();
   });
+  // מסך שקרס או נתקע — הודעה וטעינה מחדש של המודול בלבד (PLAN.md 2.1)
+  crash.wireContents(id, wc, () => { if (!wc.isDestroyed()) wc.loadURL(ENTRY[id]); });
 }
 
 // כפתורי העכבר הצדדיים (אחורה/קדימה) — Windows שולח אותם כ-app-command לחלון
@@ -330,6 +338,7 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('before-input-event', (e, input) => { if (handleShortcut(input, win.webContents)) e.preventDefault(); });
   wireAppCommand(win);
+  crash.wireContents('shell', win.webContents, () => { if (win && !win.isDestroyed()) win.loadFile(path.join(__dirname, 'shell', 'shell.html')); });
   win.loadFile(path.join(__dirname, 'shell', 'shell.html'));
   // לא נכנסים לשום מודול אוטומטית: המשתמש בוחר מהמסך הראשי.
   // (קודם נכנסנו ל-'econ' מיד עם העלייה, וזה נעל את המשתמש בלי אפשרות לצאת.)
@@ -383,7 +392,7 @@ async function autoBackup() {
       write: AB.writeEncryptedAutoBackup
     });
   } catch (e) {
-    console.error('auto-backup failed', e);
+    logger.error('auto-backup', e);
     status = { ok: false, reason: e.code || 'error', at: new Date().toISOString() };
   }
   if (!status.ok) console.warn('auto-backup skipped:', status.reason, status.target || '');
@@ -507,7 +516,7 @@ function registerSyncHandlers() {
   h('sync:connect', (peerId, endpoint) => sync.connect(str(peerId), str(endpoint)));
   h('sync:ping', (peerId) => sync.ping(str(peerId)));
   h('sync:revoke', (peerId) => sync.revoke(str(peerId)));
-  sync.init().catch((err) => console.error('sync init failed', err));
+  sync.init().catch((err) => logger.error('sync-init', err));
 }
 app.on('will-quit', () => { if (sync) sync.close().catch(() => {}); });
 
@@ -526,6 +535,7 @@ app.whenReady().then(async () => {
 
   try {
     econ = require('./modules/econ/ipc');
+    if (econ.setErrorLogger) econ.setErrorLogger((scope, e) => logger.error(scope, e));
     // בשבת וביום טוב (מצב שבת) — אין תשובות אוטומטיות בהודעות
     await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused });
   } catch (err) {
@@ -622,6 +632,11 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('shell:home', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; goHome(); return true; });
   ipcMain.handle('shell:quit', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; app.quit(); return true; });
+  // דוח תקלה לתמיכה — היומן בלבד, בלי נתונים (PLAN.md 2.2)
+  ipcMain.handle('shell:save-crash-report', (e) => {
+    if (!win || e.sender.id !== win.webContents.id) return false;
+    return crash.saveReport();
+  });
   ipcMain.handle('shell:is-logged-in', (e) => {
     if (!win || e.sender.id !== win.webContents.id) return false;
     return econLoggedIn();
