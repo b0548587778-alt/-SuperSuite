@@ -73,7 +73,8 @@ function activationState(base) {
 }
 // מערכת שלא הופעלה = נעולה (רק רישוי, כניסה והודעות פתוחים). רישיון לא פעיל — נשאר הסטטוס שלו (חוב: קריאה בלבד)
 function withActivation(s) {
-  if (!s || s.mode !== 'licensed' || s.status !== 'active') return s;
+  // בתקופת ניסיון אין תנאי הפעלה (אין רישיון שנתי ואין חיבור לשרת)
+  if (!s || s.mode !== 'licensed' || s.status !== 'active' || s.trial) return s;
   const act = activationState(s);
   if (act.ok) return s;
   const first = act.steps.find(x => !x.ok);
@@ -1753,10 +1754,11 @@ function registerIpcHandlers() {
   handle('license:getStatus', async () => {
     const s = licenseState();
     if (s.mode === 'unlicensed') return { mode: 'unlicensed', status: 'active' };
-    // תנאי ההפעלה — למסך הרישוי: מה חסר, ועד מתי צריך להתחבר שוב
-    const act = activationState();
+    const trial = s.trial ? { startedAt: s.trial.startedAt, endsAt: s.trial.endsAt, daysLeft: s.trial.daysLeft, warn: !!s.trial.warn } : null;
+    // תנאי ההפעלה — למסך הרישוי: מה חסר, ועד מתי צריך להתחבר שוב. בתקופת ניסיון — אין תנאים
+    const act = trial ? { required: false, ok: true, missing: [], nextDue: null, dueSoon: false, steps: [] } : activationState();
     return { mode: s.mode, status: s.status, reasons: (s.reasons || []).map(r => ({ kind: r.kind, reason: r.reason })),
-      graceUntil: s.graceUntil || null, features: s.features, limits: s.limits,
+      graceUntil: s.graceUntil || null, features: s.features, limits: s.limits, trial,
       activation: { required: act.required, ok: act.ok, missing: act.missing, nextDue: act.nextDue, dueSoon: act.dueSoon,
         steps: act.steps.map(({ id, label, ok, reason, until }) => ({ id, label, ok, reason, until })) } };
   });

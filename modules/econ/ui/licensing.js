@@ -6,7 +6,15 @@
 // רישוי ומערכות (docs/LICENSING-DESIGN.md): הרישיון של המערכת, מערכות בת, ומצב מנהל-העל.
 // כל פעולה בכפתור; הקבצים (בקשה / רישיון / אישור / הודעות) נשמרים ונפתחים בבוחר קבצים.
 // ============================================================
-const LIC_STATUS = { active: 'פעילה', pending_payment: 'ממתינה לתשלום', suspended: 'מושבתת זמנית', locked: 'נעולה', terminated: 'הסתיימה' };
+const LIC_STATUS = { active: 'פעילה', pending_payment: 'ממתינה לתשלום', suspended: 'מושבתת זמנית', locked: 'נעולה', terminated: 'הסתיימה', trial_ended: 'תקופת הניסיון הסתיימה' };
+// תקופת ניסיון (PLAN.md 4.2): כל התחומים פתוחים עד הסוף, ואחר כך קריאה, ייצוא וגיבוי בלבד
+function licTrialRows(t) {
+  if (!t) return '';
+  const left = Number(t.daysLeft) || 0;
+  const text = left > 0 ? `נותרו ${left === 1 ? 'יום אחד' : left + ' ימים'} (עד ${esc(licDate(t.endsAt))})` : `הסתיימה ב-${esc(licDate(t.endsAt))} — אפשר לצפות, לייצא ולגבות`;
+  return `<div class="acct-row"><span>תקופת ניסיון</span><span class="${left > 0 && !t.warn ? 'good' : 'bad'}">${text}</span></div>
+    <p class="muted">להמשך עבודה אחרי תקופת הניסיון: "הפקת בקשת רישיון", שליחה לספק, והתקנת קובץ הרישיון שיחזור. הנתונים נשמרים.</p>`;
+}
 const LIC_HOLD_KINDS = { suspended: 'השבתה זמנית', locked: 'נעילה', pending_payment: 'ממתין לתשלום' };
 const LIC_FEATURES = [
   ['econ', 'מערכת כלכלית (בסיס)'], ['econ.accounting', 'הנהלת חשבונות'], ['econ.npo', 'עמותה ותרומות'], ['econ.gemach', 'גמ"ח'],
@@ -50,6 +58,7 @@ function renderLicensing(d) {
   const reasons = Array.isArray(st.reasons) ? st.reasons : [];
   const mine = st.mode === 'unlicensed'
     ? `<p class="muted">ההתקנה הזו פועלת ללא רישוי — כל התחומים פתוחים.</p>`
+    : st.trial ? `<div class="acct-row"><span>מצב</span><span>${st.status === 'active' ? '<span class="good">תקופת ניסיון — כל התחומים פתוחים</span>' : licBadge(st.status)}</span></div>${licTrialRows(st.trial)}`
     : `<div class="acct-row"><span>מצב</span><span>${licBadge(st.status)}</span></div>
        ${reasons.map(r => `<div class="acct-row"><span>${esc(LIC_STATUS[r.kind] || r.kind)}</span><span>${esc(r.reason)}</span></div>`).join('')}
        ${st.graceUntil ? `<div class="acct-row"><span>תקופת חסד</span><span class="bad">עד ${esc(licDate(st.graceUntil))} — יש לחדש</span></div>` : ''}
@@ -68,7 +77,7 @@ function renderLicensing(d) {
   </div>`;
 
   const canIssue = isAdmin && st.mode === 'licensed' && st.status === 'active' && st.limits && st.limits.maxChildren > 0;
-  const childCard = isAdmin && st.mode === 'licensed' ? `<div class="card">
+  const childCard = isAdmin && st.mode === 'licensed' && !st.trial ? `<div class="card">
     <div class="acct-header"><h3>מערכות בת (${children.length}${st.limits && st.limits.maxChildren != null ? ' מתוך ' + Number(st.limits.maxChildren) : ''})</h3>
       ${canIssue ? `<div class="acct-actions">
         <button class="secondary" id="licChildPayBtn">💳 דרישת תשלום למערכת בת</button>

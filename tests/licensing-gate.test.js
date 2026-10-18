@@ -82,11 +82,17 @@ test('מגבלת משתמשים', () => {
   assert.match(G.checkUserLimit(active(), 4), /עד 3 משתמשים/);
 });
 
-test('store: עם מפתח שורש ובלי קובץ — נעול; מחיקת הקובץ לא פותחת', () => {
+// מאז 4.2: בלי רישיון — תקופת ניסיון (tests/licensing-trial.test.js), ואחריה קריאה בלבד
+test('store: עם מפתח שורש ובלי קובץ — תקופת ניסיון, ואחרי 30 יום קריאה בלבד', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-lic-'));
-  const st = createLicenseStore({ storage: fileStorage(fs, path.join(dir, 'license.json')), secret: mem(), rootKeys, clock: () => T0 + DAY }).current();
-  assert.equal(st.status, 'locked');
-  assert.match(st.reasons[0].reason, /לא הותקן/);
+  let now = T0 + DAY;
+  const store = createLicenseStore({ storage: fileStorage(fs, path.join(dir, 'license.json')), secret: mem(), rootKeys, clock: () => now });
+  const st = store.current();
+  assert.equal(st.status, 'active');
+  assert.equal(st.trial.daysLeft, 30);
+  now += 31 * DAY; store.invalidate();
+  assert.equal(store.current().status, 'trial_ended');
+  assert.match(store.current().reasons[0].reason, /תקופת הניסיון/);
 });
 
 test('store: קובץ פגום — נעול; בלי מפתחות שורש — ללא רישוי', () => {
