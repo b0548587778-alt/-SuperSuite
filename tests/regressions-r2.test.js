@@ -154,7 +154,8 @@ test('תיקון: אין תלות ברשת חיצונית באף מודול — 
     assert.doesNotMatch(html, /<link[^>]+href="https?:\/\//, `${m}/index.html לא יפנה החוצה`);
   }
   // הבאנדל של TrainerPro לא מזריק גוגל פונטים בזמן ריצה
-  const trainerJs = read('modules/trainer/assets/index-DI_GulQ8.js');
+  // שם החבילה משתנה בכל בנייה מהמקור (modules-src/trainer) — נלקח מ-index.html
+  const trainerJs = read('modules/trainer/' + read('modules/trainer/index.html').match(/src="\/(assets\/index-[^"]+\.js)"/)[1]);
   assert.doesNotMatch(trainerJs, /fonts\.googleapis\.com/, 'הבאנדל של trainer לא מזריק גוגל פונטים');
   // גופן ה-OCR נטען מקומית, לא מ-CDN, וההודעה אינה מפנה לאינטרנט
   const shamaiApp = read('modules/shamai/app.js');

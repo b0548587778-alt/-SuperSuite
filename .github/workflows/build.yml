@@ -3,34 +3,57 @@ on:
   workflow_dispatch:
   push:
     branches: [master]
+# יומני הבנייה נכתבים גם לענף ci-status (משימת report): דף היומנים של GitHub Actions חסום ב-NetFree,
+# וכך אפשר לקרוא את התוצאה ב-git fetch origin ci-status.
 jobs:
   # מודול האימונים מקוד המקור (modules-src/trainer). בסביבה מסוננת vite לא ניתן להתקנה — הבנייה כאן
   trainer:
     runs-on: windows-latest
+    env:
+      LOG: ${{ github.workspace }}/ci-logs/trainer.log
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: npm install
+      - run: mkdir -p ci-logs
+      - name: npm install (trainer)
         working-directory: modules-src/trainer
-      - run: npm install
-      - run: node tools/build-trainer.js
-      - run: npm test
+        run: set -o pipefail; { echo "== npm install (trainer)"; npm install 2>&1; } | tee -a "$LOG"
+      - name: npm install
+        run: set -o pipefail; { echo "== npm install"; npm install 2>&1; } | tee -a "$LOG"
+      - name: build trainer
+        run: set -o pipefail; { echo "== build-trainer"; node tools/build-trainer.js 2>&1; } | tee -a "$LOG"
+      - name: npm test
+        run: set -o pipefail; { echo "== npm test"; npm test 2>&1; } | tee -a "$LOG"
       - uses: actions/upload-artifact@v4
         with:
           name: trainer-module
           path: modules/trainer
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-logs-trainer
+          path: ci-logs
   build:
     runs-on: windows-latest
+    env:
+      LOG: ${{ github.workspace }}/ci-logs/build.log
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: npm install
+      - run: mkdir -p ci-logs
+      - name: npm install
+        run: set -o pipefail; { echo "== npm install"; npm install 2>&1; } | tee -a "$LOG"
       # חתימת קוד — רק אם הוגדרו סודות במאגר (docs/CODE-SIGNING.md). בלי סודות: בנייה לא חתומה, כמו קודם.
       # טוקן USB אינו זמין בשרת של GitHub — כאן אפשר רק PFX או Azure Trusted Signing.
       - name: Build
-        shell: bash
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -42,12 +65,46 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: |
+          set -o pipefail
           ARGS="$(node tools/code-signing.js --args)"
-          node tools/code-signing.js
-          npx electron-builder --win nsis portable $ARGS
+          { echo "== code-signing"; node tools/code-signing.js 2>&1; } | tee -a "$LOG"
+          { echo "== electron-builder"; npx electron-builder --win nsis portable $ARGS 2>&1; } | tee -a "$LOG"
       - uses: actions/upload-artifact@v4
         with:
           name: SuperSuite-Windows
           path: |
             dist/SuperSuite-Setup.exe
             dist/SuperSuite-Portable.exe
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-logs-build
+          path: ci-logs
+  # סיכום ויומנים לענף ci-status (קומיט יחיד, נדרס בכל ריצה). הענף לא מפעיל בנייה (רק master מפעיל)
+  report:
+    needs: [trainer, build]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: ci-logs-*
+          path: logs
+          merge-multiple: true
+      - name: push ci-status
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p logs && cd logs
+          printf 'run: %s (#%s)\nsha: %s\ntrainer: %s\nbuild: %s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "${{ needs.trainer.result }}" "${{ needs.build.result }}" > summary.txt
+          git init -q
+          git config user.name "ci"
+          git config user.email "ci@users.noreply.github.com"
+          git checkout -q -b ci-status
+          git add -A
+          git commit -qm "CI #$GITHUB_RUN_NUMBER $GITHUB_SHA"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-status
