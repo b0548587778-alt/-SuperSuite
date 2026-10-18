@@ -1,6 +1,8 @@
 // כלי עזר לתיקון 13 לחוק הגנת הפרטיות — לא ייעוץ משפטי.
 // מיפוי מאגרים (מה נשמר, כמה, מי רואה, איפה), מזעור נזקקים לא פעילים לפי בקשת מנהל, ורשימת בדיקה לאירוע אבטחה.
 // אין כאן פעולה אוטומטית: המזעור רץ רק כשמנהל מאשר רשימה מוצגת מראש.
+// PLAN.md 9.15: הצעת רמת אבטחה, מדיניות שמירה גם לתורמים/לווים/תיקי משכנתאות, ויומן בקשות עיון ותיקון.
+// המקורות: docs/LEGAL-REQUIREMENTS.md, סעיף 4.
 
 const SENSITIVITY = { regular: 'רגיל', sensitive: 'רגיש — מצב כלכלי', high: 'רגיש מאוד — מתן בסתר' };
 const len = (v) => (Array.isArray(v) ? v.length : 0);
@@ -72,13 +74,205 @@ function minimize(b, at) {
   };
 }
 
+// ---------- רמת אבטחה (תקנות הגנת הפרטיות (אבטחת מידע), 2017 — לפי דף הרשות להגנת הפרטיות)
+// יחיד: עד 2 מורשי גישה נוספים ופחות מ-10,000 איש. בינונית: בין היתר מאגר עם מידע רגיש.
+// גבוהה: מידע רגיש על 100,000 איש ומעלה, או יותר מ-100 מורשי גישה. בסיסית: כל השאר.
+const LEVELS = { individual: 'מאגר בידי יחיד', basic: 'רמת אבטחה בסיסית', medium: 'רמת אבטחה בינונית', high: 'רמת אבטחה גבוהה' };
+const LEVEL_SOURCE = 'https://www.gov.il/he/pages/protection_of_privacy_regulations_data_security';
+
+function suggestLevel(map) {
+  const rows = (map && map.rows) || [];
+  const u = (map && map.users) || {};
+  const users = ['admin', 'editor', 'viewer', 'accountant'].reduce((t, k) => t + (Number(u[k]) || 0), 0);
+  const total = rows.reduce((t, r) => t + (Number(r.count) || 0), 0);
+  const sensitive = rows.filter(r => r.sensitivity !== 'regular' && Number(r.count) > 0);
+  const sensitiveCount = sensitive.reduce((t, r) => t + Number(r.count), 0);
+  const reasons = [];
+  let level;
+  if (sensitiveCount >= 100000 || users > 100) {
+    level = 'high';
+    if (sensitiveCount >= 100000) reasons.push(`מידע רגיש על כ-${sensitiveCount.toLocaleString('he-IL')} רשומות (100,000 ומעלה)`);
+    if (users > 100) reasons.push(`${users} מורשי גישה (יותר מ-100)`);
+  } else if (sensitive.length) {
+    level = 'medium';
+    reasons.push('יש במאגר מידע שסומן רגיש: ' + sensitive.map(r => r.area).join('; '));
+  } else if (users <= 3 && total < 10000) {
+    level = 'individual';
+    reasons.push(`${users} מורשי גישה (עד 3) ו-${total.toLocaleString('he-IL')} רשומות (פחות מ-10,000), בלי מידע רגיש`);
+  } else {
+    level = 'basic';
+    reasons.push(users > 3 ? `${users} מורשי גישה (יותר מ-3)` : `${total.toLocaleString('he-IL')} רשומות (10,000 ומעלה)`);
+  }
+  return {
+    level, label: LEVELS[level], reasons, users, records: total, sensitiveRecords: sensitiveCount,
+    reportBreach: level === 'medium' || level === 'high',
+    note: 'הצעה בלבד, לפי מספר הרשומות (אדם אחד יכול להופיע בכמה רשומות, ולכן זו הערכה מלמעלה), הרגישות שסומנה ומספר המשתמשים בתוכנה. ' +
+      'השאלה אם נתוני גמ"ח וחסד הם "מידע בעל רגישות מיוחדת" — לבירור עם עורך דין.',
+    source: LEVEL_SOURCE
+  };
+}
+
+// ---------- מדיניות שמירה לכל סוג רשומה. בכל הסוגים: רק תצוגה מקדימה ואישור מנהל, והשרת בודק מחדש
+const idKey = (raw) => { const d = String(raw ?? '').replace(/\D/g, ''); return d && !/^0+$/.test(d) ? d.padStart(9, '0') : ''; };
+const normName = (v) => String(v ?? '').replace(/["'׳״]/g, '').replace(/\s+/g, ' ').trim();
+const day = (v) => String(v || '').slice(0, 10);
+const maxDay = (...vals) => vals.map(day).filter(Boolean).sort().pop() || '';
+
+const RETENTION_KINDS = {
+  beneficiaries: { label: 'נזקקים לא פעילים (חסד)', minYears: 1,
+    removes: 'ראש המשפחה, ת.ז, טלפון, כתובת והערות. נשמרים: שם המשפחה, גודל המשפחה והאזור (להיסטוריית החלוקות).' },
+  donors: { label: 'תורמים שלא תרמו בתקופה (עמותה)', minYears: 7,
+    removes: 'טלפון וכתובת בכל התרומות של התורם ובהוראות קבע שהסתיימו. נשמרים: שם, ת.ז, סכום ומספר הקבלה. ' +
+      'קבלה שתודפס מחדש תצא בלי כתובת. מינימום 7 שנים — כמו תקופת השמירה של קבלות.' },
+  borrowers: { label: 'לווים בהלוואות שנפרעו או בוטלו (גמ"ח)', minYears: 1,
+    removes: 'טלפון, כתובת והערות של הלווה, וטלפון הערבים. נשמרים: שמות, ת.ז, סכום ולוח התשלומים.' },
+  mortgageClients: { label: 'תיקי ייעוץ משכנתאות שלא עודכנו', minYears: 1,
+    removes: 'טלפון והערות. נשמרים: שם הלקוח, הבנק, הסכומים וההצעות.' }
+};
+
+function retentionKind(kind) {
+  const k = kind || 'beneficiaries';
+  if (!RETENTION_KINDS[k]) throw new Error('סוג רשומות לא מוכר');
+  return k;
+}
+
+function cutoffFor(kind, today, years) {
+  const k = RETENTION_KINDS[retentionKind(kind)];
+  if (Number(years) < k.minYears) throw new Error(`ב${k.label} תקופת השמירה היא לפחות ${k.minYears} שנים`);
+  return retentionCutoff(today, years);
+}
+
+// מפתח תורם: ת.ז, ובלעדיה — השם
+const donorKey = (d) => (idKey(d.donorId) ? 'id:' + idKey(d.donorId) : 'name:' + normName(d.donorName));
+
+function candidatesFor(data, kind, today, years) {
+  const k = retentionKind(kind);
+  const cutoff = cutoffFor(k, today, years);
+  if (k === 'beneficiaries') {
+    return retentionCandidates(data.chesed || {}, today, years).map(x => ({ ...x, label: x.familyName }));
+  }
+  if (k === 'donors') {
+    const npo = data.npo || {};
+    const thisMonth = String(today).slice(0, 7);
+    const byDonor = new Map();
+    for (const d of npo.donations || []) {
+      if (!normName(d.donorName) && !idKey(d.donorId)) continue;
+      const key = donorKey(d);
+      const cur = byDonor.get(key) || { id: key, label: normName(d.donorName), last: '', contact: false };
+      cur.last = maxDay(cur.last, d.date);
+      if (d.donorPhone || d.donorAddress) cur.contact = true;
+      byDonor.set(key, cur);
+    }
+    for (const o of npo.standingOrders || []) {
+      const key = donorKey(o);
+      const cur = byDonor.get(key);
+      if (!cur) continue;
+      // הוראת קבע פעילה — התורם פעיל
+      if (!o.endMonth || o.endMonth >= thisMonth) cur.active = true;
+      else if (o.donorPhone || o.donorAddress) cur.contact = true;
+    }
+    return [...byDonor.values()].filter(x => !x.active && x.contact && x.last && x.last < cutoff)
+      .map(({ id, label, last }) => ({ id, label, last })).sort((a, b) => a.last.localeCompare(b.last));
+  }
+  if (k === 'borrowers') {
+    return ((data.gemach && data.gemach.loans) || [])
+      .filter(l => (l.status === 'closed' || l.status === 'cancelled') && !l.privacyMinimizedAt)
+      .filter(l => l.borrowerPhone || l.borrowerAddress || l.notes || (l.guarantors || []).some(g => g.phone))
+      .map(l => ({ id: l.id, label: normName(l.borrowerName), last: maxDay(l.issueDate, l.updatedAt, l.cancelledAt, ...(l.schedule || []).map(x => x.paidDate)) }))
+      .filter(x => x.last && x.last < cutoff).sort((a, b) => a.last.localeCompare(b.last));
+  }
+  return ((data.mortgageAdvisor && data.mortgageAdvisor.clients) || [])
+    .filter(c => !c.privacyMinimizedAt && (c.phone || c.notes))
+    .map(c => ({ id: c.id, label: normName(c.name), last: maxDay(c.updatedAt, c.createdAt) }))
+    .filter(x => x.last && x.last < cutoff).sort((a, b) => a.last.localeCompare(b.last));
+}
+
+// מזעור בפועל — רק מזהים שעדיין מועמדים ברגע הביצוע. מחזיר כמה מוזערו
+function applyRetention(data, kind, ids, today, years, at) {
+  const k = retentionKind(kind);
+  const allowed = new Set(candidatesFor(data, k, today, years).map(x => x.id));
+  const wanted = new Set((Array.isArray(ids) ? ids : []).map(String));
+  if (!wanted.size) throw new Error('לא נבחרו רשומות למזעור');
+  const ok = (id) => wanted.has(id) && allowed.has(id);
+  let done = 0;
+  if (k === 'beneficiaries') {
+    data.chesed.beneficiaries = data.chesed.beneficiaries.map(b => (ok(b.id) ? (done++, minimize(b, at)) : b));
+  } else if (k === 'donors') {
+    const hit = new Set();
+    data.npo.donations = data.npo.donations.map(d => {
+      const key = donorKey(d);
+      if (!ok(key)) return d;
+      hit.add(key);
+      return { ...d, donorPhone: '', donorAddress: '', privacyMinimizedAt: at };
+    });
+    data.npo.standingOrders = (data.npo.standingOrders || []).map(o => (ok(donorKey(o)) ? { ...o, donorPhone: '', donorAddress: '', privacyMinimizedAt: at } : o));
+    done = hit.size;
+  } else if (k === 'borrowers') {
+    data.gemach.loans = data.gemach.loans.map(l => (ok(l.id)
+      ? (done++, { ...l, borrowerPhone: '', borrowerAddress: '', notes: '', guarantors: (l.guarantors || []).map(g => ({ ...g, phone: '' })), privacyMinimizedAt: at })
+      : l));
+  } else {
+    data.mortgageAdvisor.clients = data.mortgageAdvisor.clients.map(c => (ok(c.id) ? (done++, { ...c, phone: '', notes: '', privacyMinimizedAt: at }) : c));
+  }
+  return { minimized: done, skipped: wanted.size - done };
+}
+
+// ---------- יומן בקשות של נושאי מידע (עיון — סעיף 13, תיקון — סעיף 14)
+const REQUEST_TYPES = { access: 'עיון במידע', correction: 'תיקון מידע', deletion: 'מחיקת מידע', other: 'אחר' };
+const REQUEST_STATUSES = { open: 'פתוחה', done: 'טופלה', rejected: 'נדחתה' };
+// מועד יעד לתשובה: 30 יום מהקבלה — לבדוק מול התקנות ועם עורך דין
+const RESPONSE_DAYS = 30;
+const MAX_REQUESTS = 5000;
+const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(v));
+const clip = (v, n) => String(v ?? '').trim().slice(0, n);
+
+function addDays(isoDay, n) {
+  const d = new Date(isoDay + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function validateRequest(input, count = 0) {
+  if (!input || typeof input !== 'object') throw new Error('בקשה לא תקינה');
+  if (count >= MAX_REQUESTS) throw new Error('הגעת למספר המקסימלי של בקשות');
+  const type = REQUEST_TYPES[input.type] ? input.type : '';
+  if (!type) throw new Error('יש לבחור את סוג הבקשה');
+  const name = clip(input.name, 120);
+  if (!name) throw new Error('שם המבקש חובה');
+  const receivedDate = String(input.receivedDate || '');
+  if (!isDay(receivedDate)) throw new Error('תאריך קבלת הבקשה אינו תקין');
+  return { type, name, idNumber: clip(String(input.idNumber || '').replace(/\D/g, ''), 9), receivedDate,
+    dueDate: addDays(receivedDate, RESPONSE_DAYS), status: 'open', notes: clip(input.notes, 1000) };
+}
+
+function closeRequest(req, input = {}) {
+  if (req.status !== 'open') throw new Error('הבקשה כבר נסגרה');
+  const status = input.status === 'rejected' ? 'rejected' : 'done';
+  const handledDate = String(input.handledDate || '');
+  if (!isDay(handledDate)) throw new Error('תאריך הטיפול אינו תקין');
+  if (handledDate < req.receivedDate) throw new Error('תאריך הטיפול לפני תאריך קבלת הבקשה');
+  const notes = clip(input.notes, 1000);
+  if (status === 'rejected' && !notes) throw new Error('בדחיית בקשה יש לרשום את הסיבה');
+  return { ...req, status, handledDate, notes: notes || req.notes };
+}
+
+// תצוגה: תוויות, ובקשה פתוחה שעבר המועד שלה — באיחור
+function requestView(req, today) {
+  return { ...req, typeLabel: REQUEST_TYPES[req.type] || req.type, statusLabel: REQUEST_STATUSES[req.status] || req.status,
+    overdue: req.status === 'open' && !!today && req.dueDate < today };
+}
+
 const INCIDENT_CHECKLIST = [
   'לעצור את הדליפה: לנתק את המחשב מהרשת, להחליף סיסמאות של משתמשי התוכנה ולחסום משתמש חשוד',
   'לתעד: מה קרה, מתי התגלה, אילו סוגי מידע נחשפו (לפי מיפוי המאגרים), כמה אנשים',
   'לשמור ראיות: לייצא את יומן הביקורת ולא למחוק קבצים',
-  'לבדוק מול עורך דין / ממונה הגנת הפרטיות אם נדרש דיווח לרשות להגנת הפרטיות ולאנשים שנפגעו, ובאיזה מועד',
+  'לבדוק מול עורך דין / ממונה הגנת הפרטיות אם נדרש דיווח לרשות להגנת הפרטיות ולאנשים שנפגעו, ובאיזה מועד. במאגר ברמה בינונית או גבוהה — אירוע חמור מדווח מיד (תקנה 11(ד)(1)), בטופס: https://www.gov.il/he/service/report-of-data-breach',
   'לשחזר מגיבוי מוצפן תקין אם הנתונים שובשו',
   'לסכם לקחים: הרשאות, סיסמאות, היכן נשמרו קובצי ייצוא'
 ];
 
-module.exports = { SENSITIVITY, INCIDENT_CHECKLIST, dataMap, lastActivity, retentionCutoff, retentionCandidates, minimize };
+module.exports = {
+  SENSITIVITY, INCIDENT_CHECKLIST, LEVELS, RETENTION_KINDS, REQUEST_TYPES, REQUEST_STATUSES, RESPONSE_DAYS,
+  dataMap, suggestLevel, lastActivity, retentionCutoff, retentionCandidates, minimize, candidatesFor, applyRetention,
+  validateRequest, closeRequest, requestView, addDays
+};

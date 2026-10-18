@@ -1044,10 +1044,46 @@ function registerIpcHandlers() {
     return o;
   });
   handle('privacy:getMap', async () => privacyService.getMap(await db.listUsers()));
-  handle('privacy:retentionPreview', async (event, years) => privacyService.retentionPreview(years));
-  handle('privacy:minimize', async (event, ids, years) => {
-    const r = await privacyService.minimize(ids, years);
-    await auditEvent(event, 'chesed.privacy.minimize', { years, minimized: r.minimized, skipped: r.skipped });
+  handle('privacy:retentionPreview', async (event, years, kind) => privacyService.retentionPreview(years, undefined, kind));
+  handle('privacy:minimize', async (event, ids, years, kind) => {
+    const r = await privacyService.minimize(ids, years, undefined, kind);
+    await auditEvent(event, kind && kind !== 'beneficiaries' ? 'privacy.minimize' : 'chesed.privacy.minimize', { kind: kind || 'beneficiaries', years, minimized: r.minimized, skipped: r.skipped });
+    return r;
+  });
+  // מסמכים לתיקון 13 (PLAN.md 9.15) — PDF במקום שהמנהל בוחר
+  handle('privacy:exportDefinitionPdf', async (event) => {
+    const r = await saveHtmlAsPdf(await privacyService.definitionHtml(await db.listUsers()), 'מסמך-הגדרות-מאגר.pdf');
+    if (r.ok) await auditEvent(event, 'privacy.doc.export', { doc: 'definition' });
+    return r;
+  });
+  handle('privacy:exportProcedurePdf', async (event) => {
+    const r = await saveHtmlAsPdf(await privacyService.procedureHtml(await db.listUsers()), 'נוהל-אבטחת-מידע.pdf');
+    if (r.ok) await auditEvent(event, 'privacy.doc.export', { doc: 'procedure' });
+    return r;
+  });
+  handle('privacy:exportNoticePdf', async (event, kind) => {
+    const r = await saveHtmlAsPdf(await privacyService.noticeHtml(kind), `הודעת-יידוע-${String(kind).replace(/[^a-z]/gi, '')}.pdf`);
+    if (r.ok) await auditEvent(event, 'privacy.doc.export', { doc: 'notice', kind });
+    return r;
+  });
+  // זכות עיון: מנהל בלבד (permissionFor), התחומים הפתוחים ברישיון בלבד, והייצוא נרשם ביומן
+  handle('privacy:exportSubjectPdf', async (event, idNumber) => {
+    const { report, html } = await privacyService.subject(idNumber, {
+      canSeeConfidential: canSeeConfidential(event), sources: LG.peopleSources(licenseState()),
+      acct: !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view')
+    });
+    const r = await saveHtmlAsPdf(html, `מידע-על-${report.idNumber}.pdf`);
+    if (r.ok) await auditEvent(event, 'privacy.subject.export', { idNumber: report.idNumber, records: report.count });
+    return { ...r, count: report.count };
+  });
+  handle('privacy:addRequest', async (event, input) => {
+    const r = await privacyService.addRequest(input);
+    await auditEvent(event, 'privacy.request.add', { id: r.id, type: r.type });
+    return r;
+  });
+  handle('privacy:closeRequest', async (event, requestId, input) => {
+    const r = await privacyService.closeRequest(requestId, input);
+    await auditEvent(event, 'privacy.request.close', { id: r.id, status: r.status });
     return r;
   });
   handle('chesed:addBeneficiary', async (event, input) => {

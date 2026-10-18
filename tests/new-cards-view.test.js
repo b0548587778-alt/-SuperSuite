@@ -110,6 +110,19 @@ test('הגדרות: כרטיס הפרטיות למנהל, עם הסתייגות 
   assert.match(html, /צפייה בחסויים/);
 });
 
+test('הגדרות: כרטיס הפרטיות עם רמת אבטחה, מסמכים, יומן בקשות ומדיניות שמירה (PLAN 9.15)', async () => {
+  const map = PR.dataMap({ gemach: { loans: [{}] } }, { admin: 1 });
+  const privacy = { ...map, checklist: PR.INCIDENT_CHECKLIST, level: PR.suggestLevel(map), retentionKinds: PR.RETENTION_KINDS, requestTypes: PR.REQUEST_TYPES,
+    noticeKinds: { donor: 'תורם' }, requests: [PR.requestView({ id: 'q1', ...PR.validateRequest({ type: 'access', name: 'יוסף כהן', receivedDate: '2026-01-01' }) }, '2026-10-18')] };
+  const { html } = await render('settings', { getAdvancedSettings: { isAdmin: true, kinds: [], counts: {}, me: { id: 'u1' } }, listUsers: [], listAudit: [], getPrivacyMap: privacy });
+  assert.match(html, /רמת אבטחה בינונית/);
+  assert.match(html, /privacyDefinitionBtn/);
+  assert.match(html, /יוסף כהן/);
+  assert.match(html, /באיחור/);
+  assert.match(html, /data-privacy-close="q1"/);
+  assert.match(html, /לווים בהלוואות שנפרעו/);
+});
+
 test('גמ"ח: בקשות, חפצים באיחור ופיגורים לפי ערב', async () => {
   const item = { id: 'i1', ...GX.validateItem({ name: 'עגלת תינוק', deposit: 200 }) };
   const lending = { id: 'l1', ...GX.validateLending({ borrowerName: 'רחל', date: '2026-10-01', dueDate: '2026-10-10' }, item, []) };

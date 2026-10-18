@@ -38,7 +38,8 @@ const collections = [
   'chesed',            // חסד וחלוקות: נזקקים (כולל חסויים), מתנדבים וסבבי חלוקה
   'mortgageAdvisor',   // ייעוץ משכנתאות: תיקי לקוחות והצעות בנקים
   'mortgageLab',       // מעבדת תמהיל: תחזית, אימותי כללים ותרחישים שמורים
-  'payments'           // גבייה מלקוחות: דרישות תשלום וקישורים לחברת הסליקה של הארגון — בלי פרטי אשראי
+  'payments',          // גבייה מלקוחות: דרישות תשלום וקישורים לחברת הסליקה של הארגון — בלי פרטי אשראי
+  'privacy'            // תיקון 13: יומן בקשות עיון ותיקון של נושאי מידע
 ];
 
 const objectCollections = new Set([
@@ -53,7 +54,8 @@ const objectCollections = new Set([
   'chesed',
   'mortgageAdvisor',
   'mortgageLab',
-  'payments'
+  'payments',
+  'privacy'
 ]);
 
 const defaults = {
@@ -91,6 +93,7 @@ const defaults = {
   mortgageAdvisor: { clients: [], offers: [] },
   mortgageLab: { forecast: null, verifications: [], scenarios: [], rateConvention: 'NOMINAL' },
   payments: { settings: {}, requests: [] },
+  privacy: { requests: [] },
   settings: { currency: 'ILS', vatRate: 0.18 }
 };
 

@@ -42,34 +42,120 @@ function renderPrivacyCard(pv) {
     <div class="acct-row"><span>משתמשים פעילים</span><span>מנהלים ${Number(pv.users.admin)} · עורכים ${Number(pv.users.editor)} · צופים ${Number(pv.users.viewer)}</span></div>
     <h4>היכן הנתונים נשמרים</h4>
     ${pv.storage.map(s => `<div class="acct-row"><span><small>${esc(s)}</small></span></div>`).join('')}
-    <h4>מזעור נזקקים לא פעילים</h4>
-    <p class="muted">נזקק שסומן "לא פעיל" ולא הייתה לו פעילות בתקופה שנבחרה: שם המשפחה, גודל המשפחה והאזור נשמרים (להיסטוריית החלוקות), והפרטים המזהים נמחקים — ראש המשפחה, ת.ז, טלפון, כתובת והערות. הפעולה אינה הפיכה, ורצה רק אחרי אישור הרשימה. כדאי לבצע גיבוי לפני.</p>
-    <div class="acct-actions"><button class="secondary" id="privacyRetentionBtn">בדיקת רשומות למזעור…</button></div>
+    ${renderPrivacyLevel(pv.level)}
+    <h4>מסמכים (טיוטות להשלמה)</h4>
+    <div class="acct-actions">
+      <button class="secondary" id="privacyDefinitionBtn">מסמך הגדרות מאגר (PDF)</button>
+      <button class="secondary" id="privacyProcedureBtn">טיוטת נוהל אבטחה (PDF)</button>
+      <select id="privacyNoticeKind" aria-label="סוג הטופס">${Object.entries(pv.noticeKinds || {}).map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('')}</select>
+      <button class="secondary" id="privacyNoticeBtn">הודעת יידוע לטופס (PDF)</button>
+    </div>
+    <h4>זכות עיון ותיקון</h4>
+    <p class="muted">ייצוא כל המידע השמור על אדם לפי מספר זהות, מכל התחומים שפתוחים ברישיון. כל ייצוא נרשם ביומן הפעולות. יומן הבקשות עוזר לעמוד במועד התשובה.</p>
+    <div class="acct-actions">
+      <button class="secondary" id="privacySubjectBtn">ייצוא מידע לפי ת"ז…</button>
+      <select id="privacyRequestType" aria-label="סוג הבקשה">${Object.entries(pv.requestTypes || {}).map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('')}</select>
+      <button class="secondary" id="privacyRequestBtn">רישום בקשה…</button>
+    </div>
+    ${renderPrivacyRequests(pv.requests)}
+    <h4>מזעור לפי תקופת שמירה</h4>
+    <p class="muted">רשומות שלא הייתה בהן פעילות בתקופה שנבחרה: הפרטים שאינם נחוצים עוד נמחקים, והשאר נשמר. לפני הביצוע מוצגת הרשימה ומה יימחק. הפעולה אינה הפיכה — כדאי לבצע גיבוי לפני.</p>
+    <div class="acct-actions">
+      <select id="privacyRetentionKind" aria-label="סוג הרשומות">${Object.entries(pv.retentionKinds || { beneficiaries: { label: 'נזקקים לא פעילים (חסד)' } }).map(([k, v]) => `<option value="${esc(k)}">${esc(v.label)}</option>`).join('')}</select>
+      <button class="secondary" id="privacyRetentionBtn">בדיקת רשומות למזעור…</button>
+    </div>
     <details><summary><h4 style="display:inline">רשימת בדיקה לאירוע אבטחה</h4></summary>
       <ol>${(pv.checklist || []).map(s => `<li>${esc(s)}</li>`).join('')}</ol>
     </details>
   </div>`;
 }
 
+function renderPrivacyLevel(lv) {
+  if (!lv) return '';
+  return `<h4>רמת אבטחה מוצעת: <span class="${lv.level === 'medium' || lv.level === 'high' ? 'bad' : ''}">${esc(lv.label)}</span></h4>
+    ${(lv.reasons || []).map(r => `<div class="acct-row"><span><small>${esc(r)}</small></span></div>`).join('')}
+    ${lv.reportBreach ? '<p><small class="bad">ברמה זו אירוע אבטחה חמור מדווח לרשות להגנת הפרטיות מיד.</small></p>' : ''}
+    <p class="muted"><small>${esc(lv.note)}</small></p>`;
+}
+
+function renderPrivacyRequests(list) {
+  const rows = Array.isArray(list) ? list : [];
+  if (!rows.length) return '<p class="muted"><small>לא נרשמו בקשות.</small></p>';
+  return `<div class="acct-scroll"><table class="acct-table">
+    <thead><tr><th>התקבלה</th><th>סוג</th><th>מבקש</th><th>מועד יעד</th><th>מצב</th><th></th></tr></thead>
+    <tbody>${rows.map(r => `<tr><td>${esc(r.receivedDate)}</td><td>${esc(r.typeLabel)}</td><td>${esc(r.name)}${r.idNumber ? ` <small class="muted">${esc(r.idNumber)}</small>` : ''}</td>
+      <td>${r.overdue ? `<span class="bad">${esc(r.dueDate)} · באיחור</span>` : esc(r.dueDate)}</td>
+      <td>${esc(r.statusLabel)}${r.handledDate ? ` <small class="muted">${esc(r.handledDate)}</small>` : ''}</td>
+      <td>${r.status === 'open' ? `<button class="secondary" data-privacy-close="${esc(r.id)}" data-status="done">טופלה</button> <button class="secondary" data-privacy-close="${esc(r.id)}" data-status="rejected">נדחתה</button>` : `<small class="muted">${esc(r.notes || '')}</small>`}</td></tr>`).join('')}</tbody>
+  </table></div>
+  <p class="muted"><small>מועד היעד: 30 יום מקבלת הבקשה — לבדוק את המועד המחייב מול התקנות.</small></p>`;
+}
+
+async function privacyPdf(call, label) {
+  try {
+    const r = await call();
+    if (r && r.ok) showToast(`${label} נשמר`);
+  } catch (error) { showError('שגיאה בהפקת המסמך: ' + errMsg(error)); }
+}
+
+async function runPrivacySubject() {
+  const f = await askFields('ייצוא מידע לפי מספר זהות', [{ name: 'idNumber', label: 'מספר זהות' }], 'הפק PDF');
+  if (!f) return;
+  try {
+    const r = await window.systemAPI.exportPrivacySubjectPdf(f.idNumber);
+    if (r && r.ok) showToast(`הקובץ נשמר · ${r.count} רשומות`);
+  } catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
+}
+
+async function runPrivacyRequest() {
+  const type = (document.getElementById('privacyRequestType') || {}).value || 'access';
+  const f = await askFields('רישום בקשה של נושא מידע', [
+    { name: 'name', label: 'שם המבקש' }, { name: 'idNumber', label: 'מספר זהות (אם נמסר)' },
+    { name: 'receivedDate', label: 'תאריך קבלת הבקשה', type: 'date' }, { name: 'notes', label: 'פירוט הבקשה' }
+  ], 'רישום', { receivedDate: today() });
+  if (!f) return;
+  try {
+    await window.systemAPI.addPrivacyRequest({ ...f, type });
+    showToast('הבקשה נרשמה');
+    await switchView('settings');
+  } catch (error) { showError('שגיאה ברישום הבקשה: ' + errMsg(error)); }
+}
+
+async function runPrivacyClose(id, status) {
+  const f = await askFields(status === 'rejected' ? 'דחיית הבקשה' : 'סימון הבקשה כמטופלת', [
+    { name: 'handledDate', label: 'תאריך הטיפול', type: 'date' },
+    { name: 'notes', label: status === 'rejected' ? 'סיבת הדחייה (חובה)' : 'מה נעשה' }
+  ], 'שמירה', { handledDate: today() });
+  if (!f) return;
+  try {
+    await window.systemAPI.closePrivacyRequest(id, { ...f, status });
+    showToast('נשמר');
+    await switchView('settings');
+  } catch (error) { showError('שגיאה: ' + errMsg(error)); }
+}
+
 async function runPrivacyRetention() {
-  const f = await askFields('מזעור נזקקים לא פעילים', [{ name: 'years', label: 'ללא פעילות לפחות (שנים)', type: 'number' }], 'הצג רשימה', { years: '7' });
+  const kindEl = document.getElementById('privacyRetentionKind');
+  const kind = (kindEl && kindEl.value) || 'beneficiaries';
+  const kindLabel = kindEl && kindEl.selectedOptions && kindEl.selectedOptions[0] ? kindEl.selectedOptions[0].textContent : 'נזקקים לא פעילים';
+  const f = await askFields('מזעור: ' + kindLabel, [{ name: 'years', label: 'ללא פעילות לפחות (שנים)', type: 'number' }], 'הצג רשימה', { years: '7' });
   if (!f) return;
   let pv;
-  try { pv = await window.systemAPI.previewPrivacyRetention(Number(f.years)); }
+  try { pv = await window.systemAPI.previewPrivacyRetention(Number(f.years), kind); }
   catch (error) { return showError('שגיאה: ' + errMsg(error)); }
-  if (!pv.rows.length) return showToast(`אין נזקקים לא פעילים ללא פעילות מאז ${pv.cutoff}`);
+  if (!pv.rows.length) return showToast(`אין רשומות למזעור ללא פעילות מאז ${pv.cutoff}`);
   const ok = await openDialog((card, finish) => {
     card.style.maxWidth = '560px';
     card.innerHTML = `<h2>${pv.rows.length} רשומות למזעור</h2>
-      <p class="muted" style="padding:0 1.5rem">לא פעילים, ללא פעילות מאז ${esc(pv.cutoff)}. הפרטים המזהים יימחקו לצמיתות.</p>
-      <div class="acct-scroll" style="max-height:45vh;padding:0 1.5rem">${pv.rows.map(r => `<div class="acct-row"><span>${esc(r.familyName)}${r.tier === 'confidential' ? ' <small class="bad">· חסוי</small>' : ''}</span><span><small class="muted">פעילות אחרונה ${esc(r.last)}</small></span></div>`).join('')}</div>
+      <p class="muted" style="padding:0 1.5rem">ללא פעילות מאז ${esc(pv.cutoff)}. יימחקו לצמיתות: ${esc(pv.removes || 'הפרטים המזהים')}</p>
+      <div class="acct-scroll" style="max-height:45vh;padding:0 1.5rem">${pv.rows.map(r => `<div class="acct-row"><span>${esc(r.label || r.familyName)}${r.tier === 'confidential' ? ' <small class="bad">· חסוי</small>' : ''}</span><span><small class="muted">פעילות אחרונה ${esc(r.last)}</small></span></div>`).join('')}</div>
       <div class="modal-actions"><button type="button" class="secondary" data-act="no">ביטול</button><button type="button" class="danger" data-act="yes">מזעור ${pv.rows.length} רשומות</button></div>`;
     card.querySelector('[data-act="no"]').addEventListener('click', () => finish(false));
     card.querySelector('[data-act="yes"]').addEventListener('click', () => finish(true));
   });
   if (!ok) return;
   try {
-    const r = await window.systemAPI.minimizePrivacy(pv.rows.map(x => x.id), Number(f.years));
+    const r = await window.systemAPI.minimizePrivacy(pv.rows.map(x => x.id), Number(f.years), kind);
     showToast(`מוזערו ${r.minimized} רשומות${r.skipped ? ` · ${r.skipped} דולגו (השתנו בינתיים)` : ''}`);
     await switchView('settings');
   } catch (error) { showError('שגיאה במזעור: ' + errMsg(error)); }
@@ -253,6 +339,13 @@ async function googleLinkFlow() {
 function attachSettingsHandlers() {
   const privBtn = document.getElementById('privacyRetentionBtn');
   if (privBtn) privBtn.addEventListener('click', runPrivacyRetention);
+  const onClick = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+  onClick('privacyDefinitionBtn', () => privacyPdf(() => window.systemAPI.exportPrivacyDefinitionPdf(), 'מסמך הגדרות המאגר'));
+  onClick('privacyProcedureBtn', () => privacyPdf(() => window.systemAPI.exportPrivacyProcedurePdf(), 'נוהל האבטחה'));
+  onClick('privacyNoticeBtn', () => privacyPdf(() => window.systemAPI.exportPrivacyNoticePdf((document.getElementById('privacyNoticeKind') || {}).value), 'נוסח ההודעה'));
+  onClick('privacySubjectBtn', runPrivacySubject);
+  onClick('privacyRequestBtn', runPrivacyRequest);
+  document.querySelectorAll('[data-privacy-close]').forEach(b => b.addEventListener('click', () => runPrivacyClose(b.dataset.privacyClose, b.dataset.status)));
   const st = state.data.settings || {};
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
   on('advGeneralBtn', () => openSubForm(advGeneralSchema, { idleMinutes: st.idleMinutes, startView: st.startView }));
