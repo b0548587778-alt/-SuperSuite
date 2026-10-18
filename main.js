@@ -11,6 +11,7 @@ const DbKey = require('./shell/db-key');
 const SecureStore = require('./shell/secure-store');
 const TrainerCheck = require('./shell/trainer-backup-check');
 const CodeGuard = require('./shell/code-guard');
+const PlainBk = require('./shell/plain-backups');
 const Catalog = require('./shell/catalog');
 const Hebcal = require('./shell/hebcal');
 const NavHistory = require('./shell/history');
@@ -337,6 +338,8 @@ function sanitizeCalendar(input) {
 const stateFile = () => path.join(app.getPath('userData'), 'window-state.json');
 const uiFile = () => path.join(app.getPath('userData'), 'ui-settings.json');
 const backupSettingsFile = () => path.join(app.getPath('userData'), 'backup-settings.json');
+// תיקיית הגיבוי האוטומטי: היעד שנבחר (USB), ואם לא נבחר — תיקיית המסמכים
+const backupDir = () => loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
 function loadJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } }
 function saveJson(f, obj) { try { fs.writeFileSync(f, JSON.stringify(obj)); } catch {} }
 function loadState() { return loadJson(stateFile()); }
@@ -514,7 +517,10 @@ async function autoBackup() {
     status = { ok: false, reason: e.code || 'error', at: new Date().toISOString() };
   }
   if (!status.ok) console.warn('auto-backup skipped:', status.reason, status.target || '');
-  saveJson(backupSettingsFile(), { ...loadJson(backupSettingsFile()), lastAutoBackup: status });
+  // גיבויים ישנים לא מוצפנים בתיקייה (PLAN.md 3.6) — נספרים כאן, ומוצגים במסך הבית
+  let plainBackups = 0;
+  try { plainBackups = PlainBk.scan(status.target || backupDir()).length; } catch { /* תיקייה לא זמינה */ }
+  saveJson(backupSettingsFile(), { ...loadJson(backupSettingsFile()), lastAutoBackup: status, plainBackups });
   return status;
 }
 
@@ -551,12 +557,30 @@ function openBackupText(text, passphrase) {
   }
 }
 
+// אחרי שחזור מקובץ גלוי: הצפנה (עותק .ssbk לידו, ואז מחיקת המקור), מחיקה, או השארה. בלי הצפנת Windows — רק מחיקה
+async function offerPlainFile(file, text) {
+  if (!PlainBk.isPlainBackupText(String(text || '').replace(/^﻿/, ''))) return;
+  const canEncrypt = safeStorage.isEncryptionAvailable();
+  const buttons = canEncrypt ? ['הצפן את הקובץ', 'מחק את הקובץ', 'השאר'] : ['מחק את הקובץ', 'השאר'];
+  const c = await dialog.showMessageBox(win, { type: 'warning', buttons, defaultId: 0, cancelId: buttons.length - 1,
+    message: 'קובץ הגיבוי ששוחזר אינו מוצפן', detail: path.basename(file) + '\nכל מי שיש לו גישה לקובץ יכול לקרוא את הנתונים. מומלץ להצפין אותו או למחוק אותו.' });
+  const action = buttons[c.response];
+  try {
+    const dir = path.dirname(file), name = path.basename(file);
+    if (action === 'הצפן את הקובץ') { const out = PlainBk.encryptFile({ dir, name, key: autoBackupKey(true) }); dialog.showMessageBox(win, { type: 'info', message: 'הקובץ הוצפן: ' + out.file }); }
+    else if (action === 'מחק את הקובץ') PlainBk.deleteFile({ dir, name });
+    else return;
+    logger.warn('plain-backup', (action === 'מחק את הקובץ' ? 'deleted ' : 'encrypted ') + name);
+  } catch (e) { dialog.showErrorBox('שגיאה', e.message || 'הפעולה נכשלה'); }
+}
+
 async function restoreAll(passphrase) {
   const r = await dialog.showOpenDialog(win, { title: 'בחירת קובץ גיבוי', properties: ['openFile'], filters: [{ name: 'גיבוי SuperSuite', extensions: ['ssbk', 'json'] }] });
   if (r.canceled || !r.filePaths[0]) return { ok: false };
-  let data;
+  let data, text;
   try {
-    data = JSON.parse(openBackupText(fs.readFileSync(r.filePaths[0], 'utf8'), passphrase));
+    text = fs.readFileSync(r.filePaths[0], 'utf8');
+    data = JSON.parse(openBackupText(text, passphrase));
   } catch (e) {
     dialog.showErrorBox('שגיאה', e.message || 'הקובץ אינו גיבוי תקין');
     return { ok: false };
@@ -602,6 +626,8 @@ async function restoreAll(passphrase) {
   }
   for (const id of Object.keys(views)) views[id].webContents.reload();
   dialog.showMessageBox(win, { type: 'info', message: 'השחזור הושלם' });
+  // שוחזר מקובץ לא מוצפן (PLAN.md 3.6): מציעים להצפין אותו או למחוק — שהמידע לא יישאר גלוי במחשב
+  if (!BK.isEncryptedBackup(text)) await offerPlainFile(r.filePaths[0], text);
   return { ok: true };
 }
 
@@ -814,6 +840,28 @@ app.whenReady().then(async () => {
     if (dbAtRest.status !== 'encrypted' && dbAtRest.status !== 'plain') parts.push(AT_REST_WARNINGS[dbAtRest.status] || '');
     if (!s.recoveryCodeSavedAt && safeStorage.isEncryptionAvailable()) parts.push('⚠ טרם נרשם קוד שחזור (🔑)');
     return parts.filter(Boolean).join(' · ');
+  });
+  // גיבויים ישנים לא מוצפנים בתיקיית הגיבוי (PLAN.md 3.6): רשימה, הצפנה (ואז מחיקת המקור), מחיקה. שום דבר לא אוטומטי
+  const savePlainCount = () => saveJson(backupSettingsFile(), { ...loadJson(backupSettingsFile()), plainBackups: PlainBk.scan(backupDir()).length });
+  ipcMain.handle('shell:plain-backups', (e) => {
+    shellGuard(e, 'data.backup');
+    const list = PlainBk.scan(backupDir());
+    return { dir: backupDir(), files: list, warning: PlainBk.warningText(list), canEncrypt: safeStorage.isEncryptionAvailable() };
+  });
+  ipcMain.handle('shell:plain-backup-encrypt', (e, name) => {
+    shellGuard(e, 'data.backup');
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('הצפנת Windows אינה זמינה בחשבון הזה — אפשר רק למחוק את הקובץ');
+    const r = PlainBk.encryptFile({ dir: backupDir(), name, key: autoBackupKey(true) });
+    logger.warn('plain-backup', 'encrypted ' + r.file);
+    savePlainCount();
+    return r;
+  });
+  ipcMain.handle('shell:plain-backup-delete', (e, name) => {
+    shellGuard(e, 'data.backup');
+    const r = PlainBk.deleteFile({ dir: backupDir(), name });
+    logger.warn('plain-backup', 'deleted ' + r.deleted);
+    savePlainCount();
+    return r;
   });
   // קוד השחזור של הגיבוי האוטומטי: נוצר מהמפתח (ויוצר אותו אם אין עדיין). מי שמורשה לגבות — מורשה לראות
   ipcMain.handle('shell:get-recovery-code', (e) => {

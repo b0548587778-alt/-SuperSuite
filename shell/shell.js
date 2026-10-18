@@ -418,8 +418,75 @@ async function refreshTargetIfLoggedIn() {
     // סטטוס הגיבוי האחרון: כשל שקט (אין הצפנת מערכת / כונן מנותק) חייב להיות גלוי למשתמש
     const st = window.shellAPI.getBackupStatus ? await window.shellAPI.getBackupStatus() : '';
     if (st) $('tgInfo').textContent += ' · ' + st;
+    refreshPlainBackups();
   } catch { /* נעדכן במעבר הבא */ }
 }
+
+// גיבויים ישנים לא מוצפנים בתיקיית הגיבוי (PLAN.md 3.6): אזהרה מתחת לסטטוס, ולחיצה פותחת את הרשימה.
+// בלי הרשאת גיבוי (או באנדרואיד, שאין בו תיקיית גיבוי) — אין אזהרה
+async function refreshPlainBackups() {
+  const btn = $('tgWarn');
+  let r = null;
+  try { r = window.shellAPI.plainBackups ? await window.shellAPI.plainBackups() : null; } catch { r = null; }
+  btn.hidden = !(r && r.files.length);
+  if (r && r.files.length) btn.textContent = r.warning + ' — לטיפול';
+  return r;
+}
+async function showPlainBackups() {
+  const dlg = $('pbDlg');
+  const render = async () => {
+    const r = await refreshPlainBackups();
+    const files = (r && r.files) || [];
+    $('pbDir').textContent = r ? r.dir : '';
+    const list = $('pbList');
+    list.textContent = '';
+    for (const f of files) {
+      const li = document.createElement('li');
+      const name = document.createElement('span');
+      name.textContent = f.name;
+      name.dir = 'ltr';
+      li.appendChild(name);
+      if (r.canEncrypt) li.appendChild(actionBtn('הצפן', () => window.shellAPI.plainBackupEncrypt(f.name)));
+      li.appendChild(actionBtn('מחק', () => {
+        if (!confirm(`למחוק את ${f.name}?\nהקובץ יימחק לצמיתות.`)) return null;
+        return window.shellAPI.plainBackupDelete(f.name);
+      }));
+      list.appendChild(li);
+    }
+    $('pbAll').hidden = !r || !r.canEncrypt || files.length < 2;
+    if (!files.length) { $('pbErr').textContent = ''; close(); }
+    else if (r && !r.canEncrypt) $('pbErr').textContent = 'הצפנת Windows אינה זמינה בחשבון הזה — אפשר רק למחוק.';
+    return files;
+  };
+  // פעולה על קובץ: שגיאה מוצגת בחלון, ואחריה הרשימה נטענת מחדש מהדיסק
+  const actionBtn = (label, fn) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.onclick = async () => {
+      $('pbErr').textContent = '';
+      try { await fn(); } catch (e) { $('pbErr').textContent = e.message || 'הפעולה נכשלה'; }
+      await render();
+    };
+    return b;
+  };
+  const close = () => { dlg.oncancel = null; if (dlg.open) closeDialog(dlg); };
+  $('pbClose').onclick = close;
+  dlg.oncancel = (e) => { e.preventDefault(); close(); };
+  $('pbAll').onclick = async () => {
+    $('pbErr').textContent = '';
+    const errs = [];
+    for (const name of [...$('pbList').querySelectorAll('li span')].map(s => s.textContent)) {
+      try { await window.shellAPI.plainBackupEncrypt(name); } catch (e) { errs.push(`${name}: ${e.message}`); }
+    }
+    await render();
+    if (errs.length) $('pbErr').textContent = errs.join(' · ');
+  };
+  $('pbErr').textContent = '';
+  showDialog(dlg);
+  await render();
+}
+$('tgWarn').onclick = showPlainBackups;
 window.shellAPI.onActive(id => { if (id === 'econ') refreshTargetIfLoggedIn(); });
 
 // פקודות מקלדת שמטופלות במעטפת (F1, Ctrl+K, Ctrl+Shift+B/R)
