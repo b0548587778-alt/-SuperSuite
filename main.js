@@ -10,6 +10,7 @@ const AutoBk = require('./shell/auto-backup');
 const DbKey = require('./shell/db-key');
 const SecureStore = require('./shell/secure-store');
 const TrainerCheck = require('./shell/trainer-backup-check');
+const CodeGuard = require('./shell/code-guard');
 const Catalog = require('./shell/catalog');
 const Hebcal = require('./shell/hebcal');
 const NavHistory = require('./shell/history');
@@ -23,6 +24,11 @@ const { createCrashGuard } = require('./shell/crash');
 const logger = createLogger({ dir: app.getPath('userData') });
 const crash = createCrashGuard({ logger, dialog, app, getWin: () => win, version: app.getVersion ? String(app.getVersion()) : '' });
 crash.installProcessHandlers();
+// בדיקת עלייה של הגרסה הארוזה (PLAN.md 3.5, CI בלבד): רק עם תיקיית נתונים נפרדת — לא נוגעים בנתונים אמיתיים
+const Smoke = require('./shell/smoke');
+const smoke = Smoke.isSmoke(process.argv)
+  ? (process.argv.some(a => a.startsWith('--user-data-dir=')) ? Smoke.createSmoke({ fs, path, dir: app.getPath('userData'), dialog, exit: (c) => app.exit(c) }) : (app.exit(2), null))
+  : null;
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
   try { return Catalog.extrasFromHtml(fs.readFileSync(path.join(__dirname, 'modules', 'econ', 'views', 'index.html'), 'utf8')); }
@@ -160,6 +166,8 @@ function wireView(id, wc) {
   });
   // מסך שקרס או נתקע — הודעה וטעינה מחדש של המודול בלבד (PLAN.md 2.1)
   crash.wireContents(id, wc, () => { if (!wc.isDestroyed()) wc.loadURL(ENTRY[id]); });
+  CodeGuard.wireDevToolsGuard(wc, app.isPackaged);
+  if (smoke) smoke.watch(id, wc);
 }
 
 // כפתורי העכבר הצדדיים (אחורה/קדימה) — Windows שולח אותם כ-app-command לחלון
@@ -176,7 +184,7 @@ function ensureView(id) {
   if (id === 'econ') prefs.preload = path.join(modulesRoot(), 'econ', 'preload.js');
   // מודול האימונים: preload בלי חשיפה לעמוד — ניווט מהסרגל האחיד ודיווח המסך הפעיל
   if (id === 'trainer') prefs.preload = path.join(modulesRoot(), 'trainer', 'preload.js');
-  const v = new WebContentsView({ webPreferences: prefs });
+  const v = new WebContentsView({ webPreferences: CodeGuard.guardPrefs(prefs, app.isPackaged) });
   views[id] = v;
   v.setVisible(false); // תצוגות מוסתרות לא מציירות ולא קולטות קלט
   win.contentView.addChildView(v); // Electron: View.addChildView (לא addChild)
@@ -347,9 +355,11 @@ function createWindow() {
     width: st.width || 1500, height: st.height || 940, x: st.x, y: st.y, minWidth: 1100, minHeight: 700,
     icon: path.join(__dirname, 'build', 'icon.png'),
     backgroundColor: '#0f1a30', title: 'SuperSuite', autoHideMenuBar: true,
-    webPreferences: { preload: path.join(__dirname, 'shell', 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
+    webPreferences: CodeGuard.guardPrefs({ preload: path.join(__dirname, 'shell', 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }, app.isPackaged)
   });
   win.removeMenu();
+  CodeGuard.wireDevToolsGuard(win.webContents, app.isPackaged);
+  if (smoke) smoke.watch('shell', win.webContents);
   if (st.max) win.maximize();
   win.on('close', saveState);
   win.on('resize', layout);
@@ -432,7 +442,7 @@ function dbAtRestOptions() {
 function promptRecoveryCode({ message }) {
   return new Promise((resolve) => {
     const w = new BrowserWindow({ width: 520, height: 420, resizable: false, title: 'SuperSuite — קוד שחזור', autoHideMenuBar: true,
-      webPreferences: { preload: path.join(__dirname, 'shell', 'recovery-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+      webPreferences: CodeGuard.guardPrefs({ preload: path.join(__dirname, 'shell', 'recovery-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }, app.isPackaged) });
     let done = false;
     const finish = (v) => { if (done) return; done = true; ipcMain.removeHandler('recovery:submit'); ipcMain.removeHandler('recovery:info'); if (!w.isDestroyed()) w.close(); resolve(v); };
     ipcMain.handle('recovery:info', (e) => (e.sender.id === w.webContents.id ? { message: message || '' } : null));
@@ -646,6 +656,10 @@ function registerSyncHandlers() {
 app.on('will-quit', () => { if (sync) sync.close().catch(() => {}); for (const s of Object.values(secureStores)) s.flush(); });
 
 /* ---------- הפעלה ---------- */
+// גרסת הפצה עם פרמטר דיבוג (--remote-debugging-port, --inspect...) — לא עולה (PLAN.md 3.5)
+const debugSwitch = CodeGuard.startupCheck({ argv: process.argv, packaged: app.isPackaged,
+  hasSwitch: (s) => app.commandLine && app.commandLine.hasSwitch(s) });
+if (debugSwitch) { logger.error('code-guard', new Error('debug switch: ' + debugSwitch)); app.exit(1); }
 if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 
@@ -821,6 +835,8 @@ app.whenReady().then(async () => {
 
   registerSyncHandlers();
   createWindow();
+  // בדיקת עלייה: טוענים את המעטפת וכל מודול, ויוצאים. בלי גיבוי אוטומטי (הוא כותב לתיקיית המסמכים האמיתית)
+  if (smoke) { smoke.run((id) => (id === 'shell' ? win.webContents : ensureView(id).webContents), ['shell', ...MODS], waitLoaded); return; }
   setTimeout(autoBackup, 15000);
   setInterval(autoBackup, 6 * 3600 * 1000);
 });

@@ -72,7 +72,15 @@ jobs:
           set -o pipefail
           ARGS="$(node tools/code-signing.js --args)"
           { echo "== code-signing"; node tools/code-signing.js 2>&1; } | tee -a "$LOG"
+          # כיווץ הקוד (PLAN.md 3.5) — במקום, בעותק של GitHub בלבד. הבדיקות הרגילות רצות במשימת trainer על הקוד המקורי
+          { echo "== minify"; npm install --no-save esbuild 2>&1 && node tools/minify.js 2>&1; } | tee -a "$LOG"
           { echo "== electron-builder"; npx electron-builder --win nsis portable --publish never $ARGS 2>&1; } | tee -a "$LOG"
+      # הגרסה הארוזה והמכווצת: עולה בלי שגיאות, ומסרבת לעלות עם פרמטר דיבוג או עם app.asar שהשתנה.
+      # נכשל ← אין מתקין להורדה (השלבים הבאים מדולגים)
+      - name: Smoke test (packaged)
+        env:
+          SMOKE_LOG: ${{ github.workspace }}/ci-logs/smoke.log
+        run: set -o pipefail; { echo "== smoke"; node tools/smoke-packaged.js 2>&1; } | tee -a "$LOG"
       - uses: actions/upload-artifact@v4
         with:
           name: SuperSuite-Windows
