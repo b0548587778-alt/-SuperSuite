@@ -1,5 +1,5 @@
 // תנאי ההפעלה של מערכת ברישיון (shell/licensing/activation.js):
-// רישיון שנתי פעיל, חיבור לשרת ב-7 הימים האחרונים, וכניסה עם Google ב-7 הימים האחרונים. בלי שלושתם — נעולה.
+// רישיון שנתי פעיל וחיבור לשרת ב-30 הימים האחרונים. בלי שניהם — נעולה. כניסה עם Google אינה תנאי (PLAN.md 4.1).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -20,27 +20,50 @@ test('התקנה בלי רישוי — אין דרישות הפעלה', () => {
   assert.equal(r.ok, true);
 });
 
-test('שלושת התנאים: חסר אחד — נעול, עם הסיבה של אותו תנאי', () => {
+test('שני התנאים: חסר אחד — נעול, עם הסיבה של אותו תנאי', () => {
   const now = T0 + 10 * DAY;
-  const ok = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: now - DAY, lastGoogle: now - 2 * DAY, now });
+  const ok = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: now - DAY, now });
   assert.equal(ok.ok, true);
-  assert.equal(ok.nextDue, now - 2 * DAY + 7 * DAY, 'התזכורת — לתנאי הקרוב לפקוע');
+  assert.equal(ok.nextDue, now - DAY + 30 * DAY, 'המועד הבא — 30 יום אחרי החיבור האחרון');
+  assert.deepEqual(ok.steps.map(s => s.id), ['license', 'server'], 'אין שלב Google');
 
-  const noSync = ACT.evaluate({ state: active, leaf: yearLeaf, lastGoogle: now, now });
+  const noSync = ACT.evaluate({ state: active, leaf: yearLeaf, now });
   assert.deepEqual(noSync.missing, ['server']);
   assert.match(ACT.message(noSync), /עדיין לא היה חיבור לשרת/);
 
-  const oldGoogle = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: now, lastGoogle: now - 8 * DAY, now });
-  assert.deepEqual(oldGoogle.missing, ['google']);
-  assert.match(ACT.message(oldGoogle), /לא הייתה כניסה עם Google ב-7 הימים/);
-
   const none = ACT.evaluate({ state: active, leaf: null, now });
-  assert.deepEqual(none.missing, ['license', 'server', 'google']);
+  assert.deepEqual(none.missing, ['license', 'server']);
+});
+
+test('חיבור לשרת: יום 29 — פתוח, יום 31 — נעול עם הסבר', () => {
+  const last = T0 + DAY;
+  const day29 = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: last, now: last + 29 * DAY });
+  assert.equal(day29.ok, true);
+  const day31 = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: last, now: last + 31 * DAY });
+  assert.deepEqual(day31.missing, ['server']);
+  assert.match(ACT.message(day31), /לא היה חיבור לשרת ב-30 הימים האחרונים/);
+});
+
+test('כניסה עם Google אינה תנאי: בלי כניסה כלל — פתוח', () => {
+  const now = T0 + 5 * DAY;
+  const r = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: now, lastGoogle: 0, now });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.missing, []);
+});
+
+test('תזכורת: 7 ימים לפני הנעילה — dueSoon, לפני כן — לא', () => {
+  const last = T0 + DAY;
+  assert.equal(ACT.REMIND_DAYS, 7);
+  assert.equal(ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: last, now: last + 22 * DAY }).dueSoon, false);
+  assert.equal(ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: last, now: last + 23 * DAY }).dueSoon, true);
+  // נעול — אין "תזכורת", יש נעילה
+  assert.equal(ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: last, now: last + 31 * DAY }).dueSoon, false);
+  assert.equal(ACT.evaluate({ state: { mode: 'unlicensed' }, now: last }).dueSoon, false);
 });
 
 test('רישיון קצר משנה — לא מפעיל; שנה עם סטייה קטנה בשעון — כן', () => {
   const now = T0 + DAY;
-  const fresh = { lastSync: now, lastGoogle: now, now };
+  const fresh = { lastSync: now, now };
   const month = ACT.evaluate({ state: active, leaf: { issuedAt: T0, expiresAt: T0 + 30 * DAY }, ...fresh });
   assert.deepEqual(month.missing, ['license']);
   assert.match(ACT.message(month), /רישיון שנתי/);
@@ -51,7 +74,7 @@ test('רישיון קצר משנה — לא מפעיל; שנה עם סטייה �
 
 test('זמן "מהעתיד" (שעון שהוחזר) לא נחשב חיבור טרי', () => {
   const now = T0 + 10 * DAY;
-  const r = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: now + 30 * DAY, lastGoogle: now, now });
+  const r = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: now + 30 * DAY, now });
   assert.deepEqual(r.missing, ['server']);
 });
 
@@ -103,42 +126,39 @@ test('ipc: מערכת ברישיון שנתי נעולה עד חיבור לשר�
     features: ['econ', 'tools'], limits: { maxChildren: 0, maxUsers: 3, maxStorageMb: 100, maxDepth: 1 },
     issuedAt: T0, expiresAt: T0 + 365 * DAY, graceDays: 7 });
   fs.writeFileSync(path.join(dir, 'license.json'), JSON.stringify({ chain: [lic], notices: [] }));
-  const CLIENT_ID = '1234567890-abcdefghijk.apps.googleusercontent.com';
-  await ipc.initEcon(dir, { rootKeys, clock: () => now, licenseSecret: keySecret(node),
-    googleSignIn: async () => ({ sub: 'g-act-1', email: 'moshe@example.org' }) });
+  await ipc.initEcon(dir, { rootKeys, clock: () => now, licenseSecret: keySecret(node) });
 
   await handlers['auth:setup'](ev(21), 'menahel_act', 'a-very-long-pass-2026');
-  // בלי חיבור לשרת ובלי Google — נעול, עם הסיבה; מסך הרישוי והסטטוס פתוחים
+  // בלי חיבור לשרת — נעול, עם הסיבה; מסך הרישוי והסטטוס פתוחים
   await assert.rejects(handlers['tasks:get'](ev(21)), /לא הופעלה: עדיין לא היה חיבור לשרת/);
   const st = await handlers['license:getStatus'](ev(21));
   assert.equal(st.status, 'locked');
-  assert.deepEqual(st.activation.missing, ['server', 'google']);
+  assert.deepEqual(st.activation.missing, ['server']);
 
-  // חיבור לשרת (כמו שהסנכרון כותב) — עדיין חסר Google
+  // חיבור לשרת (כמו שהסנכרון כותב) — נפתח מיד, בלי Google
   const file = path.join(dir, 'license.json');
   const d = JSON.parse(fs.readFileSync(file, 'utf8'));
   d.remote = { lastSync: now };
   fs.writeFileSync(file, JSON.stringify(d));
   ipc.invalidateLicense();
-  await assert.rejects(handlers['tasks:get'](ev(21)), /כניסה עם Google/);
-
-  // הגדרת Google והפעלה מסך הרישוי: ההגדרות פתוחות למנהל גם במערכת נעולה (אחרת אי אפשר להפעיל)
-  await handlers['settings:saveGoogle'](ev(21), { enabled: true, clientId: CLIENT_ID });
-  await handlers['auth:google-link'](ev(21));
-  // הקישור עצמו הוא כניסה מאומתת מול Google — המערכת נפתחת מיד
   assert.ok(Array.isArray((await handlers['tasks:get'](ev(21))).tasks));
-  assert.equal((await handlers['license:getStatus'](ev(21))).status, 'active');
+  const open = await handlers['license:getStatus'](ev(21));
+  assert.equal(open.status, 'active');
+  assert.equal(open.activation.dueSoon, false);
 
-  // אחרי 8 ימים בלי כניסה עם Google — שוב נעול. כניסה עם Google פותחת
-  now += 8 * DAY;
-  markActivated(dir, now - 8 * DAY);
-  const dd = JSON.parse(fs.readFileSync(file, 'utf8'));
-  dd.remote.lastSync = now; // השרת מחובר
-  fs.writeFileSync(file, JSON.stringify(dd));
+  // יום 25 — עדיין פתוח, עם תזכורת
+  now += 24 * DAY;
   ipc.invalidateLicense();
-  await assert.rejects(handlers['tasks:get'](ev(21)), /כניסה עם Google ב-7 הימים/);
-  await handlers['auth:google-login'](ev(22));
-  assert.ok(Array.isArray((await handlers['tasks:get'](ev(22))).tasks));
+  assert.ok(Array.isArray((await handlers['tasks:get'](ev(21))).tasks));
+  assert.equal((await handlers['license:getStatus'](ev(21))).activation.dueSoon, true);
+
+  // יום 31 בלי חיבור — נעול. חיבור חדש פותח
+  now += 7 * DAY;
+  ipc.invalidateLicense();
+  await assert.rejects(handlers['tasks:get'](ev(21)), /לא היה חיבור לשרת ב-30 הימים/);
+  markActivated(dir, now);
+  ipc.invalidateLicense();
+  assert.ok(Array.isArray((await handlers['tasks:get'](ev(21))).tasks));
 });
 
 test('ipc: חוב (pending_payment) נשאר קריאה בלבד — תנאי ההפעלה לא הופכים אותו לנעילה מלאה', async () => {

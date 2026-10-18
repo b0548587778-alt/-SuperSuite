@@ -103,10 +103,9 @@ test('מסך רישוי: לקוח פעיל — מערכות בת עם כפתור
 });
 
 test('מסך רישוי: כרטיס הפעלה — מה חסר, וכפתור לכל תנאי', async () => {
-  const activation = { required: true, ok: false, missing: ['server', 'google'], nextDue: null, steps: [
+  const activation = { required: true, ok: false, missing: ['server'], nextDue: null, steps: [
     { id: 'license', label: 'רישיון שנתי פעיל', ok: true, reason: '', until: T0 + 365 * DAY },
-    { id: 'server', label: 'חיבור לשרת הרישוי', ok: false, reason: 'עדיין לא היה חיבור לשרת', until: null },
-    { id: 'google', label: 'כניסה עם Google', ok: false, reason: 'עדיין לא הייתה כניסה עם Google', until: null }] };
+    { id: 'server', label: 'חיבור לשרת הרישוי', ok: false, reason: 'עדיין לא היה חיבור לשרת', until: null }] };
   const html = await render('licensing', {
     getLicenseStatus: { mode: 'licensed', status: 'locked', features: ['econ'], limits, reasons: [], activation },
     getAdvancedSettings: { isAdmin: true },
@@ -118,9 +117,22 @@ test('מסך רישוי: כרטיס הפעלה — מה חסר, וכפתור ל�
   assert.match(html, /נדרשת השלמה/);
   assert.match(html, /עדיין לא היה חיבור לשרת/);
   assert.match(html, /licActSyncBtn/);
-  assert.match(html, /licActGoogleBtn/);
-  assert.match(html, /קישור חשבון Google/);
+  assert.doesNotMatch(html, /licActGoogleBtn|כניסה עם Google ב-/, 'Google אינו תנאי הפעלה');
   assert.doesNotMatch(html, /licActInstallBtn/, 'הרישיון תקין — אין כפתור התקנה');
+
+  // פתוח, אבל הנעילה קרובה — תזכורת עם תאריך וכפתור התחברות
+  const soon = { required: true, ok: true, missing: [], nextDue: T0 + 30 * DAY, dueSoon: true, steps: [
+    { id: 'license', label: 'רישיון שנתי פעיל', ok: true, reason: '', until: T0 + 365 * DAY },
+    { id: 'server', label: 'חיבור לשרת הרישוי', ok: true, reason: '', until: T0 + 30 * DAY }] };
+  const remind = await render('licensing', {
+    getLicenseStatus: { mode: 'licensed', status: 'active', features: ['econ'], limits, reasons: [], activation: soon },
+    getAdvancedSettings: { isAdmin: true },
+    getLicenseRemote: { url: 'https://lic.example.org', pending: [] },
+    getOwnerState: { initialized: false, unlocked: false }
+  });
+  assert.match(remind, /יש להתחבר לשרת הרישוי עד/);
+  assert.match(remind, /הנתונים לא נמחקים/);
+  assert.match(remind, /licActSyncBtn/);
 
   // התקנה בלי רישוי — אין כרטיס הפעלה
   const free = await render('licensing', { getLicenseStatus: { mode: 'unlicensed', status: 'active' }, getAdvancedSettings: { isAdmin: true } });

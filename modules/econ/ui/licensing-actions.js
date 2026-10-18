@@ -148,12 +148,6 @@ function attachLicensingHandlers() {
     (r.errors || []).forEach(e => showError(e));
     showToast('החיבור לשרת הצליח');
   });
-  on('licActGoogleBtn', async () => {
-    const g = (state.data.licensing || {}).google || {};
-    showToast('המשיכו את הכניסה בדפדפן שנפתח…');
-    if (g.link) await window.systemAPI.googleLogin(); else await window.systemAPI.googleLink();
-    showToast('הכניסה עם Google נרשמה');
-  });
   const each = (attr, fn) => document.querySelectorAll('[' + attr + ']').forEach(b => b.addEventListener('click', licAction(() => fn(b))));
 
   // --- הרישיון של המערכת ---

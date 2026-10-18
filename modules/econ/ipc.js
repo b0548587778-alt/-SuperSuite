@@ -62,13 +62,13 @@ function appVersionOf() {
 // כל שינוי סטטוס נרשם ביומן הביקורת ומודיע למאזינים (main.js — חסימת מודולים ומסך "מערכת מושבתת")
 let lastLicenseKey = null;
 const licenseListeners = [];
-// תנאי ההפעלה (shell/licensing/activation.js): רישיון שנתי, חיבור לשרת וכניסה עם Google ב-7 הימים האחרונים
+// תנאי ההפעלה (shell/licensing/activation.js): רישיון שנתי וחיבור לשרת ב-30 הימים האחרונים
 function activationState(base) {
   const s = base || (licenseStore ? licenseStore.current() : { mode: 'unlicensed' });
   if (!licenseStore || s.mode !== 'licensed') return ACT.evaluate({ state: s });
   const r = licenseStore.getRemoteSettings();
   const now = Math.max(clockNow(), Number(s.seenAt) || 0);
-  return ACT.evaluate({ state: s, leaf: licenseStore.leafPayload(), lastSync: Number(r.lastSync) || 0, lastGoogle: Number(r.lastGoogle) || 0, now });
+  return ACT.evaluate({ state: s, leaf: licenseStore.leafPayload(), lastSync: Number(r.lastSync) || 0, now });
 }
 // מערכת שלא הופעלה = נעולה (רק רישוי, כניסה והודעות פתוחים). רישיון לא פעיל — נשאר הסטטוס שלו (חוב: קריאה בלבד)
 function withActivation(s) {
@@ -1682,7 +1682,7 @@ function registerIpcHandlers() {
     const act = activationState();
     return { mode: s.mode, status: s.status, reasons: (s.reasons || []).map(r => ({ kind: r.kind, reason: r.reason })),
       graceUntil: s.graceUntil || null, features: s.features, limits: s.limits,
-      activation: { required: act.required, ok: act.ok, missing: act.missing, nextDue: act.nextDue,
+      activation: { required: act.required, ok: act.ok, missing: act.missing, nextDue: act.nextDue, dueSoon: act.dueSoon,
         steps: act.steps.map(({ id, label, ok, reason, until }) => ({ id, label, ok, reason, until })) } };
   });
   handle('license:getRequest', async (event, name) => {

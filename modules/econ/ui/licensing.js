@@ -18,19 +18,17 @@ const licDate = (ms) => (ms ? new Date(ms).toLocaleDateString('he-IL') : '');
 const licBadge = (st) => `<span class="${st === 'active' ? 'good' : 'bad'}">${esc(LIC_STATUS[st] || st)}</span>`;
 const licLimits = (l) => l ? `עד ${Number(l.maxUsers)} משתמשים · ${Number(l.maxChildren)} מערכות בת · ${Number(l.maxStorageMb)}MB` : '';
 
-// תנאי ההפעלה (shell/licensing/activation.js): רישיון שנתי, חיבור לשרת וכניסה עם Google — מה חסר ומה עושים
+// תנאי ההפעלה (shell/licensing/activation.js): רישיון שנתי וחיבור לשרת — מה חסר ומה עושים
 function renderActivationCard(act, d) {
   if (!act || !act.required) return '';
   const isAdmin = !!d.isAdmin;
-  const g = d.google || {};
   const remoteOn = !!(d.remote && d.remote.url);
+  const syncBtn = '<button class="primary small" id="licActSyncBtn">🔄 התחברות לשרת עכשיו</button>';
   const fix = {
     license: isAdmin ? '<button class="primary small" id="licActInstallBtn">📥 התקנת קובץ רישיון</button>' : '<small class="muted">פנו למנהל המערכת</small>',
     server: !isAdmin ? '<small class="muted">פנו למנהל המערכת</small>'
-      : remoteOn ? '<button class="primary small" id="licActSyncBtn">🔄 התחברות לשרת עכשיו</button>'
+      : remoteOn ? syncBtn
         : '<small class="muted">יש להגדיר שרת רישוי ("עבודה מרחוק" למטה)</small>',
-    google: g.enabled ? `<button class="primary small" id="licActGoogleBtn">🔑 ${g.link ? 'כניסה עם Google' : 'קישור חשבון Google'}</button>`
-      : `<small class="muted">${isAdmin ? 'יש להפעיל כניסה עם Google בהגדרות' : 'פנו למנהל המערכת להפעלת כניסה עם Google'}</small>`,
   };
   const rows = (act.steps || []).map(s => `<tr>
     <td>${s.ok ? '<span class="ok">✔</span>' : '<span class="bad">✖</span>'} ${esc(s.label)}</td>
@@ -39,8 +37,9 @@ function renderActivationCard(act, d) {
   return `<div class="card">
     <div class="acct-header"><h3>הפעלת המערכת</h3><span>${act.ok ? '<span class="ok">✔ המערכת פעילה</span>' : '<span class="bad">נדרשת השלמה — עד אז המערכת נעולה</span>'}</span></div>
     <table class="acct-table"><tbody>${rows}</tbody></table>
-    ${act.ok && act.nextDue ? `<p class="muted">כדי שהמערכת תישאר פתוחה: חיבור לשרת וכניסה עם Google לפחות פעם בשבוע. המועד הקרוב: ${esc(licDate(act.nextDue))}.</p>`
-      : '<p class="muted">מערכת ברישיון נפתחת רק עם רישיון שנתי בתוקף, חיבור לשרת הרישוי וכניסה עם Google — ושני האחרונים חוזרים לפחות פעם בשבוע.</p>'}
+    ${act.ok && act.dueSoon ? `<p class="bad">⏰ יש להתחבר לשרת הרישוי עד ${esc(licDate(act.nextDue))} — אחרת המערכת תינעל. הנתונים לא נמחקים.</p>${isAdmin && remoteOn ? syncBtn : ''}`
+      : act.ok && act.nextDue ? `<p class="muted">כדי שהמערכת תישאר פתוחה: חיבור לשרת הרישוי לפחות פעם בחודש (אוטומטי כשיש אינטרנט). המועד הקרוב: ${esc(licDate(act.nextDue))}.</p>`
+      : '<p class="muted">מערכת ברישיון נפתחת עם רישיון שנתי בתוקף וחיבור לשרת הרישוי, שחוזר לפחות פעם בחודש. כניסה עם Google אינה חובה.</p>'}
   </div>`;
 }
 

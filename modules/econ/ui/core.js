@@ -240,8 +240,7 @@ async function loadViewData(viewName) {
         const signup = isAdmin && remote && remote.url && status.mode !== 'licensed' ? await window.systemAPI.licenseSignupStatus().catch(() => null) : null;
         const ownerOffer = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerGetOffer().catch(() => null) : null;
         const signups = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerSignups().catch(() => []) : [];
-        const google = status.activation && status.activation.required && window.systemAPI.googleStatus ? await window.systemAPI.googleStatus().catch(() => null) : null;
-        state.data.licensing = { status, isAdmin, children, owner, remote, inbox, update, releases, signup, ownerOffer, signups, google };
+        state.data.licensing = { status, isAdmin, children, owner, remote, inbox, update, releases, signup, ownerOffer, signups };
         break;
       }
       case 'collect':
