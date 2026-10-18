@@ -129,7 +129,7 @@ let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
 async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
-  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal } = {}) {
+  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions } = {}) {
   restTime = isRestTime;
   clockNow = clock || (() => Date.now());
   googleDeps = { signIn: googleSignIn || GS.signIn, fetchImpl: fetchImpl || globalThis.fetch,
@@ -160,7 +160,8 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStor
     chat: chatStore, ownerChat: ownerChatStore, updates: updateManager, isRestTime: () => restTime(),
     prekeys: PK.createPrekeyStore({ storage: prekeyStorage || ad.prekeys, clock: clock || Date.now }),
     ownerPrekeys: PK.createPrekeyStore({ storage: ownerPrekeyStorage || ad.ownerPrekeys, clock: clock || Date.now }) });
-  db = await initializeDatabase(userDataPath);
+  // dbOptions: הצפנת המסד (PLAN.md 3.1) — המפתח והגיבוי לפני ההמרה מגיעים מ-main.js
+  db = await initializeDatabase(userDataPath, dbOptions);
   authService.initialize(db);
   financialService.initialize(db);
   marketIntelService.initialize(db);

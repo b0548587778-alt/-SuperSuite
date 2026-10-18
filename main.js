@@ -7,6 +7,7 @@ const fs = require('fs');
 const { pathToFileURL } = require('url');
 const { canShellNavigate, canModuleOpen, EDITING_CHECK_JS } = require('./shell/nav-guard');
 const AutoBk = require('./shell/auto-backup');
+const DbKey = require('./shell/db-key');
 const Catalog = require('./shell/catalog');
 const Hebcal = require('./shell/hebcal');
 const NavHistory = require('./shell/history');
@@ -375,6 +376,51 @@ function autoBackupKey(create = true) {
   return AutoBk.loadAutoBackupKey({ file: autoBackupKeyFile(), safeStorage, create });
 }
 
+/* ---------- הצפנת מסד הנתונים (PLAN.md 3.1) ----------
+   המפתח נגזר ממפתח הגיבוי האוטומטי (DPAPI) — קוד השחזור (🔑) פותח גם את המסד.
+   מפתח שאבד: חלון קטן מבקש את קוד השחזור. לעולם לא נוצר מפתח חדש מעל נתונים מוצפנים. */
+let dbAtRest = { status: 'plain' };
+const AT_REST_WARNINGS = {
+  'pending-backup': '⚠ הנתונים עוד לא הוצפנו: הגיבוי שלפני ההצפנה נכשל (ננסה שוב בהפעלה הבאה)',
+  'plain-no-dpapi': '⚠ הנתונים במחשב הזה אינם מוצפנים: הצפנת Windows אינה זמינה בחשבון',
+  'plain-key-unreadable': '⚠ הנתונים אינם מוצפנים: מפתח הגיבוי האוטומטי אינו קריא בחשבון הזה'
+};
+function dbAtRestOptions() {
+  return {
+    resolveCipher: async ({ hasSealedData, verify }) => {
+      dbAtRest = await DbKey.resolveDbKey({ fs, file: autoBackupKeyFile(), safeStorage, hasSealedData, verify, promptRecoveryCode });
+      if (dbAtRest.status === 'plain-no-dpapi' || dbAtRest.status === 'plain-key-unreadable') logger.error('db-at-rest', new Error(dbAtRest.status));
+      return dbAtRest;
+    },
+    // גיבוי מוצפן של כל הנתונים לפני ההמרה. בלי גיבוי תקין — ההמרה לא מתחילה
+    beforeEncrypt: async (db) => {
+      const dir = loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
+      fs.mkdirSync(dir, { recursive: true });
+      const out = { suite: 'SuperSuite', version: 2, scope: 'econ', createdAt: new Date().toISOString(), econ: await db.backup(), localStorage: {} };
+      const file = path.join(dir, `before-encryption-${AutoBk.localDay()}-${Date.now()}.ssbk`);
+      fs.writeFileSync(file + '.tmp', BK.encryptBackup(JSON.stringify(out), autoBackupKey(false)), 'utf8');
+      fs.renameSync(file + '.tmp', file);
+      // וידוא: הקובץ שנכתב נפתח במפתח, לפני שנוגעים במסד
+      JSON.parse(BK.decryptBackup(fs.readFileSync(file, 'utf8'), autoBackupKey(false)));
+      dbAtRest.backupFile = file;
+    }
+  };
+}
+
+// חלון קוד השחזור — לפני שהחלון הראשי קיים. מחזיר את הקוד, או null אם המשתמש ביטל
+function promptRecoveryCode({ message }) {
+  return new Promise((resolve) => {
+    const w = new BrowserWindow({ width: 520, height: 420, resizable: false, title: 'SuperSuite — קוד שחזור', autoHideMenuBar: true,
+      webPreferences: { preload: path.join(__dirname, 'shell', 'recovery-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; ipcMain.removeHandler('recovery:submit'); ipcMain.removeHandler('recovery:info'); if (!w.isDestroyed()) w.close(); resolve(v); };
+    ipcMain.handle('recovery:info', (e) => (e.sender.id === w.webContents.id ? { message: message || '' } : null));
+    ipcMain.handle('recovery:submit', (e, code) => { if (e.sender.id === w.webContents.id) finish(typeof code === 'string' ? code.slice(0, 200) : null); });
+    w.on('closed', () => finish(null));
+    w.loadFile(path.join(__dirname, 'shell', 'recovery.html'));
+  });
+}
+
 /* גיבוי אוטומטי יומי — מוצפן בלבד. יעד: כונן חיצוני (USB) שהוגדר, ואם לא הוגדר — Documents\SuperSuite-Backups.
    אם הכונן לא מחובר — מדלגים (לא כותבים למקום אחר בשקט). הסטטוס נשמר ומוצג במעטפת. */
 async function autoBackup() {
@@ -537,7 +583,21 @@ app.whenReady().then(async () => {
     econ = require('./modules/econ/ipc');
     if (econ.setErrorLogger) econ.setErrorLogger((scope, e) => logger.error(scope, e));
     // בשבת וביום טוב (מצב שבת) — אין תשובות אוטומטיות בהודעות
-    await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused });
+    try { await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused, dbOptions: dbAtRestOptions() }); }
+    catch (err) {
+      if (!err || err.code !== 'db-key-missing') throw err;
+      // אין קוד שחזור: בלי האפשרות הזו התוכנה לא עולה, ואי אפשר גם לשחזר מגיבוי בסיסמה
+      const c = await dialog.showMessageBox({ type: 'warning', buttons: ['פתיחה ריקה לשחזור מגיבוי', 'יציאה'], defaultId: 1, cancelId: 1,
+        message: 'הנתונים מוצפנים ואין קוד שחזור',
+        detail: 'אפשר לפתוח את התוכנה ריקה ולשחזר מגיבוי שנשמר בסיסמה (Ctrl+Shift+R). הקובץ המוצפן לא נמחק — הוא נשמר בצד בתיקיית הנתונים, ואם הקוד יימצא אפשר יהיה להחזיר אותו.' });
+      if (c.response !== 0) { app.quit(); return; }
+      const aside = require('./modules/econ/core/database').setAsideLockedDatabase(app.getPath('userData'));
+      logger.error('db-at-rest', new Error('locked database set aside: ' + path.basename(aside)));
+      await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused, dbOptions: dbAtRestOptions() });
+    }
+    // ההמרה נדחתה (הגיבוי שלפניה נכשל) — המצב נקבע במסד עצמו
+    const dbNow = econ.getDb && econ.getDb();
+    if (dbNow && dbNow.atRestStatus === 'pending-backup') { dbAtRest.status = 'pending-backup'; logger.error('db-at-rest', dbNow.atRestError || new Error('pending-backup')); }
   } catch (err) {
     dialog.showErrorBox('שגיאה בפתיחת המערכת הכלכלית', String(err && err.message ? err.message : err) + '\n\nנתיב: ' + app.getPath('userData'));
     app.quit(); return;
@@ -656,7 +716,10 @@ app.whenReady().then(async () => {
     const s = loadJson(backupSettingsFile());
     const text = AutoBk.describeStatus(s.lastAutoBackup);
     // בלי קוד שחזור רשום, תקלה במחשב = אובדן כל הגיבויים האוטומטיים — מזכירים עד שנרשם
-    return s.recoveryCodeSavedAt || !safeStorage.isEncryptionAvailable() ? text : [text, '⚠ טרם נרשם קוד שחזור (🔑)'].filter(Boolean).join(' · ');
+    const parts = [text];
+    if (dbAtRest.status !== 'encrypted' && dbAtRest.status !== 'plain') parts.push(AT_REST_WARNINGS[dbAtRest.status] || '');
+    if (!s.recoveryCodeSavedAt && safeStorage.isEncryptionAvailable()) parts.push('⚠ טרם נרשם קוד שחזור (🔑)');
+    return parts.filter(Boolean).join(' · ');
   });
   // קוד השחזור של הגיבוי האוטומטי: נוצר מהמפתח (ויוצר אותו אם אין עדיין). מי שמורשה לגבות — מורשה לראות
   ipcMain.handle('shell:get-recovery-code', (e) => {

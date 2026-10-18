@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite'); // SQLite מובנה ב-Node/Electron — בלי מודול native
+const AR = require('./atRest');
 
 // Collections definition - unified schema from all projects
 const collections = [
@@ -202,9 +203,15 @@ const LOCKOUT_MS = 15 * 60 * 1000;
 const MAX_FAILED_ATTEMPTS = 5;
 
 class Database {
-  constructor(dbPath) {
+  // resolveCipher({ hasSealedData, verify }) ← { key, status } (PLAN.md 3.1). בלי — הנתונים נשמרים גלויים כמו פעם.
+  // beforeEncrypt(db) — גיבוי לפני ההמרה החד-פעמית; אם נכשל, ההמרה נדחית להפעלה הבאה
+  constructor(dbPath, { resolveCipher, beforeEncrypt } = {}) {
     this.dbPath = dbPath;
     this.db = null;
+    this.cipher = AR.createCipher(null);
+    this.atRestStatus = 'plain';
+    this._resolveCipher = resolveCipher;
+    this._beforeEncrypt = beforeEncrypt;
   }
 
   async initialize() {
@@ -232,8 +239,74 @@ class Database {
     // Run migrations
     await this.migrate();
 
+    // המפתח נבחר לפני כל קריאה או כתיבה של נתונים. בלי מפתח — סוגרים את הקובץ, כדי שאפשר יהיה להזיז אותו הצידה
+    try { await this._setupCipher(); }
+    catch (e) { try { this.db.close(); } catch {} this.db = null; throw e; }
+
     // Initialize with default data if empty
     await this.initializeDefaults();
+
+    await this._encryptExisting();
+  }
+
+  // ערך מוצפן כלשהו מהמסד — כדי לבדוק שהמפתח מתאים לפני שמשתמשים בו
+  async _sealedSample() {
+    const rows = await this.all("SELECT payload AS v FROM collections WHERE payload LIKE 'SSDB1:%' LIMIT 1");
+    if (rows.length) return rows[0].v;
+    const audit = await this.all("SELECT details AS v FROM audit_events WHERE details LIKE 'SSDB1:%' LIMIT 1");
+    return audit.length ? audit[0].v : null;
+  }
+
+  async _setupCipher() {
+    const sample = await this._sealedSample();
+    if (!this._resolveCipher) {
+      if (sample) throw Object.assign(new Error('הנתונים מוצפנים, ומפתח ההצפנה אינו זמין'), { code: 'db-key-missing' });
+      return;
+    }
+    const verify = (key) => { try { AR.createCipher(key).open(sample); return true; } catch { return false; } };
+    const r = await this._resolveCipher({ hasSealedData: !!sample, verify });
+    if (!r || !r.key) {
+      if (sample) throw Object.assign(new Error('הנתונים מוצפנים. בלי קוד השחזור (🔑) או גיבוי אי אפשר לפתוח אותם'), { code: 'db-key-missing' });
+      this.atRestStatus = (r && r.status) || 'plain';
+      return;
+    }
+    this.cipher = AR.createCipher(r.key);
+    this.atRestStatus = 'encrypted';
+  }
+
+  // המרה חד-פעמית של מסד ישן (גם ערכים גלויים שנשארו): גיבוי ← טרנזקציה אחת ← VACUUM
+  async _encryptExisting() {
+    if (!this.cipher.enabled) return { converted: false };
+    const plain = await this.all("SELECT COUNT(*) AS n FROM collections WHERE payload NOT LIKE 'SSDB1:%'");
+    const plainAudit = await this.all("SELECT COUNT(*) AS n FROM audit_events WHERE details IS NOT NULL AND details <> '' AND details NOT LIKE 'SSDB1:%'");
+    if (!plain[0].n && !plainAudit[0].n) return { converted: false };
+    if (this._beforeEncrypt) {
+      try { await this._beforeEncrypt(this); }
+      catch (e) {
+        // בלי גיבוי לא ממירים. הכתיבה בהפעלה הזו נשארת גלויה, ונסיון נוסף בהפעלה הבאה
+        this.cipher = AR.createCipher(null);
+        this.atRestStatus = 'pending-backup';
+        this.atRestError = e;
+        return { converted: false, reason: 'backup-failed' };
+      }
+    }
+    await this.exec('BEGIN IMMEDIATE TRANSACTION');
+    try {
+      for (const row of await this.all("SELECT collection, payload FROM collections WHERE payload NOT LIKE 'SSDB1:%'")) {
+        await this.run('UPDATE collections SET payload = ? WHERE collection = ?', [this.cipher.seal(row.payload), row.collection]);
+      }
+      for (const row of await this.all("SELECT id, details FROM audit_events WHERE details IS NOT NULL AND details <> '' AND details NOT LIKE 'SSDB1:%'")) {
+        await this.run('UPDATE audit_events SET details = ? WHERE id = ?', [this.cipher.seal(row.details), row.id]);
+      }
+      await this.exec('COMMIT');
+    } catch (error) {
+      await this.exec('ROLLBACK');
+      throw error;
+    }
+    // בניית הקובץ מחדש: בלי זה נשארים בדפים הפנויים של הקובץ (וביומן WAL) עותקים גלויים ישנים
+    await this.exec('VACUUM');
+    await this.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    return { converted: true };
   }
 
   async migrate() {
@@ -280,13 +353,14 @@ class Database {
 
     for (const row of rows) {
       try {
-        const payload = JSON.parse(row.payload);
+        const payload = JSON.parse(this.cipher.open(row.payload));
         if (row.collection === 'meta') {
           Object.assign(data, payload);
         } else {
           data[row.collection] = payload;
         }
       } catch (err) {
+        if (err && String(err.code || '').startsWith('db-key')) throw err; // מפתח שגוי — לא מציגים נתונים ריקים
         if (row.collection !== 'meta') {
           data[row.collection] = [];
         }
@@ -309,16 +383,16 @@ class Database {
       for (const collection of collections) {
         await this.run(
           'INSERT INTO collections VALUES (?, ?, ?)',
-          [collection, JSON.stringify(data[collection]), new Date().toISOString()]
+          [collection, this.cipher.seal(JSON.stringify(data[collection])), new Date().toISOString()]
         );
       }
       await this.run(
         'INSERT INTO collections VALUES (?, ?, ?)',
-        ['meta', JSON.stringify({
+        ['meta', this.cipher.seal(JSON.stringify({
           version: data.version,
           organization: data.organization,
           settings: data.settings
-        }), new Date().toISOString()]
+        })), new Date().toISOString()]
       );
       await this.exec('COMMIT');
     } catch (error) {
@@ -478,7 +552,7 @@ class Database {
   async audit(userId, action, details = '') {
     await this.run(
       'INSERT INTO audit_events (id, user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?)',
-      [crypto.randomUUID(), userId || null, action, details, new Date().toISOString()]
+      [crypto.randomUUID(), userId || null, action, details ? this.cipher.seal(details) : details, new Date().toISOString()]
     );
   }
 
@@ -551,7 +625,12 @@ class Database {
       (action ? 'WHERE a.action LIKE ? ' : '') + 'ORDER BY a.created_at DESC LIMIT ?',
       action ? [String(action).slice(0, 60) + '%', lim] : [lim]
     );
-    return rows.map(r => ({ at: r.created_at, action: r.action, details: r.details || '', user: r.username || '' }));
+    return rows.map(r => ({ at: r.created_at, action: r.action, details: r.details ? this._openDetails(r.details) : '', user: r.username || '' }));
+  }
+
+  // שורה ביומן שלא נפתחת לא מפילה את כל היומן
+  _openDetails(text) {
+    try { return this.cipher.open(text); } catch { return '(מוצפן)'; }
   }
 
   async restore(backupData) {
@@ -795,11 +874,21 @@ function normalizeData(value) {
 }
 
 // Factory function
-async function initializeDatabase(userDataPath) {
+// מסד מוצפן שאין לו מפתח: מועבר הצידה (לא נמחק) עם קבצי ה-WAL, כדי לפתוח מסד ריק ולשחזר מגיבוי.
+// אם הקוד יימצא אחר כך — מחזירים את הקובץ לשמו ונכנסים עם הקוד
+function setAsideLockedDatabase(userDataPath, now = Date.now()) {
+  const base = path.join(userDataPath, 'unified_economics.db');
+  const target = `${base}.locked-${now}`;
+  fs.renameSync(base, target);
+  for (const ext of ['-wal', '-shm']) { if (fs.existsSync(base + ext)) fs.renameSync(base + ext, target + ext); }
+  return target;
+}
+
+async function initializeDatabase(userDataPath, options = {}) {
   const dbPath = path.join(userDataPath, 'unified_economics.db');
-  const database = new Database(dbPath);
+  const database = new Database(dbPath, options);
   await database.initialize();
   return database;
 }
 
-module.exports = { initializeDatabase, isValidData, defaults, ROLES };
+module.exports = { initializeDatabase, setAsideLockedDatabase, isValidData, defaults, ROLES };
