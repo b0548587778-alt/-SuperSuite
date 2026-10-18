@@ -261,6 +261,7 @@ function renderAcctReports(raw) {
         <button class="secondary" id="acctCsvSummary">ייצוא סיכום תקופתי ל-Excel</button>
         <button class="secondary" id="acctCsvTb">ייצוא מאזן בוחן ל-Excel</button>
         <button class="secondary" id="acctUniformFile" title="INI.TXT ו-BKMVDATA לרשות המסים ולרואה החשבון">קבצים במבנה אחיד</button>
+        <button class="secondary" id="acctPcn874" title="קובץ PCN874 לדוח המע&quot;מ המפורט">דוח מע"מ מפורט (PCN874)</button>
         <button class="secondary" id="acctPeriodBtn">החלף תקופה</button>
       </div>
     </div>
@@ -582,6 +583,47 @@ async function handleUniformFile() {
   }
 }
 
+// דוח מע"מ מפורט: חודש הדיווח (ברירת מחדל — החודש הקודם), חודש או חודשיים
+async function handlePcn874() {
+  const d = new Date();
+  const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  const values = await askFields('דוח מע"מ מפורט (PCN874)', [
+    { name: 'month', label: 'חודש הדיווח (YYYY-MM)' },
+    { name: 'months', label: 'מספר חודשים בתקופה (1 או 2)' }
+  ], 'הפקת הקובץ', { month: `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`, months: '1' });
+  if (!values) return;
+  try {
+    const r = await window.systemAPI.exportPcn874({ month: values.month, months: Number(values.months) });
+    if (!r || !r.ok) return;
+    showPcnSummary(r);
+  } catch (error) {
+    showError('שגיאה בהפקת הדוח המפורט: ' + errMsg(error));
+  }
+}
+
+// סיכום ההפקה: הסכומים שבקובץ, השוואה ליומן, ומה לא נכלל
+function showPcnSummary(r) {
+  openDialog((card, finish) => {
+    const t = r.totals;
+    const shekels = (n) => (n < 0 ? '-' : '') + '₪' + Math.abs(n).toLocaleString('he-IL');
+    card.innerHTML = `
+      <h2>הקובץ נשמר</h2>
+      <div style="padding:0 1.5rem">
+        <div class="acct-row"><span>עסקאות חייבות (לפני מע"מ)</span><span>${shekels(t.taxableNet)}</span></div>
+        <div class="acct-row"><span>מע"מ עסקאות</span><span>${shekels(t.taxableVat)}</span></div>
+        <div class="acct-row"><span>עסקאות פטורות / אפס</span><span>${shekels(t.exemptNet)}</span></div>
+        <div class="acct-row"><span>מע"מ תשומות (אחרות / ציוד)</span><span>${shekels(t.otherInputVat)} / ${shekels(t.equipmentInputVat)}</span></div>
+        <div class="acct-row acct-big"><span>${t.payable >= 0 ? 'לתשלום' : 'להחזר'}</span><span>${shekels(Math.abs(t.payable))}</span></div>
+        <p class="muted">רשומות: ${r.counts.S} מכירות ללקוח מזוהה, ${r.counts.L} מצטברות, ${r.counts.T} תשומות. הסכומים מעוגלים לשקל.
+          ${r.difference ? `הפרש מול דוח המע"מ שביומן: ${shekels(r.difference)}.` : 'תואם לדוח המע"מ שביומן.'}</p>
+        ${r.issues.length ? `<p><strong>לא נכללו בקובץ (${r.issues.length}):</strong></p><ul>${r.issues.slice(0, 20).map(i => `<li>${esc(i.date || '')} — ${esc(i.text)}</li>`).join('')}</ul>` : ''}
+        <p class="muted">את הקובץ מגישים באתר רשות המסים. לפני הגשה ראשונה — מומלץ לבדוק אותו בסימולטור של שע"מ.</p>
+      </div>
+      <div class="modal-actions"><button type="button" class="primary" id="pcnOk">סגירה</button></div>`;
+    card.querySelector('#pcnOk').addEventListener('click', () => finish(true));
+  });
+}
+
 async function handlePdf(id) {
   try {
     const r = await window.systemAPI.exportInvoicePdf(id);
@@ -831,12 +873,22 @@ const acctFormSchemas = {
       { name: 'description', label: 'תיאור', type: 'text', required: true },
       { name: 'debitAccount', label: 'חשבון חובה', type: 'select', required: true, optionsFrom: 'chart', options: [] },
       { name: 'creditAccount', label: 'חשבון זכות', type: 'select', required: true, optionsFrom: 'chart', options: [] },
-      { name: 'amount', label: 'סכום (₪)', type: 'number', required: true }
+      { name: 'amount', label: 'סכום (₪) — לפני מע"מ, אם יש מע"מ תשומות', type: 'number', required: true },
+      { name: 'inputVat', label: 'מע"מ תשומות (₪, אופציונלי — הוצאה עם חשבונית מס)', type: 'number' },
+      { name: 'supplierTaxId', label: 'ע.מ / ח.פ של הספק (לדוח המע"מ המפורט)', type: 'text' },
+      { name: 'supplierRef', label: 'מספר חשבונית הספק', type: 'text' },
+      { name: 'equipment', label: 'סוג התשומה', type: 'select', options: [{ value: '', label: 'לפי החשבון' }, { value: 'no', label: 'תשומות אחרות' }, { value: 'yes', label: 'ציוד (רכוש קבוע)' }] }
     ],
-    create: (d) => window.systemAPI.createEntry({
-      date: d.date, description: d.description,
-      lines: [{ account: d.debitAccount, debit: d.amount }, { account: d.creditAccount, credit: d.amount }]
-    }),
+    create: (d) => {
+      const vat = Number(d.inputVat || 0);
+      // עם מע"מ תשומות: חובה הוצאה (לפני מע"מ) + חובה מע"מ תשומות, זכות הסכום הכולל
+      const total = Math.round((Number(d.amount) + vat) * 100) / 100;
+      const lines = vat > 0
+        ? [{ account: d.debitAccount, debit: d.amount }, { account: '1300', debit: vat, memo: 'מע"מ תשומות' }, { account: d.creditAccount, credit: total }]
+        : [{ account: d.debitAccount, debit: d.amount }, { account: d.creditAccount, credit: d.amount }];
+      const vatDoc = vat > 0 ? { supplierTaxId: d.supplierTaxId, reference: d.supplierRef, docDate: d.date, ...(d.equipment ? { equipment: d.equipment === 'yes' } : {}) } : undefined;
+      return window.systemAPI.createEntry({ date: d.date, description: d.description, lines, ...(vatDoc ? { vatDoc } : {}) });
+    },
     remove: (id) => window.systemAPI.reverseEntry(id),
     confirmText: 'לבטל את הרשומה? תירשם רשומת ביטול הפוכה; הרשומה המקורית נשמרת לביקורת.'
   },

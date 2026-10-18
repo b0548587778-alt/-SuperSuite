@@ -6,6 +6,7 @@ const F = require('../core/features');
 const AL = require('../core/allocation');
 const SD = require('../core/salesDocs');
 const UF = require('../core/uniformFile');
+const PCN = require('../core/pcn874');
 const { assertIsraeliId } = require('../core/israeliId');
 
 const toAgSafe = (n) => Math.round(Number(n) * 100);
@@ -69,7 +70,9 @@ class AccountingService {
     const data = await this._load();
     const validated = A.validateEntry(entryData, data.accounts);
     this._assertOpen(data, validated.date);
-    const entry = { id: crypto.randomUUID(), ...validated, createdAt: new Date().toISOString() };
+    // פרטי חשבונית הספק לדוח המע"מ המפורט (PCN874): רק ברשומה שיש בה מע"מ תשומות
+    const vatDoc = PCN.validateVatDoc(entryData && entryData.vatDoc);
+    const entry = { id: crypto.randomUUID(), ...validated, ...(vatDoc && validated.lines.some(l => l.account === A.SYS.INPUT_VAT) ? { vatDoc } : {}), createdAt: new Date().toISOString() };
     data.journal.push(entry);
     await this.db.save(data);
     return entry;
@@ -499,6 +502,13 @@ class AccountingService {
     const business = { name: '', taxId: '', address: '', ...((data.settings && data.settings.business) || {}) };
     const software = { ...UF.SOFTWARE, version };
     return UF.buildUniformFile({ data, business, range: { from, to }, now, user, software });
+  }
+
+  // דוח מע"מ מפורט (PCN874, PLAN.md 9.16) לחודש או לחודשיים. קריאה בלבד
+  async getPcn874({ month, months = 1 } = {}, { now = Date.now() } = {}) {
+    const data = await this._load();
+    const business = (data.settings && data.settings.business) || {};
+    return PCN.buildPcn874({ data, business, month, months: Number(months) || 1, now });
   }
 
   // נתוני ייצוא לאקסל: יומן או מאזן בוחן

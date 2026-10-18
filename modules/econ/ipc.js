@@ -819,6 +819,15 @@ function registerIpcHandlers() {
     await auditEvent(event, 'acct.export.uniform', { from: out.report.from, to: out.report.to, records: out.report.total });
     return { ok: true, path: dir, report: out.report };
   });
+  // דוח מע"מ מפורט — קובץ PCN874 (PLAN.md 9.16). הקובץ נשמר במחשב; ההגשה — באתר רשות המסים, בידי המשתמש
+  handle('acct:exportPcn874', async (event, input) => {
+    const out = await accountingService.getPcn874(input || {});
+    const r = await dialog.showSaveDialog({ defaultPath: out.fileName, filters: [{ name: 'קובץ טקסט', extensions: ['txt'] }] });
+    if (r.canceled || !r.filePath) return { ok: false };
+    fs.writeFileSync(r.filePath, out.text, 'ascii');
+    await auditEvent(event, 'acct.export.pcn874', { month: out.month, months: out.months, records: out.counts, issues: out.issues.length });
+    return { ok: true, path: r.filePath, totals: out.totals, issues: out.issues, counts: out.counts, journalVat: out.journalVat, difference: out.difference, range: out.range };
+  });
   handle('acct:exportCsv', async (event, kind, range) => {
     const { headers, rows, name } = await accountingService.getExportData(kind, range || {});
     const r = await dialog.showSaveDialog({ defaultPath: `${name}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] });

@@ -98,6 +98,8 @@ function attachViewHandlers(viewName) {
   if (csvTb) csvTb.addEventListener('click', () => handleCsv('trialBalance'));
   const uniform = document.getElementById('acctUniformFile');
   if (uniform) uniform.addEventListener('click', handleUniformFile);
+  const pcn = document.getElementById('acctPcn874');
+  if (pcn) pcn.addEventListener('click', handlePcn874);
   const csvSum = document.getElementById('acctCsvSummary');
   if (csvSum) csvSum.addEventListener('click', () => handleCsv('summary'));
   const csvPer = document.getElementById('acctCsvPersonal');
