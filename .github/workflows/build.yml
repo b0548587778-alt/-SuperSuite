@@ -4,6 +4,22 @@ on:
   push:
     branches: [master]
 jobs:
+  # מודול האימונים מקוד המקור (modules-src/trainer). בסביבה מסוננת vite לא ניתן להתקנה — הבנייה כאן
+  trainer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install
+        working-directory: modules-src/trainer
+      - run: npm install
+      - run: node tools/build-trainer.js
+      - run: npm test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trainer-module
+          path: modules/trainer
   build:
     runs-on: windows-latest
     steps:

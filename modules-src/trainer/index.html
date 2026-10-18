@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#f4f6fb" />
+    <meta name="description" content="מערכת ניהול מלאה למאמני כושר — מתאמנים, תוכניות אימון, מעקב התקדמות, ייצוא PDF" />
+
+    <!-- iOS PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="TrainerPro" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <title>TrainerPro — ניהול מתאמנים</title>
+
+    <!-- גופנים: אין תלות ברשת. הגופנים מותקנים מקומית ב-Windows,
+         ובמידה ואינם — נופלים לגופן עברי חלופי מותקן. -->
+    <style>
+      :root{
+        --font-display:"Frank Ruhl Libre","FrankRuehl","David","Times New Roman",serif;
+        --font-body:"Heebo","Segoe UI","Arial",sans-serif;
+      }
+    </style>
+    <!-- ערכת הצבעים של SuperSuite — אחרי ה-CSS המהודר כדי לגבור עליו -->
+    <link rel="stylesheet" href="/suite-theme.css"></head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

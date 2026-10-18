@@ -201,6 +201,7 @@ run-dev.bat              — הרצה בפיתוח
 build/                   — icon.ico (לבנייה) + icon.png (לזמן ריצה)
 shell/                   — המעטפת: html, js, preload
 modules/<mod>/           — מודול בודד, נטען כ-WebContentsView
+modules-src/trainer/     — קוד המקור של מודול האימונים (React+Vite). נבנה ל-modules/trainer דרך tools/build-trainer.js. לא נארז בתוכנה
 modules/econ/core/       — לוגיקת ליבה: db, accounting, crypto, exports
 modules/econ/services/   — שירותים עסקיים
 shell/nav-guard.js       — כללי מעבר מודולים (נבדקים ב-tests/nav-guard.test.js)
@@ -247,6 +248,7 @@ tests/                   — בדיקות
 - **`e.sender.id`** — כל handler רגיש חייב לאמת אותו. ראו את התיקון ב-`shell:switch`.
 - **מודול לא מנווט לבד.** אין לחזור ל-`MODS.includes(id)` ב-`shell:switch`: זה עוקף את האימות. מעבר בין מודולים מתוך מודול עובר דרך `shell:open-module` בלבד.
 - **קיצורי מקלדת** נתפסים גם בתוך שדות קלט במודולים — יש דילוג על `isAutoRepeat`.
+- **מודול האימונים — לשנות רק את המקור.** קוד המקור ב-`modules-src/trainer` (ראו `README-SUPERSUITE.md` שם). **אין לערוך ידנית את `modules/trainer/assets/*`** — בנייה הבאה דורסת. בנייה: `npm run build:trainer` (vite נחסם ב-NetFree ← GitHub Actions, משימת `trainer`). הסקריפט שומר את `preload.js` ו-`suite-theme.css`, מזיז את ערכת הצבעים לסוף ה-head, ונכשל על פנייה לרשת (`tests/trainer-source.test.js`).
 - **מראה אחיד בין המודולים.** מודול האימונים הוא חבילה מהודרת (Tailwind, צבעים כהים קבועים); `modules/trainer/suite-theme.css` נטען אחריה וממפה את מחלקות הצבע לפלטת התוכנה. בנייה חדשה של המודול עם מחלקות צבע חדשות — יש להוסיף אותן לקובץ (`tests/ui-consistency.test.js` ייכשל ויפרט אותן). מודול השמאות: ערכה בהירה כברירת מחדל (`shamai_theme`), בצבעי התוכנה.
 - **`[hidden]` מול `display`** — כלל CSS עם `display:flex` גובר על המאפיין `hidden`. רכיב שמוסתר ב-`hidden` צריך גם `.x[hidden]{display:none}`.
 - **פרטי קובץ ה-EXE** — `signAndEditExecutable:false` מבטל גם את האייקון, השם והגרסה של הקובץ (הוא נראה כ-"Electron / GitHub, Inc."). אין תעודת חתימה, ולכן `signExecutable:false` — מדלג על החתימה בלבד (נבדק ב-`tests/build-config.test.js`).

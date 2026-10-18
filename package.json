@@ -13,7 +13,9 @@
     "test": "node --test --test-concurrency=6 \"tests/*.test.js\"",
     "test:serial": "node --test --test-concurrency=1 \"tests/*.test.js\"",
     "dist:android": "node android/build-apk.js",
-    "dist:android:check": "node android/build-apk.js --check"
+    "dist:android:check": "node android/build-apk.js --check",
+    "build:trainer": "node tools/build-trainer.js",
+    "build:trainer:check": "node tools/build-trainer.js --check"
   },
   "devDependencies": {
     "electron": "^38.8.6",

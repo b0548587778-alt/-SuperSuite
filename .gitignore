@@ -53,3 +53,7 @@ root.key
 # הגדרות שרת הרישוי בפריסה (דומיין) ונתוני ממסר מקומיים
 deploy/relay/.env
 relay-data/
+
+# קוד המקור של מודול האימונים — תוצרי בנייה (התוצר הסופי ב-modules/trainer)
+modules-src/*/node_modules/
+modules-src/*/dist/
