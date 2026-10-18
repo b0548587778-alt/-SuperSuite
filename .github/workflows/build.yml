@@ -1,6 +1,12 @@
 name: Build Windows installer
 on:
+  # "גרסה להפצה" (PLAN.md 4.5): הפעלה ידנית עם release — הבנייה נכשלת אם הרישוי לא הופעל (tools/release-check.js)
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'גרסה להפצה ללקוחות (נכשל אם root-keys.js ריק)'
+        type: boolean
+        default: false
   push:
     branches: [master]
 # יומני הבנייה נכתבים גם לענף ci-status (משימת report): דף היומנים של GitHub Actions חסום ב-NetFree,
@@ -51,6 +57,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: mkdir -p ci-logs
+      - name: Release check
+        if: ${{ inputs.release }}
+        run: set -o pipefail; { echo "== release-check"; node tools/release-check.js 2>&1; } | tee -a "$LOG"
       - name: npm install
         run: set -o pipefail; { echo "== npm install"; npm install 2>&1; } | tee -a "$LOG"
       # --publish never: בלי זה electron-builder מזהה CI ומנסה לפרסם ל-GitHub Releases (ונכשל בלי GH_TOKEN).

@@ -8,6 +8,7 @@
 //   node tools/licensing/owner.js init
 //   node tools/licensing/owner.js pubkey
 //   node tools/licensing/owner.js install-root      הוספת המפתח הציבורי ל-shell/licensing/root-keys.js (בלי סיסמה)
+//   node tools/licensing/owner.js install-root --key <קובץ>   אותו דבר, מהקובץ ששמר הכפתור "שמירת המפתח הציבורי לקובץ"
 //   node tools/licensing/owner.js issue --request req.json --features econ,econ.npo,tools --max-children 3 \
 //        --max-users 10 --max-storage 5000 --max-depth 2 --months 12 [--grace 7] [--name "..."] --out lic.sslic
 //   node tools/licensing/owner.js list
@@ -50,10 +51,12 @@ function rootKeysSource(existing, publicJwk) {
   return { text, added, keyId: id, count: all.length };
 }
 
-function installRoot(dir, file = ROOT_KEYS_FILE) {
+// keyFile: קובץ המפתח הציבורי ששמר מסך הרישוי (במקום root.pub.json בתיקיית העבודה)
+function installRoot(dir, file = ROOT_KEYS_FILE, keyFile = null) {
   let pub;
-  try { pub = JSON.parse(fs.readFileSync(path.join(dir, 'root.pub.json'), 'utf8')); }
-  catch { throw new Error('לא נמצא root.pub.json בתיקייה ' + dir + ' — יש להריץ קודם init'); }
+  const src = keyFile || path.join(dir, 'root.pub.json');
+  try { pub = JSON.parse(fs.readFileSync(src, 'utf8')); }
+  catch { throw new Error(keyFile ? 'לא ניתן לקרוא את קובץ המפתח ' + keyFile : 'לא נמצא root.pub.json בתיקייה ' + dir + ' — יש להריץ קודם init'); }
   delete require.cache[require.resolve(file)];
   const r = rootKeysSource(require(file), pub);
   if (r.added) fs.writeFileSync(file, r.text);
@@ -107,7 +110,7 @@ function main(argv) {
     }
     case 'pubkey': return console.log(JSON.stringify(owner.pubkey()));
     case 'install-root': {
-      const r = installRoot(path.resolve(a.dir || 'owner-data'));
+      const r = installRoot(path.resolve(a.dir || 'owner-data'), undefined, a.key ? path.resolve(String(a.key)) : null);
       console.log(r.added ? `המפתח ${r.keyId} נוסף ל-root-keys.js (${r.count} מפתחות). מהבנייה הבאה — הרישוי פעיל.` : `המפתח ${r.keyId} כבר קיים ב-root-keys.js — לא שונה דבר`);
       return;
     }
