@@ -360,3 +360,38 @@ test('שחזור: קובץ אימונים פגום נעצר לפני האישו�
   assert.deepEqual(dialogLog, [['error', 'הקובץ אינו גיבוי של SuperSuite']]);
   dialogPlan.open = { canceled: true, filePaths: [] };
 });
+
+// PLAN.md 3.6: ערוצי הגיבויים הגלויים — רק מהמעטפת ורק עם הרשאת גיבוי
+test('גיבויים גלויים: ערוצים חסומים לתצוגת מודול ולמשתמש בלי הרשאת גיבוי', async () => {
+  await boot();
+  const econView = created.views[0];
+  const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
+  await handlers['auth:login'](viewSender(econView), 'restore_viewer', 'viewer-pass-long-1');
+  for (const ch of ['shell:plain-backups', 'shell:plain-backup-encrypt', 'shell:plain-backup-delete']) {
+    assert.throws(() => handlers[ch](viewSender(econView), 'x.json'), /מתוך המעטפת בלבד/, ch);
+  }
+  AuthService.getSession(econView.id).permissions = ['data.view'];
+  for (const ch of ['shell:plain-backups', 'shell:plain-backup-encrypt', 'shell:plain-backup-delete']) {
+    assert.throws(() => handlers[ch](shellSender(), 'x.json'), ch);
+  }
+  // עם הרשאה: הרשימה מתיקיית הגיבוי שנבחרה
+  AuthService.getSession(econView.id).permissions = ['data.view', 'data.backup'];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-pb-'));
+  fs.writeFileSync(path.join(dir, 'auto-2026-01-01.json'), JSON.stringify({ suite: 'SuperSuite', version: 2, localStorage: {} }));
+  const settings = path.join(userData, 'backup-settings.json');
+  const before = fs.existsSync(settings) ? fs.readFileSync(settings, 'utf8') : null;
+  fs.writeFileSync(settings, JSON.stringify({ targetDir: dir }));
+  try {
+    const r = handlers['shell:plain-backups'](shellSender());
+    assert.deepEqual(r.files.map(f => f.name), ['auto-2026-01-01.json']);
+    assert.match(r.warning, /לא מוצפן/);
+    // בלי הצפנת Windows (במדומה) — אין הצפנה, רק מחיקה
+    assert.equal(r.canEncrypt, false);
+    assert.throws(() => handlers['shell:plain-backup-encrypt'](shellSender(), 'auto-2026-01-01.json'), /אינה זמינה/);
+    assert.ok(fs.existsSync(path.join(dir, 'auto-2026-01-01.json')), 'לא נמחק');
+    handlers['shell:plain-backup-delete'](shellSender(), 'auto-2026-01-01.json');
+    assert.ok(!fs.existsSync(path.join(dir, 'auto-2026-01-01.json')));
+  } finally {
+    if (before === null) fs.rmSync(settings, { force: true }); else fs.writeFileSync(settings, before);
+  }
+});

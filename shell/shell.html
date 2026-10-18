@@ -181,6 +181,13 @@ dialog{background:#fff;color:var(--text);border:1px solid var(--border);border-r
 .rk-code{display:block;font:600 15px/1.7 Consolas,"Courier New",monospace;letter-spacing:.5px;background:#f3f6fb;border:1px dashed var(--border);border-radius:10px;padding:10px 12px;margin:0 0 10px;text-align:center;word-spacing:6px;user-select:all}
 dialog p.rk-hint{font-size:12.5px;margin-bottom:8px}
 #rkDlg{width:440px}
+#pbDlg{width:520px}
+.pb-list{list-style:none;margin:0 0 10px;padding:0;max-height:240px;overflow:auto}
+.pb-list li{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.pb-list li span{flex:1;overflow-wrap:anywhere}
+.pb-list li button{padding:5px 10px}
+#tgWarn{display:block;margin-top:4px;padding:0;border:0;background:none;color:#c43c3c;font:inherit;font-size:12px;cursor:pointer;text-decoration:underline;text-align:start}
+#tgWarn[hidden]{display:none}
 dialog::backdrop{background:rgba(11,20,38,.55);backdrop-filter:blur(3px)}
 dialog h3{margin:0 0 6px;font-size:18px;font-family:"David","Frank Ruhl Libre",serif;color:var(--navy-2)}
 dialog p{margin:0 0 14px;color:var(--muted);font-size:13.5px;line-height:1.55}
@@ -261,6 +268,7 @@ dialog button:disabled{opacity:.5;cursor:default}
       <button id="qt" title="יציאה מהמערכת">⏻</button>
     </div>
     <small id="tgInfo">הנתונים נשמרים במחשב שלך בלבד</small>
+    <button type="button" id="tgWarn" hidden></button>
   </div>
 </div>
 <!-- הבמה: מסך הבית. כשפריט פתוח, Electron מצייר אותו מעליה (main.js: layout) -->
@@ -326,6 +334,15 @@ dialog button:disabled{opacity:.5;cursor:default}
       <button type="button" id="obCancel">ביטול</button>
     </div>
   </form>
+</dialog>
+<dialog id="pbDlg" aria-labelledby="pbTitle">
+  <h3 id="pbTitle">גיבויים ישנים לא מוצפנים</h3>
+  <p>בתיקיית הגיבוי נמצאו קבצי גיבוי ישנים שנשמרו בלי הצפנה. כל מי שיש לו גישה לתיקייה (או לכונן ה-USB) יכול לקרוא אותם.</p>
+  <p><b>הצפן</b> — נשמר עותק מוצפן (נפתח במחשב הזה, או בקוד השחזור 🔑), ורק אחרי שנבדק שהוא תקין המקור נמחק. <b>מחק</b> — אם אין בו צורך.</p>
+  <p class="rk-hint" id="pbDir" dir="ltr"></p>
+  <ul id="pbList" class="pb-list"></ul>
+  <div class="err" id="pbErr"></div>
+  <div class="row"><button type="button" class="primary" id="pbAll">הצפן הכול</button><button type="button" id="pbClose">סגור</button></div>
 </dialog>
 <dialog id="rkDlg" aria-labelledby="rkTitle">
   <h3 id="rkTitle">קוד שחזור לגיבוי האוטומטי</h3>
