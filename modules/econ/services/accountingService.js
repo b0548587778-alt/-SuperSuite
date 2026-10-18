@@ -7,9 +7,12 @@ const AL = require('../core/allocation');
 const SD = require('../core/salesDocs');
 const UF = require('../core/uniformFile');
 const PCN = require('../core/pcn874');
+const RC = require('../core/recurring');
 const { assertIsraeliId } = require('../core/israeliId');
 
 const toAgSafe = (n) => Math.round(Number(n) * 100);
+// היום לפי השעון המקומי — לא toISOString (UTC), שמזיז את התאריך בין חצות ל-03:00
+const localDay = (ms = Date.now()) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const fromAgSafe = (a) => Math.round(a) / 100;
 
 class AccountingService {
@@ -30,6 +33,7 @@ class AccountingService {
     }
     if (!Array.isArray(data.personal)) data.personal = [];
     if (!Array.isArray(data.salesDocs)) data.salesDocs = [];
+    if (!Array.isArray(data.recurringInvoices)) data.recurringInvoices = [];
     return data;
   }
 
@@ -168,6 +172,7 @@ class AccountingService {
     };
     if (customerTaxId) invoice.customerTaxId = customerTaxId;
     if (invoiceData.sourceDoc) invoice.sourceDoc = invoiceData.sourceDoc;
+    if (invoiceData.recurring) invoice.recurring = invoiceData.recurring;
     data.invoices.push(invoice);
     data.settings.invoiceSeq = number;
     return invoice;
@@ -375,6 +380,86 @@ class AccountingService {
     data.settings.business = business;
     await this.db.save(data);
     return { logo: !!business.logo };
+  }
+
+  // ---------- חשבונית חוזרת (PLAN.md 9.6): תבניות, וטיוטות שמחושבות בכל קריאה — בלי הפקה אוטומטית ----------
+  async getRecurring({ today } = {}) {
+    const data = await this._load();
+    const day = today || localDay();
+    return { templates: data.recurringInvoices, drafts: RC.drafts(data.recurringInvoices, day, this._vatRate(data)) };
+  }
+
+  async saveRecurring(input = {}, templateId = null) {
+    const data = await this._load();
+    const t = RC.validateTemplate(input, this._vatRate(data));
+    if (templateId) {
+      const cur = data.recurringInvoices.find(x => x.id === templateId);
+      if (!cur) throw new Error('התבנית לא נמצאה');
+      // חודשים שכבר הופקו נשארים; אי אפשר להזיז את ההתחלה אחרי חודש שהופק
+      const issuedMonths = Object.keys(cur.issued || {}).sort();
+      if (issuedMonths.length && t.startMonth > issuedMonths[0]) throw new Error(`כבר הופקה חשבונית לחודש ${issuedMonths[0]} — חודש ההתחלה לא יכול להיות אחריו`);
+      Object.assign(cur, t, { paused: !!input.paused, updatedAt: new Date().toISOString() });
+      if (!input.endMonth) delete cur.endMonth;
+      if (!t.customerTaxId) delete cur.customerTaxId;
+      if (!t.notes) delete cur.notes;
+      await this.db.save(data);
+      return cur;
+    }
+    const stored = { id: crypto.randomUUID(), ...t, issued: {}, skipped: [], createdAt: new Date().toISOString() };
+    data.recurringInvoices.push(stored);
+    await this.db.save(data);
+    return stored;
+  }
+
+  // תבנית שהופקו ממנה חשבוניות לא נמחקת — רק נעצרת (חודש סיום), כמו הוראת קבע
+  async deleteRecurring(templateId) {
+    const data = await this._load();
+    const t = data.recurringInvoices.find(x => x.id === templateId);
+    if (!t) throw new Error('התבנית לא נמצאה');
+    if (Object.keys(t.issued || {}).length) throw new Error('הופקו כבר חשבוניות מהתבנית — אפשר לעצור אותה או לקבוע חודש סיום');
+    data.recurringInvoices = data.recurringInvoices.filter(x => x.id !== templateId);
+    await this.db.save(data);
+    return true;
+  }
+
+  // אישור טיוטה = הפקת חשבונית רגילה, וסימון החודש — באותה שמירה
+  async issueRecurring(templateId, month, { today } = {}) {
+    const data = await this._load();
+    const t = data.recurringInvoices.find(x => x.id === templateId);
+    RC.assertPending(t, month, today || localDay());
+    const invoice = this._createInvoiceIn(data, RC.invoiceInput(t, month));
+    t.issued = { ...(t.issued || {}), [month]: invoice.id };
+    await this.db.save(data);
+    return invoice;
+  }
+
+  async skipRecurring(templateId, month, { today } = {}) {
+    const data = await this._load();
+    const t = data.recurringInvoices.find(x => x.id === templateId);
+    RC.assertPending(t, month, today || localDay());
+    t.skipped = [...(t.skipped || []), month];
+    await this.db.save(data);
+    return t;
+  }
+
+  // ---------- עבודה מהירה: השלמת לקוחות, שכפול, חיפוש ----------
+  async getCustomerDirectory() {
+    const data = await this._load();
+    return RC.customerDirectory(data);
+  }
+
+  async searchDocuments(query) {
+    const data = await this._load();
+    return RC.searchDocuments(data, query);
+  }
+
+  // שכפול: הקלט של המסמך (לקוח ופריטים) לטופס חדש — המשתמש בוחר תאריך ושומר
+  async getDuplicateInput(kind, id) {
+    const data = await this._load();
+    const src = kind === 'invoice' ? data.invoices.find(i => i.id === id) : data.salesDocs.find(d => d.id === id && SD.DRAFT_KINDS.includes(d.kind));
+    if (!src) throw new Error('המסמך לא נמצא');
+    return { kind: kind === 'invoice' ? 'invoice' : src.kind, customer: src.customer, customerTaxId: src.customerTaxId || '', vatExempt: !!src.vatExempt,
+      items: src.items.map(it => ({ description: it.description, quantity: it.quantity, unitPrice: it.unitPrice, account: it.account })) };
   }
 
   // ---------- מסמכי מכירה (PLAN.md 9.3): הצעת מחיר, הזמנה, תעודת משלוח, זיכוי, קבלה ----------

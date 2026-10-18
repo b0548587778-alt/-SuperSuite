@@ -7,6 +7,7 @@ const G = require('./gemach');
 const GX = require('./gemachExtra');
 const M = require('./memorials');
 const AL = require('./allocation');
+const RC = require('./recurring');
 
 const LEVELS = { urgent: 'דחוף', soon: 'בקרוב', info: 'לידיעה' };
 const ORDER = { urgent: 0, soon: 1, info: 2 };
@@ -81,6 +82,12 @@ function morningBrief(data, today, { sources = SOURCES, acct = false } = {}) {
       const nums = pending.slice(0, 5).map(p => p.number).join(', ') + (pending.length > 5 ? ' ועוד' : '');
       add('acct', 'soon', `${plural(pending.length, 'חשבונית אחת ממתינה', 'חשבוניות ממתינות')} למספר הקצאה`,
         `חשבוניות ${nums} · לבקש באתר רשות המסים ולהקליד, או לסמן "לא נדרש"`, 'acct-invoices', pending.length);
+    }
+    // חשבוניות חוזרות שממתינות לאישור (טיוטות מחושבות — לא מופקות לבד)
+    const due = RC.drafts(data.recurringInvoices || [], today, 0.18);
+    if (due.length) {
+      const names = [...new Set(due.map(d => d.customer))].slice(0, 3).join(', ') + (new Set(due.map(d => d.customer)).size > 3 ? ' ועוד' : '');
+      add('acct', 'soon', `${plural(due.length, 'חשבונית חוזרת ממתינה', 'חשבוניות חוזרות ממתינות')} לאישור`, `${names} · לבדוק ולהפיק במסך החשבוניות`, 'acct-invoices', due.length);
     }
   }
 

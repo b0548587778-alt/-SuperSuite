@@ -672,6 +672,31 @@ function registerIpcHandlers() {
     await auditEvent(event, 'acct.invoice.paid', { id: result && (result.id || result.number), method: result && result.paymentMethod });
     return result;
   });
+  // חשבונית חוזרת (PLAN.md 9.6): הטיוטות מחושבות בכל קריאה, ההפקה רק באישור המשתמש
+  handle('acct:getRecurring', async () => accountingService.getRecurring({ today: localDay(Date.now()) }));
+  handle('acct:saveRecurring', async (event, input, templateId) => {
+    const result = await accountingService.saveRecurring(input || {}, templateId || null);
+    await auditEvent(event, templateId ? 'acct.recurring.update' : 'acct.recurring.create', { id: result.id, customer: result.customer });
+    return result;
+  });
+  handle('acct:deleteRecurring', async (event, templateId) => {
+    await accountingService.deleteRecurring(templateId);
+    await auditEvent(event, 'acct.recurring.delete', { id: templateId });
+    return true;
+  });
+  handle('acct:issueRecurring', async (event, templateId, month) => {
+    const result = await accountingService.issueRecurring(templateId, String(month || ''), { today: localDay(Date.now()) });
+    await auditEvent(event, 'acct.recurring.issue', { id: templateId, month, number: result.number });
+    return result;
+  });
+  handle('acct:skipRecurring', async (event, templateId, month) => {
+    await accountingService.skipRecurring(templateId, String(month || ''), { today: localDay(Date.now()) });
+    await auditEvent(event, 'acct.recurring.skip', { id: templateId, month });
+    return true;
+  });
+  handle('acct:getCustomerDirectory', async () => accountingService.getCustomerDirectory());
+  handle('acct:searchDocuments', async (event, query) => accountingService.searchDocuments(String(query || '').slice(0, 100)));
+  handle('acct:getDuplicateInput', async (event, kind, id) => accountingService.getDuplicateInput(String(kind || ''), id));
   // מסמכי מכירה (PLAN.md 9.3): הצעת מחיר, הזמנה, תעודת משלוח, חשבונית זיכוי וקבלה
   handle('acct:getSalesDocs', async () => accountingService.getSalesDocs());
   handle('acct:createSalesDoc', async (event, kind, input) => {

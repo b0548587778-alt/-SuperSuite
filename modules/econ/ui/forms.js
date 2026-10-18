@@ -23,6 +23,7 @@ async function openSubForm(schema, values = {}, editingId = null) {
     const v = values[f.name] !== undefined && values[f.name] !== null ? values[f.name] : f.value;
     if (el && v !== undefined && v !== null) el.value = String(v);
   }
+  if (typeof schema.afterRender === 'function') schema.afterRender();
 }
 
 
@@ -115,6 +116,7 @@ function attachViewHandlers(viewName) {
     btn.addEventListener('click', () => handlePdf(btn.dataset.id));
   });
 
+  if (viewName === 'acct-invoices') attachInvoiceViewHandlers();
   if (viewName === 'npo') attachNpoHandlers();
   if (viewName === 'gemach') attachGemachHandlers();
   if (viewName === 'chesed') attachChesedHandlers();

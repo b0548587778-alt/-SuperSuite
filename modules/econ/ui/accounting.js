@@ -350,6 +350,7 @@ function renderSalesDocs(docs) {
         <div class="acct-row acct-big"><span>${esc(x.statusLabel)}</span><span>${money(x.total)}</span></div>
         <div class="card-actions">
           <button class="secondary" data-doc-pdf="${esc(x.id)}">הורד PDF</button>
+          ${DOC_NEXT[x.kind] ? `<button class="secondary" data-dup-kind="${esc(x.kind)}" data-dup-id="${esc(x.id)}">שכפול</button>` : ''}
           ${x.status === 'open' && DOC_NEXT[x.kind] ? DOC_NEXT[x.kind].map(([to, label]) => `<button class="secondary" data-doc-convert="${esc(x.id)}" data-to="${to}">המרה ${label}</button>`).join('') : ''}
           ${x.status === 'open' && DOC_NEXT[x.kind] ? `<button class="danger-outline" data-doc-cancel="${esc(x.id)}">בטל</button>` : ''}
         </div>
@@ -364,10 +365,40 @@ function renderSalesDocs(docs) {
     ${others.length ? `<h3>זיכויים וקבלות (${others.length})</h3>${others.map(card).join('')}` : ''}`;
 }
 
+// חשבוניות חוזרות (PLAN.md 9.6): טיוטות לאישור בראש, והתבניות מתחת
+function renderRecurring(rec) {
+  const templates = Array.isArray(rec?.templates) ? rec.templates : [];
+  const drafts = Array.isArray(rec?.drafts) ? rec.drafts : [];
+  const name = (id) => (templates.find(t => t.id === id) || {}).customer || '';
+  return `
+    <div class="acct-header"><h3>חשבוניות חוזרות (${templates.length})</h3><button class="secondary" id="acctRecurringNew">＋ תבנית חודשית</button></div>
+    ${drafts.length ? `<div class="card"><h4>ממתינות לאישור (${drafts.length})</h4>
+      ${drafts.map(x => `<div class="acct-row"><span>${esc(x.date)} · ${esc(x.customer)} · ${money(x.total)}</span><span class="card-actions">
+        <button class="primary" data-rec-issue="${esc(x.templateId)}" data-month="${esc(x.month)}">הפקה</button>
+        <button class="secondary" data-rec-skip="${esc(x.templateId)}" data-month="${esc(x.month)}">דילוג על החודש</button></span></div>`).join('')}
+      <p class="muted">טיוטה לא מופקת לבד — רק בלחיצה על "הפקה".</p></div>` : ''}
+    ${templates.map(t => `
+      <div class="card ${t.paused ? 'muted-card' : ''}">
+        <h4>${esc(t.customer)} · כל חודש ב-${esc(t.dayOfMonth)}</h4>
+        <small>מ-${esc(t.startMonth)}${t.endMonth ? ' עד ' + esc(t.endMonth) : ''} · ${(t.items || []).map(i => esc(i.description)).join(', ')}${t.paused ? ' · מושהית' : ''} · הופקו ${Object.keys(t.issued || {}).length}</small>
+        <div class="card-actions">
+          <button class="secondary" data-rec-edit="${esc(t.id)}">עריכה</button>
+          <button class="secondary" data-rec-pause="${esc(t.id)}">${t.paused ? 'חידוש' : 'השהיה'}</button>
+          ${Object.keys(t.issued || {}).length ? '' : `<button class="danger-outline" data-rec-delete="${esc(t.id)}">מחיקה</button>`}
+        </div>
+      </div>`).join('')}`;
+}
+
 function renderAcctInvoices(d) {
   const invoices = Array.isArray(d?.invoices) ? d.invoices : [];
   const docs = Array.isArray(d?.docs) ? d.docs : [];
   return `
+    <div class="card">
+      <label>חיפוש בכל המסמכים (מספר, לקוח, ע.מ או פריט) <input id="acctDocSearch" type="search" autocomplete="off"></label>
+      <div id="acctDocResults"></div>
+      <small class="muted">קיצורים: Alt+N — חשבונית חדשה · Ctrl+Enter — שמירה בטופס · / — חיפוש</small>
+    </div>
+    ${renderRecurring(d?.recurring)}
     ${renderSalesDocs(docs)}
     <h3>חשבוניות מס (${invoices.length})</h3>
     ${invoices.length === 0 ? renderEmpty('אין חשבוניות עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל') : ''}
@@ -382,6 +413,7 @@ function renderAcctInvoices(d) {
         ${renderAllocLine(i)}
         <div class="card-actions">
           <button class="secondary" data-action="pdf" data-id="${esc(i.id)}">הורד PDF</button>
+          <button class="secondary" data-dup-kind="invoice" data-dup-id="${esc(i.id)}">שכפול</button>
           ${['pending', 'waived'].includes(invoiceAllocState(i)) ? `<button class="secondary" data-action="alloc" data-id="${esc(i.id)}">הזנת מספר הקצאה</button>` : ''}
           ${invoiceAllocState(i) === 'pending' ? `<button class="secondary" data-action="alloc-waive" data-id="${esc(i.id)}">לא נדרש</button>` : ''}
           ${i.status === 'open' ? `<button class="secondary" data-action="pay" data-id="${esc(i.id)}">סמן כשולמה</button>` : ''}
@@ -790,6 +822,7 @@ function salesDocSchema(kind) {
   return {
     title: SALES_DOC_TITLES[kind] || 'מסמך חדש',
     fields,
+    afterRender: attachCustomerAutocomplete,
     create: (d) => window.systemAPI.createSalesDoc(kind, {
       customer: d.customer, customerTaxId: d.customerTaxId, date: d.date, validUntil: d.validUntil, notes: d.notes,
       vatExempt: d.vatExempt === 'yes', items: [{ description: d.description, quantity: d.quantity, unitPrice: d.unitPrice }]
@@ -853,6 +886,157 @@ async function handleCreditNote(id) {
   }
 }
 
+// ---------- חשבונית חוזרת ----------
+function recurringSchema(template) {
+  const it = (template && template.items && template.items[0]) || {};
+  const now = new Date();
+  return {
+    title: template ? 'עריכת תבנית חודשית' : 'חשבונית חוזרת — תבנית חודשית',
+    fields: [
+      { name: 'customer', label: 'שם לקוח', type: 'text', required: true, value: template ? template.customer : '' },
+      { name: 'customerTaxId', label: 'ע.מ / ח.פ של הלקוח (אופציונלי)', type: 'text', value: template ? template.customerTaxId || '' : '' },
+      { name: 'dayOfMonth', label: 'יום בחודש להפקה (1–31; בחודש קצר — היום האחרון)', type: 'number', required: true, value: template ? template.dayOfMonth : 1 },
+      { name: 'startMonth', label: 'מחודש (YYYY-MM)', type: 'text', required: true, value: template ? template.startMonth : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` },
+      { name: 'endMonth', label: 'עד חודש (YYYY-MM, ריק — ללא סיום)', type: 'text', value: template ? template.endMonth || '' : '' },
+      { name: 'description', label: 'תיאור פריט', type: 'text', required: true, value: it.description || '' },
+      { name: 'quantity', label: 'כמות', type: 'number', value: it.quantity || 1 },
+      { name: 'unitPrice', label: 'מחיר ליחידה לפני מע"מ (₪)', type: 'number', required: true, value: it.unitPrice ?? '' },
+      { name: 'vatExempt', label: 'מע"מ', type: 'select', value: template && template.vatExempt ? 'yes' : 'no', options: [{ value: 'no', label: 'כולל מע"מ' }, { value: 'yes', label: 'פטור ממע"מ' }] }
+    ],
+    afterRender: attachCustomerAutocomplete,
+    create: (d) => window.systemAPI.saveRecurring({
+      customer: d.customer, customerTaxId: d.customerTaxId, dayOfMonth: Number(d.dayOfMonth), startMonth: d.startMonth, endMonth: d.endMonth,
+      vatExempt: d.vatExempt === 'yes', paused: !!(template && template.paused),
+      items: [{ description: d.description, quantity: d.quantity, unitPrice: d.unitPrice, ...(it.account ? { account: it.account } : {}) }]
+    }, template ? template.id : null)
+  };
+}
+
+async function handleRecurringAction(fn, okText) {
+  try {
+    const r = await fn();
+    if (r === null) return;
+    showToast(okText(r));
+    await switchView('acct-invoices');
+  } catch (error) {
+    showError('שגיאה: ' + errMsg(error));
+  }
+}
+
+function attachRecurringHandlers() {
+  const data = (state.data.acctInvoices && state.data.acctInvoices.recurring) || { templates: [] };
+  const find = (id) => (data.templates || []).find(t => t.id === id);
+  const btn = document.getElementById('acctRecurringNew');
+  if (btn) btn.addEventListener('click', () => openSubForm(recurringSchema(null)));
+  document.querySelectorAll('[data-rec-edit]').forEach(b => b.addEventListener('click', () => openSubForm(recurringSchema(find(b.dataset.recEdit)))));
+  document.querySelectorAll('[data-rec-issue]').forEach(b => b.addEventListener('click', () => handleRecurringAction(
+    () => window.systemAPI.issueRecurring(b.dataset.recIssue, b.dataset.month), (inv) => `הופקה חשבונית ${inv.number}`)));
+  document.querySelectorAll('[data-rec-skip]').forEach(b => b.addEventListener('click', async () => {
+    if (!(await askConfirm(`לדלג על החודש ${b.dataset.month}? לא תופק בו חשבונית מהתבנית.`))) return;
+    handleRecurringAction(() => window.systemAPI.skipRecurring(b.dataset.recSkip, b.dataset.month), () => 'החודש סומן כדילוג');
+  }));
+  document.querySelectorAll('[data-rec-pause]').forEach(b => b.addEventListener('click', () => {
+    const t = find(b.dataset.recPause);
+    if (!t) return;
+    handleRecurringAction(() => window.systemAPI.saveRecurring({ ...t, paused: !t.paused }, t.id), () => (t.paused ? 'התבנית חודשה' : 'התבנית הושהתה'));
+  }));
+  document.querySelectorAll('[data-rec-delete]').forEach(b => b.addEventListener('click', async () => {
+    if (!(await askConfirm('למחוק את התבנית?'))) return;
+    handleRecurringAction(() => window.systemAPI.deleteRecurring(b.dataset.recDelete), () => 'התבנית נמחקה');
+  }));
+}
+
+// ---------- עבודה מהירה ----------
+// השלמה אוטומטית ללקוח: רשימת לקוחות מוכרים (datalist), ובחירה ממלאת את ע.מ
+async function attachCustomerAutocomplete() {
+  const input = document.getElementById('f_customer');
+  if (!input) return;
+  let list;
+  try { list = await window.systemAPI.getCustomerDirectory(); } catch { return; }
+  if (!Array.isArray(list) || !list.length) return;
+  const dl = document.createElement('datalist');
+  dl.id = 'acctCustomerList';
+  for (const c of list.slice(0, 300)) {
+    const o = document.createElement('option');
+    o.value = c.name;
+    dl.appendChild(o);
+  }
+  input.setAttribute('list', dl.id);
+  input.setAttribute('autocomplete', 'off');
+  input.after(dl);
+  input.addEventListener('change', () => {
+    const c = list.find(x => x.name === input.value.trim());
+    const tax = document.getElementById('f_customerTaxId');
+    if (c && tax && !tax.value) tax.value = c.taxId || '';
+  });
+}
+
+// שכפול: טופס חדש עם הלקוח והפריט הראשון, בתאריך היום
+async function handleDuplicate(kind, id) {
+  try {
+    const src = await window.systemAPI.getDuplicateInput(kind, id);
+    const it = src.items[0] || {};
+    const values = { customer: src.customer, customerTaxId: src.customerTaxId, date: today(), description: it.description, quantity: it.quantity,
+      unitPrice: it.unitPrice, vatExempt: src.vatExempt ? 'yes' : 'no' };
+    const schema = src.kind === 'invoice' ? formSchemas['acct-invoices'] : salesDocSchema(src.kind);
+    await openSubForm(schema, values);
+    if (src.items.length > 1) showToast('שוכפלה השורה הראשונה בלבד — הטופס תומך בשורה אחת');
+  } catch (error) {
+    showError('שגיאה בשכפול: ' + errMsg(error));
+  }
+}
+
+const DOC_KIND_LABELS = { invoice: 'חשבונית', quote: 'הצעת מחיר', order: 'הזמנה', delivery: 'תעודת משלוח', credit: 'זיכוי', receipt: 'קבלה' };
+function renderDocResults(rows, query) {
+  if (!query) return '';
+  if (!rows.length) return '<p class="muted">לא נמצאו מסמכים</p>';
+  return `<table class="acct-table"><thead><tr><th>סוג</th><th>מספר</th><th>תאריך</th><th>לקוח</th><th>סכום</th><th></th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td>${esc(DOC_KIND_LABELS[r.kind] || r.kind)}</td><td class="num">${esc(r.number)}</td><td>${esc(r.date)}</td><td>${esc(r.customer)}</td><td class="num">${money(r.total)}</td>
+      <td>${r.kind === 'invoice' ? `<button class="secondary" data-action="pdf" data-id="${esc(r.id)}">PDF</button>` : `<button class="secondary" data-doc-pdf="${esc(r.id)}">PDF</button>`}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+function attachDocSearch() {
+  const input = document.getElementById('acctDocSearch');
+  const out = document.getElementById('acctDocResults');
+  if (!input || !out) return;
+  let timer;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const q = input.value.trim();
+      try {
+        out.innerHTML = renderDocResults(q ? await window.systemAPI.searchDocuments(q) : [], q);
+        out.querySelectorAll('[data-action="pdf"]').forEach(b => b.addEventListener('click', () => handlePdf(b.dataset.id)));
+        out.querySelectorAll('[data-doc-pdf]').forEach(b => b.addEventListener('click', () => handleSalesDocPdf(b.dataset.docPdf)));
+      } catch (error) {
+        out.innerHTML = `<div class="bad">${esc(errMsg(error))}</div>`;
+      }
+    }, 250);
+  });
+}
+
+// קיצורי מקלדת במסך החשבוניות: Alt+N חשבונית חדשה, "/" חיפוש, Ctrl+Enter שמירת הטופס הפתוח
+function acctInvoiceKeys(e) {
+  if (state.currentView !== 'acct-invoices') return;
+  const modalOpen = elements.modal && !elements.modal.classList.contains('hidden');
+  if (modalOpen && e.ctrlKey && e.key === 'Enter') { e.preventDefault(); handleSubmit(); return; }
+  if (modalOpen || document.querySelector('.modal:not(.hidden):not(#modal)')) return;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '');
+  if (e.altKey && (e.key === 'n' || e.key === 'N' || e.code === 'KeyN')) { e.preventDefault(); handleAdd(); return; }
+  if (!typing && e.key === '/') { const s = document.getElementById('acctDocSearch'); if (s) { e.preventDefault(); s.focus(); } }
+}
+
+function attachInvoiceViewHandlers() {
+  attachRecurringHandlers();
+  attachDocSearch();
+  document.querySelectorAll('[data-dup-id]').forEach(b => b.addEventListener('click', () => handleDuplicate(b.dataset.dupKind, b.dataset.dupId)));
+  if (!state.acctKeysBound) {
+    document.addEventListener('keydown', acctInvoiceKeys);
+    state.acctKeysBound = true;
+  }
+}
+
 async function handleDocLogo(remove) {
   try {
     const r = await window.systemAPI.setDocumentLogo(remove);
@@ -901,6 +1085,7 @@ const acctFormSchemas = {
       schema.products = products;
     },
     afterRender: () => {
+      attachCustomerAutocomplete();
       const sel = document.getElementById('f_productId');
       if (!sel) return;
       sel.addEventListener('change', () => {

@@ -32,6 +32,7 @@ const collections = [
   'journal',           // Double-entry journal (יומן)
   'invoices',          // Sales invoices (חשבוניות מס)
   'salesDocs',         // מסמכי מכירה נוספים: הצעת מחיר, הזמנה, תעודת משלוח, זיכוי, קבלה (core/salesDocs.js)
+  'recurringInvoices', // תבניות לחשבונית חוזרת חודשית — הטיוטות מחושבות, לא נשמרות (core/recurring.js)
   'products',          // Price list: products and services (מחירון)
   'personal',          // Personal/family income & expenses — נפרד לחלוטין מהיומן העסקי
   'npo',               // עמותה: תרומות וקבלות, קרנות, תמיכות — נפרד מהיומן העסקי
@@ -87,6 +88,7 @@ const defaults = {
   journal: [],
   invoices: [],
   salesDocs: [],
+  recurringInvoices: [],
   products: [],
   personal: [],
   npo: { settings: {}, donations: [], grants: [], standingOrders: [], memorials: [], campaigns: [] },

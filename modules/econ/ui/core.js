@@ -308,8 +308,8 @@ async function loadViewData(viewName) {
       }
       case 'acct-invoices':
         {
-          const [invoices, docs] = await Promise.all([window.systemAPI.getInvoices(), window.systemAPI.getSalesDocs()]);
-          state.data.acctInvoices = { invoices, docs };
+          const [invoices, docs, recurring] = await Promise.all([window.systemAPI.getInvoices(), window.systemAPI.getSalesDocs(), window.systemAPI.getRecurring()]);
+          state.data.acctInvoices = { invoices, docs, recurring };
         }
         break;
       case 'acct-chart':
