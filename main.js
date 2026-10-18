@@ -209,7 +209,24 @@ function econSessionAlive() {
   return !!(v && !v.webContents.isDestroyed() && econ && econ.hasSession && econ.hasSession(v.webContents.id));
 }
 // אחרי כניסה — פותחים את המודול שחיכה. אחרי יציאה/ניתוק — יוצאים ממודול נעול למסך הכניסה
+// כניסה או יציאה: מודולים נעולים שכבר נטענו נטענים מחדש — אחרי יציאה לא נשארים נתונים בזיכרון,
+// ואחרי כניסה מודול שנטען בלי כניסה (למשל בגיבוי האוטומטי) מקבל את הנתונים
+let lockedViewsSession = null;
+function reloadLockedViewsOnSessionChange() {
+  const now = econSessionAlive();
+  if (lockedViewsSession === now) return;
+  const first = lockedViewsSession === null;
+  lockedViewsSession = now;
+  if (first && !now) return;
+  // ניתוק שקט אחרי חוסר פעילות: גם המסך הכלכלי עובר מיד למסך הכניסה, ולא ממשיך להציג נתונים עד הלחיצה הבאה
+  if (!now && views.econ && !views.econ.webContents.isDestroyed()) views.econ.webContents.send('econ:auth-check');
+  for (const id of LoginGate.LOCKED_MODS) {
+    const v = views[id];
+    if (v && !v.webContents.isDestroyed()) v.webContents.reload();
+  }
+}
 function onEconAuthChange() {
+  reloadLockedViewsOnSessionChange();
   if (loginGate.mustLeave(active)) { showLoginForLocked(); return; }
   const p = loginGate.takePending();
   if (p && (active === 'econ' || active === null)) { switchTo(p.id); if (p.view) openModuleView(p.id, p.view); }
@@ -362,6 +379,8 @@ async function collectBackup(scope = 'all') {
   const DUMP = 'JSON.stringify(Object.fromEntries(Object.entries(localStorage)))';
   for (const id of LS_MODS) {
     if (scope !== 'all' && scope !== id) continue;
+    // מחסן מוצפן: קוראים ממנו ישירות — בלי לפתוח את המודול (שבלי כניסה מקבל אחסון ריק)
+    if (SecureStore.MODULES.includes(id) && secureStore(id).state === 'encrypted') { out.localStorage[id] = secureStore(id).snapshot(); continue; }
     const v = ensureView(id);
     await waitLoaded(v.webContents);
     try { out.localStorage[id] = JSON.parse(await v.webContents.executeJavaScript(DUMP)); } catch { out.localStorage[id] = {}; }
@@ -439,6 +458,8 @@ function wireSecureStore() {
   ipcMain.on('secure-store:load', (e, mod) => {
     if (!fromModuleView(e, mod)) { e.returnValue = null; return; }
     const s = secureStore(mod);
+    // בלי כניסה (PLAN.md 3.3): העמוד מקבל אחסון ריק לקריאה בלבד — נטען מחדש עם הנתונים אחרי הכניסה
+    if (s.state === 'encrypted' && !econSessionAlive()) { e.returnValue = { state: 'no-session', migrated: true, data: {} }; return; }
     e.returnValue = { state: s.state, migrated: s.migrated, data: s.state === 'plain' ? {} : s.snapshot() };
   });
   // גיבוי מוצפן של הנתונים הישנים לפני ההעברה. בלי גיבוי — אין העברה
@@ -455,7 +476,7 @@ function wireSecureStore() {
     });
   });
   ipcMain.on('secure-store:write', (e, mod, op, k, v) => {
-    if (!fromModuleView(e, mod)) return;
+    if (!fromModuleView(e, mod) || !econSessionAlive()) return;
     const s = secureStore(mod);
     if (op === 'set') s.set(k, v); else if (op === 'remove') s.remove(k); else if (op === 'clear') s.clear();
   });
@@ -656,7 +677,7 @@ app.whenReady().then(async () => {
   if (econ.onLicenseChange) econ.onLicenseChange(enforceLicense);
   if (econ.onAuthChange) econ.onAuthChange(onEconAuthChange);
   // ניתוק אוטומטי (חוסר פעילות) קורה בשקט — בודקים מדי פעם אם מודול נעול פתוח בלי כניסה
-  const gateTimer = setInterval(() => { if (loginGate.mustLeave(active)) showLoginForLocked(); }, 20 * 1000);
+  const gateTimer = setInterval(() => { reloadLockedViewsOnSessionChange(); if (loginGate.mustLeave(active)) showLoginForLocked(); }, 20 * 1000);
   if (gateTimer.unref) gateTimer.unref();
   const licTimer = setInterval(licenseNow, 60 * 1000);
   if (licTimer.unref) licTimer.unref();

@@ -84,7 +84,11 @@ async function init() {
       window.systemAPI.onAuthCheck(async () => {
         if (!state.user) return; // מסך הכניסה כבר מוצג
         const st = await window.systemAPI.authStatus().catch(() => null);
-        if (st && !st.user) maybeRelogin('נדרשת כניסה');
+        if (st && !st.user) {
+          // מסתירים את הנתונים שעל המסך לפני חלון הכניסה (PLAN.md 3.3)
+          if (elements.view) elements.view.innerHTML = '';
+          maybeRelogin('נדרשת כניסה');
+        }
       });
     }
 
