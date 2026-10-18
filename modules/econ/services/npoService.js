@@ -6,6 +6,10 @@ const SO = require('../core/standingOrders');
 const DI = require('../core/donationImport');
 const MEM = require('../core/memorials');
 const CMP = require('../core/campaigns');
+const MSV = require('../core/masav');
+
+// פרטי חשבון הבנק לא יוצאים לממשק — רק מסיכה
+const withoutBank = ({ bankAccount, ...o }) => ({ ...o, bankMasked: MSV.maskAccount(bankAccount) });
 
 class NpoService {
   constructor(db) {
@@ -25,7 +29,8 @@ class NpoService {
       grants: Array.isArray(npo.grants) ? npo.grants : [],
       standingOrders: Array.isArray(npo.standingOrders) ? npo.standingOrders : [],
       memorials: Array.isArray(npo.memorials) ? npo.memorials : [],
-      campaigns: Array.isArray(npo.campaigns) ? npo.campaigns : []
+      campaigns: Array.isArray(npo.campaigns) ? npo.campaigns : [],
+      masav: MSV.normalizeStore(npo.masav)
     };
     return data;
   }
@@ -34,7 +39,8 @@ class NpoService {
   async getStandingOrders(today) {
     const { npo } = await this._load();
     const t = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? today : new Date().toISOString().slice(0, 10);
-    return SO.summarize(npo.standingOrders, t);
+    const sum = SO.summarize(npo.standingOrders.map(withoutBank), t);
+    return { ...sum, masav: { configured: !!npo.masav.settings, settings: npo.masav.settings, batches: npo.masav.batches.map(MSV.batchView).reverse() } };
   }
 
   async saveStandingOrder(orderId, input) {
@@ -48,7 +54,7 @@ class NpoService {
     const order = prev ? Object.assign(prev, clean, { updatedAt: now }) : { id: crypto.randomUUID(), ...clean, history: [], createdAt: now };
     if (!prev) list.push(order);
     await this.db.save(data);
-    return order;
+    return withoutBank(order);
   }
 
   // סימון חודש: "התקבל" מפיק תרומה וקבלה רגילות (באותה שמירה), "נכשל" נרשם להיסטוריה בלבד
@@ -56,8 +62,15 @@ class NpoService {
     const data = await this._load();
     const order = data.npo.standingOrders.find(o => o.id === orderId);
     if (!order) throw new Error('הוראת הקבע לא נמצאה');
+    const donation = this._recordStandingIn(data, order, month, status, date);
+    await this.db.save(data);
+    return { order: withoutBank(order), donation };
+  }
+
+  // סימון בתוך נתונים שכבר נטענו (בלי שמירה) — גם לסגירת אצוות מס"ב בשמירה אחת
+  _recordStandingIn(data, order, month, status, date, extra = {}) {
     SO.assertCanRecord(order, month, status);
-    const entry = { month, status, at: new Date().toISOString() };
+    const entry = { month, status, at: new Date().toISOString(), ...extra };
     let donation = null;
     if (status === 'received') {
       if (!data.npo.settings.orgName) throw new Error('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
@@ -73,8 +86,121 @@ class NpoService {
       entry.donationId = donation.id;
     }
     order.history = [...(Array.isArray(order.history) ? order.history : []), entry];
+    return donation;
+  }
+
+  /* ---------- מס"ב (PLAN.md 9.17): קובץ חיובים להוראות קבע בנקאיות וקליטת החזרות ---------- */
+  async saveMasavSettings(input) {
+    const data = await this._load();
+    data.npo.masav.settings = MSV.validateSettings(input);
     await this.db.save(data);
-    return { order, donation };
+    return data.npo.masav.settings;
+  }
+
+  // פרטי חשבון לחיוב (הרשאה בבנק). input ריק — הסרה. לכל הוראה אסמכתה קבועה לכל חיי ההרשאה
+  async setStandingBank(orderId, input) {
+    const data = await this._load();
+    const order = data.npo.standingOrders.find(o => o.id === orderId);
+    if (!order) throw new Error('הוראת הקבע לא נמצאה');
+    if (!input) { delete order.bankAccount; await this.db.save(data); return { bankMasked: '' }; }
+    if (order.method !== 'standing') throw new Error('פרטי חשבון רק להוראת קבע בנקאית');
+    order.bankAccount = MSV.validateBankAccount(input);
+    if (!order.masavRef) { data.npo.masav.refSeq += 1; order.masavRef = String(data.npo.masav.refSeq); }
+    delete order.masavStopped;
+    await this.db.save(data);
+    return { bankMasked: MSV.maskAccount(order.bankAccount), masavRef: order.masavRef };
+  }
+
+  // החיובים לחודש: הוראה בנקאית עם חשבון, פעילה בחודש, שלא התקבלה ולא נמצאת כבר באצווה, ושלא נעצרה אחרי החזרה סופית
+  _masavCandidates(data, month) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month))) throw new Error('חודש לא תקין (YYYY-MM)');
+    const busy = MSV.busyKeys(data.npo.masav.batches);
+    const out = [];
+    for (const o of data.npo.standingOrders) {
+      if (o.method !== 'standing' || !o.bankAccount || o.masavStopped) continue;
+      if (month < o.startMonth || (o.endMonth && month > o.endMonth)) continue;
+      const last = (o.history || []).filter(h => h.month === month).pop();
+      if (last && last.status === 'received') continue;
+      const key = `${o.id}|${month}`;
+      if (busy.has(key)) continue;
+      out.push({ key, order: o });
+    }
+    return out;
+  }
+
+  /* אצווה: { month, chargeDate }, today. preview: true — בדיקה בלבד (בלי שמירה), כדי לא ליצור אצווה כשהמשתמש מבטל את השמירה */
+  async createMasavBatch({ month, chargeDate } = {}, { today, preview = false } = {}) {
+    const data = await this._load();
+    const m = data.npo.masav;
+    if (!m.settings) throw new Error('יש להגדיר תחילה את פרטי המוסד במס"ב');
+    if (!MSV.isDay(chargeDate)) throw new Error('תאריך החיוב אינו תקין');
+    if (today && chargeDate < today) throw new Error('תאריך החיוב עבר — יש לבחור תאריך עתידי');
+    const cands = this._masavCandidates(data, month);
+    if (!cands.length) throw new Error(`אין חיובים ל-${month}: אין הוראות בנקאיות עם פרטי חשבון שטרם חויבו`);
+    const file = MSV.buildDebitFile({
+      settings: m.settings, chargeDate, createdDate: today || chargeDate,
+      items: cands.map(({ order: o }) => ({ ...o.bankAccount, idNumber: o.donorId, name: o.donorName, amountAg: Math.round(o.amount * 100), reference: o.masavRef, period: month }))
+    });
+    const fileName = `masav-${m.settings.institution}-${chargeDate}.txt`;
+    if (preview) return { fileName, count: file.count, totalAg: file.totalAg };
+    const batch = { id: crypto.randomUUID(), month, chargeDate, status: 'open', createdAt: new Date().toISOString(), returns: [],
+      items: cands.map(({ key, order: o }) => ({ key, ref: o.masavRef, amountAg: Math.round(o.amount * 100), label: o.donorName, status: 'pending' })) };
+    m.batches.push(batch);
+    await this.db.save(data);
+    return { fileName, text: file.text, count: file.count, totalAg: file.totalAg, batchId: batch.id };
+  }
+
+  // ביטול אצווה שלא נשלחה (או שהבנק דחה את כולה): החיובים חוזרים להיות זמינים לאצווה חדשה
+  async cancelMasavBatch(batchId) {
+    const data = await this._load();
+    const b = data.npo.masav.batches.find(x => x.id === batchId);
+    if (!b) throw new Error('האצווה לא נמצאה');
+    if (b.status !== 'open' || b.items.some(i => i.status !== 'pending')) throw new Error('ניתן לבטל רק אצווה פתוחה שלא נקלטו לה החזרות');
+    b.status = 'cancelled';
+    b.cancelledAt = new Date().toISOString();
+    await this.db.save(data);
+    return MSV.batchView(b);
+  }
+
+  // קובץ החזרות: כל החזרה ← "נכשל" בהוראה (עם הסיבה). החזרה סופית (ביטול הרשאה, אין חשבון...) עוצרת חיובים נוספים
+  async importMasavReturns(text) {
+    const data = await this._load();
+    const m = data.npo.masav;
+    if (!m.settings) throw new Error('יש להגדיר תחילה את פרטי המוסד במס"ב');
+    const parsed = MSV.parseReturnsFile(text);
+    const r = MSV.applyReturns(m.batches, parsed, m.settings.institution);
+    for (const x of r.matched) {
+      const [orderId, month] = x.itemKey.split('|');
+      const order = data.npo.standingOrders.find(o => o.id === orderId);
+      if (!order) continue;
+      const last = (order.history || []).filter(h => h.month === month).pop();
+      if (!last || last.status !== 'failed') this._recordStandingIn(data, order, month, 'failed', '', { reason: x.reason, masavBatchId: x.batchId });
+      if (x.fatal) order.masavStopped = x.reason;
+    }
+    await this.db.save(data);
+    return MSV.returnsSummary(r, parsed);
+  }
+
+  // סגירת אצווה: כל חיוב שלא הוחזר ← "התקבל" וקבלה בתאריך החיוב, הכול בשמירה אחת
+  async closeMasavBatch(batchId) {
+    const data = await this._load();
+    const b = data.npo.masav.batches.find(x => x.id === batchId);
+    if (!b) throw new Error('האצווה לא נמצאה');
+    if (b.status !== 'open') throw new Error('האצווה כבר סגורה או מבוטלת');
+    let receipts = 0;
+    for (const it of b.items.filter(i => i.status === 'pending')) {
+      const [orderId, month] = it.key.split('|');
+      const order = data.npo.standingOrders.find(o => o.id === orderId);
+      if (!order) throw new Error(`הוראת הקבע של ${it.label} נמחקה — לא ניתן לסגור את האצווה`);
+      // חודש שסומן "התקבל" ידנית בינתיים — בלי קבלה נוספת
+      const last = (order.history || []).filter(h => h.month === month).pop();
+      if (!last || last.status !== 'received') { this._recordStandingIn(data, order, month, 'received', b.chargeDate, { masavBatchId: b.id }); receipts++; }
+      it.status = 'paid';
+    }
+    b.status = 'closed';
+    b.closedAt = new Date().toISOString();
+    await this.db.save(data);
+    return { paid: receipts, batch: MSV.batchView(b) };
   }
 
   async deleteStandingOrder(orderId) {

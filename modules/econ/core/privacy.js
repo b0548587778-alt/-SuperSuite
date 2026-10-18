@@ -16,9 +16,9 @@ function dataMap(data, userCounts = {}) {
   const all = 'כל המשתמשים המחוברים (צופה, עורך, מנהל)';
   const rows = [
     { area: 'עמותה — תורמים וקבלות', count: len(npo.donations), fields: 'שם, ת.ז, טלפון, כתובת, סכום', sensitivity: 'regular', access: all },
-    { area: 'עמותה — הוראות קבע', count: len(npo.standingOrders), fields: 'שם, ת.ז, טלפון, כתובת, סכום חודשי (בלי פרטי אשראי/חשבון)', sensitivity: 'regular', access: all },
+    { area: 'עמותה — הוראות קבע', count: len(npo.standingOrders), fields: 'שם, ת.ז, טלפון, כתובת, סכום חודשי; בהוראה בנקאית במס"ב — בנק, סניף וחשבון (בלי פרטי אשראי)', sensitivity: 'regular', access: all },
     { area: 'עמותה — הנצחות', count: len(npo.memorials), fields: 'שם הנפטר, איש קשר, ת.ז וטלפון של איש הקשר', sensitivity: 'regular', access: all },
-    { area: 'גמ"ח — לווים וערבים', count: len(gm.loans), fields: 'שם, ת.ז, טלפון, סכום הלוואה, פיגורים, ערבים', sensitivity: 'sensitive', access: all },
+    { area: 'גמ"ח — לווים וערבים', count: len(gm.loans), fields: 'שם, ת.ז, טלפון, סכום הלוואה, פיגורים, ערבים; בחיוב במס"ב — בנק, סניף וחשבון', sensitivity: 'sensitive', access: all },
     { area: 'גמ"ח — מפקידים', count: len(gm.deposits), fields: 'שם, סכום', sensitivity: 'regular', access: all },
     { area: 'חסד — נזקקים (רגילים)', count: bens.length - conf, fields: 'משפחה, ראש משפחה, ת.ז, נפשות, טלפון, כתובת, הערות', sensitivity: 'sensitive', access: all },
     { area: 'חסד — נזקקים חסויים', count: conf, fields: 'כמו נזקקים — מוסתר בשרת', sensitivity: 'high', access: 'מנהל בלבד (צפייה נרשמת ביומן הביקורת)' },
@@ -187,6 +187,9 @@ function candidatesFor(data, kind, today, years) {
     .filter(x => x.last && x.last < cutoff).sort((a, b) => a.last.localeCompare(b.last));
 }
 
+// פרטי חשבון לחיוב (מס"ב) נמחקים במזעור — ההוראה או ההלוואה כבר לא פעילה
+const withoutBank = ({ bankAccount, ...rest }) => rest;
+
 // מזעור בפועל — רק מזהים שעדיין מועמדים ברגע הביצוע. מחזיר כמה מוזערו
 function applyRetention(data, kind, ids, today, years, at) {
   const k = retentionKind(kind);
@@ -205,11 +208,11 @@ function applyRetention(data, kind, ids, today, years, at) {
       hit.add(key);
       return { ...d, donorPhone: '', donorAddress: '', privacyMinimizedAt: at };
     });
-    data.npo.standingOrders = (data.npo.standingOrders || []).map(o => (ok(donorKey(o)) ? { ...o, donorPhone: '', donorAddress: '', privacyMinimizedAt: at } : o));
+    data.npo.standingOrders = (data.npo.standingOrders || []).map(o => (ok(donorKey(o)) ? { ...withoutBank(o), donorPhone: '', donorAddress: '', privacyMinimizedAt: at } : o));
     done = hit.size;
   } else if (k === 'borrowers') {
     data.gemach.loans = data.gemach.loans.map(l => (ok(l.id)
-      ? (done++, { ...l, borrowerPhone: '', borrowerAddress: '', notes: '', guarantors: (l.guarantors || []).map(g => ({ ...g, phone: '' })), privacyMinimizedAt: at })
+      ? (done++, { ...withoutBank(l), borrowerPhone: '', borrowerAddress: '', notes: '', guarantors: (l.guarantors || []).map(g => ({ ...g, phone: '' })), privacyMinimizedAt: at })
       : l));
   } else {
     data.mortgageAdvisor.clients = data.mortgageAdvisor.clients.map(c => (ok(c.id) ? (done++, { ...c, phone: '', notes: '', privacyMinimizedAt: at }) : c));

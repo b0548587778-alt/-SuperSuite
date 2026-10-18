@@ -953,6 +953,52 @@ function registerIpcHandlers() {
     await auditEvent(event, 'npo.standing.' + status, { id, month, receipt: r.donation ? r.donation.receipt.number : null });
     return r;
   });
+  // מס"ב (PLAN.md 9.17): קובץ חיובים וקליטת החזרות — קבצים בלבד, בלי רשת. אותם ערוצים לעמותה ולגמ"ח
+  for (const [prefix, svc] of [['npo', npoService], ['gemach', gemachService]]) {
+    handle(`${prefix}:saveMasavSettings`, async (event, input) => {
+      const s = await svc.saveMasavSettings(input || {});
+      await auditEvent(event, `${prefix}.masav.settings`, { institution: s.institution });
+      return s;
+    });
+    handle(`${prefix}:createMasavFile`, async (event, input) => {
+      const args = { month: String((input && input.month) || ''), chargeDate: String((input && input.chargeDate) || '') };
+      const today = localDay(Date.now());
+      const pv = await svc.createMasavBatch(args, { today, preview: true });
+      const r = await dialog.showSaveDialog({ defaultPath: pv.fileName, filters: [{ name: 'קובץ מס"ב', extensions: ['txt', 'msv'] }] });
+      if (r.canceled || !r.filePath) return { ok: false };
+      const out = await svc.createMasavBatch(args, { today });
+      fs.writeFileSync(r.filePath, out.text, 'latin1');
+      await auditEvent(event, `${prefix}.masav.file`, { batchId: out.batchId, month: args.month, chargeDate: args.chargeDate, count: out.count, totalAg: out.totalAg });
+      return { ok: true, path: r.filePath, count: out.count, totalAg: out.totalAg };
+    });
+    handle(`${prefix}:importMasavReturns`, async (event, text) => {
+      if (typeof text !== 'string' || text.length > 20 * 1024 * 1024) throw new Error('קובץ ההחזרות אינו תקין או גדול מדי (עד 20MB)');
+      const r = await svc.importMasavReturns(text);
+      await auditEvent(event, `${prefix}.masav.returns`, { returned: r.returned, skipped: r.skipped, unmatched: r.unmatched.length });
+      return r;
+    });
+    handle(`${prefix}:closeMasavBatch`, async (event, batchId) => {
+      const r = await svc.closeMasavBatch(batchId);
+      await auditEvent(event, `${prefix}.masav.close`, { batchId, paid: r.paid });
+      return r;
+    });
+    handle(`${prefix}:cancelMasavBatch`, async (event, batchId) => {
+      const r = await svc.cancelMasavBatch(batchId);
+      await auditEvent(event, `${prefix}.masav.cancel`, { batchId });
+      return r;
+    });
+  }
+  // פרטי חשבון לחיוב — נרשם ביומן הפעולות בלי המספר עצמו
+  handle('npo:setStandingBank', async (event, id, input) => {
+    const r = await npoService.setStandingBank(id, input && typeof input === 'object' ? input : null);
+    await auditEvent(event, r.bankMasked ? 'npo.standing.bank.set' : 'npo.standing.bank.clear', { id });
+    return r;
+  });
+  handle('gemach:setLoanBank', async (event, loanId, input) => {
+    const r = await gemachService.setLoanBank(loanId, input && typeof input === 'object' ? input : null);
+    await auditEvent(event, r.bankMasked ? 'gemach.loan.bank.set' : 'gemach.loan.bank.clear', { id: loanId });
+    return r;
+  });
   handle('npo:deleteStandingOrder', async (event, id) => {
     await npoService.deleteStandingOrder(id);
     await auditEvent(event, 'npo.standing.delete', { id });

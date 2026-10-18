@@ -282,7 +282,7 @@ function renderNpoStanding(st) {
   return `<div class="card acct-wide">
     <div class="hub-head"><h3>הוראות קבע — ${esc(st.month)}</h3>
       <div class="acct-actions"><button class="secondary" id="npoStandingAdd">＋ הוראת קבע</button></div></div>
-    <p class="muted">מעקב בלבד: החיוב עצמו נעשה בבנק או בחברת האשראי. כאן מסמנים מה התקבל — וקבלה מופקת אוטומטית. פרטי אשראי וחשבון לא נשמרים.</p>
+    <p class="muted">החיוב נעשה בבנק או בחברת האשראי. כאן מסמנים מה התקבל — וקבלה מופקת אוטומטית. פרטי אשראי לא נשמרים; בהוראה בנקאית אפשר לשמור חשבון לחיוב בקובץ מס"ב (🏦).</p>
     <div class="kpis">
       <div class="kpi"><small>הוראות פעילות</small><strong>${Number(st.activeCount) || 0}</strong></div>
       <div class="kpi"><small>צפוי החודש</small><strong>${money(st.expected)}</strong></div>
@@ -293,12 +293,13 @@ function renderNpoStanding(st) {
     ${rows.length === 0 ? renderEmpty('אין הוראות קבע עדיין') : `<div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>תורם</th><th>סכום</th><th>יום</th><th>תקופה</th><th>החודש</th><th>פתוחים</th><th></th></tr></thead>
       <tbody>${rows.map(r => `<tr class="${r.ended ? 'muted' : ''}">
-        <td>${esc(r.donorName)}${r.failures >= 2 ? ` <small class="bad">· ${r.failures} כישלונות ברצף</small>` : ''}</td>
+        <td>${esc(r.donorName)}${r.failures >= 2 ? ` <small class="bad">· ${r.failures} כישלונות ברצף</small>` : ''}${r.bankMasked ? ` <small class="muted">· 🏦 ${esc(r.bankMasked)}</small>` : ''}${r.masavStopped ? ` <small class="bad">· מס"ב נעצר: ${esc(r.masavStopped)}</small>` : ''}</td>
         <td>${money(r.amount)}</td><td>${Number(r.dayOfMonth)}</td>
         <td><small>${esc(r.startMonth)}${r.endMonth ? ' – ' + esc(r.endMonth) : ' ואילך'}</small></td>
         <td><small class="${r.status === 'failed' || r.status === 'missed' ? 'bad' : r.status === 'received' ? 'ok' : 'muted'}">${esc(SO_STATUS[r.status] || r.status)}</small> ${monthBtns(r)}</td>
         <td>${(r.openMonths || []).filter(m => m !== st.month).map(m => `<button class="secondary small" data-so-pay="${esc(r.id)}" data-so-month="${esc(m)}" title="סימון התקבל לחודש ${esc(m)}">${esc(m)}</button>`).join(' ') || '—'}</td>
         <td><button class="icon-btn" data-so-edit="${esc(r.id)}" title="עריכה">✎</button>
+          ${r.method === 'standing' && !r.ended ? `<button class="icon-btn" data-so-bank="${esc(r.id)}" title="חשבון לחיוב במס&quot;ב">🏦</button>` : ''}
           ${r.receivedCount ? '' : `<button class="icon-btn danger" data-so-del="${esc(r.id)}" title="מחיקה">🗑</button>`}</td>
       </tr>`).join('')}</tbody></table></div>`}
   </div>`;
@@ -321,6 +322,13 @@ function attachNpoStandingHandlers() {
     const o = st && st.rows.find(x => x.id === b.dataset.soEdit);
     if (o) openSubForm(npoStandingSchema, o, o.id);
   }));
+  document.querySelectorAll('[data-so-bank]').forEach(b => b.addEventListener('click', async () => {
+    const o = st && st.rows.find(x => x.id === b.dataset.soBank);
+    try {
+      if (await masavBankForm(`חשבון לחיוב — ${o ? o.donorName : ''}`, o && o.bankMasked, (v) => window.systemAPI.setNpoStandingBank(b.dataset.soBank, v))) await switchView('npo');
+    } catch (error) { showError('שגיאה בשמירת החשבון: ' + errMsg(error)); }
+  }));
+  attachMasavHandlers(st && st.masav);
   document.querySelectorAll('[data-so-del]').forEach(b => b.addEventListener('click', async () => {
     if (!(await askConfirm('למחוק את הוראת הקבע?'))) return;
     try { await window.systemAPI.deleteNpoStandingOrder(b.dataset.soDel); showToast('הוראת הקבע נמחקה'); await switchView('npo'); }
@@ -403,6 +411,7 @@ function renderNpo(o) {
       <div class="acct-grid">
         ${renderNpoCampaigns(o.campaigns)}
         ${renderNpoStanding(o.standing)}
+        ${renderMasavPanel('npo', o.standing && o.standing.masav)}
         ${renderNpoMemorials(o.memorials)}
         <div class="card">
           <h3>הכנסות לפי קרן</h3>
@@ -610,4 +619,128 @@ function attachNpoHandlers() {
     try { const r = await window.systemAPI.exportNpoCsv(btn.dataset.npoExport, npoYear()); if (r && r.ok) showToast('הקובץ נשמר'); }
     catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
   }));
+}
+
+// ---------- מס"ב (PLAN.md 9.17): קובץ חיובים וקליטת החזרות — משותף לעמותה ולגמ"ח ----------
+const MASAV_BATCH_STATUS = { open: 'נשלחה — ממתינה להחזרות', closed: 'נסגרה', cancelled: 'בוטלה' };
+const MASAV_VIEW = { npo: 'npo', gemach: 'gemach' };
+
+function renderMasavPanel(domain, m) {
+  if (!m) return '';
+  const batches = Array.isArray(m.batches) ? m.batches : [];
+  const ag = (n) => money((Number(n) || 0) / 100);
+  return `<div class="card acct-wide masav-panel">
+    <div class="hub-head"><h3>מס"ב — חיוב בהרשאה</h3>
+      <div class="acct-actions">
+        <button class="secondary" data-masav-settings="${domain}">הגדרות מוסד</button>
+        ${m.configured ? `<button class="secondary" data-masav-file="${domain}">📤 קובץ חיובים</button>
+        <button class="secondary" data-masav-returns="${domain}">📥 קליטת החזרות</button>` : ''}
+      </div></div>
+    <p class="muted">קובץ בלבד, בלי חיבור לבנק: מעלים את הקובץ לבנק או לחברת הגבייה, ואחרי מועד החיוב קולטים את קובץ ההחזרות.
+      מה שלא הוחזר מאשרים ב"סגירת אצווה". ${m.configured ? `מוסד ${esc(m.settings.institution)} · ${esc(m.settings.name)}` : '<b>יש להגדיר תחילה את קוד המוסד שקיבלתם ממס"ב.</b>'}</p>
+    ${batches.length ? `<div class="acct-scroll"><table class="acct-table">
+      <thead><tr><th>תאריך חיוב</th><th>חודש</th><th>חיובים</th><th>סכום</th><th>הוחזרו</th><th>מצב</th><th></th></tr></thead>
+      <tbody>${batches.map(b => `<tr class="${b.status === 'cancelled' ? 'muted' : ''}">
+        <td>${esc(b.chargeDate)}</td><td>${esc(b.month)}</td><td>${Number(b.count) || 0}</td><td>${ag(b.totalAg)}</td>
+        <td>${(b.returned || []).length ? `<small class="bad" title="${esc(b.returned.map(r => `${r.label}: ${r.reason}`).join('\n'))}">${b.returned.length}</small>` : '—'}</td>
+        <td><small>${esc(MASAV_BATCH_STATUS[b.status] || b.status)}</small></td>
+        <td>${b.status === 'open' ? `<button class="secondary small" data-masav-close="${esc(b.id)}" data-domain="${domain}" title="כל מה שלא הוחזר נרשם כהתקבל">✓ סגירת אצווה (${Number(b.pending) || 0})</button>
+          ${b.paid || (b.returned || []).length ? '' : `<button class="icon-btn danger" data-masav-cancel="${esc(b.id)}" data-domain="${domain}" title="ביטול אצווה שלא נשלחה">✖</button>`}` : ''}</td>
+      </tr>`).join('')}</tbody></table></div>` : ''}
+  </div>`;
+}
+
+// קובץ החזרות: נקרא כבתים (תו לכל בית), כי השדות במיקום קבוע והעברית בקובץ אינה UTF-8
+function pickMasavFile() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.txt,.msv,.dat,text/plain';
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if (!file) return resolve(null);
+      if (file.size > 20 * 1024 * 1024) { showError('הקובץ גדול מדי (עד 20MB)'); return resolve(null); }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+      resolve(s);
+    });
+    input.click();
+  });
+}
+
+async function masavSettingsForm(domain, cur) {
+  const s = cur || {};
+  const v = await licForm('הגדרות מס"ב', [
+    { name: 'institution', label: 'קוד מוסד / נושא (8 ספרות, ניתן על ידי מס"ב) *', value: s.institution || '' },
+    { name: 'sender', label: 'קוד מוסד שולח (5 ספרות) *', value: s.sender || '' },
+    { name: 'name', label: 'שם המוסד בקובץ (עד 30 תווים) *', value: s.name || '' },
+    { name: 'hebrew', label: 'קידוד העברית בקובץ', type: 'select', value: s.hebrew || 'oldcode',
+      options: [['oldcode', 'קוד ישן — 7 ביט (ברירת מחדל)'], ['cp862', 'DOS — CP862']] }
+  ], 'שמירה', 'הפרטים מופיעים במכתב ההצטרפות של מס"ב או אצל הבנק. את קידוד העברית יש לברר מול הבנק או חברת הגבייה.');
+  if (!v) return false;
+  await window.systemAPI.saveMasavSettings(domain, v);
+  showToast('הגדרות מס"ב נשמרו');
+  return true;
+}
+
+async function masavCreateFile(domain) {
+  const d = new Date();
+  const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  const month = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+  const v = await licForm('קובץ חיובים למס"ב', [
+    { name: 'month', label: 'חודש החיוב (YYYY-MM) *', value: month },
+    { name: 'chargeDate', label: 'תאריך החיוב בבנק *', type: 'date', value: `${month}-10` }
+  ], '📤 הפקת הקובץ', 'ייכללו רק חיובים עם פרטי חשבון שעוד לא נכללו בקובץ קודם לאותו חודש. בודקים את הקובץ בסימולטור של הבנק לפני השליחה הראשונה.');
+  if (!v) return false;
+  const r = await window.systemAPI.createMasavFile(domain, v);
+  if (!r || !r.ok) return false;
+  showToast(`נשמר קובץ עם ${r.count} חיובים, ${money(r.totalAg / 100)}`);
+  return true;
+}
+
+async function masavImportReturns(domain) {
+  const text = await pickMasavFile();
+  if (!text) return false;
+  const r = await window.systemAPI.importMasavReturns(domain, text);
+  showToast(`נקלטו ${r.returned} החזרות${r.skipped ? `, ${r.skipped} כבר נקלטו קודם` : ''}`);
+  const problems = [...(r.errors || []).map(e => `שורה ${e.line}: ${e.message}`), ...(r.unmatched || []).map(u => `אסמכתה ${u.reference}, ${money(u.amountAg / 100)}: ${u.why}`)];
+  if (problems.length) showError(problems.slice(0, 5).join(' · '));
+  return true;
+}
+
+// פרטי חשבון לחיוב: בנק, סניף וחשבון. ריק בכל השדות — הסרה
+async function masavBankForm(title, current, save) {
+  const v = await licForm(title, [
+    { name: 'bank', label: 'קוד בנק (2 ספרות)', value: '' },
+    { name: 'branch', label: 'מספר סניף (3 ספרות)', value: '' },
+    { name: 'account', label: 'מספר חשבון (עד 9 ספרות)', value: '' }
+  ], 'שמירה', (current ? `החשבון השמור: ${current}. ` : '') + 'הפרטים לפי טופס ההרשאה לחיוב שהלקוח חתם עליו בבנק. כל השדות ריקים — הסרת החשבון.');
+  if (!v) return false;
+  const empty = !v.bank && !v.branch && !v.account;
+  if (empty && !current) return false;
+  await save(empty ? null : v);
+  showToast(empty ? 'פרטי החשבון הוסרו' : 'פרטי החשבון נשמרו');
+  return true;
+}
+
+function attachMasavHandlers(cur) {
+  const act = (domain, fn) => async () => {
+    let changed = false;
+    try { changed = await fn(); } catch (error) { showError(errMsg(error)); return; }
+    if (changed !== false) await switchView(MASAV_VIEW[domain]);
+  };
+  document.querySelectorAll('[data-masav-settings]').forEach(b => b.addEventListener('click', act(b.dataset.masavSettings, () => masavSettingsForm(b.dataset.masavSettings, cur && cur.settings))));
+  document.querySelectorAll('[data-masav-file]').forEach(b => b.addEventListener('click', act(b.dataset.masavFile, () => masavCreateFile(b.dataset.masavFile))));
+  document.querySelectorAll('[data-masav-returns]').forEach(b => b.addEventListener('click', act(b.dataset.masavReturns, () => masavImportReturns(b.dataset.masavReturns))));
+  document.querySelectorAll('[data-masav-close]').forEach(b => b.addEventListener('click', act(b.dataset.domain, async () => {
+    if (!(await askConfirm('לסגור את האצווה? כל חיוב שלא הוחזר יירשם כהתקבל בתאריך החיוב (בעמותה — עם קבלה). כדאי לקלוט קודם את קובץ ההחזרות.'))) return false;
+    const r = await window.systemAPI.closeMasavBatch(b.dataset.domain, b.dataset.masavClose);
+    showToast(`האצווה נסגרה — ${r.paid} תשלומים נרשמו`);
+  })));
+  document.querySelectorAll('[data-masav-cancel]').forEach(b => b.addEventListener('click', act(b.dataset.domain, async () => {
+    if (!(await askConfirm('לבטל את האצווה? יש לבטל רק אצווה שלא נשלחה לבנק. החיובים יחזרו לקובץ הבא.'))) return false;
+    await window.systemAPI.cancelMasavBatch(b.dataset.domain, b.dataset.masavCancel);
+    showToast('האצווה בוטלה');
+  })));
 }

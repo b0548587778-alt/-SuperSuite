@@ -300,6 +300,8 @@ function renderGemach(o) {
                   <small class="muted">${esc(GEMACH_LOAN_STATUS[l.status] || l.status)}${l.lateCount ? ` · ${l.lateCount} תשלומים בפיגור` : ''}</small>
                 </span>
                 <span>${money(l.outstanding)} / ${money(l.amount)}
+                  ${l.bankMasked ? `<small class="muted">🏦 ${esc(l.bankMasked)}</small>` : ''}${l.masavStopped ? ` <small class="bad">מס"ב נעצר: ${esc(l.masavStopped)}</small>` : ''}
+                  ${l.status === 'active' ? `<button class="icon-btn" data-gemach-bank="${esc(l.id)}" title="חשבון לחיוב במס&quot;ב">🏦</button>` : ''}
                   ${l.status === 'active' && !l.totalPaid ? `<button class="icon-btn danger" data-gemach-cancel="${esc(l.id)}" title="ביטול הלוואה">✖</button>` : ''}
                 </span>
               </summary>
@@ -318,6 +320,7 @@ function renderGemach(o) {
         </div>
         ${renderGemachGuarantorArrears(o.guarantorArrears)}
         ${renderGemachItems(o.items)}
+        ${renderMasavPanel('gemach', o.masav)}
       </div>
     </div>`;
 }
@@ -345,6 +348,15 @@ function renderGemachSchedule(full, loanId) {
 function attachGemachHandlers() {
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
   attachGemachExtraHandlers();
+  const ov = state.data.gemach || {};
+  document.querySelectorAll('[data-gemach-bank]').forEach(b => b.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const l = (ov.loans || []).find(x => x.id === b.dataset.gemachBank);
+    try {
+      if (await masavBankForm(`חשבון לחיוב — ${l ? l.borrowerName : ''}`, l && l.bankMasked, (v) => window.systemAPI.setGemachLoanBank(b.dataset.gemachBank, v))) await switchView('gemach');
+    } catch (error) { showError('שגיאה בשמירת החשבון: ' + errMsg(error)); }
+  }));
+  attachMasavHandlers(ov.masav);
   on('gemachSettingsBtn', () => openSubForm(gemachSettingsSchema, (state.data.gemach && state.data.gemach.settings) || {}));
   on('gemachDepositBtn', () => openSubForm(gemachDepositSchema));
   document.querySelectorAll('[data-gemach-deposit-del]').forEach(btn => btn.addEventListener('click', async () => {

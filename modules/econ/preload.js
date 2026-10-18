@@ -9,6 +9,12 @@ ipcRenderer.on('econ:goto', (_e, view) => {
   if (gotoListener) gotoListener(view); else pendingGoto = view;
 });
 
+// ערוצי מס"ב קיימים לעמותה ולגמ"ח בלבד — תחום אחר לא יוצר שם ערוץ חופשי
+const masavChannel = (domain, op) => {
+  if (domain !== 'npo' && domain !== 'gemach') throw new Error('תחום לא מוכר למס"ב');
+  return `${domain}:${op}`;
+};
+
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('systemAPI', {
   // Authentication
@@ -185,6 +191,14 @@ contextBridge.exposeInMainWorld('systemAPI', {
   getNpoStandingOrders: (today) => ipcRenderer.invoke('npo:getStandingOrders', today),
   saveNpoStandingOrder: (id, input) => ipcRenderer.invoke('npo:saveStandingOrder', id, input),
   recordNpoStandingPayment: (id, month, status, date) => ipcRenderer.invoke('npo:recordStandingPayment', id, month, status, date),
+  setNpoStandingBank: (id, input) => ipcRenderer.invoke('npo:setStandingBank', id, input),
+  setGemachLoanBank: (loanId, input) => ipcRenderer.invoke('gemach:setLoanBank', loanId, input),
+  // מס"ב: domain = 'npo' או 'gemach'
+  saveMasavSettings: (domain, input) => ipcRenderer.invoke(masavChannel(domain, 'saveMasavSettings'), input),
+  createMasavFile: (domain, input) => ipcRenderer.invoke(masavChannel(domain, 'createMasavFile'), input),
+  importMasavReturns: (domain, text) => ipcRenderer.invoke(masavChannel(domain, 'importMasavReturns'), text),
+  closeMasavBatch: (domain, batchId) => ipcRenderer.invoke(masavChannel(domain, 'closeMasavBatch'), batchId),
+  cancelMasavBatch: (domain, batchId) => ipcRenderer.invoke(masavChannel(domain, 'cancelMasavBatch'), batchId),
   deleteNpoStandingOrder: (id) => ipcRenderer.invoke('npo:deleteStandingOrder', id),
   exportNpoCsv: (kind, year) => ipcRenderer.invoke('npo:exportCsv', kind, year),
   exportNpoReceiptPdf: (id) => ipcRenderer.invoke('npo:exportReceiptPdf', id),
