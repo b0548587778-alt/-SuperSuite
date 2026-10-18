@@ -8,6 +8,7 @@ const { pathToFileURL } = require('url');
 const { canShellNavigate, canModuleOpen, EDITING_CHECK_JS } = require('./shell/nav-guard');
 const AutoBk = require('./shell/auto-backup');
 const DbKey = require('./shell/db-key');
+const SecureStore = require('./shell/secure-store');
 const Catalog = require('./shell/catalog');
 const Hebcal = require('./shell/hebcal');
 const NavHistory = require('./shell/history');
@@ -421,6 +422,45 @@ function promptRecoveryCode({ message }) {
   });
 }
 
+/* ---------- מחסן מוצפן לשמאות ולאימונים (PLAN.md 3.2) ----------
+   shell/secure-ls-preload.js מחליף את localStorage בעמוד; כאן — הקריאה, הכתיבה והעברת הנתונים הישנים.
+   כל בקשה נבדקת מול התצוגה של אותו מודול: מודול אחד לא קורא ולא כותב נתונים של אחר. */
+const secureStores = {};
+function secureStore(mod) {
+  if (!secureStores[mod]) {
+    secureStores[mod] = SecureStore.createSecureStore({ fs, dir: app.getPath('userData'), mod,
+      getBackupKey: (create) => autoBackupKey(create), onError: (scope, e) => logger.error(scope, e) });
+  }
+  return secureStores[mod];
+}
+const fromModuleView = (e, mod) => SecureStore.MODULES.includes(mod) && views[mod] && !views[mod].webContents.isDestroyed() && e.sender.id === views[mod].webContents.id;
+function wireSecureStore() {
+  session.defaultSession.registerPreloadScript({ type: 'frame', filePath: path.join(__dirname, 'shell', 'secure-ls-preload.js') });
+  ipcMain.on('secure-store:load', (e, mod) => {
+    if (!fromModuleView(e, mod)) { e.returnValue = null; return; }
+    const s = secureStore(mod);
+    e.returnValue = { state: s.state, migrated: s.migrated, data: s.state === 'plain' ? {} : s.snapshot() };
+  });
+  // גיבוי מוצפן של הנתונים הישנים לפני ההעברה. בלי גיבוי — אין העברה
+  ipcMain.on('secure-store:migrate', (e, mod, items) => {
+    if (!fromModuleView(e, mod)) { e.returnValue = { ok: false }; return; }
+    e.returnValue = secureStore(mod).migrate(items, (plain) => {
+      const dir = loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
+      fs.mkdirSync(dir, { recursive: true });
+      const out = { suite: 'SuperSuite', version: 2, scope: mod, createdAt: new Date().toISOString(), econ: null, localStorage: { [mod]: plain } };
+      const file = path.join(dir, `before-encryption-${mod}-${AutoBk.localDay()}-${Date.now()}.ssbk`);
+      fs.writeFileSync(file + '.tmp', BK.encryptBackup(JSON.stringify(out), autoBackupKey(false)), 'utf8');
+      fs.renameSync(file + '.tmp', file);
+      JSON.parse(BK.decryptBackup(fs.readFileSync(file, 'utf8'), autoBackupKey(false)));
+    });
+  });
+  ipcMain.on('secure-store:write', (e, mod, op, k, v) => {
+    if (!fromModuleView(e, mod)) return;
+    const s = secureStore(mod);
+    if (op === 'set') s.set(k, v); else if (op === 'remove') s.remove(k); else if (op === 'clear') s.clear();
+  });
+}
+
 /* גיבוי אוטומטי יומי — מוצפן בלבד. יעד: כונן חיצוני (USB) שהוגדר, ואם לא הוגדר — Documents\SuperSuite-Backups.
    אם הכונן לא מחובר — מדלגים (לא כותבים למקום אחר בשקט). הסטטוס נשמר ומוצג במעטפת. */
 async function autoBackup() {
@@ -507,6 +547,14 @@ async function restoreAll(passphrase) {
       clean[k] = val;
     }
     if (!Object.keys(clean).length) continue;
+    // מודול עם מחסן מוצפן: כותבים ישירות למחסן (ולא דרך העמוד), כדי שהטעינה מחדש תראה את הנתונים מיד
+    if (SecureStore.MODULES.includes(id) && secureStore(id).state === 'encrypted') {
+      const s = secureStore(id);
+      s.clear();
+      for (const [k, val] of Object.entries(clean)) s.set(k, val);
+      s.flush();
+      continue;
+    }
     const v = ensureView(id);
     await waitLoaded(v.webContents);
     await v.webContents.executeJavaScript(`(()=>{const d=${JSON.stringify(clean)};localStorage.clear();for(const k in d)localStorage.setItem(k,d[k]);})()`);
@@ -564,7 +612,7 @@ function registerSyncHandlers() {
   h('sync:revoke', (peerId) => sync.revoke(str(peerId)));
   sync.init().catch((err) => logger.error('sync-init', err));
 }
-app.on('will-quit', () => { if (sync) sync.close().catch(() => {}); });
+app.on('will-quit', () => { if (sync) sync.close().catch(() => {}); for (const s of Object.values(secureStores)) s.flush(); });
 
 /* ---------- הפעלה ---------- */
 if (!app.requestSingleInstanceLock()) app.exit(0);
@@ -573,6 +621,7 @@ app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   registerProtocol();
+  wireSecureStore();
 
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb, details) => {
     const ok = ['media', 'clipboard-read', 'clipboard-sanitized-write', 'notifications', 'fullscreen'].includes(permission);

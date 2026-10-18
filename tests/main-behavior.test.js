@@ -73,7 +73,7 @@ const electronStub = {
   }),
   BrowserWindow: BrowserWindowStub,
   WebContentsView: WebContentsViewStub,
-  ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } },
+  ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; }, on: (ch, fn) => { (global.__ssOn = global.__ssOn || {})[ch] = fn; } },
   // dialog נשלט מהבדיקות: showSaveDialog מחזיר את הנתיב שהבדיקה קבעה
   dialog: {
     showSaveDialog: async () => dialogPlan.save,

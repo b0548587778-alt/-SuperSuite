@@ -103,7 +103,7 @@ const electronStub = {
     getPath: () => userData, on() {}, exit() {}, quit() {}, isPackaged: false,
   }),
   BrowserWindow: WinStub, WebContentsView: ViewStub,
-  ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } },
+  ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; }, on: (ch, fn) => { (global.__ssOn = global.__ssOn || {})[ch] = fn; } },
   dialog: {
     showSaveDialog: async () => ({ canceled: true }),
     showOpenDialog: async () => (ui.open ? { canceled: false, filePaths: [ui.open] } : { canceled: true, filePaths: [] }),

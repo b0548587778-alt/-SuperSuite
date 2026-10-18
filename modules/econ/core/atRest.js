@@ -13,10 +13,11 @@ function keyError(code, message) {
 }
 
 // מפתח גיבוי (base64 של 32 בתים) ← מפתח נפרד למסד. HKDF: מפתח אחד לא משמש לשתי מטרות
-function deriveDbKey(autoBackupKey) {
+// info — מטרת המפתח (מסד הנתונים כברירת מחדל; מחסן מוצפן של מודול — shell/secure-store.js)
+function deriveDbKey(autoBackupKey, info = INFO) {
   const raw = Buffer.from(String(autoBackupKey || ''), 'base64');
   if (raw.length !== 32) throw keyError('db-key-invalid', 'מפתח ההצפנה של הנתונים אינו תקין');
-  return Buffer.from(crypto.hkdfSync('sha256', raw, Buffer.alloc(0), INFO, 32));
+  return Buffer.from(crypto.hkdfSync('sha256', raw, Buffer.alloc(0), info, 32));
 }
 
 const isSealed = (text) => typeof text === 'string' && text.startsWith(PREFIX);

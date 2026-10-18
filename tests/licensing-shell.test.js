@@ -70,7 +70,7 @@ const electronStub = {
   app: chainable({ requestSingleInstanceLock: () => true, whenReady: () => ({ then: (fn) => { readyCallback = fn; return { catch() {} }; } }),
     getPath: () => userData, on() {}, exit() {}, quit() {}, isPackaged: false }),
   BrowserWindow: BrowserWindowStub, WebContentsView: WebContentsViewStub,
-  ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } },
+  ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; }, on: (ch, fn) => { (global.__ssOn = global.__ssOn || {})[ch] = fn; } },
   dialog: { showErrorBox() {}, showMessageBox: async () => ({ response: 1 }) },
   protocol: chainable(), net: chainable(), session: chainable(), shell: chainable(), Menu: chainable(),
   safeStorage: chainable({ isEncryptionAvailable: () => false }),
