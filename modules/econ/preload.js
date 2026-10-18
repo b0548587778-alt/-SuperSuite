@@ -129,6 +129,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   saveAccountingSettings: (input) => ipcRenderer.invoke('acct:saveSettings', input),
   exportInvoicePdf: (invoiceId) => ipcRenderer.invoke('acct:exportInvoicePdf', invoiceId),
   exportAccountingCsv: (kind, range) => ipcRenderer.invoke('acct:exportCsv', kind, range),
+  exportUniformFile: (range) => ipcRenderer.invoke('acct:exportUniformFile', range),
 
   getPeriodSummary: (range) => ipcRenderer.invoke('acct:getPeriodSummary', range),
   getInvoiceAnalytics: () => ipcRenderer.invoke('acct:getInvoiceAnalytics'),

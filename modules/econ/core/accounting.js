@@ -119,10 +119,11 @@ function netFromGross(grossAg, vatRate = DEFAULT_VAT_RATE) {
   return fromAg(Math.round(grossAg / (1 + vatRate)));
 }
 
-// מספור רציף לחשבוניות: המספר הבא = מקסימום קיים + 1 (בלי פערים)
-function nextInvoiceNumber(invoices) {
+// מספור רציף לחשבוניות (קובץ קבוע, PLAN.md 9.1): המספר הבא = הגדול מבין המונה השמור והמקסימום הקיים, ועוד 1.
+// המונה (settings.invoiceSeq) לא יורד לעולם — גם אם חשבונית נעלמה מהנתונים, המספר שלה לא מוקצה שוב
+function nextInvoiceNumber(invoices, seq = 0) {
   const max = invoices.reduce((m, inv) => Math.max(m, Number(inv.number) || 0), 0);
-  return max + 1;
+  return Math.max(max, Number.isSafeInteger(seq) ? seq : 0) + 1;
 }
 
 // מאזן בוחן: לכל חשבון סך חובה, סך זכות ויתרה

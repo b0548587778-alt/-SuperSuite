@@ -215,4 +215,46 @@ function toCsv(headers, rows) {
   return '﻿' + [headers, ...rows].map(r => r.map(cell).join(',')).join('\r\n') + '\r\n';
 }
 
-module.exports = { renderInvoiceHtml, renderDonationReceiptHtml, renderDonorStatementHtml, toCsv, esc, money };
+// דוח הפקת קבצים במבנה אחיד: נספח 4 (פרטי ההפקה וכמות הרשומות) וסעיף 2.6(ב) (כמות וסך לכל סוג מסמך)
+function renderUniformReportHtml(r) {
+  const recs = (r.records || []).map(x => `<tr><td>${esc(x.code)}</td><td>${esc(x.label)}</td><td class="n">${esc(x.count)}</td></tr>`).join('');
+  const docs = (r.documents || []).map(d => `<tr><td>${esc(d.code)}</td><td>${esc(d.label)}</td><td class="n">${esc(d.count)}</td><td class="n">${money(d.total)}</td></tr>`).join('');
+  return `<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>הפקת קבצים במבנה אחיד</title>
+<style>
+  @page { size: A4; margin: 16mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1e293b; margin: 0; font-size: 13px; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  h2 { font-size: 15px; margin: 20px 0 6px; }
+  .meta div { margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #e2e8f0; padding: 6px; text-align: right; }
+  td { padding: 6px; border-bottom: 1px solid #e2e8f0; }
+  td.n, th.n { text-align: left; }
+</style>
+</head>
+<body>
+<h1>הפקת קבצים במבנה אחיד</h1>
+<div class="meta">
+  <div>מספר עוסק מורשה: <b dir="ltr">${esc(r.vatId)}</b></div>
+  <div>שם בית העסק: ${esc(r.businessName)}</div>
+  <div>מספר תעודת רישום התוכנה: ${r.software && r.software.regNumber ? esc(r.software.regNumber) : 'טרם נרשמה'}</div>
+  <div>שם התוכנה: ${esc(r.software && r.software.name)}</div>
+  <div>הנתונים נשמרו בנתיב: <span dir="ltr">${esc(r.relPath)}</span></div>
+  <div>טווח התאריכים: ${esc(r.from)} עד ${esc(r.to)}</div>
+  <div>תאריך ההפקה: <span dir="ltr">${esc(r.createdDate)}</span> · שעת ההפקה: <span dir="ltr">${esc(r.createdTime)}</span></div>
+</div>
+<h2>פירוט סך סוגי הרשומות בקובץ BKMVDATA.TXT</h2>
+<table><thead><tr><th>קוד רשומה</th><th>תיאור רשומה</th><th class="n">סך רשומות</th></tr></thead><tbody>${recs}
+<tr><td></td><td><b>סה"כ</b></td><td class="n"><b>${esc(r.total)}</b></td></tr></tbody></table>
+<h2>סיכום מסמכים לפי סוג</h2>
+<table><thead><tr><th>מספר מסמך</th><th>סוג מסמך</th><th class="n">סך כמותי</th><th class="n">סך כספי (בש"ח)</th></tr></thead><tbody>${docs}</tbody></table>
+<p>הנתונים הופקו באמצעות התוכנה: ${esc(r.software && r.software.name)} · ${esc(r.createdDate)} ${esc(r.createdTime)}</p>
+</body>
+</html>`;
+}
+
+module.exports = { renderInvoiceHtml, renderDonationReceiptHtml, renderDonorStatementHtml, renderUniformReportHtml, toCsv, esc, money };

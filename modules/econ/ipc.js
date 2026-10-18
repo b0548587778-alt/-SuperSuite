@@ -751,6 +751,28 @@ function registerIpcHandlers() {
       win.destroy();
     }
   });
+  // קבצים במבנה אחיד (PLAN.md 9.1): בחירת תיקייה, כתיבת OPENFRMT\<עוסק>.<שנה>\<MMDDhhmm>\ עם INI.TXT, BKMVDATA.zip
+  // ודוח ההפקה (PDF). הקבצים עצמם אינם מוצפנים — הם מיועדים להעברה לרשות המסים או לרואה החשבון
+  handle('acct:exportUniformFile', async (event, range) => {
+    const user = authService.getSession(event.sender.id);
+    const out = await accountingService.getUniformFile(range || {}, { user: (user && (user.username || user.name)) || '', version: appVersionOf() });
+    const pick = await dialog.showOpenDialog({ title: 'בחירת תיקייה לשמירת הקבצים במבנה אחיד', properties: ['openDirectory', 'createDirectory'] });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { ok: false };
+    const dir = path.join(pick.filePaths[0], out.folder.root, out.folder.company, out.folder.run);
+    if (fs.existsSync(path.join(dir, 'INI.TXT'))) throw new Error('בתיקייה הזו כבר יש הפקה מאותה דקה — נסו שוב בעוד דקה');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'INI.TXT'), out.iniTxt);
+    fs.writeFileSync(path.join(dir, 'BKMVDATA.zip'), out.zip);
+    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false, devTools: !(require('electron').app && require('electron').app.isPackaged) } });
+    try {
+      await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(X.renderUniformReportHtml(out.report), 'utf8').toString('base64'));
+      fs.writeFileSync(path.join(dir, 'דוח-הפקה.pdf'), await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true }));
+    } finally {
+      win.destroy();
+    }
+    await auditEvent(event, 'acct.export.uniform', { from: out.report.from, to: out.report.to, records: out.report.total });
+    return { ok: true, path: dir, report: out.report };
+  });
   handle('acct:exportCsv', async (event, kind, range) => {
     const { headers, rows, name } = await accountingService.getExportData(kind, range || {});
     const r = await dialog.showSaveDialog({ defaultPath: `${name}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] });

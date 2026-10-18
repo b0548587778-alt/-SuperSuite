@@ -4,6 +4,7 @@ const A = require('../core/accounting');
 const PR = require('../core/pricing');
 const F = require('../core/features');
 const AL = require('../core/allocation');
+const UF = require('../core/uniformFile');
 const { assertIsraeliId } = require('../core/israeliId');
 
 const toAgSafe = (n) => Math.round(Number(n) * 100);
@@ -118,7 +119,8 @@ class AccountingService {
   async createInvoice(invoiceData) {
     const data = await this._load();
     const rate = this._vatRate(data);
-    const number = A.nextInvoiceNumber(data.invoices);
+    data.settings = data.settings || {};
+    const number = A.nextInvoiceNumber(data.invoices, data.settings.invoiceSeq);
     const date = invoiceData.date || new Date().toISOString().slice(0, 10);
     this._assertOpen(data, date);
     const inv = { number, date, customer: String(invoiceData.customer || '').trim(), items: invoiceData.items, vatExempt: !!invoiceData.vatExempt };
@@ -141,6 +143,7 @@ class AccountingService {
     };
     if (customerTaxId) invoice.customerTaxId = customerTaxId;
     data.invoices.push(invoice);
+    data.settings.invoiceSeq = number;
     await this.db.save(data);
     return invoice;
   }
@@ -349,6 +352,14 @@ class AccountingService {
     return inv;
   }
 
+  // קבצים במבנה אחיד (PLAN.md 9.1): INI.TXT, BKMVDATA.zip ונתוני דוח ההפקה. קריאה בלבד
+  async getUniformFile({ from, to } = {}, { user = '', now = Date.now(), version = '' } = {}) {
+    const data = await this._load();
+    const business = { name: '', taxId: '', address: '', ...((data.settings && data.settings.business) || {}) };
+    const software = { ...UF.SOFTWARE, version };
+    return UF.buildUniformFile({ data, business, range: { from, to }, now, user, software });
+  }
+
   // נתוני ייצוא לאקסל: יומן או מאזן בוחן
   async getExportData(kind, { from, to } = {}) {
     const data = await this._load();
@@ -436,6 +447,7 @@ class AccountingService {
       address: String(b.address || '').trim(), phone: String(b.phone || '').trim(), email: String(b.email || '').trim()
     };
     if (!business.name) throw new Error('שם העסק חובה');
+    // invoiceSeq נשמר כמו שהוא (...data.settings) — שמירת הגדרות לא מאפסת את המונה
     data.settings = { ...(data.settings || {}), vatRate: rate, lockDate, business };
     await this.db.save(data);
     return this.getSettings();

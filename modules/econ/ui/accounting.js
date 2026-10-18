@@ -260,6 +260,7 @@ function renderAcctReports(raw) {
       <div class="acct-actions">
         <button class="secondary" id="acctCsvSummary">ייצוא סיכום תקופתי ל-Excel</button>
         <button class="secondary" id="acctCsvTb">ייצוא מאזן בוחן ל-Excel</button>
+        <button class="secondary" id="acctUniformFile" title="INI.TXT ו-BKMVDATA לרשות המסים ולרואה החשבון">קבצים במבנה אחיד</button>
         <button class="secondary" id="acctPeriodBtn">החלף תקופה</button>
       </div>
     </div>
@@ -525,6 +526,17 @@ async function handleCsv(kind) {
     if (r.ok) showToast('הקובץ נשמר');
   } catch (error) {
     showError('שגיאה בייצוא: ' + errMsg(error));
+  }
+}
+
+// קבצים במבנה אחיד לתקופה המוצגת. בלי תאריך התחלה — מתחילת השנה
+async function handleUniformFile() {
+  try {
+    const p = acctPeriod();
+    const r = await window.systemAPI.exportUniformFile({ from: p.from || (String(p.to).slice(0, 4) + '-01-01'), to: p.to });
+    if (r && r.ok) showToast(`נשמרו ${r.report.total} רשומות, עם דוח הפקה, בתיקייה ${r.path}`);
+  } catch (error) {
+    showError('שגיאה בהפקת קבצים במבנה אחיד: ' + errMsg(error));
   }
 }
 
