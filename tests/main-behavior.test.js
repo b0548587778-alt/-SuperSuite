@@ -59,7 +59,8 @@ class BrowserWindowStub {
   maximize() {}
 }
 
-const dialogPlan = { save: { canceled: true } };
+const dialogPlan = { save: { canceled: true }, open: { canceled: true, filePaths: [] } };
+const dialogLog = [];
 
 const electronStub = {
   app: chainable({
@@ -77,9 +78,9 @@ const electronStub = {
   // dialog נשלט מהבדיקות: showSaveDialog מחזיר את הנתיב שהבדיקה קבעה
   dialog: {
     showSaveDialog: async () => dialogPlan.save,
-    showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
-    showMessageBox: async () => ({ response: 1 }),
-    showErrorBox() {},
+    showOpenDialog: async () => dialogPlan.open,
+    showMessageBox: async (_w, o) => { dialogLog.push(['box', o && o.message]); return { response: 1 }; },
+    showErrorBox(t, m) { dialogLog.push(['error', m]); },
   },
   protocol: chainable(),
   net: chainable(),
@@ -324,4 +325,38 @@ test('שמאי ואימונים: בלי כניסה — מסך הכניסה, וא
   const toolsView = visibleViews()[0];
   await handlers['auth:login'](econSender, 'restore_viewer', 'viewer-pass-long-1');
   assert.deepEqual(visibleViews(), [toolsView]);
+});
+
+// PLAN.md 3.4: קובץ שאינו נתוני אימונים תקינים נעצר לפני האישור — הנתונים הקיימים לא נמחקים
+test('שחזור: קובץ אימונים פגום נעצר לפני האישור ולפני כל מחיקה; קובץ JSON ישן תקין מגיע לאישור', async () => {
+  await boot();
+  const econView = created.views[0];
+  const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
+  await handlers['auth:login'](viewSender(econView), 'restore_viewer', 'viewer-pass-long-1');
+  AuthService.getSession(econView.id).permissions = ['data.view', 'data.restore'];
+  const file = (name, data) => { const f = path.join(userData, name); fs.writeFileSync(f, JSON.stringify(data)); return f; };
+
+  // גיבוי של SuperSuite שבו נתוני האימונים פגומים (רשימת מתאמנים שאינה רשימה)
+  const broken = { suite: 'SuperSuite', version: 2, scope: 'trainer', econ: null,
+    localStorage: { trainer: { 'clients:index': '{"a":1}', 'client:c_1': '{}' } } };
+  dialogPlan.open = { canceled: false, filePaths: [file('broken.json', broken)] };
+  dialogLog.length = 0;
+  assert.deepEqual(await handlers['shell:restore-all'](shellSender(), ''), { ok: false });
+  assert.equal(dialogLog.length, 1);
+  assert.equal(dialogLog[0][0], 'error', 'שגיאה — בלי חלון אישור');
+  assert.match(dialogLog[0][1], /רשימת המתאמנים.*לא שוחזר דבר/);
+
+  // קובץ JSON של "ייצוא גיבוי" הישן של המודול: מזוהה ומגיע לאישור (המשתמש מבטל בבדיקה)
+  const legacy = { 'trainer:profile': '{"name":"משה כהן"}', 'clients:index': '["c_1"]', 'client:c_1': '{"id":"c_1","name":"יעקב לוי"}' };
+  dialogPlan.open = { canceled: false, filePaths: [file('trainer-pro-backup.json', legacy)] };
+  dialogLog.length = 0;
+  assert.deepEqual(await handlers['shell:restore-all'](shellSender(), ''), { ok: false });
+  assert.deepEqual(dialogLog, [['box', 'השחזור יחליף את הנתונים הקיימים (גיבוי ישן של ניהול האימונים)']]);
+
+  // קובץ JSON אחר לגמרי — לא גיבוי
+  dialogPlan.open = { canceled: false, filePaths: [file('other.json', { name: 'קובץ אחר' })] };
+  dialogLog.length = 0;
+  await handlers['shell:restore-all'](shellSender(), '');
+  assert.deepEqual(dialogLog, [['error', 'הקובץ אינו גיבוי של SuperSuite']]);
+  dialogPlan.open = { canceled: true, filePaths: [] };
 });

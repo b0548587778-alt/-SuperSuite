@@ -9,6 +9,7 @@ const { canShellNavigate, canModuleOpen, EDITING_CHECK_JS } = require('./shell/n
 const AutoBk = require('./shell/auto-backup');
 const DbKey = require('./shell/db-key');
 const SecureStore = require('./shell/secure-store');
+const TrainerCheck = require('./shell/trainer-backup-check');
 const Catalog = require('./shell/catalog');
 const Hebcal = require('./shell/hebcal');
 const NavHistory = require('./shell/history');
@@ -550,13 +551,22 @@ async function restoreAll(passphrase) {
     dialog.showErrorBox('שגיאה', e.message || 'הקובץ אינו גיבוי תקין');
     return { ok: false };
   }
+  // קובץ JSON ישן מכפתור הייצוא של מודול האימונים (לפני PLAN.md 3.4)
+  data = TrainerCheck.legacyTrainerBackup(data) || data;
   if (!data || data.suite !== 'SuperSuite') { dialog.showErrorBox('שגיאה', 'הקובץ אינו גיבוי של SuperSuite'); return { ok: false }; }
-  const scopeText = data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
+  // נתוני האימונים נבדקים לפני האישור ולפני כל מחיקה — קובץ פגום לא נוגע בשום דבר
+  let trainerItems = null;
+  if (data.localStorage && data.localStorage.trainer) {
+    const t = TrainerCheck.checkTrainerItems(data.localStorage.trainer);
+    if (!t.ok) { dialog.showErrorBox('שגיאה', t.error + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
+    trainerItems = t.clean;
+  }
+  const scopeText = data.legacy ? '(גיבוי ישן של ניהול האימונים)' : data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
   const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: 'מומלץ לבצע גיבוי לפני כן.' });
   if (c.response !== 0) return { ok: false };
   try { if (data.econ) await econ.getDb().restore(data.econ); } catch (e) { dialog.showErrorBox('שגיאה בשחזור המערכת הכלכלית', String(e.message || e)); }
   for (const id of LS_MODS) {
-    const items = data.localStorage && data.localStorage[id];
+    const items = id === 'trainer' ? trainerItems : data.localStorage && data.localStorage[id];
     if (!items) continue;
     // קובץ הגיבוי הוא קלט חיצוני: מוודאים שכל ערך הוא מחרוזת בגודל סביר
     // לפני שכותבים אותו ל-localStorage של המודול. ערך לא-מחרוזתי או ענק נפסל בשקט.

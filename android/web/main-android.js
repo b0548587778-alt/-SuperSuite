@@ -8,6 +8,7 @@ const Hebcal = require('../../shell/hebcal');
 const NavHistory = require('../../shell/history');
 const { canShellNavigate, canModuleOpen } = require('../../shell/nav-guard');
 const LoginGate = require('../../shell/login-gate');
+const TrainerCheck = require('../../shell/trainer-backup-check');
 
 const MODS = ['econ', 'shamai', 'trainer', 'tools'];
 const LS_MODS = ['shamai', 'trainer', 'tools'];
@@ -153,12 +154,21 @@ function start(ctx) {
       ctx.alert('שגיאה: ' + (e.message || 'הקובץ אינו גיבוי תקין'));
       return { ok: false };
     }
+    // קובץ JSON ישן מכפתור הייצוא של מודול האימונים (לפני PLAN.md 3.4)
+    data = TrainerCheck.legacyTrainerBackup(data) || data;
     if (!data || data.suite !== 'SuperSuite') { ctx.alert('שגיאה: הקובץ אינו גיבוי של SuperSuite'); return { ok: false }; }
-    const scopeText = data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
+    // נתוני האימונים נבדקים לפני האישור ולפני כל מחיקה — קובץ פגום לא נוגע בשום דבר
+    let trainerItems = null;
+    if (data.localStorage && data.localStorage.trainer) {
+      const t = TrainerCheck.checkTrainerItems(data.localStorage.trainer);
+      if (!t.ok) { ctx.alert('שגיאה: ' + t.error + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
+      trainerItems = t.clean;
+    }
+    const scopeText = data.legacy ? '(גיבוי ישן של ניהול האימונים)' : data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
     if (!ctx.confirm('השחזור יחליף את הנתונים הקיימים ' + scopeText + '\nמומלץ לבצע גיבוי לפני כן. להמשיך?')) return { ok: false };
     try { if (data.econ) await econ.getDb().restore(data.econ); } catch (e) { ctx.alert('שגיאה בשחזור המערכת הכלכלית: ' + String(e.message || e)); }
     for (const id of LS_MODS) {
-      const items = data.localStorage && data.localStorage[id];
+      const items = id === 'trainer' ? trainerItems : data.localStorage && data.localStorage[id];
       if (!items || typeof items !== 'object' || Array.isArray(items)) continue;
       const clean = {};
       for (const [k, val] of Object.entries(items)) {

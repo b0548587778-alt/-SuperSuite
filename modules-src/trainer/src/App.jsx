@@ -1885,8 +1885,6 @@ function LibraryView() {
 function TrainerSettings({ trainer, onSave }) {
   const [d, setD] = useState(trainer);
   const [saved, setSaved] = useState(false);
-  const [restoreStatus, setRestoreStatus] = useState('');
-  const fileInputRef = useRef(null);
 
   const handleSave = async () => {
     await onSave(d);
@@ -1894,46 +1892,8 @@ function TrainerSettings({ trainer, onSave }) {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const handleBackup = () => {
-    const data = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      data[k] = localStorage.getItem(k);
-    }
-    const json = JSON.stringify(data, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const stamp = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `trainer-pro-backup-${stamp}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleRestore = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!confirm('שחזור יחליף את כל הנתונים הקיימים. להמשיך?')) {
-      e.target.value = '';
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target.result);
-        localStorage.clear();
-        Object.entries(data).forEach(([k, v]) => localStorage.setItem(k, v));
-        setRestoreStatus('✓ שוחזר בהצלחה. טוען מחדש...');
-        setTimeout(() => window.location.reload(), 1000);
-      } catch (err) {
-        setRestoreStatus('✗ קובץ לא תקין');
-        setTimeout(() => setRestoreStatus(''), 3000);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
+  // גיבוי ושחזור — רק דרך הגיבוי המוצפן של SuperSuite (PLAN.md 3.4).
+  // הייצוא הישן (JSON גלוי) הוסר; קבצים ישנים משוחזרים מהשחזור של התוכנה, אחרי בדיקת מבנה.
 
   const handleResetAll = () => {
     if (!confirm('פעולה זו תמחק את כל הנתונים — מתאמנים, תוכניות, מדידות, היסטוריה. האם להמשיך?')) return;
@@ -1974,15 +1934,10 @@ function TrainerSettings({ trainer, onSave }) {
 
       <Card className="mb-4">
         <h3 className="text-sm text-slate-400 mb-2 tracking-wide">גיבוי ושחזור</h3>
-        <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-          כל הנתונים שלך נשמרים במכשיר הזה בלבד. גיבוי מאפשר להעביר בין מכשירים (מחשב ↔ טלפון) ולשמור עותק בטוח.
+        <p className="text-xs text-slate-500 leading-relaxed">
+          כל הנתונים שלך נשמרים במכשיר הזה בלבד, מוצפנים. לגיבוי: כפתור "גיבוי מוצפן" (⬇) בסרגל של התוכנה או Ctrl+Shift+B, ובחירה ב"ניהול אימונים בלבד". לשחזור: הכפתור ↥ לידו או Ctrl+Shift+R.
+          הגיבוי מוצפן בסיסמה, ומאפשר להעביר נתונים בין מכשירים (מחשב ↔ טלפון). גם קובץ גיבוי ישן (JSON) של ניהול האימונים משוחזר משם.
         </p>
-        <div className="flex flex-col md:flex-row gap-2">
-          <Btn variant="outline" onClick={handleBackup}>⬇ ייצוא גיבוי (JSON)</Btn>
-          <Btn variant="outline" onClick={() => fileInputRef.current?.click()}>⬆ שחזור מגיבוי</Btn>
-          <input ref={fileInputRef} type="file" accept=".json,application/json" onChange={handleRestore} className="hidden" />
-        </div>
-        {restoreStatus && <div className="mt-3 text-sm text-emerald-400">{restoreStatus}</div>}
       </Card>
 
       <Card className="border-red-900/40">
