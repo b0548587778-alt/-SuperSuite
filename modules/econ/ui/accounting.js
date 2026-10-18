@@ -1179,3 +1179,110 @@ acctFormSchemas['acct-settings'] = {
   })
 };
 Object.assign(formSchemas, acctFormSchemas);
+
+// ---------- התאמת בנק (PLAN.md 9.4): דף בנק מקובץ, התאמה לחשבוניות ולרשומות ----------
+const BANK_STATUS = { open: 'לא הותאמה', matched: '✓ הותאמה', ignored: 'לא לרישום' };
+const agMoney = (ag) => money((Number(ag) || 0) / 100);
+
+function renderAcctBank(d) {
+  const lines = Array.isArray(d?.lines) ? d.lines : [];
+  const s = d?.summary || {};
+  const filter = state.bankFilter || 'open';
+  const shown = filter === 'all' ? lines : lines.filter(l => l.status === filter);
+  const opt = (v, t) => `<option value="${v}"${filter === v ? ' selected' : ''}>${t}</option>`;
+  return `
+    <div class="acct-header">
+      <div>קליטת דף בנק מקובץ CSV שהורד מאתר הבנק — <b>בלי חיבור לבנק</b>. תנועה שכבר נקלטה לא תיקלט שוב.</div>
+      <div class="acct-actions">
+        <button class="primary" id="acctBankImport">📥 קליטת דף בנק</button>
+        <select id="acctBankFilter" aria-label="סינון תנועות">${opt('open', 'לא הותאמו')}${opt('matched', 'הותאמו')}${opt('ignored', 'לא לרישום')}${opt('all', 'הכול')}</select>
+      </div>
+    </div>
+    <div class="acct-grid">
+      <div class="card">
+        <h3>סיכום</h3>
+        <div class="acct-row"><span>תנועות שנקלטו</span><span>${Number(s.total) || 0}</span></div>
+        <div class="acct-row"><span>לא הותאמו</span><span>${Number(s.open) || 0}</span></div>
+        <div class="acct-row"><span>הותאמו</span><span>${Number(s.matched) || 0}</span></div>
+        <div class="acct-row"><span>לא לרישום</span><span>${Number(s.ignored) || 0}</span></div>
+      </div>
+      <div class="card">
+        <h3>סכומים</h3>
+        <div class="acct-row"><span>נכנס (זכות)</span><span>${agMoney(s.inAg)}</span></div>
+        <div class="acct-row"><span>יצא (חובה)</span><span>${agMoney(s.outAg)}</span></div>
+      </div>
+    </div>
+    ${shown.length === 0 ? renderEmpty(lines.length ? 'אין תנועות בסינון הזה' : 'לא נקלטו תנועות עדיין — לחצו "קליטת דף בנק"') : ''}
+    ${shown.map(l => `
+      <div class="card">
+        <h4>${l.amountAg > 0 ? '⬆ זכות' : '⬇ חובה'} · ${esc(l.description || '—')}</h4>
+        <small>${esc(l.date)}${l.reference ? ' · אסמכתא ' + esc(l.reference) : ''} · ${BANK_STATUS[l.status] || ''}${l.match && l.match.note ? ' · ' + esc(l.match.note) : ''}</small>
+        <div class="acct-row acct-big"><span></span><span>${agMoney(l.amountAg)}</span></div>
+        ${l.status === 'open' ? `
+          ${(l.suggestions || []).map(sg => `
+            <div class="acct-row"><span>הצעה: ${esc(sg.label)}</span>
+              <button class="secondary" data-bank-match="${esc(l.id)}" data-type="${esc(sg.type)}" data-target="${esc(sg.id)}">${sg.type === 'invoice' ? 'גבייה והתאמה' : 'התאמה'}</button></div>`).join('') || '<div class="acct-row muted">אין הצעה מתאימה</div>'}
+          <div class="card-actions">
+            <button class="secondary" data-bank-entry="${esc(l.id)}">רשומה חדשה</button>
+            <button class="secondary" data-bank-ignore="${esc(l.id)}">לא לרישום</button>
+            <button class="danger" data-bank-delete="${esc(l.id)}">מחיקה</button>
+          </div>` : `
+          <div class="card-actions"><button class="secondary" data-bank-unmatch="${esc(l.id)}">ביטול התאמה</button></div>`}
+      </div>`).join('')}`;
+}
+
+async function handleBankImport() {
+  const text = await pickCsvAnyEncoding();
+  if (!text) return;
+  const pv = await window.systemAPI.previewBankFile(text);
+  const fields = Object.entries(pv.fields).map(([k, f]) => ({ name: k, label: f.label + (f.required ? ' *' : ''), type: 'select',
+    options: [['', '— אין —'], ...pv.headers.map(h => [h, h])], value: pv.mapping[k] || '' }));
+  const mapping = await licForm('קליטת דף בנק', fields, '📥 קליטה',
+    `${pv.total} שורות בקובץ. בוחרים עמודת סכום אחת עם סימן, או עמודות חובה וזכות. ההתאמה נשמרת לפעם הבאה.`);
+  if (!mapping) return;
+  const r = await window.systemAPI.importBankFile(text, mapping);
+  const failed = r.errors.length ? ` · ${r.errors.length} שורות נדחו (שורה ${r.errors.slice(0, 5).map(e => e.line).join(', ')})` : '';
+  showToast(`נקלטו ${r.added} תנועות${r.skipped ? `, ${r.skipped} כבר נקלטו קודם` : ''}${failed}`);
+  if (r.errors.length) showError(r.errors.slice(0, 3).map(e => `שורה ${e.line}: ${e.message}`).join(' · '));
+}
+
+async function handleBankMatch(b) {
+  const isInvoice = b.dataset.type === 'invoice';
+  const msg = isInvoice
+    ? 'לרשום גבייה של החשבונית בתאריך התנועה (העברה בנקאית) ולהפיק קבלה?'
+    : 'להתאים את התנועה לרשומת היומן הקיימת? לא תיווצר רשומה חדשה.';
+  if (!(await askConfirm(msg))) return;
+  await window.systemAPI.matchBankLine(b.dataset.bankMatch, { type: b.dataset.type, id: b.dataset.target });
+  showToast(isInvoice ? 'הגבייה נרשמה והתנועה הותאמה' : 'התנועה הותאמה');
+}
+
+async function handleBankEntry(lineId) {
+  const chart = (state.data.acctBank && state.data.acctBank.chart) || [];
+  const v = await licForm('רשומה חדשה מתנועת בנק', [
+    { name: 'account', label: 'החשבון שמול הבנק *', type: 'select', options: [['', '— בחירה —'], ...chart.filter(a => a.code !== '1000').map(a => [a.code, `${a.code} · ${a.name}`])] },
+    { name: 'description', label: 'תיאור (לא חובה — ברירת מחדל: תיאור התנועה)', value: '' }
+  ], 'רישום');
+  if (!v) return;
+  await window.systemAPI.createEntryFromBankLine(lineId, v);
+  showToast('הרשומה נוצרה והתנועה הותאמה');
+}
+
+function attachBankHandlers() {
+  const act = (fn) => async () => { try { await fn(); } catch (error) { showError(errMsg(error)); return; } await switchView('acct-bank'); };
+  const imp = document.getElementById('acctBankImport');
+  if (imp) imp.addEventListener('click', act(handleBankImport));
+  const flt = document.getElementById('acctBankFilter');
+  if (flt) flt.addEventListener('change', act(() => { state.bankFilter = flt.value; }));
+  document.querySelectorAll('[data-bank-match]').forEach(b => b.addEventListener('click', act(() => handleBankMatch(b))));
+  document.querySelectorAll('[data-bank-entry]').forEach(b => b.addEventListener('click', act(() => handleBankEntry(b.dataset.bankEntry))));
+  document.querySelectorAll('[data-bank-ignore]').forEach(b => b.addEventListener('click', act(async () => {
+    const v = await askFields('לא לרישום', [{ name: 'note', label: 'סיבה (למשל: העברה בין חשבונות)' }], 'סימון');
+    if (v) await window.systemAPI.matchBankLine(b.dataset.bankIgnore, { type: 'ignored', note: v.note });
+  })));
+  document.querySelectorAll('[data-bank-unmatch]').forEach(b => b.addEventListener('click', act(async () => {
+    if (await askConfirm('לבטל את ההתאמה? גבייה או רשומה שנוצרו בהתאמה לא יבוטלו — מבטלים אותן בחשבונית או ביומן.')) await window.systemAPI.unmatchBankLine(b.dataset.bankUnmatch);
+  })));
+  document.querySelectorAll('[data-bank-delete]').forEach(b => b.addEventListener('click', act(async () => {
+    if (await askConfirm('למחוק את התנועה? אפשר לקלוט אותה שוב מהקובץ.')) await window.systemAPI.deleteBankLine(b.dataset.bankDelete);
+  })));
+}

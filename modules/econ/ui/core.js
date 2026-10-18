@@ -62,7 +62,8 @@ const viewTitles = {
   'acct-chart': 'תוכנית חשבונות',
   'acct-settings': 'הגדרות עסק ומע"מ',
   'acct-pricing': 'מחירון ומחשבון תמחור',
-  'acct-personal': 'הוצאות אישיות ומשפחתיות'
+  'acct-personal': 'הוצאות אישיות ומשפחתיות',
+  'acct-bank': 'התאמת בנק'
 };
 
 // Initialize application
@@ -312,6 +313,11 @@ async function loadViewData(viewName) {
           state.data.acctInvoices = { invoices, docs, recurring };
         }
         break;
+      case 'acct-bank': {
+        const [bank, chart] = await Promise.all([window.systemAPI.getBankLines(), window.systemAPI.getChart()]);
+        state.data.acctBank = { ...bank, chart };
+        break;
+      }
       case 'acct-chart':
         state.data.acctChart = await window.systemAPI.getChart();
         break;
@@ -380,7 +386,8 @@ const DATA_KEYS = {
   'acct-chart': 'acctChart',
   'acct-settings': 'acctSettings',
   'acct-pricing': 'acctPricing',
-  'acct-personal': 'acctPersonal'
+  'acct-personal': 'acctPersonal',
+  'acct-bank': 'acctBank'
 };
 
 // Render current view
@@ -473,6 +480,9 @@ function renderView(viewName) {
       break;
     case 'acct-personal':
       html = renderAcctPersonal(data);
+      break;
+    case 'acct-bank':
+      html = renderAcctBank(data);
       break;
     default:
       html = '<div class="empty">לא נמצאו נתונים</div>';

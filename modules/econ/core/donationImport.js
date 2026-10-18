@@ -156,4 +156,4 @@ function externalReceipt(rec, settings) {
   };
 }
 
-module.exports = { SOURCES, FIELDS, MAX_ROWS, guessMapping, parseDate, parseAmount, preview, buildRecords, externalReceipt, dupKeyOf };
+module.exports = { SOURCES, FIELDS, MAX_ROWS, norm, guessMapping, parseDate, parseAmount, preview, buildRecords, externalReceipt, dupKeyOf };

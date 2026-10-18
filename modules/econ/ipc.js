@@ -695,6 +695,38 @@ function registerIpcHandlers() {
     return true;
   });
   handle('acct:getCustomerDirectory', async () => accountingService.getCustomerDirectory());
+  // התאמת בנק (PLAN.md 9.4): דף בנק מקובץ שהמשתמש בחר — בלי חיבור לבנק
+  const bankCsv = (t) => {
+    if (typeof t !== 'string' || t.length > 20 * 1024 * 1024) throw new Error('קובץ דף הבנק אינו תקין או גדול מדי (עד 20MB)');
+    return t;
+  };
+  handle('acct:getBankLines', async () => accountingService.getBankLines());
+  handle('acct:previewBankFile', async (event, csvText) => accountingService.previewBankFile(bankCsv(csvText)));
+  handle('acct:importBankFile', async (event, csvText, mapping) => {
+    const r = await accountingService.importBankFile(bankCsv(csvText), mapping && typeof mapping === 'object' ? mapping : {});
+    await auditEvent(event, 'acct.bank.import', { added: r.added, skipped: r.skipped, errors: r.errors.length });
+    return r;
+  });
+  handle('acct:matchBankLine', async (event, lineId, target) => {
+    const line = await accountingService.matchBankLine(lineId, target && typeof target === 'object' ? target : {});
+    await auditEvent(event, 'acct.bank.match', { id: lineId, type: line.match.type, entryId: line.match.entryId || '', invoiceId: line.match.invoiceId || '' });
+    return line;
+  });
+  handle('acct:createEntryFromBankLine', async (event, lineId, input) => {
+    const entry = await accountingService.createEntryFromBankLine(lineId, input && typeof input === 'object' ? input : {});
+    await auditEvent(event, 'acct.bank.entry', { id: lineId, entryId: entry.id });
+    return entry;
+  });
+  handle('acct:unmatchBankLine', async (event, lineId) => {
+    await accountingService.unmatchBankLine(lineId);
+    await auditEvent(event, 'acct.bank.unmatch', { id: lineId });
+    return true;
+  });
+  handle('acct:deleteBankLine', async (event, lineId) => {
+    await accountingService.deleteBankLine(lineId);
+    await auditEvent(event, 'acct.bank.delete', { id: lineId });
+    return true;
+  });
   handle('acct:searchDocuments', async (event, query) => accountingService.searchDocuments(String(query || '').slice(0, 100)));
   handle('acct:getDuplicateInput', async (event, kind, id) => accountingService.getDuplicateInput(String(kind || ''), id));
   // מסמכי מכירה (PLAN.md 9.3): הצעת מחיר, הזמנה, תעודת משלוח, חשבונית זיכוי וקבלה

@@ -8,6 +8,7 @@ const SD = require('../core/salesDocs');
 const UF = require('../core/uniformFile');
 const PCN = require('../core/pcn874');
 const RC = require('../core/recurring');
+const BR = require('../core/bankReconcile');
 const { assertIsraeliId } = require('../core/israeliId');
 
 const toAgSafe = (n) => Math.round(Number(n) * 100);
@@ -34,6 +35,7 @@ class AccountingService {
     if (!Array.isArray(data.personal)) data.personal = [];
     if (!Array.isArray(data.salesDocs)) data.salesDocs = [];
     if (!Array.isArray(data.recurringInvoices)) data.recurringInvoices = [];
+    if (!Array.isArray(data.bankLines)) data.bankLines = [];
     return data;
   }
 
@@ -695,6 +697,111 @@ class AccountingService {
     data.settings = { ...(data.settings || {}), vatRate: rate, lockDate, business };
     await this.db.save(data);
     return this.getSettings();
+  }
+
+  // ---------- התאמת בנק (PLAN.md 9.4): קליטת דף בנק מקובץ והתאמה לחשבוניות ולרשומות ----------
+  async getBankLines() {
+    const data = await this._load();
+    return BR.view(data, data.invoices.map(i => this._invoiceView(data, i)));
+  }
+
+  async previewBankFile(csvText) {
+    const data = await this._load();
+    return BR.preview(String(csvText || ''), data.settings);
+  }
+
+  // קליטה: תנועה שכבר נקלטה (אותו תאריך, סכום, אסמכתא ותיאור) מדולגת. התאמת העמודות נשמרת לפעם הבאה
+  async importBankFile(csvText, mapping = {}) {
+    const data = await this._load();
+    const r = BR.buildLines(String(csvText || ''), mapping, data.bankLines);
+    const importedAt = new Date().toISOString();
+    const batch = crypto.randomUUID();
+    for (const l of r.lines) data.bankLines.push({ id: crypto.randomUUID(), ...l, batch, importedAt });
+    data.settings = { ...(data.settings || {}), bankMapping: Object.fromEntries(Object.entries(mapping).filter(([f, h]) => BR.FIELDS[f] && h)) };
+    await this.db.save(data);
+    return { added: r.lines.length, skipped: r.skipped, errors: r.errors };
+  }
+
+  _openBankLine(data, lineId) {
+    const line = data.bankLines.find(l => l.id === lineId);
+    if (!line) throw new Error('התנועה לא נמצאה');
+    const byId = new Map(data.journal.map(e => [e.id, e]));
+    if (BR.lineStatus(line, byId) !== 'open') throw new Error('התנועה כבר הותאמה — יש לבטל את ההתאמה קודם');
+    return line;
+  }
+
+  /* התאמת תנועה. target: { type: 'invoice', id } — גביית החשבונית בתאריך התנועה (קבלה, העברה בנקאית) בשמירה אחת;
+     { type: 'entry', id } — רשומה קיימת שכבר רשמה את התנועה בבנק; { type: 'ignored', note } — לא לרישום */
+  async matchBankLine(lineId, target = {}) {
+    const data = await this._load();
+    const line = this._openBankLine(data, lineId);
+    const at = new Date().toISOString();
+    if (target.type === 'invoice') {
+      const inv = data.invoices.find(i => i.id === target.id);
+      if (!inv) throw new Error('חשבונית לא נמצאה');
+      if (!(line.amountAg > 0)) throw new Error('רק תנועת זכות (כסף שנכנס) יכולה לגבות חשבונית');
+      const balanceAg = A.toAg(inv.total) - SD.creditedAg(data.salesDocs, inv.id);
+      if (inv.status === 'open' && balanceAg !== line.amountAg) throw new Error(`סכום התנועה (${A.fromAg(line.amountAg)}) שונה מיתרת החשבונית (${A.fromAg(balanceAg)}) — גבייה חלקית אינה נתמכת`);
+      this._payIn(data, inv, { date: line.date, ...SD.validatePayment({ method: 'transfer', reference: line.reference }), issueReceipt: true });
+      line.match = { type: 'invoice', entryId: inv.paymentEntryId, invoiceId: inv.id, at };
+    } else if (target.type === 'entry') {
+      const e = data.journal.find(x => x.id === target.id);
+      if (!e || e.reversedBy || e.reversalOf) throw new Error('הרשומה לא נמצאה או שבוטלה');
+      if (BR.bankNetAg(e) !== line.amountAg) throw new Error('סכום הרשומה בחשבון הבנק שונה מסכום התנועה');
+      const byId = new Map(data.journal.map(x => [x.id, x]));
+      if (data.bankLines.some(l => l.id !== line.id && l.match && l.match.entryId === e.id && BR.lineStatus(l, byId) === 'matched')) throw new Error('הרשומה כבר הותאמה לתנועה אחרת');
+      line.match = { type: 'entry', entryId: e.id, at };
+    } else if (target.type === 'ignored') {
+      line.match = { type: 'ignored', note: String(target.note || '').trim().slice(0, 200), at };
+    } else throw new Error('סוג התאמה לא מוכר');
+    await this.db.save(data);
+    return line;
+  }
+
+  // רשומה חדשה מתנועה (עמלת בנק, הוראת קבע וכו'): בנק מול החשבון שנבחר, בתאריך התנועה ובסכומה
+  async createEntryFromBankLine(lineId, { account, description } = {}) {
+    const data = await this._load();
+    const line = this._openBankLine(data, lineId);
+    const acc = data.accounts.find(a => a.code === String(account || ''));
+    if (!acc) throw new Error('יש לבחור חשבון מתוכנית החשבונות');
+    if (acc.code === BR.BANK) throw new Error('יש לבחור חשבון שאינו חשבון הבנק');
+    this._assertOpen(data, line.date);
+    const amount = A.fromAg(Math.abs(line.amountAg));
+    const memo = line.reference ? `אסמכתא ${line.reference}` : '';
+    const validated = A.validateEntry({
+      date: line.date,
+      description: String(description || line.description || 'תנועת בנק').trim().slice(0, 200),
+      lines: line.amountAg > 0
+        ? [{ account: BR.BANK, debit: amount, memo }, { account: acc.code, credit: amount, memo }]
+        : [{ account: acc.code, debit: amount, memo }, { account: BR.BANK, credit: amount, memo }]
+    }, data.accounts);
+    const entry = { id: crypto.randomUUID(), ...validated, bankLineId: line.id, createdAt: new Date().toISOString() };
+    data.journal.push(entry);
+    line.match = { type: 'entry', entryId: entry.id, created: true, at: entry.createdAt };
+    await this.db.save(data);
+    return entry;
+  }
+
+  // ביטול התאמה: רק הקישור מוסר. גבייה או רשומה שנוצרו בהתאמה נשארות — מבטלים אותן במקומן (ביטול גבייה / היפוך רשומה)
+  async unmatchBankLine(lineId) {
+    const data = await this._load();
+    const line = data.bankLines.find(l => l.id === lineId);
+    if (!line) throw new Error('התנועה לא נמצאה');
+    if (!line.match) throw new Error('התנועה אינה מותאמת');
+    delete line.match;
+    await this.db.save(data);
+    return line;
+  }
+
+  // מחיקת תנועה שנקלטה בטעות — רק תנועה פתוחה (לא מותאמת)
+  async deleteBankLine(lineId) {
+    const data = await this._load();
+    const line = data.bankLines.find(l => l.id === lineId);
+    if (!line) throw new Error('התנועה לא נמצאה');
+    if (line.match) throw new Error('לא ניתן למחוק תנועה מותאמת — יש לבטל את ההתאמה קודם');
+    data.bankLines = data.bankLines.filter(l => l.id !== lineId);
+    await this.db.save(data);
+    return true;
   }
 
   async setVatRate(rate) {
