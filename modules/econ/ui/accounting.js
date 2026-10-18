@@ -335,9 +335,39 @@ function renderAcctJournal(d) {
       </div>`).join('')}`;
 }
 
+// מסמכי מכירה (PLAN.md 9.3): הצעת מחיר → הזמנה → תעודת משלוח → חשבונית, בלחיצה. זיכויים וקבלות — מתוך החשבונית
+const DOC_PAY_METHODS = [['cash', 'מזומן'], ['check', 'המחאה'], ['card', 'כרטיס אשראי'], ['transfer', 'העברה בנקאית'], ['other', 'אחר']];
+const DOC_NEXT = { quote: [['order', 'להזמנה'], ['delivery', 'לתעודת משלוח'], ['invoice', 'לחשבונית']], order: [['delivery', 'לתעודת משלוח'], ['invoice', 'לחשבונית']], delivery: [['invoice', 'לחשבונית']] };
+const DOC_TARGET_LABELS = { order: 'הזמנה', delivery: 'תעודת משלוח', invoice: 'חשבונית' };
+function renderSalesDocs(docs) {
+  const drafts = docs.filter(x => DOC_NEXT[x.kind]);
+  const others = docs.filter(x => !DOC_NEXT[x.kind]);
+  const card = (x) => `
+      <div class="card ${x.status === 'cancelled' ? 'muted-card' : x.status === 'converted' ? 'done' : ''}">
+        <h4>${esc(x.kindLabel)} ${esc(x.number)} · ${esc(x.customer)}</h4>
+        <small>${esc(x.date)}${x.validUntil ? ' · בתוקף עד ' + esc(x.validUntil) : ''}${x.invoiceNumber ? ' · לחשבונית ' + esc(x.invoiceNumber) : ''}${x.methodLabel ? ' · ' + esc(x.methodLabel) : ''}${x.convertedTo ? ' · הומר ל' + esc(DOC_TARGET_LABELS[x.convertedTo.kind] || 'מסמך') + ' ' + esc(x.convertedTo.number) : ''}</small>
+        <div class="acct-row acct-big"><span>${esc(x.statusLabel)}</span><span>${money(x.total)}</span></div>
+        <div class="card-actions">
+          <button class="secondary" data-doc-pdf="${esc(x.id)}">הורד PDF</button>
+          ${x.status === 'open' && DOC_NEXT[x.kind] ? DOC_NEXT[x.kind].map(([to, label]) => `<button class="secondary" data-doc-convert="${esc(x.id)}" data-to="${to}">המרה ${label}</button>`).join('') : ''}
+          ${x.status === 'open' && DOC_NEXT[x.kind] ? `<button class="danger-outline" data-doc-cancel="${esc(x.id)}">בטל</button>` : ''}
+        </div>
+      </div>`;
+  return `
+    <div class="card-actions">
+      <button class="secondary" data-doc-new="quote">＋ הצעת מחיר</button>
+      <button class="secondary" data-doc-new="order">＋ הזמנה</button>
+      <button class="secondary" data-doc-new="delivery">＋ תעודת משלוח</button>
+    </div>
+    ${drafts.length ? `<h3>הצעות, הזמנות ותעודות משלוח (${drafts.length})</h3>${drafts.map(card).join('')}` : ''}
+    ${others.length ? `<h3>זיכויים וקבלות (${others.length})</h3>${others.map(card).join('')}` : ''}`;
+}
+
 function renderAcctInvoices(d) {
   const invoices = Array.isArray(d?.invoices) ? d.invoices : [];
+  const docs = Array.isArray(d?.docs) ? d.docs : [];
   return `
+    ${renderSalesDocs(docs)}
     <h3>חשבוניות מס (${invoices.length})</h3>
     ${invoices.length === 0 ? renderEmpty('אין חשבוניות עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל') : ''}
     ${invoices.map(i => `
@@ -346,6 +376,8 @@ function renderAcctInvoices(d) {
         <p>${(Array.isArray(i.items) ? i.items : []).map(it => esc(it.description)).join(', ')}</p>
         <small>${esc(i.date)} · נטו ${money(i.net)} · מע"מ ${money(i.vat)}${i.vatExempt ? ' (פטור)' : ''}</small>
         <div class="acct-row acct-big"><span>${ACCT_STATUS[i.status] || i.status}</span><span>${money(i.total)}</span></div>
+        ${i.credited > 0 ? `<div class="acct-row"><span>זוכה · יתרה</span><span>${money(i.credited)} · ${money(i.balance)}</span></div>` : ''}
+        ${i.sourceDoc ? `<small>על פי ${esc(({ quote: 'הצעת מחיר', order: 'הזמנה', delivery: 'תעודת משלוח' })[i.sourceDoc.kind] || '')} ${esc(i.sourceDoc.number)}</small>` : ''}
         ${renderAllocLine(i)}
         <div class="card-actions">
           <button class="secondary" data-action="pdf" data-id="${esc(i.id)}">הורד PDF</button>
@@ -353,7 +385,9 @@ function renderAcctInvoices(d) {
           ${invoiceAllocState(i) === 'pending' ? `<button class="secondary" data-action="alloc-waive" data-id="${esc(i.id)}">לא נדרש</button>` : ''}
           ${i.status === 'open' ? `<button class="secondary" data-action="pay" data-id="${esc(i.id)}">סמן כשולמה</button>` : ''}
           ${i.status === 'paid' ? `<button class="danger-outline" data-action="unpay" data-id="${esc(i.id)}">בטל תשלום</button>` : ''}
-          ${i.status === 'open' ? `<button class="danger-outline" data-action="cancel" data-id="${esc(i.id)}">בטל (חשבונית זיכוי)</button>` : ''}
+          ${i.receiptId ? `<button class="secondary" data-doc-pdf="${esc(i.receiptId)}">קבלה ${esc(i.receiptNumber)} (PDF)</button>` : ''}
+          ${i.status !== 'cancelled' && Number(i.balance ?? i.total) > 0 ? `<button class="secondary" data-action="credit" data-id="${esc(i.id)}">חשבונית זיכוי</button>` : ''}
+          ${i.status === 'open' && !(i.credited > 0) ? `<button class="danger-outline" data-action="cancel" data-id="${esc(i.id)}">בטל (חשבונית זיכוי)</button>` : ''}
         </div>
       </div>`).join('')}`;
 }
@@ -387,6 +421,14 @@ function renderAcctSettings(st) {
       <div class="card">
         <h3>פרטי העסק</h3>
         ${row('שם העסק', b.name)}${row('ע.מ / ח.פ', b.taxId)}${row('כתובת', b.address)}${row('טלפון', b.phone)}${row('דוא"ל', b.email)}
+      </div>
+      <div class="card">
+        <h3>מראה המסמכים</h3>
+        ${row('צבע', b.brandColor || 'ברירת מחדל')}${row('חתימה', b.signature)}${row('לוגו', b.logo ? 'נבחר' : 'אין')}
+        <div class="card-actions">
+          <button class="secondary" id="acctLogoBtn">בחירת לוגו (PNG / JPEG)</button>
+          ${b.logo ? '<button class="danger-outline" id="acctLogoRemove">הסרת הלוגו</button>' : ''}
+        </div>
       </div>
       <div class="card">
         <h3>הגדרות חשבונאות</h3>
@@ -606,14 +648,177 @@ async function handleAllocationWaive(id) {
   }
 }
 
+// טופס קצר בחלון: שדות טקסט / תאריך / בחירה, ושדות חובה לפי required
+function askDocFields(title, fields, submitText) {
+  return openDialog((card, finish) => {
+    const h = document.createElement('h2');
+    h.textContent = title;
+    const form = document.createElement('form');
+    form.className = 'modal-form';
+    form.noValidate = true;
+    const inputs = {};
+    for (const f of fields) {
+      const label = document.createElement('label');
+      label.textContent = f.label;
+      let input;
+      if (f.options) {
+        input = document.createElement('select');
+        for (const [value, text] of f.options) {
+          const o = document.createElement('option');
+          o.value = value;
+          o.textContent = text;
+          input.appendChild(o);
+        }
+      } else {
+        input = document.createElement('input');
+        input.type = f.type || 'text';
+      }
+      input.name = f.name;
+      input.value = f.value || (f.options ? f.options[0][0] : '');
+      label.appendChild(input);
+      form.appendChild(label);
+      inputs[f.name] = input;
+    }
+    const err = document.createElement('div');
+    err.style.color = '#b91c1c';
+    err.style.fontSize = '0.9rem';
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'secondary';
+    cancel.textContent = 'ביטול';
+    const ok = document.createElement('button');
+    ok.type = 'submit';
+    ok.className = 'primary';
+    ok.textContent = submitText;
+    actions.append(cancel, ok);
+    form.append(err, actions);
+    card.append(h, form);
+    cancel.addEventListener('click', () => finish(null));
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const values = {};
+      for (const f of fields) {
+        const v = inputs[f.name].value.trim();
+        if (f.required && !v) {
+          err.textContent = 'יש למלא את השדה: ' + f.label;
+          inputs[f.name].focus();
+          return;
+        }
+        values[f.name] = v;
+      }
+      finish(values);
+    });
+    const first = Object.values(inputs)[0];
+    if (first) first.focus();
+  });
+}
+
 async function handlePay(id) {
-  if (!(await askConfirm('לסמן את החשבונית כשולמה? תירשם גביה לבנק.'))) return;
+  const values = await askDocFields('קבלת תשלום', [
+    { name: 'date', label: 'תאריך התשלום', type: 'date', value: today(), required: true },
+    { name: 'method', label: 'אמצעי תשלום', options: DOC_PAY_METHODS },
+    { name: 'reference', label: 'אסמכתא (מספר המחאה / העברה, אופציונלי)' }
+  ], 'רישום תשלום והפקת קבלה');
+  if (!values) return;
   try {
-    await window.systemAPI.recordPayment(id, { date: today() });
-    showToast('החשבונית סומנה כשולמה');
+    await window.systemAPI.recordPayment(id, values);
+    showToast('התשלום נרשם והופקה קבלה');
     await switchView('acct-invoices');
   } catch (error) {
     showError('שגיאה בסימון תשלום: ' + errMsg(error));
+  }
+}
+
+// טופס הצעת מחיר / הזמנה / תעודת משלוח — שורה אחת, כמו בטופס החשבונית
+const SALES_DOC_TITLES = { quote: 'הצעת מחיר חדשה', order: 'הזמנה חדשה', delivery: 'תעודת משלוח חדשה' };
+function salesDocSchema(kind) {
+  const fields = [
+    { name: 'customer', label: 'שם לקוח', type: 'text', required: true },
+    { name: 'customerTaxId', label: 'ע.מ / ח.פ של הלקוח (אופציונלי)', type: 'text' },
+    { name: 'date', label: 'תאריך', type: 'date', required: true },
+    ...(kind === 'quote' ? [{ name: 'validUntil', label: 'בתוקף עד (אופציונלי)', type: 'date' }] : []),
+    { name: 'description', label: 'תיאור פריט', type: 'text', required: true },
+    { name: 'quantity', label: 'כמות', type: 'number' },
+    { name: 'unitPrice', label: 'מחיר ליחידה לפני מע"מ (₪)', type: 'number', required: true },
+    { name: 'vatExempt', label: 'מע"מ', type: 'select', options: [{ value: 'no', label: 'כולל מע"מ' }, { value: 'yes', label: 'פטור ממע"מ' }] },
+    { name: 'notes', label: 'הערות (אופציונלי)', type: 'textarea' }
+  ];
+  return {
+    title: SALES_DOC_TITLES[kind] || 'מסמך חדש',
+    fields,
+    create: (d) => window.systemAPI.createSalesDoc(kind, {
+      customer: d.customer, customerTaxId: d.customerTaxId, date: d.date, validUntil: d.validUntil, notes: d.notes,
+      vatExempt: d.vatExempt === 'yes', items: [{ description: d.description, quantity: d.quantity, unitPrice: d.unitPrice }]
+    })
+  };
+}
+
+async function handleSalesDocPdf(id) {
+  try {
+    const r = await window.systemAPI.exportSalesDocPdf(id);
+    if (r && r.ok) showToast('קובץ ה-PDF נשמר');
+  } catch (error) {
+    showError('שגיאה בהפקת PDF: ' + errMsg(error));
+  }
+}
+
+async function handleConvertDoc(id, to) {
+  const text = to === 'invoice' ? 'להפיק חשבונית מס מהמסמך? הפריטים והסכומים יועברו כמו שהם, והחשבונית תירשם ביומן.' : 'להמיר את המסמך? הפריטים והסכומים יועברו כמו שהם.';
+  if (!(await askConfirm(text))) return;
+  try {
+    const r = await window.systemAPI.convertSalesDoc(id, to, { date: today() });
+    showToast(r.kind === 'invoice' ? `הופקה חשבונית ${r.number}` : `נוצר מסמך ${r.number}`);
+    await switchView('acct-invoices');
+  } catch (error) {
+    showError('שגיאה בהמרה: ' + errMsg(error));
+  }
+}
+
+async function handleCancelDoc(id) {
+  if (!(await askConfirm('לבטל את המסמך? הוא יישאר ברשימה כמבוטל.'))) return;
+  try {
+    await window.systemAPI.cancelSalesDoc(id);
+    showToast('המסמך בוטל');
+    await switchView('acct-invoices');
+  } catch (error) {
+    showError('שגיאה בביטול: ' + errMsg(error));
+  }
+}
+
+// זיכוי מלא — אותם סכומים בדיוק; חלקי — שורה אחת בסכום לפני מע"מ, באותו שיעור מע"מ של החשבונית
+async function handleCreditNote(id) {
+  const values = await askDocFields('חשבונית זיכוי', [
+    { name: 'reason', label: 'סיבת הזיכוי', required: true },
+    { name: 'scope', label: 'היקף', options: [['full', 'זיכוי מלא של החשבונית'], ['partial', 'זיכוי חלקי']] },
+    { name: 'amount', label: 'לזיכוי חלקי: סכום לפני מע"מ (₪)', type: 'number' },
+    { name: 'date', label: 'תאריך', type: 'date', value: today(), required: true }
+  ], 'הפקת זיכוי');
+  if (!values) return;
+  const input = { reason: values.reason, date: values.date };
+  if (values.scope === 'partial') {
+    const amount = Number(values.amount);
+    if (!(amount > 0)) { showError('בזיכוי חלקי יש לרשום סכום גדול מאפס'); return; }
+    input.items = [{ description: 'זיכוי: ' + values.reason, quantity: 1, unitPrice: amount }];
+  }
+  try {
+    const r = await window.systemAPI.createCreditNote(id, input);
+    showToast(`הופקה חשבונית זיכוי ${r.number}`);
+    await switchView('acct-invoices');
+  } catch (error) {
+    showError('שגיאה בהפקת זיכוי: ' + errMsg(error));
+  }
+}
+
+async function handleDocLogo(remove) {
+  try {
+    const r = await window.systemAPI.setDocumentLogo(remove);
+    if (r && r.canceled) return;
+    showToast(remove ? 'הלוגו הוסר' : 'הלוגו נשמר ויופיע על המסמכים');
+    await switchView('acct-settings');
+  } catch (error) {
+    showError('שגיאה בשמירת הלוגו: ' + errMsg(error));
   }
 }
 
@@ -664,11 +869,14 @@ const acctFormSchemas = {
       { name: 'quantity', label: 'כמות', type: 'number' },
       { name: 'unitPrice', label: 'מחיר ליחידה לפני מע"מ (₪)', type: 'number', required: true },
       { name: 'kind', label: 'סוג', type: 'select', options: [{ value: 'goods', label: 'מוצר' }, { value: 'service', label: 'שירות' }] },
-      { name: 'vatExempt', label: 'מע"מ', type: 'select', options: [{ value: 'no', label: 'כולל מע"מ' }, { value: 'yes', label: 'פטור ממע"מ' }] }
+      { name: 'vatExempt', label: 'מע"מ', type: 'select', options: [{ value: 'no', label: 'כולל מע"מ' }, { value: 'yes', label: 'פטור ממע"מ' }] },
+      { name: 'paidNow', label: 'תשלום', type: 'select', options: [{ value: '', label: 'טרם שולמה' }, ...DOC_PAY_METHODS.map(([value, label]) => ({ value, label: 'שולמה עכשיו — ' + label }))] },
+      { name: 'paymentRef', label: 'אסמכתא לתשלום (אופציונלי)', type: 'text' }
     ],
     create: (d) => window.systemAPI.createInvoice({
       customer: d.customer, customerTaxId: d.customerTaxId, date: d.date, vatExempt: d.vatExempt === 'yes',
-      items: [{ description: d.description, quantity: d.quantity, unitPrice: d.unitPrice, kind: d.kind || 'goods' }]
+      items: [{ description: d.description, quantity: d.quantity, unitPrice: d.unitPrice, kind: d.kind || 'goods' }],
+      ...(d.paidNow ? { paidNow: { method: d.paidNow, reference: d.paymentRef } } : {})
     })
   },
   'acct-chart': {
@@ -712,7 +920,7 @@ acctFormSchemas['acct-settings'] = {
   prepare: async (schema) => {
     const st = await window.systemAPI.getAccountingSettings();
     const b = st.business || {};
-    const values = { name: b.name, taxId: b.taxId, address: b.address, phone: b.phone, email: b.email,
+    const values = { name: b.name, taxId: b.taxId, address: b.address, phone: b.phone, email: b.email, brandColor: b.brandColor, signature: b.signature,
       vatPercent: +(st.vatRate * 100).toFixed(2), lockDate: st.lockDate };
     for (const f of schema.fields) f.value = values[f.name] ?? '';
   },
@@ -722,11 +930,13 @@ acctFormSchemas['acct-settings'] = {
     { name: 'address', label: 'כתובת', type: 'text' },
     { name: 'phone', label: 'טלפון', type: 'text' },
     { name: 'email', label: 'דוא"ל', type: 'text' },
+    { name: 'brandColor', label: 'צבע המסמכים (למשל #1d4ed8, ריק — ברירת מחדל)', type: 'text' },
+    { name: 'signature', label: 'שורת חתימה במסמכים (אופציונלי)', type: 'text' },
     { name: 'vatPercent', label: 'שיעור מע"מ (%)', type: 'number', required: true },
     { name: 'lockDate', label: 'נעילת תקופה עד (YYYY-MM-DD, השאר ריק לביטול)', type: 'date' }
   ],
   create: (d) => window.systemAPI.saveAccountingSettings({
-    business: { name: d.name, taxId: d.taxId, address: d.address, phone: d.phone, email: d.email },
+    business: { name: d.name, taxId: d.taxId, address: d.address, phone: d.phone, email: d.email, brandColor: d.brandColor, signature: d.signature },
     vatRate: Number(d.vatPercent) / 100,
     lockDate: d.lockDate || ''
   })

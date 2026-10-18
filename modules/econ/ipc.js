@@ -668,7 +668,52 @@ function registerIpcHandlers() {
   });
   handle('acct:recordPayment', async (event, invoiceId, payment) => {
     const result = await accountingService.recordPayment(invoiceId, payment || {});
-    await auditEvent(event, 'acct.invoice.paid', { id: result && (result.id || result.number) });
+    await auditEvent(event, 'acct.invoice.paid', { id: result && (result.id || result.number), method: result && result.paymentMethod });
+    return result;
+  });
+  // מסמכי מכירה (PLAN.md 9.3): הצעת מחיר, הזמנה, תעודת משלוח, חשבונית זיכוי וקבלה
+  handle('acct:getSalesDocs', async () => accountingService.getSalesDocs());
+  handle('acct:createSalesDoc', async (event, kind, input) => {
+    const result = await accountingService.createSalesDoc(String(kind || ''), input);
+    await auditEvent(event, 'acct.doc.create', { kind: result.kind, number: result.number });
+    return result;
+  });
+  handle('acct:convertSalesDoc', async (event, docId, to, opts) => {
+    const result = await accountingService.convertSalesDoc(docId, String(to || ''), opts || {});
+    await auditEvent(event, 'acct.doc.convert', { from: docId, to: result.kind, number: result.number });
+    return result;
+  });
+  handle('acct:cancelSalesDoc', async (event, docId) => {
+    const result = await accountingService.cancelSalesDoc(docId);
+    await auditEvent(event, 'acct.doc.cancel', { kind: result.kind, number: result.number });
+    return result;
+  });
+  handle('acct:createCreditNote', async (event, invoiceId, input) => {
+    const result = await accountingService.createCreditNote(invoiceId, input || {});
+    await auditEvent(event, 'acct.credit.create', { number: result.number, invoice: result.invoiceNumber, total: result.total });
+    return result;
+  });
+  handle('acct:exportSalesDocPdf', async (event, docId) => {
+    const d = await accountingService.getSalesDoc(docId);
+    const { business } = await accountingService.getSettings();
+    const html = d.kind === 'receipt' ? X.renderReceiptHtml(d, business) : X.renderInvoiceHtml(d, business);
+    const r = await saveHtmlAsPdf(html, `${d.kindLabel}-${d.number}.pdf`.replace(/[\\/:*?"<>|]/g, ''));
+    if (r.ok) await auditEvent(event, 'acct.doc.pdf', { kind: d.kind, number: d.number });
+    return r;
+  });
+  // לוגו למסמכים: בחירת קובץ PNG / JPEG מקומי (עד 200KB). remove — הסרת הלוגו
+  handle('acct:setLogo', async (event, remove) => {
+    if (remove === true) {
+      const result = await accountingService.setLogo(null);
+      await auditEvent(event, 'acct.settings.logo', { removed: true });
+      return result;
+    }
+    const pick = await dialog.showOpenDialog({ title: 'בחירת לוגו למסמכים', properties: ['openFile'], filters: [{ name: 'תמונה', extensions: ['png', 'jpg', 'jpeg'] }] });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { canceled: true };
+    const file = pick.filePaths[0];
+    if (fs.statSync(file).size > 200 * 1024) throw new Error('קובץ הלוגו גדול מדי (עד 200KB)');
+    const result = await accountingService.setLogo(fs.readFileSync(file), path.extname(file).slice(1));
+    await auditEvent(event, 'acct.settings.logo', { removed: false });
     return result;
   });
   handle('acct:getReports', async (event, range) => accountingService.getReports(range || {}));

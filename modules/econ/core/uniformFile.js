@@ -5,13 +5,14 @@
 const crypto = require('crypto');
 const A = require('./accounting');
 const { isValidIsraeliId } = require('./israeliId');
+const SD = require('./salesDocs');
 
 const SYSTEM_CONST = '&OF1.31&';
 
 // פרטי התוכנה ברשומה A000. מספר תעודת הרישום ופרטי היצרן — יתמלאו אחרי רישום התוכנה ברשות המסים (החלטה ה2)
 const SOFTWARE = { name: 'SuperSuite', regNumber: '', makerVatId: '', makerName: 'SuperSuite' };
 
-// נספח 1: סוגי מסמכים. הסוגים שהתוכנה מפיקה היום: 300, 305, 320 (השאר — 0 בדוח של סעיף 2.6)
+// נספח 1: סוגי מסמכים. הסוגים שהתוכנה מפיקה: 100, 200, 300, 305, 320, 330, 400 (השאר — 0 בדוח של סעיף 2.6). להצעת מחיר אין קוד
 const DOC_TYPES = {
   100: 'הזמנה', 200: 'תעודת משלוח', 205: 'תעודת משלוח סוכן', 210: 'תעודת החזרה', 300: 'חשבונית/חשבונית עסקה',
   305: 'חשבונית-מס', 310: 'חשבונית ריכוז', 320: 'חשבונית מס / קבלה', 330: 'חשבונית מס זיכוי', 340: 'חשבונית שריון',
@@ -166,6 +167,8 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
   const accounts = Array.isArray(data.accounts) ? data.accounts : [];
   const journal = Array.isArray(data.journal) ? data.journal : [];
   const invoices = Array.isArray(data.invoices) ? data.invoices : [];
+  // הצעת מחיר אינה בנספח 1 — לא נכנסת לקובץ
+  const salesDocs = (Array.isArray(data.salesDocs) ? data.salesDocs : []).filter(d => SD.KINDS[d.kind] && SD.KINDS[d.kind].code);
   const names = new Map(accounts.map(a => [String(a.code), a.name]));
 
   const lines = [];
@@ -181,18 +184,21 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
 
   push('A100', { 1103: pid, 1104: SYSTEM_CONST });
 
-  // מסמכים (C100 + D110, ו-D120 לחשבונית מס/קבלה) — לפי תאריך המסמך
-  const docs = invoices.filter(i => inRange(String(i.date))).sort((a, b) => a.number - b.number);
+  // מסמכים (C100 + D110, ו-D120 לקבלה ולחשבונית מס/קבלה) — לפי תאריך המסמך. סכומים חיוביים גם בזיכוי (סוג המסמך קובע)
+  const docs = [
+    ...invoices.map(inv => ({ inv, type: docTypeOf(inv) })),
+    ...salesDocs.map(d => ({ inv: d, type: SD.KINDS[d.kind].code }))
+  ].filter(x => inRange(String(x.inv.date))).sort((a, b) => a.type - b.type || a.inv.number - b.inv.number);
   const docSummary = new Map();
   let link = 0;
-  for (const inv of docs) {
+  for (const { inv, type } of docs) {
     link += 1;
-    const type = docTypeOf(inv);
+    const isReceipt = type === 400;
     const cancelled = inv.status === 'cancelled';
     const issue = inv.createdAt ? localParts(Date.parse(inv.createdAt)) : { date: ymd(inv.date), time: '0000' };
-    const net = ag(inv.net);
-    const vat = ag(inv.vat);
     const total = ag(inv.total);
+    const net = isReceipt ? total : ag(inv.net);
+    const vat = isReceipt ? 0 : ag(inv.vat);
     const s = docSummary.get(type) || { count: 0, totalAg: 0 };
     s.count += 1;
     if (!cancelled) s.totalAg += total;
@@ -211,9 +217,12 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
       1264: Math.round(Number(it.quantity || 0) * 10000), 1265: ag(it.unitPrice), 1266: 0, 1267: ag(it.lineNet),
       1268: vatRateCode(inv), 1272: ymd(inv.date), 1273: link
     }));
-    if (type === 320) {
-      // אמצעי התשלום אינו נשמר בחשבונית — נרשם "אחר" (9)
-      push('D120', { 1303: type, 1304: String(inv.number), 1305: 1, 1306: 9, 1311: ymd(inv.paidAt || inv.date), 1312: total, 1322: ymd(inv.date), 1323: link });
+    if (type === 320 || isReceipt) {
+      // אמצעי התשלום (שדה 1306), ומספר ההמחאה (1310) כשהאסמכתה היא מספר. חשבונית ישנה בלי אמצעי תשלום — "אחר" (9)
+      const method = isReceipt ? inv.method : inv.paymentMethod;
+      const ref = String((isReceipt ? inv.reference : inv.paymentRef) || '');
+      push('D120', { 1303: type, 1304: String(inv.number), 1305: 1, 1306: SD.methodCode(method), 1311: ymd(inv.paidAt || inv.date),
+        1312: total, 1310: SD.methodOf(method) === 'check' && /^\d{1,10}$/.test(ref) ? ref : '', 1322: ymd(inv.date), 1323: link });
     }
   }
 
@@ -224,13 +233,18 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
     if (inv.paymentEntryId) byEntry.set(inv.paymentEntryId, { inv, kind: 'payment' });
     if (inv.reversalEntryId) byEntry.set(inv.reversalEntryId, { inv, kind: 'cancel' });
   }
+  // זיכוי וקבלה — המסמך שלהם (הקבלה גוברת על "גבייה" של החשבונית)
+  for (const d of salesDocs) {
+    if (d.entryId) byEntry.set(d.entryId, { inv: d, kind: d.kind, type: SD.KINDS[d.kind].code });
+    if (d.reversalEntryId) byEntry.set(d.reversalEntryId, { inv: d, kind: 'cancel', type: SD.KINDS[d.kind].code });
+  }
   const entries = journal
     .filter(e => inRange(String(e.date)))
     .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
   const movement = new Map(); // חשבון → { debit, credit } בתוך הטווח
   entries.forEach((e, t) => {
     const ref = byEntry.get(e.id);
-    const typeLabel = ref ? { invoice: 'חשבונית', payment: 'גבייה', cancel: 'ביטול' }[ref.kind] : e.reversalOf ? 'ביטול' : 'פקודת יומן';
+    const typeLabel = ref ? { invoice: 'חשבונית', payment: 'גבייה', cancel: 'ביטול', credit: 'זיכוי', receipt: 'קבלה' }[ref.kind] : e.reversalOf ? 'ביטול' : 'פקודת יומן';
     e.lines.forEach((l, i) => {
       const debit = ag(l.debit);
       const credit = ag(l.credit);
@@ -239,7 +253,7 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
       movement.set(String(l.account), m);
       push('B100', {
         1353: t + 1, 1354: i + 1, 1355: 0, 1356: typeLabel,
-        1357: ref ? String(ref.inv.number) : '', 1358: ref ? docTypeOf(ref.inv) : 0,
+        1357: ref ? String(ref.inv.number) : '', 1358: ref ? ref.type || docTypeOf(ref.inv) : 0,
         1361: e.description, 1362: ymd(e.date), 1363: ymd(e.date), 1364: String(l.account),
         1366: debit > 0 ? 1 : 2, 1368: debit > 0 ? debit : credit,
         1375: e.createdAt ? localDate(e.createdAt) : ymd(e.date), 1376: user

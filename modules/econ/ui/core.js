@@ -306,7 +306,10 @@ async function loadViewData(viewName) {
         break;
       }
       case 'acct-invoices':
-        state.data.acctInvoices = { invoices: await window.systemAPI.getInvoices() };
+        {
+          const [invoices, docs] = await Promise.all([window.systemAPI.getInvoices(), window.systemAPI.getSalesDocs()]);
+          state.data.acctInvoices = { invoices, docs };
+        }
         break;
       case 'acct-chart':
         state.data.acctChart = await window.systemAPI.getChart();

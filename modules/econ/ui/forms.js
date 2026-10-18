@@ -63,6 +63,26 @@ function attachViewHandlers(viewName) {
   document.querySelectorAll('[data-action="pay"]').forEach(btn => {
     btn.addEventListener('click', () => handlePay(btn.dataset.id));
   });
+  // מסמכי מכירה (PLAN.md 9.3)
+  document.querySelectorAll('[data-doc-new]').forEach(btn => {
+    btn.addEventListener('click', () => openSubForm(salesDocSchema(btn.dataset.docNew), { date: today() }));
+  });
+  document.querySelectorAll('[data-doc-pdf]').forEach(btn => {
+    btn.addEventListener('click', () => handleSalesDocPdf(btn.dataset.docPdf));
+  });
+  document.querySelectorAll('[data-doc-convert]').forEach(btn => {
+    btn.addEventListener('click', () => handleConvertDoc(btn.dataset.docConvert, btn.dataset.to));
+  });
+  document.querySelectorAll('[data-doc-cancel]').forEach(btn => {
+    btn.addEventListener('click', () => handleCancelDoc(btn.dataset.docCancel));
+  });
+  document.querySelectorAll('[data-action="credit"]').forEach(btn => {
+    btn.addEventListener('click', () => handleCreditNote(btn.dataset.id));
+  });
+  const logoBtn = document.getElementById('acctLogoBtn');
+  if (logoBtn) logoBtn.addEventListener('click', () => handleDocLogo(false));
+  const logoDel = document.getElementById('acctLogoRemove');
+  if (logoDel) logoDel.addEventListener('click', () => handleDocLogo(true));
   document.querySelectorAll('[data-module]').forEach(btn => {
     btn.addEventListener('click', () => window.systemAPI.openModule(btn.dataset.module).catch(e => showError('שגיאה בפתיחת המודול: ' + errMsg(e))));
   });

@@ -4,9 +4,22 @@ const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 const AL = require('./allocation');
 const money = (n) => '₪' + Number(n || 0).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// חשבונית מס כ-HTML מוכן להדפסה / המרה ל-PDF
+// מיתוג המסמך: צבע (#rrggbb בלבד), לוגו (data:image בלבד — בלי טעינה מבחוץ) וחתימה
+const brandColor = (b) => (/^#[0-9a-f]{6}$/i.test(String(b.brandColor || '')) ? b.brandColor : '#1d4ed8');
+const logoOk = (v) => /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(String(v || ''));
+
+// כותרת המסמך לפי הסוג (מסמכי מכירה מ-core/salesDocs.js וחשבוניות)
+function docTitle(doc) {
+  if (doc.kindLabel) return doc.kindLabel;
+  return doc.vatExempt ? 'חשבונית עסקה' : doc.kind === 'tax-invoice-receipt' ? 'חשבונית מס/קבלה' : 'חשבונית מס';
+}
+
+// חשבונית מס, הצעת מחיר, הזמנה, תעודת משלוח וחשבונית זיכוי כ-HTML מוכן להדפסה / המרה ל-PDF.
+// מסמך שאינו חשבונית (kindLabel) — בלי מספר הקצאה ובלי הערת הסף
 function renderInvoiceHtml(invoice, business = {}) {
   const b = { name: '', taxId: '', address: '', phone: '', email: '', ...business };
+  const color = brandColor(b);
+  const isInvoice = !invoice.kindLabel;
   const rows = invoice.items.map((it, i) => `
         <tr>
           <td>${i + 1}</td>
@@ -19,24 +32,27 @@ function renderInvoiceHtml(invoice, business = {}) {
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<title>${invoice.kind === 'tax-invoice-receipt' ? 'חשבונית מס/קבלה' : 'חשבונית מס'} ${esc(invoice.number)}</title>
+<title>${esc(docTitle(invoice))} ${esc(invoice.number)}</title>
 <style>
   @page { size: A4; margin: 16mm; }
   * { box-sizing: border-box; }
   body { font-family: "Segoe UI", Arial, sans-serif; color: #1e293b; margin: 0; font-size: 13px; }
-  header { display: flex; justify-content: space-between; border-bottom: 3px solid #2563eb; padding-bottom: 12px; }
-  h1 { margin: 0; font-size: 22px; color: #1d4ed8; }
+  header { display: flex; justify-content: space-between; border-bottom: 3px solid ${color}; padding-bottom: 12px; }
+  h1 { margin: 0; font-size: 22px; color: ${color}; }
+  .logo { max-height: 70px; max-width: 180px; display: block; margin-bottom: 6px; }
+  .sign { margin-top: 40px; display: flex; justify-content: flex-end; }
+  .sign div { border-top: 1px solid #94a3b8; padding-top: 4px; min-width: 200px; text-align: center; }
   .biz h2 { margin: 0 0 4px; font-size: 16px; }
   .meta { text-align: left; }
   .meta div { margin-bottom: 4px; }
   .customer { margin: 18px 0; padding: 10px 14px; background: #f8fafc; border-radius: 6px; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  th { background: #1d4ed8; color: #fff; padding: 8px; text-align: right; font-weight: 600; }
+  th { background: ${color}; color: #fff; padding: 8px; text-align: right; font-weight: 600; }
   td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
   td.n, th.n { text-align: left; }
   .totals { margin-top: 16px; margin-inline-start: auto; width: 60%; }
   .totals div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #e2e8f0; }
-  .totals .grand { font-size: 16px; font-weight: 800; border-bottom: 2px solid #1d4ed8; }
+  .totals .grand { font-size: 16px; font-weight: 800; border-bottom: 2px solid ${color}; }
   .alloc { margin-top: 12px; font-size: 14px; }
   .alloc b { font-size: 16px; letter-spacing: 1px; }
   .no-deduct { margin-top: 12px; padding: 8px 12px; border: 2px solid #b91c1c; color: #b91c1c; font-weight: 800; font-size: 15px; text-align: center; }
@@ -46,6 +62,7 @@ function renderInvoiceHtml(invoice, business = {}) {
 <body>
 <header>
   <div class="biz">
+    ${logoOk(b.logo) ? `<img class="logo" src="${b.logo}" alt="">` : ''}
     <h2>${esc(b.name)}</h2>
     ${b.taxId ? `<div>ע.מ / ח.פ: ${esc(b.taxId)}</div>` : ''}
     ${b.address ? `<div>${esc(b.address)}</div>` : ''}
@@ -53,12 +70,16 @@ function renderInvoiceHtml(invoice, business = {}) {
     ${b.email ? `<div>${esc(b.email)}</div>` : ''}
   </div>
   <div class="meta">
-    <h1>${invoice.vatExempt ? 'חשבונית עסקה' : invoice.kind === 'tax-invoice-receipt' ? 'חשבונית מס/קבלה' : 'חשבונית מס'}</h1>
+    <h1>${esc(docTitle(invoice))}</h1>
     <div><strong>מספר:</strong> ${esc(invoice.number)}</div>
     <div><strong>תאריך:</strong> ${esc(invoice.date)}</div>
+    ${invoice.validUntil ? `<div><strong>בתוקף עד:</strong> ${esc(invoice.validUntil)}</div>` : ''}
+    ${invoice.invoiceNumber ? `<div><strong>לחשבונית מס:</strong> ${esc(invoice.invoiceNumber)}</div>` : ''}
+    ${invoice.sourceDoc ? `<div><strong>על פי:</strong> ${esc(SOURCE_LABELS[invoice.sourceDoc.kind] || '')} ${esc(invoice.sourceDoc.number)}</div>` : ''}
   </div>
 </header>
-${allocationBlock(invoice)}
+${isInvoice ? allocationBlock(invoice) : ''}
+${invoice.reason ? `<div class="customer"><strong>סיבת הזיכוי:</strong> ${esc(invoice.reason)}</div>` : ''}
 <div class="customer"><strong>לכבוד:</strong> ${esc(invoice.customer)}${invoice.customerTaxId ? ` · ע.מ / ח.פ: ${esc(invoice.customerTaxId)}` : ''}</div>
 <table>
   <thead><tr><th>#</th><th>תיאור</th><th class="n">כמות</th><th class="n">מחיר ליחידה</th><th class="n">סה"כ לפני מע"מ</th></tr></thead>
@@ -68,10 +89,68 @@ ${allocationBlock(invoice)}
 <div class="totals">
   <div><span>סה"כ לפני מע"מ</span><span>${money(invoice.net)}</span></div>
   <div><span>מע"מ ${invoice.vatExempt ? '(פטור)' : ''}</span><span>${money(invoice.vat)}</span></div>
-  <div class="grand"><span>${invoice.status === 'paid' ? 'סה"כ שולם' : 'סה"כ לתשלום'}</span><span>${money(invoice.total)}</span></div>
+  <div class="grand"><span>${invoice.kind === 'credit' ? 'סה"כ זיכוי' : invoice.status === 'paid' ? 'סה"כ שולם' : 'סה"כ'}</span><span>${money(invoice.total)}</span></div>
+  ${isInvoice && invoice.credited > 0 ? `<div><span>זוכה</span><span>${money(invoice.credited)}</span></div><div><span>יתרה</span><span>${money(invoice.balance)}</span></div>` : ''}
 </div>
-${invoice.status === 'paid' ? `<div class="customer"><strong>התקבל תשלום</strong> בתאריך ${esc(invoice.paidAt || invoice.date)}${invoice.paymentRef ? ` · אסמכתא: <span dir="ltr">${esc(invoice.paymentRef)}</span>` : ''}</div>` : ''}
-<div class="notice">מסמך זה הופק במערכת SuperSuite. חשבונית מס שסכומה לפני מע"מ גבוה מהסף שקבעה רשות המסים, ללקוח שהוא עוסק מורשה, דורשת הקצאת מספר מרשות המסים.</div>
+${invoice.notes ? `<div class="customer">${esc(invoice.notes)}</div>` : ''}
+${isInvoice && invoice.status === 'paid' ? `<div class="customer"><strong>התקבל תשלום</strong> בתאריך ${esc(invoice.paidAt || invoice.date)}${invoice.paymentMethod ? ` · ${esc(PAY_LABELS[invoice.paymentMethod] || '')}` : ''}${invoice.paymentRef ? ` · אסמכתא: <span dir="ltr">${esc(invoice.paymentRef)}</span>` : ''}</div>` : ''}
+${b.signature ? `<div class="sign"><div>${esc(b.signature)}</div></div>` : ''}
+<div class="notice">מסמך זה הופק במערכת SuperSuite.${isInvoice ? ' חשבונית מס שסכומה לפני מע"מ גבוה מהסף שקבעה רשות המסים, ללקוח שהוא עוסק מורשה, דורשת הקצאת מספר מרשות המסים.' : invoice.kind === 'credit' ? '' : ' מסמך זה אינו חשבונית מס.'}</div>
+</body>
+</html>`;
+}
+
+const SOURCE_LABELS = { quote: 'הצעת מחיר', order: 'הזמנה', delivery: 'תעודת משלוח' };
+const PAY_LABELS = { cash: 'מזומן', check: 'המחאה', card: 'כרטיס אשראי', transfer: 'העברה בנקאית', other: 'אחר' };
+
+// קבלה לעסק (סוג 400): על תשלום של חשבונית מס, בלי פריטים ובלי מע"מ
+function renderReceiptHtml(r, business = {}) {
+  const b = { name: '', taxId: '', address: '', phone: '', email: '', ...business };
+  const color = brandColor(b);
+  return `<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>קבלה ${esc(r.number)}</title>
+<style>
+  @page { size: A4; margin: 16mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1e293b; margin: 0; font-size: 13px; }
+  header { display: flex; justify-content: space-between; border-bottom: 3px solid ${color}; padding-bottom: 12px; }
+  h1 { margin: 0; font-size: 22px; color: ${color}; }
+  h2 { margin: 0 0 4px; font-size: 16px; }
+  .logo { max-height: 70px; max-width: 180px; display: block; margin-bottom: 6px; }
+  .meta { text-align: left; }
+  .box { margin: 18px 0; padding: 10px 14px; background: #f8fafc; border-radius: 6px; }
+  .grand { font-size: 18px; font-weight: 800; margin-top: 12px; }
+  .sign { margin-top: 40px; display: flex; justify-content: flex-end; }
+  .sign div { border-top: 1px solid #94a3b8; padding-top: 4px; min-width: 200px; text-align: center; }
+  .notice { margin-top: 26px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    ${logoOk(b.logo) ? `<img class="logo" src="${b.logo}" alt="">` : ''}
+    <h2>${esc(b.name)}</h2>
+    ${b.taxId ? `<div>ע.מ / ח.פ: ${esc(b.taxId)}</div>` : ''}
+    ${b.address ? `<div>${esc(b.address)}</div>` : ''}
+    ${b.phone ? `<div>טלפון: ${esc(b.phone)}</div>` : ''}
+  </div>
+  <div class="meta">
+    <h1>קבלה</h1>
+    <div><strong>מספר:</strong> ${esc(r.number)}</div>
+    <div><strong>תאריך:</strong> ${esc(r.date)}</div>
+  </div>
+</header>
+<div class="box"><strong>התקבל מאת:</strong> ${esc(r.customer)}${r.customerTaxId ? ` · ע.מ / ח.פ: ${esc(r.customerTaxId)}` : ''}</div>
+<div class="box">
+  <div><strong>עבור:</strong> חשבונית מס ${esc(r.invoiceNumber)}</div>
+  <div><strong>אמצעי תשלום:</strong> ${esc(PAY_LABELS[r.method] || 'אחר')}${r.reference ? ` · אסמכתא: <span dir="ltr">${esc(r.reference)}</span>` : ''}</div>
+  <div class="grand">סה"כ התקבל: ${money(r.total)}</div>
+</div>
+${r.status === 'cancelled' ? '<div class="box"><strong>הקבלה בוטלה</strong></div>' : ''}
+${b.signature ? `<div class="sign"><div>${esc(b.signature)}</div></div>` : ''}
+<div class="notice">מסמך זה הופק במערכת SuperSuite.</div>
 </body>
 </html>`;
 }
@@ -257,4 +336,4 @@ function renderUniformReportHtml(r) {
 </html>`;
 }
 
-module.exports = { renderInvoiceHtml, renderDonationReceiptHtml, renderDonorStatementHtml, renderUniformReportHtml, toCsv, esc, money };
+module.exports = { renderInvoiceHtml, renderReceiptHtml, renderDonationReceiptHtml, renderDonorStatementHtml, renderUniformReportHtml, toCsv, esc, money };
