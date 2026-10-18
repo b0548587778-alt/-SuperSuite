@@ -6,6 +6,7 @@
 // עמותה — תרומות וקבלות סעיף 46, קרנות ייעודיות/כללי, תמיכות ודוח שנתי.
 // נפרד לחלוטין מהיומן העסקי: עמותה אינה עוסק, ותרומה אינה עסקה.
 // ============================================================
+const NPO_DONOR_TYPES = { israeli: 'תושב ישראל', anonymous: 'בעילום שם / בלי ת.ז', foreign: 'תושב חוץ' };
 const NPO_METHODS = { cash: 'מזומן', check: 'המחאה', transfer: 'העברה בנקאית', card: 'כרטיס אשראי', standing: 'הוראת קבע' };
 const NPO_GRANT_STATUS = { requested: 'הוגשה בקשה', approved: 'אושרה', paid: 'שולמה', rejected: 'נדחתה' };
 const NPO_VAT = { exempt: 'פטורה ממע"מ', malkar: 'מלכ"ר', osek: 'עוסק מורשה' };
@@ -27,7 +28,8 @@ formSchemas['npo'] = {
   fields: [
     { name: 'date', label: 'תאריך התרומה', type: 'date', required: true },
     { name: 'donorName', label: 'שם התורם', type: 'text', required: true },
-    { name: 'donorId', label: 'ת.ז / ח.פ של התורם', type: 'text' },
+    { name: 'donorType', label: 'סוג התורם (לדיווח ל"תרומות ישראל")', type: 'select', options: opts(NPO_DONOR_TYPES) },
+    { name: 'donorId', label: 'ת.ז / ח.פ של התורם (לתושב ישראל)', type: 'text' },
     { name: 'amount', label: 'סכום (₪)', type: 'number', required: true },
     { name: 'method', label: 'אמצעי תשלום', type: 'select', options: opts(NPO_METHODS) },
     { name: 'fundId', label: 'קרן', type: 'select', options: [] },

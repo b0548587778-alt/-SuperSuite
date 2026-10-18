@@ -93,6 +93,14 @@ function sec46Eligible(settings, date) {
   return true;
 }
 
+// סוג התורם לדיווח ל"תרומות ישראל" (מודל תרומות 4.0, סעיף 2.3.1): בלי ת.ז — קוד קבוע במקום מספר.
+// הקוד לא נשמר כ-donorId, כדי שכל התרומות בעילום שם לא יתאחדו ל"תורם" אחד בסיכומים
+const DONOR_TYPES = { israeli: 'תושב ישראל', anonymous: 'בעילום שם / בלי ת.ז', foreign: 'תושב חוץ' };
+const REPORT_IDS = { anonymous: '999999999', foreign: '888888888' };
+const donorType = (d) => (DONOR_TYPES[d && d.donorType] ? d.donorType : 'israeli');
+// המזהה שמוזן בדיווח: ת.ז/ח.פ, או הקוד לפי סוג התורם. ריק = חסר
+const reportId = (d) => REPORT_IDS[donorType(d)] || (d && d.donorId) || '';
+
 function validateDonation(input, settings, count = 0) {
   if (!input || typeof input !== 'object') throw new Error('תרומה לא תקינה');
   if (count >= MAX_DONATIONS) throw new Error('הגעת למספר המקסימלי של תרומות');
@@ -100,7 +108,9 @@ function validateDonation(input, settings, count = 0) {
   if (!isDate(date)) throw new Error('תאריך לא תקין (YYYY-MM-DD)');
   const donorName = str(input.donorName, 200, 'שם התורם');
   if (!donorName) throw new Error('שם התורם חובה');
+  const type = DONOR_TYPES[input.donorType] ? input.donorType : 'israeli';
   const donorId = str(input.donorId, 12, 'מספר הזהות');
+  if (type !== 'israeli' && donorId) throw new Error(`לתורם ${DONOR_TYPES[type]} אין להזין ת.ז — בדיווח יירשם הקוד ${REPORT_IDS[type]}`);
   assertIsraeliId(donorId, 'מספר זהות / ח"פ של התורם');
   const amount = Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new Error('סכום התרומה אינו תקין');
@@ -110,6 +120,7 @@ function validateDonation(input, settings, count = 0) {
   if (!fund) throw new Error('הקרן שנבחרה אינה קיימת');
   return {
     date, donorName, donorId,
+    ...(type !== 'israeli' ? { donorType: type } : {}),
     donorAddress: str(input.donorAddress, 300, 'כתובת התורם'),
     donorPhone: str(input.donorPhone, 30, 'טלפון התורם'),
     amount: fromAg(toAg(amount)), method, fundId,
@@ -347,9 +358,9 @@ function taxSummary(donations) {
   for (const d of donations) {
     const st = taxStatus(d);
     counts[st] += 1;
-    if (st === 'pending' && !d.donorId) missingDonorId += 1;
+    if (st === 'pending' && !reportId(d)) missingDonorId += 1;
     // נתונים ישנים שנשמרו לפני בדיקת ספרת הביקורת — השיוך ב"תרומות ישראל" ייכשל
-    if (st === 'pending' && d.donorId && !isValidIsraeliId(d.donorId)) invalidDonorId += 1;
+    if (st === 'pending' && donorType(d) === 'israeli' && d.donorId && !isValidIsraeliId(d.donorId)) invalidDonorId += 1;
   }
   return { counts, missingDonorId, invalidDonorId, toReport: counts.pending + counts['cancel-pending'] };
 }
@@ -374,8 +385,8 @@ function exportTable(kind, donations, grants, settings, year) {
     // רשימת עבודה לדיווח ידני — כל השנים, כי דיווח שלא נעשה אינו "נסגר" עם סוף השנה
     const rows = donations.filter(d => ['pending', 'cancel-pending'].includes(taxStatus(d)))
       .sort(byReceipt)
-      .map(d => [taxStatus(d) === 'pending' ? 'דיווח תרומה' : 'דיווח ביטול', receiptLabel(d), d.date, d.donorName, d.donorId || 'חסר', d.amount, (d.taxReport && d.taxReport.registrationNumber) || '']);
-    return { name: 'דיווח-תרומות-ישראל', headers: ['פעולה', 'מס\' קבלה', 'תאריך', 'תורם', 'ת.ז/ח.פ', 'סכום', 'מס\' רישום קודם'], rows };
+      .map(d => [taxStatus(d) === 'pending' ? 'דיווח תרומה' : 'דיווח ביטול', receiptLabel(d), d.date, d.donorName, reportId(d) || 'חסר', DONOR_TYPES[donorType(d)], d.amount, METHODS[d.method] || d.method, (d.taxReport && d.taxReport.registrationNumber) || '']);
+    return { name: 'דיווח-תרומות-ישראל', headers: ['פעולה', 'מס\' קבלה', 'תאריך', 'תורם', 'מזהה לדיווח', 'סוג תורם', 'סכום', 'אמצעי תשלום', 'מס\' רישום קודם'], rows };
   }
   if (kind === 'funds') {
     const rows = r.funds.funds.map(f => [f.name, f.restricted ? 'ייעודי' : 'כללי', f.donations, f.grants, f.total]);
@@ -396,7 +407,7 @@ function exportTable(kind, donations, grants, settings, year) {
 }
 
 module.exports = {
-  GENERAL_FUND, VAT_STATUSES, METHODS, GRANT_STATUSES, TAX_STATUSES, DEFAULT_SETTINGS, MAX_DONATIONS, MAX_GRANTS,
+  GENERAL_FUND, VAT_STATUSES, METHODS, GRANT_STATUSES, TAX_STATUSES, DONOR_TYPES, REPORT_IDS, donorType, reportId, DEFAULT_SETTINGS, MAX_DONATIONS, MAX_GRANTS,
   parseDocuments, matchingRequired, grantAlerts, taxStatus, recordTaxReport, taxSummary,
   normalizeSettings, allFunds, applySettings, sec46Eligible, validateDonation, issueReceipt,
   validateGrant, donorSummary, receiptNo, byReceipt, receiptLabel, donorAnnualStatement, fundSummary, annualReport, exportTable

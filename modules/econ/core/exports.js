@@ -84,6 +84,14 @@ function allocationBlock(invoice) {
   return '';
 }
 
+// "תרומות ישראל" (מודל תרומות 4.0, סעיף 2.2): אחרי הדיווח — המשפט הבולט ומספר האישור על הקבלה.
+// לפני הדיווח לא מודפס כלום: המשפט אומר שהתרומה כבר דווחה
+function donationReportBlock(d) {
+  const t = d.taxReport || {};
+  if (!(d.receipt && d.receipt.sec46) || !t.registrationNumber) return '';
+  return `<div class="reported">פרטי התרומה דווחו לרשות המסים · מספר אישור דיווח התרומה לרשות המסים: <span dir="ltr">${esc(t.registrationNumber)}</span></div>`;
+}
+
 const METHOD_LABELS = { cash: 'מזומן', check: 'המחאה', transfer: 'העברה בנקאית', card: 'כרטיס אשראי', standing: 'הוראת קבע' };
 
 // קבלה על תרומה (עמותה) כ-HTML להדפסה / PDF. הפרטים נלקחים מהקבלה עצמה (מוקפאים ביום ההפקה).
@@ -107,6 +115,7 @@ function renderDonationReceiptHtml(d) {
   .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #e2e8f0; }
   .amount { font-size: 18px; font-weight: 800; }
   .s46 { margin-top: 16px; padding: 10px 14px; border: 2px solid #0f766e; border-radius: 6px; font-weight: 600; }
+  .reported { margin-top: 12px; padding: 10px 14px; border: 2px solid #1e293b; border-radius: 6px; font-weight: 800; font-size: 14px; }
   .void { color: #b91c1c; font-size: 20px; font-weight: 800; text-align: center; border: 3px solid #b91c1c; padding: 8px; margin-top: 12px; }
   .notice { margin-top: 26px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
 </style>
@@ -128,13 +137,14 @@ function renderDonationReceiptHtml(d) {
 </header>
 ${cancelled ? '<div class="void">מבוטלת</div>' : ''}
 <div class="box">
-  <div class="row"><span>התקבל מאת</span><span>${esc(d.donorName)}${d.donorId ? ` · ת.ז/ח.פ ${esc(d.donorId)}` : ''}</span></div>
+  <div class="row"><span>התקבל מאת</span><span>${esc(d.donorName)}${d.donorId ? ` · ת.ז/ח.פ ${esc(d.donorId)}` : d.donorType === 'foreign' ? ' · תושב חוץ' : ''}</span></div>
   ${d.donorAddress ? `<div class="row"><span>כתובת</span><span>${esc(d.donorAddress)}</span></div>` : ''}
   <div class="row"><span>אמצעי תשלום</span><span>${esc(METHOD_LABELS[d.method] || d.method)}${d.reference ? ` · אסמכתא ${esc(d.reference)}` : ''}</span></div>
   <div class="row"><span>ייעוד</span><span>${esc(r.fundName || 'כללי')}${d.purpose ? ` — ${esc(d.purpose)}` : ''}</span></div>
   <div class="row amount"><span>סכום התרומה</span><span>${money(d.amount)}</span></div>
 </div>
 ${r.sec46 ? `<div class="s46">התרומה מוכרת לזיכוי ממס לפי סעיף 46 לפקודת מס הכנסה · אישור מס' ${esc(r.sec46Number)}${r.sec46ValidUntil ? ` · בתוקף עד ${esc(r.sec46ValidUntil)}` : ''}</div>` : ''}
+${donationReportBlock(d)}
 <div class="notice">מסמך זה הופק במערכת SuperSuite. האחריות לתוקף אישור סעיף 46 ולדיווח לרשויות חלה על העמותה.</div>
 </body>
 </html>`;
