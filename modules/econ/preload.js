@@ -120,6 +120,8 @@ contextBridge.exposeInMainWorld('systemAPI', {
   setVatRate: (rate) => ipcRenderer.invoke('acct:setVatRate', rate),
   getAccountingSettings: () => ipcRenderer.invoke('acct:getSettings'),
   cancelInvoice: (invoiceId) => ipcRenderer.invoke('acct:cancelInvoice', invoiceId),
+  setAllocation: (invoiceId, input) => ipcRenderer.invoke('acct:setAllocation', invoiceId, input),
+  waiveAllocation: (invoiceId, input) => ipcRenderer.invoke('acct:waiveAllocation', invoiceId, input),
   getProducts: () => ipcRenderer.invoke('acct:getProducts'),
   addProduct: (product) => ipcRenderer.invoke('acct:addProduct', product),
   deleteProduct: (productId) => ipcRenderer.invoke('acct:deleteProduct', productId),

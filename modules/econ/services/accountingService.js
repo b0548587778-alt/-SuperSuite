@@ -3,6 +3,8 @@ const crypto = require('crypto');
 const A = require('../core/accounting');
 const PR = require('../core/pricing');
 const F = require('../core/features');
+const AL = require('../core/allocation');
+const { assertIsraeliId } = require('../core/israeliId');
 
 const toAgSafe = (n) => Math.round(Number(n) * 100);
 const fromAgSafe = (a) => Math.round(a) / 100;
@@ -109,7 +111,8 @@ class AccountingService {
   // ---------- חשבוניות מס ----------
   async getInvoices() {
     const data = await this._load();
-    return [...data.invoices].sort((a, b) => b.number - a.number);
+    // allocation: מצב מספר ההקצאה לתצוגה — מחושב ולא נשמר (הסף תלוי בתאריך)
+    return [...data.invoices].sort((a, b) => b.number - a.number).map(i => ({ ...i, allocation: AL.allocationState(i) }));
   }
 
   async createInvoice(invoiceData) {
@@ -124,6 +127,9 @@ class AccountingService {
     if (!inv.customer) throw new Error('שם לקוח חובה בחשבונית');
     if (inv.customer.length > 200) throw new Error('שם הלקוח ארוך מדי');
     if (!Array.isArray(inv.items) || inv.items.length > 200) throw new Error('מספר הפריטים בחשבונית חורג מהמותר (עד 200)');
+    // מספר העוסק של הלקוח — נדרש בבקשה למספר הקצאה
+    const customerTaxId = String(invoiceData.customerTaxId || '').trim();
+    assertIsraeliId(customerTaxId, 'מספר העוסק של הלקוח');
     const computed = A.computeInvoice(inv, rate);
     const entryDraft = A.validateEntry(A.invoiceToEntry({ ...inv, number }, computed), data.accounts);
     const entry = { id: crypto.randomUUID(), ...entryDraft, createdAt: new Date().toISOString() };
@@ -133,6 +139,7 @@ class AccountingService {
       items: computed.items, net: computed.net, vat: computed.vat, total: computed.total,
       vatExempt: computed.vatExempt, status: 'open', entryId: entry.id, createdAt: new Date().toISOString()
     };
+    if (customerTaxId) invoice.customerTaxId = customerTaxId;
     data.invoices.push(invoice);
     await this.db.save(data);
     return invoice;
@@ -300,6 +307,37 @@ class AccountingService {
     inv.status = 'cancelled';
     inv.cancelledAt = new Date().toISOString().slice(0, 10);
     inv.reversalEntryId = reversal.id;
+    await this.db.save(data);
+    return inv;
+  }
+
+  // ---------- מספר הקצאה (חשבוניות ישראל, נתיב ידני — PLAN.md 9.2א) ----------
+  // המספר מתקבל בשירות של רשות המסים ומוקלד כאן. לא נוגע ביומן, ולכן מותר גם בתקופה נעולה
+  async setAllocation(invoiceId, { number } = {}) {
+    const data = await this._load();
+    const inv = data.invoices.find(i => i.id === invoiceId);
+    if (!inv) throw new Error('חשבונית לא נמצאה');
+    if (inv.status === 'cancelled') throw new Error('החשבונית בוטלה — אין צורך במספר הקצאה');
+    const n = AL.normalizeAllocationNumber(number);
+    const dup = data.invoices.find(i => i.id !== inv.id && i.allocationNumber === n);
+    if (dup) throw new Error(`מספר ההקצאה כבר רשום בחשבונית ${dup.number}`);
+    const previous = inv.allocationNumber || null;
+    inv.allocationNumber = n;
+    inv.allocationAt = new Date().toISOString();
+    delete inv.allocationWaived;
+    await this.db.save(data);
+    return { invoice: inv, previous };
+  }
+
+  // סימון "לא נדרש": הלקוח אינו עוסק מורשה או לא דרש מספר
+  async waiveAllocation(invoiceId, { reason = 'customer' } = {}) {
+    const data = await this._load();
+    const inv = data.invoices.find(i => i.id === invoiceId);
+    if (!inv) throw new Error('חשבונית לא נמצאה');
+    if (!AL.WAIVE_REASONS[reason]) throw new Error('סיבה לא מוכרת');
+    if (inv.allocationNumber) throw new Error('לחשבונית כבר יש מספר הקצאה');
+    if (AL.allocationState(inv) !== 'pending') throw new Error('החשבונית אינה דורשת מספר הקצאה');
+    inv.allocationWaived = { reason, at: new Date().toISOString() };
     await this.db.save(data);
     return inv;
   }

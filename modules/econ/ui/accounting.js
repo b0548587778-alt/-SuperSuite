@@ -201,6 +201,15 @@ const yearStart = () => isoDate(new Date(new Date().getFullYear(), 0, 1));
 const today = () => isoDate(new Date());
 const acctPeriod = () => state.acctPeriod || (state.acctPeriod = { from: yearStart(), to: today() });
 const ACCT_STATUS = { open: 'פתוחה', paid: 'שולמה', cancelled: 'בוטלה' };
+// מספר הקצאה (9.2א): המצב מחושב בשרת (getInvoices → allocation, לפי core/allocation.js) — כאן רק תצוגה
+const invoiceAllocState = (i) => i.allocation || 'not-required';
+function renderAllocLine(i) {
+  const st = invoiceAllocState(i);
+  if (st === 'assigned') return `<small class="alloc-ok">הקצאה מספר: <span dir="ltr">${esc(String(i.allocationNumber).slice(-9))}</span></small>`;
+  if (st === 'waived') return '<small>מספר הקצאה: סומן "לא נדרש"</small>';
+  if (st === 'pending') return '<small class="alloc-pending">⚠ דרוש מספר הקצאה מרשות המסים</small>';
+  return '';
+}
 const ACCT_TYPE_LABELS = { asset: 'נכס', liability: 'התחייבות', equity: 'הון', revenue: 'הכנסה', expense: 'הוצאה' };
 
 function accountOptions(chart) {
@@ -336,8 +345,11 @@ function renderAcctInvoices(d) {
         <p>${(Array.isArray(i.items) ? i.items : []).map(it => esc(it.description)).join(', ')}</p>
         <small>${esc(i.date)} · נטו ${money(i.net)} · מע"מ ${money(i.vat)}${i.vatExempt ? ' (פטור)' : ''}</small>
         <div class="acct-row acct-big"><span>${ACCT_STATUS[i.status] || i.status}</span><span>${money(i.total)}</span></div>
+        ${renderAllocLine(i)}
         <div class="card-actions">
           <button class="secondary" data-action="pdf" data-id="${esc(i.id)}">הורד PDF</button>
+          ${['pending', 'waived'].includes(invoiceAllocState(i)) ? `<button class="secondary" data-action="alloc" data-id="${esc(i.id)}">הזנת מספר הקצאה</button>` : ''}
+          ${invoiceAllocState(i) === 'pending' ? `<button class="secondary" data-action="alloc-waive" data-id="${esc(i.id)}">לא נדרש</button>` : ''}
           ${i.status === 'open' ? `<button class="secondary" data-action="pay" data-id="${esc(i.id)}">סמן כשולמה</button>` : ''}
           ${i.status === 'paid' ? `<button class="danger-outline" data-action="unpay" data-id="${esc(i.id)}">בטל תשלום</button>` : ''}
           ${i.status === 'open' ? `<button class="danger-outline" data-action="cancel" data-id="${esc(i.id)}">בטל (חשבונית זיכוי)</button>` : ''}
@@ -557,6 +569,31 @@ async function handleCancelInvoice(id) {
   }
 }
 
+async function handleAllocation(id) {
+  const values = await askFields('מספר הקצאה מרשות המסים', [
+    { name: 'number', label: 'מספר ההקצאה (9 ספרות לפחות)' }
+  ], 'שמירה', {});
+  if (!values) return;
+  try {
+    await window.systemAPI.setAllocation(id, { number: values.number });
+    showToast('מספר ההקצאה נשמר ויודפס על החשבונית');
+    await switchView('acct-invoices');
+  } catch (error) {
+    showError('שגיאה בשמירת מספר ההקצאה: ' + errMsg(error));
+  }
+}
+
+async function handleAllocationWaive(id) {
+  if (!(await askConfirm('לסמן שאין צורך במספר הקצאה? מתאים רק כשהלקוח אינו עוסק מורשה או לא דרש מספר. אפשר להזין מספר גם אחר כך.'))) return;
+  try {
+    await window.systemAPI.waiveAllocation(id, { reason: 'customer' });
+    showToast('סומן: לא נדרש מספר הקצאה');
+    await switchView('acct-invoices');
+  } catch (error) {
+    showError('שגיאה בסימון: ' + errMsg(error));
+  }
+}
+
 async function handlePay(id) {
   if (!(await askConfirm('לסמן את החשבונית כשולמה? תירשם גביה לבנק.'))) return;
   try {
@@ -609,6 +646,7 @@ const acctFormSchemas = {
     fields: [
       { name: 'productId', label: 'בחר מהמחירון (אופציונלי)', type: 'select', options: [] },
       { name: 'customer', label: 'שם לקוח', type: 'text', required: true },
+      { name: 'customerTaxId', label: 'ע.מ / ח.פ של הלקוח (לבקשת מספר הקצאה)', type: 'text' },
       { name: 'date', label: 'תאריך', type: 'date', required: true },
       { name: 'description', label: 'תיאור פריט', type: 'text', required: true },
       { name: 'quantity', label: 'כמות', type: 'number' },
@@ -617,7 +655,7 @@ const acctFormSchemas = {
       { name: 'vatExempt', label: 'מע"מ', type: 'select', options: [{ value: 'no', label: 'כולל מע"מ' }, { value: 'yes', label: 'פטור ממע"מ' }] }
     ],
     create: (d) => window.systemAPI.createInvoice({
-      customer: d.customer, date: d.date, vatExempt: d.vatExempt === 'yes',
+      customer: d.customer, customerTaxId: d.customerTaxId, date: d.date, vatExempt: d.vatExempt === 'yes',
       items: [{ description: d.description, quantity: d.quantity, unitPrice: d.unitPrice, kind: d.kind || 'goods' }]
     })
   },

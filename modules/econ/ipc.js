@@ -712,6 +712,17 @@ function registerIpcHandlers() {
     return true;
   });
   handle('acct:calcPrice', async (event, input) => accountingService.calcPrice(input));
+  // מספר הקצאה בנתיב הידני (PLAN.md 9.2א) — בלי רשת
+  handle('acct:setAllocation', async (event, invoiceId, input) => {
+    const { invoice, previous } = await accountingService.setAllocation(invoiceId, input || {});
+    await auditEvent(event, 'acct.invoice.allocation', { number: invoice.number, replaced: !!previous });
+    return invoice;
+  });
+  handle('acct:waiveAllocation', async (event, invoiceId, input) => {
+    const result = await accountingService.waiveAllocation(invoiceId, input || {});
+    await auditEvent(event, 'acct.invoice.allocation-waived', { number: result.number, reason: result.allocationWaived.reason });
+    return result;
+  });
   handle('acct:cancelInvoice', async (event, invoiceId) => {
     const result = await accountingService.cancelInvoice(invoiceId);
     await auditEvent(event, 'acct.invoice.cancel', { number: result.number });
@@ -1001,7 +1012,8 @@ function registerIpcHandlers() {
   // לוח בוקר: מה דורש טיפול היום בעמותה, בגמ"ח ובחסד. מצרף כמה תחומים — ולכן רק הפתוחים ברישיון
   handle('dashboard:getMorningBrief', async () => {
     const sources = LG.peopleSources(licenseState());
-    return MB.morningBrief(await db.load(), localDay(Date.now()), { sources: sources || MB.SOURCES });
+    const acct = !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view');
+    return MB.morningBrief(await db.load(), localDay(Date.now()), { sources: sources || MB.SOURCES, acct });
   });
   handle('chesed:getOverview', async (event) => {
     const o = await chesedService.getOverview(canSeeConfidential(event));

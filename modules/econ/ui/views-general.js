@@ -3,7 +3,7 @@
 'use strict';
 
 // לוח הבוקר: מה דורש טיפול היום. מוצג רק כשיש מה להציג — לעסק בלי עמותה/גמ"ח/חסד אין כאן כלום
-const BRIEF_AREAS = { npo: 'עמותה', gemach: 'גמ"ח', chesed: 'חסד' };
+const BRIEF_AREAS = { npo: 'עמותה', gemach: 'גמ"ח', chesed: 'חסד', acct: 'חשבוניות' };
 const BRIEF_SHOWN = 8;
 
 function renderMorningBrief(brief) {

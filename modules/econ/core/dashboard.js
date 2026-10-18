@@ -6,6 +6,7 @@ const SO = require('./standingOrders');
 const G = require('./gemach');
 const GX = require('./gemachExtra');
 const M = require('./memorials');
+const AL = require('./allocation');
 
 const LEVELS = { urgent: 'דחוף', soon: 'בקרוב', info: 'לידיעה' };
 const ORDER = { urgent: 0, soon: 1, info: 2 };
@@ -14,8 +15,9 @@ const MEMORIAL_DAYS = 7;
 
 const plural = (n, one, many) => (n === 1 ? one : `${n} ${many}`);
 
-// data: כל הנתונים (db.load). sources: התחומים הפתוחים ברישיון (gate.peopleSources), ברירת מחדל — כולם
-function morningBrief(data, today, { sources = SOURCES } = {}) {
+// data: כל הנתונים (db.load). sources: התחומים הפתוחים ברישיון (gate.peopleSources), ברירת מחדל — כולם.
+// acct: הנהלת החשבונות פתוחה ברישיון (חשבוניות שממתינות למספר הקצאה)
+function morningBrief(data, today, { sources = SOURCES, acct = false } = {}) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(today || ''))) throw new Error('תאריך לא תקין');
   const open = new Set(sources);
   const items = [];
@@ -71,6 +73,15 @@ function morningBrief(data, today, { sources = SOURCES } = {}) {
   if (open.has('chesed')) {
     const rounds = ((data.chesed || {}).rounds || []).filter(r => r.status !== 'closed');
     for (const r of rounds) add('chesed', 'info', `סבב חלוקה פתוח: ${r.name || r.title || 'סבב'}`, r.date ? `תאריך ${r.date}` : 'יש לסגור אחרי שהמסירה הושלמה', 'chesed');
+  }
+
+  if (acct) {
+    const pending = AL.pendingList(data.invoices || []);
+    if (pending.length) {
+      const nums = pending.slice(0, 5).map(p => p.number).join(', ') + (pending.length > 5 ? ' ועוד' : '');
+      add('acct', 'soon', `${plural(pending.length, 'חשבונית אחת ממתינה', 'חשבוניות ממתינות')} למספר הקצאה`,
+        `חשבוניות ${nums} · לבקש באתר רשות המסים ולהקליד, או לסמן "לא נדרש"`, 'acct-invoices', pending.length);
+    }
   }
 
   items.sort((a, b) => ORDER[a.level] - ORDER[b.level]);

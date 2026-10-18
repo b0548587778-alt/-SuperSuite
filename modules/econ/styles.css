@@ -721,6 +721,9 @@ button.secondary:disabled {
 .ok { color:var(--success); font-size:.85rem; margin-inline-start:6px; }
 .bad { color:var(--danger); font-size:.85rem; margin-inline-start:6px; }
 .muted-card { opacity:.7; }
+/* מספר הקצאה בכרטיס החשבונית (9.2א) */
+.alloc-pending { display: block; color: #b45309; font-weight: 700; margin-top: 4px; }
+.alloc-ok { display: block; color: #15803d; margin-top: 4px; }
 .acct-actions { display:flex; gap:8px; flex-wrap:wrap; }
 
 /* ---------- עיצוב "מלכותי" למסכי הנהלת החשבונות ---------- */

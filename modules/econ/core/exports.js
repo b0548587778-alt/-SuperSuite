@@ -1,6 +1,7 @@
 // Exports - בניית מסמכים לייצוא (HTML לחשבונית/PDF, CSV לאקסל). פונקציות טהורות, בלי גישה ל-Electron.
 
 const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const AL = require('./allocation');
 const money = (n) => '₪' + Number(n || 0).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // חשבונית מס כ-HTML מוכן להדפסה / המרה ל-PDF
@@ -36,6 +37,9 @@ function renderInvoiceHtml(invoice, business = {}) {
   .totals { margin-top: 16px; margin-inline-start: auto; width: 60%; }
   .totals div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #e2e8f0; }
   .totals .grand { font-size: 16px; font-weight: 800; border-bottom: 2px solid #1d4ed8; }
+  .alloc { margin-top: 12px; font-size: 14px; }
+  .alloc b { font-size: 16px; letter-spacing: 1px; }
+  .no-deduct { margin-top: 12px; padding: 8px 12px; border: 2px solid #b91c1c; color: #b91c1c; font-weight: 800; font-size: 15px; text-align: center; }
   .notice { margin-top: 26px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
 </style>
 </head>
@@ -54,6 +58,7 @@ function renderInvoiceHtml(invoice, business = {}) {
     <div><strong>תאריך:</strong> ${esc(invoice.date)}</div>
   </div>
 </header>
+${allocationBlock(invoice)}
 <div class="customer"><strong>לכבוד:</strong> ${esc(invoice.customer)}${invoice.customerTaxId ? ` · ע.מ / ח.פ: ${esc(invoice.customerTaxId)}` : ''}</div>
 <table>
   <thead><tr><th>#</th><th>תיאור</th><th class="n">כמות</th><th class="n">מחיר ליחידה</th><th class="n">סה"כ לפני מע"מ</th></tr></thead>
@@ -66,9 +71,17 @@ function renderInvoiceHtml(invoice, business = {}) {
   <div class="grand"><span>${invoice.status === 'paid' ? 'סה"כ שולם' : 'סה"כ לתשלום'}</span><span>${money(invoice.total)}</span></div>
 </div>
 ${invoice.status === 'paid' ? `<div class="customer"><strong>התקבל תשלום</strong> בתאריך ${esc(invoice.paidAt || invoice.date)}${invoice.paymentRef ? ` · אסמכתא: <span dir="ltr">${esc(invoice.paymentRef)}</span>` : ''}</div>` : ''}
-<div class="notice">מסמך זה הופק במערכת SuperSuite. חשבונית מס תקפה לפי חוק דורשת הקצאת מספר מרשות המסים; ללא הקצאה אין לראות במסמך זה חשבונית מס מאושרת.</div>
+<div class="notice">מסמך זה הופק במערכת SuperSuite. חשבונית מס שסכומה לפני מע"מ גבוה מהסף שקבעה רשות המסים, ללקוח שהוא עוסק מורשה, דורשת הקצאת מספר מרשות המסים.</div>
 </body>
 </html>`;
+}
+
+// מספר הקצאה: 9 הספרות הימניות מודגשות. חשבונית שדורשת מספר ואין לה — המשפט הבולט של רשות המסים
+function allocationBlock(invoice) {
+  const state = AL.allocationState(invoice);
+  if (state === 'assigned') return `<div class="alloc">הקצאה מספר: <b dir="ltr">${esc(AL.printedDigits(invoice.allocationNumber))}</b></div>`;
+  if (state === 'pending') return '<div class="no-deduct">אין לנכות מס תשומות בגין חשבונית זו</div>';
+  return '';
 }
 
 const METHOD_LABELS = { cash: 'מזומן', check: 'המחאה', transfer: 'העברה בנקאית', card: 'כרטיס אשראי', standing: 'הוראת קבע' };

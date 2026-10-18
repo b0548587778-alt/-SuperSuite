@@ -54,6 +54,12 @@ function attachViewHandlers(viewName) {
   document.querySelectorAll('[data-action="cancel"]').forEach(btn => {
     btn.addEventListener('click', () => handleCancelInvoice(btn.dataset.id));
   });
+  document.querySelectorAll('[data-action="alloc"]').forEach(btn => {
+    btn.addEventListener('click', () => handleAllocation(btn.dataset.id));
+  });
+  document.querySelectorAll('[data-action="alloc-waive"]').forEach(btn => {
+    btn.addEventListener('click', () => handleAllocationWaive(btn.dataset.id));
+  });
   document.querySelectorAll('[data-action="pay"]').forEach(btn => {
     btn.addEventListener('click', () => handlePay(btn.dataset.id));
   });
