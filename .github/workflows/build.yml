@@ -51,6 +51,8 @@ jobs:
       - run: mkdir -p ci-logs
       - name: npm install
         run: set -o pipefail; { echo "== npm install"; npm install 2>&1; } | tee -a "$LOG"
+      # --publish never: בלי זה electron-builder מזהה CI ומנסה לפרסם ל-GitHub Releases (ונכשל בלי GH_TOKEN).
+      # פרסום גרסאות — PLAN.md 1.1, בנפרד.
       # חתימת קוד — רק אם הוגדרו סודות במאגר (docs/CODE-SIGNING.md). בלי סודות: בנייה לא חתומה, כמו קודם.
       # טוקן USB אינו זמין בשרת של GitHub — כאן אפשר רק PFX או Azure Trusted Signing.
       - name: Build
@@ -68,7 +70,7 @@ jobs:
           set -o pipefail
           ARGS="$(node tools/code-signing.js --args)"
           { echo "== code-signing"; node tools/code-signing.js 2>&1; } | tee -a "$LOG"
-          { echo "== electron-builder"; npx electron-builder --win nsis portable $ARGS 2>&1; } | tee -a "$LOG"
+          { echo "== electron-builder"; npx electron-builder --win nsis portable --publish never $ARGS 2>&1; } | tee -a "$LOG"
       - uses: actions/upload-artifact@v4
         with:
           name: SuperSuite-Windows
