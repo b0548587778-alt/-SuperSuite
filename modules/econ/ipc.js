@@ -1757,8 +1757,11 @@ function registerIpcHandlers() {
     const trial = s.trial ? { startedAt: s.trial.startedAt, endsAt: s.trial.endsAt, daysLeft: s.trial.daysLeft, warn: !!s.trial.warn } : null;
     // תנאי ההפעלה — למסך הרישוי: מה חסר, ועד מתי צריך להתחבר שוב. בתקופת ניסיון — אין תנאים
     const act = trial ? { required: false, ok: true, missing: [], nextDue: null, dueSoon: false, steps: [] } : activationState();
-    return { mode: s.mode, status: s.status, reasons: (s.reasons || []).map(r => ({ kind: r.kind, reason: r.reason })),
-      graceUntil: s.graceUntil || null, features: s.features, limits: s.limits, trial,
+    // תוקף הרישיון של המערכת — למסך הרישוי ("עומד לפוג"). בתקופת ניסיון אין רישיון
+    const leaf = trial ? null : licenseStore.leafPayload();
+    return { mode: s.mode, status: s.status,
+      reasons: (s.reasons || []).map(r => ({ kind: r.kind, reason: r.reason, ...(r.source ? { source: String(r.source) } : {}), ...(r.step ? { step: String(r.step) } : {}) })),
+      graceUntil: s.graceUntil || null, expiresAt: leaf && Number.isSafeInteger(leaf.expiresAt) ? leaf.expiresAt : null, features: s.features, limits: s.limits, trial,
       activation: { required: act.required, ok: act.ok, missing: act.missing, nextDue: act.nextDue, dueSoon: act.dueSoon,
         steps: act.steps.map(({ id, label, ok, reason, until }) => ({ id, label, ok, reason, until })) } };
   });

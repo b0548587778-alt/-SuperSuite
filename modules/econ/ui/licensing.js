@@ -51,6 +51,83 @@ function renderActivationCard(act, d) {
   </div>`;
 }
 
+// ---------- כרטיס המצב (PLAN.md 4.3): מצב אחד ברור, עד מתי, מה עושים ----------
+const LIC_EXPIRING_DAYS = 30;
+const LIC_DAY_MS = 24 * 60 * 60 * 1000;
+const licDaysText = (n) => (n === 1 ? 'יום אחד' : n + ' ימים');
+
+// ארבעה מצבים למשתמש: ניסיון / פעיל / עומד לפוג / נעול (או צפייה בלבד). now מוזרק לבדיקות
+function licSummary(st, now = Date.now()) {
+  if (!st || st.mode === 'unlicensed') return { kind: 'unlicensed', icon: '✔', title: 'פועלת ללא רישוי', detail: 'ההתקנה הזו פועלת ללא רישוי — כל התחומים פתוחים.' };
+  const t = st.trial;
+  if (t && st.status === 'active') {
+    const left = Number(t.daysLeft) || 0;
+    return { kind: t.warn ? 'expiring' : 'trial', icon: '⏳', title: 'תקופת ניסיון', detail: `נותרו ${licDaysText(left)} — עד ${licDate(t.endsAt)}. כל התחומים פתוחים.` };
+  }
+  if (st.status === 'active') {
+    const act = st.activation || {};
+    if (st.graceUntil) return { kind: 'expiring', icon: '⏰', title: 'הרישיון עומד לפוג', detail: `תוקף הרישיון הסתיים. תקופת חסד עד ${licDate(st.graceUntil)} — יש לחדש.` };
+    if (st.expiresAt && st.expiresAt - now <= LIC_EXPIRING_DAYS * LIC_DAY_MS) {
+      return { kind: 'expiring', icon: '⏰', title: 'הרישיון עומד לפוג',
+        detail: `בתוקף עד ${licDate(st.expiresAt)} (עוד ${licDaysText(Math.max(0, Math.ceil((st.expiresAt - now) / LIC_DAY_MS)))}) — יש לחדש.` };
+    }
+    if (act.dueSoon) return { kind: 'expiring', icon: '⏰', title: 'נדרש חיבור לשרת', detail: `יש להתחבר לשרת הרישוי עד ${licDate(act.nextDue)} — אחרת המערכת תינעל.` };
+    return { kind: 'active', icon: '✔', title: 'הרישיון פעיל', detail: st.expiresAt ? `בתוקף עד ${licDate(st.expiresAt)}.` : 'המערכת פעילה.' };
+  }
+  const readOnly = ['pending_payment', 'suspended', 'trial_ended'].includes(st.status);
+  const r = (st.reasons || [])[0];
+  const title = st.status === 'trial_ended' ? 'תקופת הניסיון הסתיימה'
+    : readOnly ? 'צפייה בלבד — ' + (LIC_STATUS[st.status] || st.status)
+      : st.status === 'terminated' ? 'השימוש במערכת הסתיים' : 'המערכת נעולה';
+  return { kind: readOnly ? 'limited' : 'locked', icon: readOnly ? '⏸' : '🔒', title,
+    detail: (readOnly ? 'אפשר לצפות בנתונים, לייצא ולגבות. יצירה ועריכה חסומות. ' : '') + (r && r.reason ? r.reason : '') };
+}
+
+// מה עושים — לפי הסיבה. מחזיר רשימת צעדים (טקסט); הכפתורים בכרטיס
+function licFixSteps(st, d) {
+  if (!st || st.mode === 'unlicensed' || st.status === 'active') return [];
+  const remoteOn = !!(d.remote && d.remote.url);
+  const r = (st.reasons || [])[0] || {};
+  const install = 'כשהרישיון מגיע מהספק — "טעינת קובץ רישיון" או "הדבקת קוד רישיון".';
+  const sync = remoteOn ? 'כשיש אינטרנט, העדכון מהספק מגיע לבד.' : 'הספק ישלח קובץ עדכון — "קבלת עדכון סטטוס" בהגדרות המתקדמות.';
+  if (st.status === 'trial_ended') {
+    return [remoteOn ? 'לחצו "קניית רישיון", בחרו תכנית ושלמו בדף המאובטח — הרישיון יגיע לבד.' : 'בהגדרות המתקדמות: "הפקת בקשת רישיון", ושלחו את הקובץ לספק.', install];
+  }
+  if (r.source === 'activation') {
+    return r.step === 'server'
+      ? [remoteOn ? 'התחברו לאינטרנט ולחצו "התחברות לשרת עכשיו" בכרטיס "הפעלת המערכת".' : 'יש להגדיר שרת רישוי בהגדרות המתקדמות ("עבודה מרחוק").']
+      : ['הרישיון השנתי חסר או שפג. פנו לספק לחידוש.', install];
+  }
+  if (st.status === 'pending_payment') return r.source === 'billing' ? ['תוקף הרישיון הסתיים. פנו לספק לחידוש.', install] : ['יש להסדיר את התשלום מול הספק.', sync];
+  if (st.status === 'suspended') return ['המערכת הושבתה זמנית על ידי הספק או המערכת שמעליה. פנו אליהם לבירור.', sync];
+  if (st.status === 'terminated') return ['לפרטים — פנו לספק.'];
+  if (/הודעות סטטוס/.test(r.reason || '')) return ['קובץ הרישוי שונה מחוץ לתוכנה.', sync];
+  if (/קובץ הרישוי|מפתח המערכת/.test(r.reason || '')) return ['יש להתקין שוב את קובץ הרישיון מהספק. אם הבעיה חוזרת — פנו לספק.', install];
+  return ['פנו לספק לבירור.', install];
+}
+
+function renderStatusCard(st, d) {
+  const isAdmin = !!d.isAdmin;
+  const s = licSummary(st);
+  // קנייה: רק כשאין רישיון אמיתי (ניסיון), יש שרת, ולא התחילה הרשמה (אז מוצג כרטיס ההרשמה)
+  const canBuy = isAdmin && st.mode === 'licensed' && !!st.trial && !!(d.remote && d.remote.url) && !d.signup;
+  const steps = licFixSteps(st, d);
+  const buttons = !isAdmin ? '<p class="muted">ניהול הרישיון — למנהל בלבד.</p>'
+    : st.mode !== 'licensed' ? ''
+      : `<div class="acct-actions">
+      ${canBuy ? '<button class="primary" id="licBuyBtn">🛒 קניית רישיון</button>' : ''}
+      <button class="${canBuy ? 'secondary' : 'primary'}" id="licInstallBtn">📥 טעינת קובץ רישיון</button>
+      <button class="secondary" id="licPasteBtn">📋 הדבקת קוד רישיון</button>
+    </div>`;
+  return `<div class="card lic-status lic-${s.kind}">
+    <div class="lic-status-head"><span class="lic-status-icon">${s.icon}</span><div><h3>${esc(s.title)}</h3><p>${esc(s.detail)}</p></div></div>
+    ${steps.length ? `<div class="lic-fix"><strong>מה לעשות:</strong><ol>${steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+      <p>הנתונים שלכם שמורים במחשב ולא נמחקו.</p>
+      <button class="secondary small" id="licGoMessagesBtn">💬 הודעה לספק</button></div>` : ''}
+    ${buttons}
+  </div>`;
+}
+
 function renderLicensing(d) {
   const st = (d && d.status) || { mode: 'unlicensed', status: 'active' };
   const isAdmin = !!(d && d.isAdmin);
@@ -65,15 +142,16 @@ function renderLicensing(d) {
        ${(st.features || []).length ? `<div class="acct-row"><span>תחומים פתוחים</span><span>${(st.features || []).map(f => esc(licFeatureLabel(f))).join(' · ')}</span></div>` : ''}
        ${st.limits && st.limits.maxUsers != null ? `<div class="acct-row"><span>מכסות</span><span>${esc(licLimits(st.limits))}</span></div>` : ''}`;
 
+  // במערכת שמוגדרת לרישוי — כפתורי ההתקנה בכרטיס המצב; כאן הבקשה הידנית ועדכון הסטטוס
   const myCard = `<div class="card">
-    <h3>הרישיון של המערכת הזו</h3>
+    <h3>פרטי הרישיון</h3>
     ${mine}
     ${isAdmin ? `<div class="acct-actions">
       <button class="secondary" id="licRequestBtn">📤 הפקת בקשת רישיון</button>
-      <button class="primary" id="licInstallBtn">📥 התקנת קובץ רישיון</button>
+      ${st.mode === 'licensed' ? '' : '<button class="primary" id="licInstallBtn">📥 טעינת קובץ רישיון</button>'}
       <button class="secondary" id="licNoticesBtn">📥 קבלת עדכון סטטוס</button>
     </div>
-    <p class="muted">בקשת רישיון יוצרת מפתח שנשמר במכשיר הזה בלבד. שלחו את הקובץ לספק, והתקינו את קובץ הרישיון שיחזור.</p>` : '<p class="muted">ניהול הרישיון — למנהל בלבד.</p>'}
+    <p class="muted">בלי חיבור לשרת: "הפקת בקשת רישיון" יוצרת מפתח שנשמר במכשיר הזה בלבד. שלחו את הקובץ לספק, וטענו את קובץ הרישיון שיחזור.</p>` : ''}
   </div>`;
 
   const canIssue = isAdmin && st.mode === 'licensed' && st.status === 'active' && st.limits && st.limits.maxChildren > 0;
@@ -99,8 +177,13 @@ function renderLicensing(d) {
     </table></div>
   </div>` : '';
 
-  const signupCard = isAdmin && st.mode !== 'licensed' && d.remote && d.remote.url ? renderSignupCard(d.signup) : '';
-  return `<div class="settings">${renderActivationCard(st.activation, d)}${signupCard}${renderUpdateCard(d.update, isAdmin)}${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote, d.releases, d.ownerOffer, d.signups) : ''}</div>`;
+  // הרשמה: בלי רישוי — כמו קודם; בניסיון — רק אחרי שהתחילה (ההתחלה: "קניית רישיון" בכרטיס המצב)
+  const showSignup = isAdmin && d.remote && d.remote.url && (st.mode !== 'licensed' || (st.trial && d.signup));
+  const signupCard = showSignup ? renderSignupCard(d.signup) : '';
+  const advanced = `${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote, d.releases, d.ownerOffer, d.signups) : ''}`;
+  const advOpen = st.mode === 'unlicensed' || !!(d.owner && d.owner.unlocked);
+  return `<div class="settings">${renderStatusCard(st, d)}${renderActivationCard(st.activation, d)}${signupCard}${renderUpdateCard(d.update, isAdmin)}
+    <details class="lic-advanced"${advOpen ? ' open' : ''}><summary>הגדרות מתקדמות — פרטי הרישיון, שרת, מערכות בת</summary>${advanced}</details></div>`;
 }
 
 // הרשמה: מערכת חדשה בוחרת תכנית, חותמת על התקנון ומשלמת בדף המאובטח של חברת הסליקה

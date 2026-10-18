@@ -1027,3 +1027,20 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .owner-keys summary{cursor:pointer;font-weight:600}
 .recovery-codes{font-size:14px;line-height:2}
 .recovery-codes code{user-select:all;background:#f1f5f9;padding:2px 6px;border-radius:6px}
+/* מסך הרישוי — כרטיס המצב (PLAN.md 4.3) */
+.lic-status{border-inline-start:6px solid var(--success)}
+.lic-status.lic-trial{border-inline-start-color:var(--primary)}
+.lic-status.lic-expiring{border-inline-start-color:var(--warning);background:#fffbeb}
+.lic-status.lic-limited{border-inline-start-color:var(--warning);background:#fff7ed}
+.lic-status.lic-locked{border-inline-start-color:var(--danger);background:#fef2f2}
+.lic-status.lic-unlicensed{border-inline-start-color:var(--gray)}
+.lic-status-head{display:flex;gap:12px;align-items:flex-start}
+.lic-status-head h3{margin:0 0 4px}
+.lic-status-head p{margin:0}
+.lic-status-icon{font-size:28px;line-height:1}
+.lic-fix{margin:12px 0 4px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,.7);border:1px solid var(--border)}
+.lic-fix ol{margin:6px 0;padding-inline-start:22px}
+.lic-fix li{margin:3px 0}
+.lic-advanced{margin-top:12px}
+.lic-advanced>summary{cursor:pointer;font-weight:700;padding:8px 0}
+.modal-form textarea{width:100%;font-family:var(--font-mono);font-size:12px;padding:8px;border:1px solid var(--border);border-radius:var(--radius);resize:vertical}

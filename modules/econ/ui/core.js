@@ -241,7 +241,8 @@ async function loadViewData(viewName) {
         const inbox = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerInbox().catch(() => []) : [];
         const update = window.systemAPI.getUpdateStatus ? await window.systemAPI.getUpdateStatus().catch(() => null) : null;
         const releases = isAdmin && owner && owner.unlocked && window.systemAPI.ownerReleases ? await window.systemAPI.ownerReleases().catch(() => []) : [];
-        const signup = isAdmin && remote && remote.url && status.mode !== 'licensed' ? await window.systemAPI.licenseSignupStatus().catch(() => null) : null;
+        // הרשמה (קניית רישיון): בלי רישיון מותקן — גם בתקופת ניסיון
+        const signup = isAdmin && remote && remote.url && (status.mode !== 'licensed' || status.trial) ? await window.systemAPI.licenseSignupStatus().catch(() => null) : null;
         const ownerOffer = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerGetOffer().catch(() => null) : null;
         const signups = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerSignups().catch(() => []) : [];
         state.data.licensing = { status, isAdmin, children, owner, remote, inbox, update, releases, signup, ownerOffer, signups };

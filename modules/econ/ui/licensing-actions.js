@@ -49,7 +49,12 @@ function licForm(title, fields, submitText, intro) {
       const span = document.createElement('span');
       span.textContent = f.label;
       let input;
-      if (f.type === 'select') {
+      if (f.type === 'textarea') {
+        input = document.createElement('textarea');
+        input.rows = f.rows || 6;
+        input.dir = 'ltr';
+        input.spellcheck = false;
+      } else if (f.type === 'select') {
         input = document.createElement('select');
         for (const [value, text] of f.options) {
           const o = document.createElement('option');
@@ -162,6 +167,17 @@ function attachLicensingHandlers() {
     const r = await window.systemAPI.installLicense(text);
     showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
   });
+  // קוד רישיון שהודבק = אותו תוכן כמו קובץ הרישיון — אותה התקנה ואותן בדיקות
+  on('licPasteBtn', async () => {
+    const v = await licForm('הדבקת קוד רישיון', [{ name: 'code', label: 'קוד הרישיון', type: 'textarea', required: true }], 'התקנה',
+      'הדביקו כאן את כל הקוד שקיבלתם מהספק, מההתחלה ועד הסוף.');
+    if (!v) return;
+    const r = await window.systemAPI.installLicense(v.code);
+    showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
+  });
+  on('licBuyBtn', async () => { await startSignup(); });
+  const goMessages = document.getElementById('licGoMessagesBtn');
+  if (goMessages) goMessages.addEventListener('click', () => switchView('messages'));
   on('licNoticesBtn', async () => {
     const text = await pickFileText('.sslic,.json');
     if (text == null) return;
@@ -282,7 +298,7 @@ function attachLicensingHandlers() {
     showToast(r.added ? `התקבלו ${r.added} בקשות חדשות` : 'אין בקשות חדשות');
   });
   // --- הרשמה ---
-  on('signupStartBtn', async () => {
+  async function startSignup() {
     const offer = await window.systemAPI.getSignupOffer();
     const v = await signupWizard(offer);
     if (!v) return;
@@ -290,7 +306,8 @@ function attachLicensingHandlers() {
     if (r.free) { showToast('ההרשמה נשלחה — הרישיון יגיע בסנכרון'); return; }
     showToast('נפתח דף התשלום המאובטח');
     await window.systemAPI.licenseOpenPayment();
-  });
+  }
+  on('signupStartBtn', async () => { await startSignup(); });
   on('signupPayBtn', async () => { await window.systemAPI.licenseOpenPayment(); });
   on('signupCheckBtn', async () => {
     const r = await window.systemAPI.licenseSignupStatus();
