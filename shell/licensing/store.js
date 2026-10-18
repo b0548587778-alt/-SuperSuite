@@ -4,6 +4,7 @@
 const L = require('./license');
 const ACT = require('./activation');
 const S = require('./status');
+const { FEATURES: ALL_FEATURES } = require('./offer');
 
 const CACHE_MS = 60 * 1000;
 const LASTSEEN_WRITE_MS = 10 * 60 * 1000;
@@ -13,6 +14,10 @@ const PKG_REQUEST = 'supersuite-license-request';
 const PKG_NOTICES = 'supersuite-license-notices';
 const PKG_APPROVAL_REQUEST = 'supersuite-approval-request';
 const PKG_APPROVAL = 'supersuite-approval';
+// תקופת ניסיון (PLAN.md 4.2): התקנה בלי רישיון — הכול פתוח ל-30 יום, ואחר כך קריאה, ייצוא וגיבוי בלבד
+const TRIAL_DAYS = 30;
+const TRIAL_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000;
+const TRIAL_WARN_DAYS = 7;
 
 // storage / secret: { read(): string|null, write(text) }. secret מחזיק את המפתח הפרטי של הצומת — חייב להיות מוצפן/פרטי.
 // rootKeys ריק = התקנה בלי רישוי: הכול פתוח, כמו לפני שלב הרישוי
@@ -43,7 +48,8 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     const key = v2 ? o.key : o;
     L.keyId(key); // תקינות
     const g = v2 && o.guard && typeof o.guard === 'object' ? o.guard : null;
-    const guard = g ? { lastSeen: Number.isSafeInteger(g.lastSeen) ? g.lastSeen : 0, notices: Array.isArray(g.notices) ? g.notices.filter(x => typeof x === 'string') : [] } : null;
+    const guard = g ? { lastSeen: Number.isSafeInteger(g.lastSeen) ? g.lastSeen : 0, notices: Array.isArray(g.notices) ? g.notices.filter(x => typeof x === 'string') : [],
+      ...(Number.isSafeInteger(g.trialStart) && g.trialStart > 0 ? { trialStart: g.trialStart } : {}), ...(g.hadLicense === true ? { hadLicense: true } : {}) } : null;
     return { key, guard };
   }
   const writeSecret = (key, guard) => secret.write(JSON.stringify({ v: 2, key, guard: guard || { lastSeen: 0, notices: [] } }));
@@ -57,7 +63,12 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
       const p = n && n.payload;
       if (p && typeof p.id === 'string' && (p.target === S.ALL || chainIds.has(p.target))) ids.add(p.id);
     }
-    return { lastSeen: Math.max(prev ? prev.lastSeen : 0, Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0), notices: [...ids] };
+    // תחילת הניסיון: המוקדמת מבין השומר והקובץ — מחיקה או שינוי של הקובץ לא מאריכים אותו
+    const starts = [prev && prev.trialStart, d.trialStart].filter(x => Number.isSafeInteger(x) && x > 0);
+    return { lastSeen: Math.max(prev ? prev.lastSeen : 0, Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0), notices: [...ids],
+      ...(starts.length ? { trialStart: Math.min(...starts) } : {}),
+      // הותקן כאן רישיון פעם — מחיקת הקובץ לא מחזירה לתקופת ניסיון
+      ...((prev && prev.hadLicense) || Array.isArray(d.chain) ? { hadLicense: true } : {}) };
   }
   function syncGuard(d) {
     const sec = readSecret();
@@ -76,10 +87,41 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
 
   const lockedState = (reason) => ({ mode: 'licensed', status: 'locked', features: [], limits: {}, reasons: [{ kind: 'locked', reason }] });
 
+  // ניסיון: מתחיל בפעם הראשונה שהמצב מחושב בלי רישיון, ונשמר בשומר המוצפן ובקובץ.
+  // הזמן נספר מול הזמן המאוחר ביותר שנצפה — החזרת שעון לא מאריכה. בלי הצפנת Windows: רק בקובץ
+  function trialState(d) {
+    const now = clock();
+    let sec = null;
+    try { sec = readSecret(); } catch { sec = null; }
+    if (sec && sec.guard && sec.guard.hadLicense) return lockedState('קובץ הרישוי חסר — יש להתקין שוב את קובץ הרישיון מהספק');
+    if (!sec) { try { nodeKey(true); sec = readSecret(); } catch { sec = null; } }
+    const fromFile = d && Number.isSafeInteger(d.trialStart) && d.trialStart > 0 ? d.trialStart : 0;
+    const fromGuard = sec && sec.guard && sec.guard.trialStart ? sec.guard.trialStart : 0;
+    const known = [fromFile, fromGuard].filter(Boolean);
+    const start = known.length ? Math.min(...known) : now;
+    const seen = Math.max(now, start, d && Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0, sec && sec.guard ? sec.guard.lastSeen : 0);
+    // רישום (פעם ראשונה, או השלמה של מקום חסר)
+    const base = d || blank();
+    if (base.trialStart !== start || (base.lastSeen || 0) + LASTSEEN_WRITE_MS < seen) {
+      try { storage.write(JSON.stringify({ ...base, trialStart: start, lastSeen: Math.max(base.lastSeen || 0, seen) })); } catch { /* לא קריטי */ }
+    }
+    if (sec && (fromGuard !== start || (sec.guard ? sec.guard.lastSeen : 0) + LASTSEEN_WRITE_MS < seen)) {
+      const g = sec.guard || { lastSeen: 0, notices: [] };
+      try { writeSecret(sec.key, { ...g, trialStart: start, lastSeen: Math.max(g.lastSeen || 0, seen) }); } catch { /* לא קריטי */ }
+    }
+    const endsAt = start + TRIAL_MS;
+    const daysLeft = Math.max(0, Math.ceil((endsAt - seen) / (24 * 60 * 60 * 1000)));
+    const trial = { startedAt: start, endsAt, daysLeft, warn: daysLeft <= TRIAL_WARN_DAYS, guarded: !!sec };
+    if (seen < endsAt) return { mode: 'licensed', status: 'active', trial, features: [...ALL_FEATURES], limits: {}, reasons: [] };
+    return { mode: 'licensed', status: 'trial_ended', trial, features: [...ALL_FEATURES], limits: {},
+      reasons: [{ kind: 'trial_ended', reason: `תקופת הניסיון (${TRIAL_DAYS} יום) הסתיימה` }] };
+  }
+
   function compute() {
     if (!rootKeys.length) return { mode: 'unlicensed' };
     const d = load();
-    if (!d || !Array.isArray(d.chain)) return lockedState(d && d.corrupt ? 'קובץ הרישיון פגום' : 'לא הותקן רישיון למערכת');
+    if (d && d.corrupt) return lockedState('קובץ הרישוי פגום');
+    if (!d || !Array.isArray(d.chain)) return trialState(d);
     // רישיון מותקן תמיד יחד עם מפתח הצומת שלו (install בודק). בלי המפתח — הקובץ הועתק או שהשומר נמחק
     let sec;
     try { sec = readSecret(); } catch { return lockedState('לא ניתן לקרוא את מפתח המערכת (הצפנת המערכת אינה זמינה או שהקובץ פגום)'); }
@@ -87,6 +129,9 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     if (!sec || !leaf || !leaf.payload || L.keyId(sec.key) !== leaf.payload.id) return lockedState('מפתח המערכת חסר או אינו תואם לרישיון — יש לפנות לספק הרישיון');
     if (!sec.guard) { // התקנה מגרסה קודמת: השומר נבנה פעם אחת מהמצב הנוכחי
       sec.guard = guardFrom(d, null);
+      try { writeSecret(sec.key, sec.guard); } catch { /* ינוסה שוב בפעם הבאה */ }
+    } else if (!sec.guard.hadLicense) { // שומר מלפני 4.2: סימון שהותקן רישיון (מחיקת הקובץ לא תחזיר לניסיון)
+      sec.guard = { ...sec.guard, hadLicense: true };
       try { writeSecret(sec.key, sec.guard); } catch { /* ינוסה שוב בפעם הבאה */ }
     }
     const have = new Set((d.notices || []).map(n => n && n.payload && n.payload.id));
@@ -165,6 +210,7 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     const st = current();
     if (st.mode !== 'licensed') throw new Error('ההתקנה הזו אינה מוגדרת לרישוי');
     if (st.status !== 'active') throw new Error('לא ניתן להנפיק מערכות כשהמערכת אינה פעילה');
+    if (st.trial) throw new Error('לא ניתן להנפיק מערכות בתקופת ניסיון — יש להתקין רישיון');
     const d = load();
     const key = nodeKey(false);
     const own = d.chain[d.chain.length - 1];
@@ -320,4 +366,4 @@ function webStorage(ls, key) {
   return { read: () => ls.getItem(key), write: (text) => ls.setItem(key, text) };
 }
 
-module.exports = { createLicenseStore, fileStorage, encryptedFileSecret, webStorage, CACHE_MS, PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL };
+module.exports = { TRIAL_DAYS, createLicenseStore, fileStorage, encryptedFileSecret, webStorage, CACHE_MS, PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL };

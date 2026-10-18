@@ -221,7 +221,18 @@ $('home').onclick = e => {
 /* ---------- רישוי: מסך "מערכת מושבתת" ---------- */
 function renderLicense() {
   const bar = $('licBar'), block = $('licBlock');
-  if (lic.level === 'ok') { bar.hidden = true; block.hidden = true; return; }
+  if (lic.level === 'ok') {
+    block.hidden = true;
+    // תקופת ניסיון: הודעה במידע, ואזהרה בשבוע האחרון
+    const t = lic.trial;
+    bar.hidden = !t;
+    if (t) {
+      const left = Math.max(0, Number(t.daysLeft) || 0);
+      bar.className = 'trial' + (t.warn ? ' warn' : '');
+      bar.textContent = 'תקופת ניסיון — ' + (left === 1 ? 'נותר יום אחד' : 'נותרו ' + left + ' ימים') + (t.warn ? '. להמשך עבודה יש להתקין רישיון (רישוי ומערכות)' : '');
+    }
+    return;
+  }
   const blocked = lic.level === 'blocked';
   bar.hidden = false;
   bar.className = blocked ? 'blocked' : '';
@@ -229,7 +240,7 @@ function renderLicense() {
   block.hidden = false;
   block.className = 'lic-block' + (blocked ? '' : ' limited');
   block.innerHTML = `<h2>${blocked ? '🔒' : '⏸'} ${esc(lic.message)}</h2>` +
-    (blocked ? '<p>התוכנה אינה זמינה לעבודה כרגע.</p>' : '<p>אפשר לצפות בנתונים, לייצא ולגבות. יצירה ועריכה חסומות עד לחידוש.</p>') +
+    (blocked ? '<p>התוכנה אינה זמינה לעבודה כרגע.</p>' : `<p>אפשר לצפות בנתונים, לייצא ולגבות. יצירה ועריכה חסומות עד ${lic.status === 'trial_ended' ? 'להתקנת רישיון' : 'לחידוש'}.</p>`) +
     '<p>הנתונים שלך שמורים במחשב ולא נמחקו. לחידוש הפעילות פנו לספק, או קלטו רישיון / עדכון סטטוס.</p>' +
     '<button type="button" class="lic-go" data-key="econ:licensing">🔑 רישוי ומערכות</button>' +
     '<button type="button" class="lic-go" data-key="econ:messages">💬 הודעה לספק</button>';
@@ -243,7 +254,8 @@ function flashLicense() {
 }
 function applyLicense(st) {
   if (!st || typeof st !== 'object') return;
-  lic = { level: st.level || 'ok', message: String(st.message || ''), modules: st.modules || {} };
+  const t = st.trial && typeof st.trial === 'object' ? { daysLeft: Number(st.trial.daysLeft) || 0, warn: !!st.trial.warn } : null;
+  lic = { level: st.level || 'ok', status: String(st.status || ''), message: String(st.message || ''), modules: st.modules || {}, trial: t };
   document.body.classList.toggle('lic-blocked', lic.level === 'blocked');
   renderNav();
   if (!ui.active) renderHome(); else renderLicense();

@@ -179,7 +179,9 @@ test('שרת זדוני: רישיון מזויף או הודעה מזויפת ש
   const sync = createLicenseSync({ store: T, owner: null, rootKeys, fetchImpl: evilFetch });
   const r = await sync.receive();
   assert.match(r.errors[0], /חתימת הרישיון אינה תקינה/);
-  assert.equal(T.current().status, 'locked');
+  // לא הותקן כלום — נשארת בתקופת הניסיון (לא רישיון מלא עם התחומים המזויפים)
+  assert.ok(T.current().trial);
+  assert.equal(T.leafPayload(), null);
 });
 
 test('אין שרת / אין רשת: הודעה ברורה בעברית', async () => {

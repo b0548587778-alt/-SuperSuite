@@ -28,7 +28,7 @@ const DAY = L.DAY_MS;
 const T0 = Date.UTC(2026, 9, 1);
 const PASS = 'menahel-al-pass-2026';
 const mem = () => { const m = new Map(); return { read: (n) => (m.has(n) ? m.get(n) : null), write: (n, t) => m.set(n, t) }; };
-const one = () => { let v = null; return { read: () => v, write: (t) => { v = t; } }; };
+const one = (init = null) => { let v = init; return { read: () => v, write: (t) => { v = t; } }; };
 const limits = { maxChildren: 2, maxUsers: 10, maxStorageMb: 1000, maxDepth: 2 };
 
 // ---------- רינדור (כמו tests/new-cards-view.test.js) ----------
@@ -268,10 +268,11 @@ test('ipc: מנהל-העל מנפיק, לקוח מבקש אישור, מנהל-ה
 test('ipc: ערוצי מנהל-העל פתוחים גם במערכת נעולה (כדי להגדיר רישוי ממחשב בלי רישיון)', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-owner-ui2-'));
   const root = L.generateKeyPair();
-  await ipc.initEcon(dir, { rootKeys: [root.publicJwk], clock: () => T0, ownerStorage: mem(), licenseStorage: one(), licenseSecret: one() });
+  await ipc.initEcon(dir, { rootKeys: [root.publicJwk], clock: () => T0, ownerStorage: mem(), licenseStorage: one(JSON.stringify({ chain: null, notices: [], children: [], lastSeen: 0, trialStart: T0 - 40 * 86400000 })), licenseSecret: one() });
   await handlers['auth:setup'](ev(31), 'menahel_31', 'a-very-long-pass-2026');
   await handlers['auth:login'](ev(31), 'menahel_31', 'a-very-long-pass-2026');
-  await assert.rejects(handlers['tasks:get'](ev(31)), /לא הותקן רישיון/);
+  // תקופת ניסיון שהסתיימה (התחלה רשומה לפני 40 יום) — רק קריאה, אבל ערוצי מנהל-העל פתוחים
+  await assert.rejects(handlers['tasks:create'](ev(31), { title: 'שיעור' }), /תקופת הניסיון הסתיימה/);
   assert.equal((await handlers['owner:getState'](ev(31))).initialized, false);
   await assert.rejects(handlers['owner:init'](ev(31), 'short'), /לפחות 12/);
   await handlers['owner:init'](ev(31), PASS);

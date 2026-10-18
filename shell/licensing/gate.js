@@ -18,10 +18,13 @@ const ECON_SUB_FEATURES = {
 // ערוצים שתמיד פתוחים, גם במערכת מושבתת: כניסה/יציאה, כדי שהמשתמש יראה את מסך הסיבה.
 // הגדרות Google — כדי שמנהל יוכל להפעיל מערכת שנעולה עד כניסה עם Google (תנאי ההפעלה; ההרשאה עצמה: users.manage)
 const ALWAYS_OPEN = /^(auth|license|owner|chat|update):|^settings:(getGoogle|saveGoogle)$/;
-// במצב חוב/השבתה זמנית: קריאה, ייצוא וגיבוי בלבד — הנתונים של הלקוח לא "נלקחים כבני ערובה"
+// במצב חוב/השבתה זמנית/סוף תקופת ניסיון: קריאה, ייצוא וגיבוי בלבד — הנתונים של הלקוח לא "נלקחים כבני ערובה"
 const READ_ONLY_PERMS = new Set(['data.view', 'data.export', 'data.backup']);
 
+const READ_ONLY_STATUS = new Set(['pending_payment', 'suspended', 'trial_ended']);
+
 const STATUS_TEXT = {
+  trial_ended: 'תקופת הניסיון הסתיימה — אפשר לצפות, לייצא ולגבות. להמשך עבודה יש להתקין רישיון',
   pending_payment: 'המערכת ממתינה לתשלום',
   suspended: 'המערכת מושבתת זמנית',
   locked: 'המערכת נעולה',
@@ -56,8 +59,7 @@ function checkChannel(state, channel, permission) {
   if (!state || state.mode === 'unlicensed') return null;
   if (ALWAYS_OPEN.test(channel)) return null;
   if (state.status !== 'active') {
-    const readOnly = state.status === 'pending_payment' || state.status === 'suspended';
-    if (!(readOnly && READ_ONLY_PERMS.has(permission))) return statusMessage(state);
+    if (!(READ_ONLY_STATUS.has(state.status) && READ_ONLY_PERMS.has(permission))) return statusMessage(state);
   }
   const have = new Set(state.features || []);
   const missing = featuresForChannel(channel).filter(f => !have.has(f));
@@ -85,8 +87,9 @@ function shellState(state) {
   const modules = {};
   for (const m of Object.keys(MODULE_FEATURES)) modules[m] = moduleAllowed(state, m);
   if (!state || state.mode === 'unlicensed') return { mode: 'unlicensed', status: 'active', level: 'ok', message: '', modules };
-  const level = state.status === 'active' ? 'ok' : (state.status === 'pending_payment' || state.status === 'suspended') ? 'limited' : 'blocked';
-  return { mode: 'licensed', status: state.status, level, message: level === 'ok' ? '' : statusMessage(state), graceUntil: state.graceUntil || null, modules };
+  const level = state.status === 'active' ? 'ok' : READ_ONLY_STATUS.has(state.status) ? 'limited' : 'blocked';
+  const trial = state.trial ? { daysLeft: state.trial.daysLeft, endsAt: state.trial.endsAt, warn: !!state.trial.warn } : null;
+  return { mode: 'licensed', status: state.status, level, message: level === 'ok' ? '' : statusMessage(state), graceUntil: state.graceUntil || null, trial, modules };
 }
 
 // מגבלת משתמשים פעילים. activeCount = כמה פעילים יהיו אחרי הפעולה

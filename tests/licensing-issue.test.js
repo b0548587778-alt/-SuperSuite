@@ -91,7 +91,7 @@ test('Owner: מפתח השורש מוצפן בסיסמה, ולא נדרס', () =
 test('זרימה מלאה: בקשה ← הנפקה ← התקנה ← מערכת פעילה', () => {
   const { owner, install, tenantLimits } = setup();
   const store = install();
-  assert.equal(store.current().status, 'locked');
+  assert.ok(store.current().trial, 'בלי רישיון — תקופת ניסיון');
   const req = store.request('תלמוד תורה בית יוסף');
   const { package: pkg } = owner.issue({ request: req, features: ['econ', 'econ.npo', 'tools'], limits: tenantLimits, months: 12 });
   const r = store.install(pkg);
@@ -209,8 +209,9 @@ test('ipc: ניהול רישוי למנהל בלבד; מצב הרישיון לכ
 
   await handlers['auth:setup'](ev(9), 'menahel_9', 'a-very-long-pass-2026');
   await handlers['auth:login'](ev(9), 'menahel_9', 'a-very-long-pass-2026');
-  // מערכת נעולה (אין רישיון) — אבל התקנת רישיון עובדת
-  await assert.rejects(handlers['tasks:get'](ev(9)), /לא הותקן רישיון/);
+  // אין רישיון — תקופת ניסיון: הכול פתוח, והתקנת רישיון עובדת
+  await handlers['tasks:get'](ev(9));
+  assert.ok((await handlers['license:getStatus'](ev(9))).trial);
   const req = await handlers['license:getRequest'](ev(9), 'קהילת אור');
   assert.doesNotMatch(fs.readFileSync(path.join(dir, 'license-key.bin'), 'utf8'), /"d"/);
   await handlers['license:install'](ev(9), owner.issue({ request: req, features: ['econ'], limits: tenantLimits }).package);
