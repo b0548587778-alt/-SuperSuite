@@ -12,3 +12,9 @@ test('קובץ ה-EXE נושא את שם התוכנה והאייקון שלה, �
   assert.ok(pkg.build.copyright, 'זכויות יוצרים בפרטי הקובץ');
   assert.ok(pkg.build.win.icon);
 });
+
+test('CI: משימת הבדיקות מורידה היסטוריה מלאה (בדיקת השדרוג קוראת את 3.10.0 מ-git)', () => {
+  const yml = require('fs').readFileSync(require('path').join(__dirname, '..', '.github', 'workflows', 'build.yml'), 'utf8');
+  const trainer = yml.slice(yml.indexOf('\n  trainer:'), yml.indexOf('\n  build:'));
+  assert.match(trainer, /actions\/checkout@v4\s*\n\s*with:\s*\{\s*fetch-depth:\s*0\s*\}/);
+});
