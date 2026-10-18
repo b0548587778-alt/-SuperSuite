@@ -35,6 +35,7 @@ const ROOT_KEYS = require('../../shell/licensing/root-keys');
 const OC = require('../../shell/licensing/owner-core');
 const { createLicenseSync } = require('../../shell/licensing/sync');
 const { validateUrl } = require('../../shell/licensing/remote');
+const { DEFAULT_RELAY_URL } = require('../../shell/licensing/default-relay');
 const { createChatStore } = require('../../shell/licensing/chat');
 const UP = require('../../shell/licensing/update');
 const PK = require('../../shell/licensing/prekeys');
@@ -128,7 +129,7 @@ function licenseAdapters(userDataPath) {
 let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
-async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
+async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, relayUrl = DEFAULT_RELAY_URL, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
   updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions } = {}) {
   restTime = isRestTime;
   clockNow = clock || (() => Date.now());
@@ -149,13 +150,13 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, clock, licenseStor
   // מצב מנהל-העל: זמין בכל התקנה, אבל נפתח רק בסיסמה. המפתח נשמר מוצפן (SSBK1:)
   ownerCore = OC.createOwnerCore({ storage: ownerStorage || ad.owner, clock });
   rootKeysInUse = rootKeys;
-  // עבודה מרחוק דרך שרת הרישוי — פעיל רק אחרי שהמנהל הגדיר כתובת (בלי כתובת: אופליין לגמרי)
+  // עבודה מרחוק דרך שרת הרישוי — כתובת ברירת מחדל ב-default-relay.js; המנהל יכול להחליף או למחוק (מחיקה: אופליין לגמרי)
   // קבצים מצורפים שמורים מקומית: באנדרואיד (localStorage מוגבל) — מעט מאוד
   const maxAttachmentBytes = ad.platform === 'android' ? 1024 * 1024 : 40 * 1024 * 1024;
   chatStore = createChatStore({ storage: chatStorage || ad.chat, clock, maxAttachmentBytes });
   ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock, maxAttachmentBytes });
   // מחסן הרישוי נוצר לפני הסנכרון: createLicenseSync שומר את ההפניה, ו-null כאן הפיל כל פעולה מרחוק
-  licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock });
+  licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock, defaultUrl: relayUrl });
   licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock,
     chat: chatStore, ownerChat: ownerChatStore, updates: updateManager, isRestTime: () => restTime(),
     prekeys: PK.createPrekeyStore({ storage: prekeyStorage || ad.prekeys, clock: clock || Date.now }),

@@ -16,7 +16,8 @@ const PKG_APPROVAL = 'supersuite-approval';
 
 // storage / secret: { read(): string|null, write(text) }. secret מחזיק את המפתח הפרטי של הצומת — חייב להיות מוצפן/פרטי.
 // rootKeys ריק = התקנה בלי רישוי: הכול פתוח, כמו לפני שלב הרישוי
-function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now }) {
+// defaultUrl: כתובת השרת כשלא נשמרה כתובת. כתובת ריקה שנשמרה = החיבור לשרת כבוי
+function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, defaultUrl = '' }) {
   let cached = null;
   let cachedAt = -Infinity;
 
@@ -264,7 +265,11 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now }
     return noticesPackage(d.notices || [], [...d.chain.map(l => l.payload.id), childId]);
   }
   // הגדרות סנכרון (כתובת שרת) — נשמרות עם מצב הרישוי, מחוץ למסד הנתונים
-  function getRemoteSettings() { const d = load(); return (d && !d.corrupt && d.remote) || {}; }
+  function getRemoteSettings() {
+    const d = load();
+    const r = (d && !d.corrupt && d.remote) || {};
+    return r.url === undefined && defaultUrl ? { ...r, url: defaultUrl } : r;
+  }
   function setRemoteSettings(r) {
     const d = load();
     const base = d && !d.corrupt ? { ...blank(), ...d } : blank();
