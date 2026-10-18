@@ -339,7 +339,7 @@ async function auditEvent(event, action, details) {
 
 // הפקת PDF מ-HTML: רינדור בחלון נסתר בלי JavaScript, ואז שמירה במקום שהמשתמש בוחר
 async function saveHtmlAsPdf(html, defaultPath) {
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false } });
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false, devTools: !(require('electron').app && require('electron').app.isPackaged) } });
   try {
     await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64'));
     const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true });
@@ -738,7 +738,7 @@ function registerIpcHandlers() {
     const { business } = await accountingService.getSettings();
     const html = X.renderInvoiceHtml(inv, business);
     // רינדור במופע חלון נסתר ואז הדפסה ל-PDF, כך שהפלט זהה למה שרואים
-    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false } });
+    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false, devTools: !(require('electron').app && require('electron').app.isPackaged) } });
     try {
       await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64'));
       const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true });
