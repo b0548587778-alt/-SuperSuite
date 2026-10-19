@@ -2,9 +2,9 @@
 // השחזור מוחק את הנתונים הקיימים — לכן קודם בודקים שהקובץ באמת נתוני אימונים, ורק אז מוחקים.
 // משמש את main.js ואת האנדרואיד (android/web/main-android.js). בלי תלות ב-Node או ב-Electron.
 
-// המפתחות שהמודול כותב (modules-src/trainer/src/App.jsx — K ו-assessments)
-const FIXED = new Set(['trainer:profile', 'clients:index']);
-const PER_CLIENT = /^(client|program|sessions|measurements|assessments):[A-Za-z0-9_-]{1,64}$/;
+// המפתחות שהמודול כותב (modules-src/trainer/src/lib/db.js — K)
+const FIXED = new Set(['trainer:profile', 'clients:index', 'studio:plans', 'studio:schedule']);
+const PER_CLIENT = /^(client|program|sessions|measurements|assessments|memberships):[A-Za-z0-9_-]{1,64}$/;
 
 const isKnownKey = (k) => FIXED.has(k) || PER_CLIENT.test(k);
 
@@ -25,6 +25,9 @@ function checkTrainerItems(items) {
     if (!p.ok) return { ok: false, error: `הקובץ פגום: הערך של ${k} אינו תקין` };
     if (k === 'clients:index' && !(Array.isArray(p.value) && p.value.every(id => typeof id === 'string'))) {
       return { ok: false, error: 'הקובץ פגום: רשימת המתאמנים אינה תקינה' };
+    }
+    if ((k === 'studio:plans' || k === 'studio:schedule') && !Array.isArray(p.value)) {
+      return { ok: false, error: `הקובץ פגום: הערך של ${k} אינו תקין` };
     }
     if (k !== 'clients:index' && (p.value === null || typeof p.value !== 'object')) {
       return { ok: false, error: `הקובץ פגום: הערך של ${k} אינו תקין` };

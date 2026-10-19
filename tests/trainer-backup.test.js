@@ -19,6 +19,9 @@ const good = () => ({
   [`sessions:${ID}`]: JSON.stringify([]),
   [`measurements:${ID}`]: JSON.stringify([]),
   [`assessments:${ID}`]: JSON.stringify([]),
+  [`memberships:${ID}`]: JSON.stringify([]),
+  'studio:plans': JSON.stringify([]),
+  'studio:schedule': JSON.stringify([]),
 });
 
 test('מפתחות מוכרים: כל מה שהמודול כותב, ולא שום דבר אחר', () => {
@@ -102,4 +105,12 @@ test('CI: המודול הבנוי נשלח לענף ci-status (הורדת artifa
   const yml = read('.github', 'workflows', 'build.yml');
   const report = yml.slice(yml.indexOf('\n  report:'));
   assert.match(report, /name: trainer-module\s*\n\s*path: logs\/trainer-module/);
+});
+
+test('ניהול סטודיו (9.11): מפתחות המנויים והיומן נשמרים, וערך שאינו רשימה נפסל', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'modules-src', 'trainer', 'src', 'lib', 'db.js'), 'utf8');
+  for (const k of ['studio:plans', 'studio:schedule']) { assert.ok(src.includes("'" + k + "'"), k); assert.ok(isKnownKey(k), k); }
+  assert.ok(isKnownKey('memberships:c_1'));
+  const bad = { ...good(), 'studio:schedule': JSON.stringify({}) };
+  assert.equal(checkTrainerItems(bad).ok, false);
 });

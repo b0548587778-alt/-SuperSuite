@@ -62,12 +62,14 @@
       items: [
         { mod: 'trainer', view: 'dashboard',   label: 'לוח בקרה',        icon: '🏋', name: 'לוח בקרת אימונים',  desc: 'מתאמנים פעילים, אימונים ומי שדורש תשומת לב' },
         { mod: 'trainer', view: 'clients',     label: 'מתאמנים',         icon: '🧑', name: 'מתאמנים',            desc: 'רשימה, כרטיס מתאמן ומעקב התקדמות' },
+        { mod: 'trainer', view: 'schedule',    label: 'יומן אימונים',    icon: '📅', name: 'יומן אימונים',       desc: 'אימונים אישיים ושיעורים, נוכחות וסדרות שבועיות' },
+        { mod: 'trainer', view: 'memberships', label: 'מנויים וגבייה',   icon: '🎟', name: 'מנויים וגבייה',      desc: 'כרטיסיות, מנויים, יתרות ותשלומים' },
+        { mod: 'trainer', view: 'reminders',   label: 'תזכורות',         icon: '🔔', name: 'תזכורות למתאמנים',   desc: 'חידוש מנוי, יתרה, אימון מחר — עם הודעה מוכנה' },
         { mod: 'trainer', view: 'programs',    label: 'תוכניות מוכנות',  icon: '📋', name: 'תוכניות מוכנות',     desc: '5×5, PPL, Upper/Lower ועוד' },
         { mod: 'trainer', view: 'exercises',   label: 'ספריית תרגילים',  icon: '≣',  name: 'ספריית תרגילים',     desc: 'תרגילים לפי שריר וציוד' },
         { mod: 'trainer', view: 'nutrition',   label: 'תזונה',           icon: '🥗', name: 'תזונה למתאמנים',     desc: 'מחשבון קלוריות, מאגר מאכלים ותפריטים' },
         { mod: 'trainer', view: 'flexibility', label: 'גמישות ויוגה',    icon: '🤸', name: 'גמישות ומתיחות',     desc: 'שגרות גמישות והתאוששות' },
         { mod: 'trainer', view: 'cardio',      label: 'קרדיו',           icon: '🏃', name: 'קרדיו',              desc: 'HIIT, ריצה ואזורי דופק' },
-        { mod: 'trainer', view: 'martial',     label: 'אומנויות לחימה',  icon: '🥊', name: 'אומנויות לחימה',     desc: 'טכניקות, תרגילי אימון וכושר ייעודי' },
         { mod: 'trainer', view: 'knowledge',   label: 'ידע מקצועי',      icon: '📚', name: 'ידע מקצועי',         desc: 'פציעות, עקרונות אימון ומקורות' },
         { mod: 'trainer', view: 'tools',       label: 'כלים',            icon: '🛠', name: 'כלי מאמן',           desc: '1RM, טיימר, הערכת תנועה ו-PAR-Q' },
         { mod: 'trainer', view: 'settings',    label: 'הגדרות',          icon: '⚙',  name: 'הגדרות אימונים',     desc: 'פרופיל המאמן, גיבוי ושחזור' }

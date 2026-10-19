@@ -15,9 +15,6 @@ import {
   ASSESSMENTS, calculate1RM, calculatePercentages, PARQ_QUESTIONS,
 } from './data/knowledge.js';
 import {
-  MARTIAL_TECHNIQUES, MARTIAL_DRILLS, COMBAT_CONDITIONING,
-} from './data/martial-arts.js';
-import {
   MOBILITY_ROUTINES, YOGA_FLOWS, RECOVERY_METHODS,
 } from './data/mobility.js';
 import {
@@ -35,43 +32,9 @@ import {
 //                      STORAGE LAYER
 // ═══════════════════════════════════════════════════════════════════
 
-const S = {
-  async get(key) {
-    try {
-      if (!window.storage) return null;
-      const r = await window.storage.get(key);
-      return r?.value ? JSON.parse(r.value) : null;
-    } catch { return null; }
-  },
-  async set(key, value) {
-    try {
-      if (!window.storage) return;
-      await window.storage.set(key, JSON.stringify(value));
-    } catch (e) { console.error('set failed', key, e); }
-  },
-  async del(key) {
-    try {
-      if (!window.storage) return;
-      await window.storage.delete(key);
-    } catch { /* ok */ }
-  },
-  async list(prefix) {
-    try {
-      if (!window.storage) return [];
-      const r = await window.storage.list(prefix);
-      return r?.keys || [];
-    } catch { return []; }
-  },
-};
-
-const K = {
-  trainer: 'trainer:profile',
-  clientIndex: 'clients:index',
-  client: (id) => `client:${id}`,
-  program: (clientId) => `program:${clientId}`,
-  sessions: (clientId) => `sessions:${clientId}`,
-  measurements: (clientId) => `measurements:${clientId}`,
-};
+import { S, K } from './lib/db.js';
+import { removeClientEverywhere } from './lib/studio.js';
+import { ScheduleView, MembershipsView, RemindersView, ClientMembershipTab, ClientReport, TodayPanel } from './studio.jsx';
 
 // ═══════════════════════════════════════════════════════════════════
 //                   BUSINESS LOGIC
@@ -414,6 +377,10 @@ export default function App() {
     await S.del(K.program(id));
     await S.del(K.sessions(id));
     await S.del(K.measurements(id));
+    await S.del(K.assessments(id));
+    await S.del(K.memberships(id));
+    const sch = (await S.get(K.schedule)) || [];
+    await S.set(K.schedule, removeClientEverywhere(sch, id));
     const idx = (await S.get(K.clientIndex)) || [];
     await S.set(K.clientIndex, idx.filter((i) => i !== id));
     setClients((prev) => prev.filter((c) => c.id !== id));
@@ -454,16 +421,18 @@ export default function App() {
             <div className="w-8" />
           </div>
 
-          {view.name === 'dashboard' && <Dashboard clients={clients} setView={setView} />}
+          {view.name === 'dashboard' && <Dashboard clients={clients} trainer={trainer} setView={setView} />}
+          {view.name === 'schedule' && <ScheduleView clients={clients} setView={setView} />}
+          {view.name === 'memberships' && <MembershipsView clients={clients} setView={setView} />}
+          {view.name === 'reminders' && <RemindersView clients={clients} trainer={trainer} setView={setView} />}
           {view.name === 'clients' && <ClientsList clients={clients} setView={setView} onDelete={deleteClient} />}
           {view.name === 'client-new' && <ClientForm onSave={async (c) => { await saveClient(c); setView({ name: 'client-detail', id: c.id }); }} onCancel={() => setView({ name: 'clients' })} />}
-          {view.name === 'client-detail' && <ClientDetail clientId={view.id} trainer={trainer} setView={setView} saveClient={saveClient} onDelete={deleteClient} />}
+          {view.name === 'client-detail' && <ClientDetail key={view.id + (view.tab || '')} clientId={view.id} initialTab={view.tab} clients={clients} trainer={trainer} setView={setView} saveClient={saveClient} onDelete={deleteClient} />}
           {view.name === 'library' && <LibraryView />}
           {view.name === 'templates' && <TemplatesView clients={clients} setView={setView} saveClient={saveClient} />}
           {view.name === 'nutrition' && <NutritionView />}
           {view.name === 'mobility' && <MobilityView />}
           {view.name === 'cardio' && <CardioView />}
-          {view.name === 'martial' && <MartialArtsView />}
           {view.name === 'knowledge' && <KnowledgeView />}
           {view.name === 'tools' && <ToolsView />}
           {view.name === 'settings' && <TrainerSettings trainer={trainer} onSave={saveTrainer} />}
@@ -481,12 +450,14 @@ function Sidebar({ view, setView, trainer, clientCount, mobileOpen, onClose }) {
   const items = [
     { id: 'dashboard', label: 'לוח בקרה', icon: '◉' },
     { id: 'clients', label: 'מתאמנים', icon: '❏', badge: clientCount },
+    { id: 'schedule', label: 'יומן אימונים', icon: '📅' },
+    { id: 'memberships', label: 'מנויים וגבייה', icon: '🎟' },
+    { id: 'reminders', label: 'תזכורות', icon: '🔔' },
     { id: 'templates', label: 'תוכניות מוכנות', icon: '📋' },
     { id: 'library', label: 'ספריית תרגילים', icon: '≣' },
     { id: 'nutrition', label: 'תזונה', icon: '🥗' },
     { id: 'mobility', label: 'גמישות ויוגה', icon: '🧘' },
     { id: 'cardio', label: 'קרדיו', icon: '🏃' },
-    { id: 'martial', label: 'אומנויות לחימה', icon: '🥊' },
     { id: 'knowledge', label: 'ידע מקצועי', icon: '📚' },
     { id: 'tools', label: 'כלים', icon: '🛠' },
     { id: 'settings', label: 'הגדרות', icon: '⚙' },
@@ -599,7 +570,7 @@ function TrainerSetup({ onSave }) {
 //                      DASHBOARD
 // ═══════════════════════════════════════════════════════════════════
 
-function Dashboard({ clients, setView }) {
+function Dashboard({ clients, trainer, setView }) {
   const [stats, setStats] = useState({ sessionsWeek: 0, sessionsMonth: 0, inactive: [] });
 
   useEffect(() => {
@@ -649,6 +620,8 @@ function Dashboard({ clients, setView }) {
         <StatCard title="אימונים החודש" value={stats.sessionsMonth} />
         <StatCard title="לא התאמנו 7+ ימים" value={stats.inactive.length} tone={stats.inactive.length > 0 ? 'amber' : 'normal'} />
       </div>
+
+      <TodayPanel clients={clients} trainer={trainer} setView={setView} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
         {/* Goal distribution */}
@@ -708,6 +681,8 @@ function Dashboard({ clients, setView }) {
 
       <div className="flex gap-2 flex-wrap">
         <Btn variant="primary" onClick={() => setView({ name: 'client-new' })}>+ מתאמן חדש</Btn>
+        <Btn variant="outline" onClick={() => setView({ name: 'schedule' })}>יומן אימונים</Btn>
+        <Btn variant="outline" onClick={() => setView({ name: 'memberships' })}>מנויים וגבייה</Btn>
         <Btn variant="outline" onClick={() => setView({ name: 'clients' })}>רשימת מתאמנים</Btn>
         <Btn variant="outline" onClick={() => setView({ name: 'library' })}>ספריית תרגילים</Btn>
         <Btn variant="outline" onClick={() => setView({ name: 'tools' })}>טיימר</Btn>
@@ -735,11 +710,6 @@ function Dashboard({ clients, setView }) {
             <div className="text-2xl mb-1">🏃</div>
             <div className="font-semibold" style={{ fontFamily: FONT_HEADING }}>קרדיו</div>
             <div className="text-xs text-slate-500">HIIT, ריצה, אזורי דופק</div>
-          </button>
-          <button onClick={() => setView({ name: 'martial' })} className="text-right bg-slate-900/60 border border-slate-800 rounded-xl p-4 hover:border-indigo-600 transition">
-            <div className="text-2xl mb-1">🥊</div>
-            <div className="font-semibold" style={{ fontFamily: FONT_HEADING }}>אומנויות לחימה</div>
-            <div className="text-xs text-slate-500">אגרוף, קרב מגע, BJJ</div>
           </button>
           <button onClick={() => setView({ name: 'knowledge' })} className="text-right bg-slate-900/60 border border-slate-800 rounded-xl p-4 hover:border-indigo-600 transition">
             <div className="text-2xl mb-1">📚</div>
@@ -1002,13 +972,14 @@ function ClientForm({ initial, onSave, onCancel }) {
 //                      CLIENT DETAIL (with tabs)
 // ═══════════════════════════════════════════════════════════════════
 
-function ClientDetail({ clientId, trainer, setView, saveClient, onDelete }) {
+function ClientDetail({ clientId, initialTab, clients, trainer, setView, saveClient, onDelete }) {
   const [client, setClient] = useState(null);
   const [program, setProgram] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [measurements, setMeasurements] = useState([]);
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState(initialTab || 'overview');
   const [editing, setEditing] = useState(false);
+  const [report, setReport] = useState(false);
 
   const reload = async () => {
     const c = await S.get(K.client(clientId));
@@ -1033,6 +1004,11 @@ function ClientDetail({ clientId, trainer, setView, saveClient, onDelete }) {
         onCancel={() => setEditing(false)}
       />
     );
+  }
+
+  // הדוח למתאמן מחליף את כל המסך (גם בהדפסה — בלי כרטיס המתאמן מאחוריו)
+  if (report) {
+    return <ClientReport client={client} clients={clients} trainer={trainer} measurements={measurements} goalLabel={GOALS.find((g) => g.id === client.goal)?.label} onClose={() => setReport(false)} />;
   }
 
   const warnings = getMedicalWarnings(client);
@@ -1072,6 +1048,7 @@ function ClientDetail({ clientId, trainer, setView, saveClient, onDelete }) {
 
   const tabs = [
     { id: 'overview', label: 'סקירה' },
+    { id: 'membership', label: 'מנוי ותשלומים' },
     { id: 'program', label: 'תוכנית אימון' },
     { id: 'nutrition', label: 'תזונה' },
     { id: 'assessment', label: 'הערכה' },
@@ -1095,6 +1072,7 @@ function ClientDetail({ clientId, trainer, setView, saveClient, onDelete }) {
           </div>
         </div>
         <div className="flex gap-2">
+          <Btn variant="outline" onClick={() => setReport(true)}>📈 כרטיס ודוח למתאמן</Btn>
           <Btn variant="outline" onClick={() => setEditing(true)}>עריכה</Btn>
           <Btn variant="danger" onClick={() => { if (confirm(`למחוק לצמיתות את ${client.name} וכל הנתונים הקשורים?`)) { onDelete(client.id); setView({ name: 'clients' }); } }}>מחק</Btn>
         </div>
@@ -1127,12 +1105,12 @@ function ClientDetail({ clientId, trainer, setView, saveClient, onDelete }) {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-800 mb-6">
+      <div className="flex gap-1 border-b border-slate-800 mb-6 overflow-x-auto no-print">
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-4 py-2.5 text-sm border-b-2 -mb-px transition ${tab === t.id ? 'border-indigo-500 text-indigo-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+            className={`px-4 py-2.5 text-sm border-b-2 -mb-px transition whitespace-nowrap ${tab === t.id ? 'border-indigo-500 text-indigo-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
           >
             {t.label}
           </button>
@@ -1140,6 +1118,7 @@ function ClientDetail({ clientId, trainer, setView, saveClient, onDelete }) {
       </div>
 
       {/* Tab content */}
+      {tab === 'membership' && <ClientMembershipTab client={client} clients={clients} onReport={() => setReport(true)} />}
       {tab === 'overview' && <OverviewTab client={client} program={program} sessionCount={sessions.length} />}
       {tab === 'program' && <ProgramTab client={client} program={program} trainer={trainer} onGenerate={handleGenerate} onSave={handleSaveProgram} onLogSession={handleLogSession} />}
       {tab === 'nutrition' && <ClientNutritionTab client={client} />}
@@ -2090,6 +2069,7 @@ function FoodDatabase() {
     { id: 'fruit', label: 'פירות' },
     { id: 'fat', label: 'שומנים' },
     { id: 'mixed', label: 'מנות מוכנות' },
+    { id: 'shabbat', label: 'שבת וחג' },
   ];
   const filtered = FOODS.filter(f => {
     if (cat !== 'all' && f.cat !== cat) return false;
@@ -2105,7 +2085,7 @@ function FoodDatabase() {
           {cats.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
         </select>
       </div>
-      <div className="text-sm text-slate-400 mb-3">{filtered.length} פריטים</div>
+      <div className="text-sm text-slate-400 mb-3">{filtered.length} פריטים · ערכים ממוצעים — למוצר מסוים קובעת התווית שלו</div>
       <Card padded={false} className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-800/50 text-slate-400 text-xs">
@@ -2840,177 +2820,6 @@ function ClientAssessmentTab({ client }) {
           </div>
         </Card>
       )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-//                   NEW: MARTIAL ARTS VIEW
-// ═══════════════════════════════════════════════════════════════════
-
-function MartialArtsView() {
-  const [tab, setTab] = useState('techniques');
-  return (
-    <div className="p-4 md:p-8 max-w-6xl">
-      <header className="mb-6">
-        <h1 className="text-3xl md:text-4xl font-bold mb-1" style={{ fontFamily: FONT_HEADING }}>אומנויות לחימה</h1>
-        <div className="text-sm text-slate-400">אגרוף · קיקבוקס · קרב מגע · BJJ — טכניקות, תרגילים ואימוני כושר</div>
-      </header>
-
-      <div className="flex gap-1 border-b border-slate-800 mb-6 overflow-x-auto">
-        {[
-          { id: 'techniques', label: 'טכניקות' },
-          { id: 'drills', label: 'תרגילי אימון' },
-          { id: 'conditioning', label: 'כושר ייעודי' },
-        ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2.5 text-sm border-b-2 -mb-px transition whitespace-nowrap ${tab === t.id ? 'border-indigo-500 text-indigo-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'techniques' && <MartialTechniquesList />}
-      {tab === 'drills' && <MartialDrillsList />}
-      {tab === 'conditioning' && <CombatConditioningList />}
-    </div>
-  );
-}
-
-function MartialTechniquesList() {
-  const [filter, setFilter] = useState('all');
-  const [open, setOpen] = useState(null);
-  const disciplines = ['all', ...Array.from(new Set(MARTIAL_TECHNIQUES.map(t => t.discipline)))];
-  const filtered = filter === 'all' ? MARTIAL_TECHNIQUES : MARTIAL_TECHNIQUES.filter(t => t.discipline === filter);
-
-  return (
-    <div>
-      <div className="flex gap-2 mb-4 flex-wrap">
-        {disciplines.map(d => (
-          <button key={d} onClick={() => setFilter(d)}
-            className={`px-3 py-1.5 rounded-lg text-sm border transition ${filter === d ? 'bg-indigo-500/15 border-indigo-500 text-indigo-200' : 'bg-slate-800/50 border-slate-700 text-slate-300'}`}>
-            {d === 'all' ? 'הכל' : d}
-          </button>
-        ))}
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {filtered.map(t => (
-          <button key={t.id} onClick={() => setOpen(t)}
-            className="text-right bg-slate-900/60 border border-slate-800 rounded-xl p-4 hover:border-indigo-600 transition">
-            <div className="flex justify-between items-start mb-2">
-              <Badge tone="indigo">{t.discipline}</Badge>
-              <Badge tone={t.level === 'beginner' ? 'emerald' : t.level === 'intermediate' ? 'amber' : 'red'}>
-                {LEVELS.find(l => l.id === t.level)?.label}
-              </Badge>
-            </div>
-            <div className="font-semibold mb-1" style={{ fontFamily: FONT_HEADING }}>{t.name}</div>
-            <div className="text-xs text-slate-400 line-clamp-2">{t.application}</div>
-          </button>
-        ))}
-      </div>
-
-      <Modal open={!!open} onClose={() => setOpen(null)} title={open?.name || ''} wide>
-        {open && (
-          <div className="space-y-5">
-            <div className="flex gap-2 flex-wrap">
-              <Badge tone="indigo">{open.discipline}</Badge>
-              <Badge tone={open.level === 'beginner' ? 'emerald' : open.level === 'intermediate' ? 'amber' : 'red'}>
-                {LEVELS.find(l => l.id === open.level)?.label}
-              </Badge>
-            </div>
-
-            <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4">
-              <div className="text-indigo-300 font-semibold mb-3" style={{ fontFamily: FONT_HEADING }}>הוראות ביצוע</div>
-              <ol className="space-y-2 text-sm text-slate-200">
-                {open.instructions.map((s, i) => (
-                  <li key={i} className="flex gap-3">
-                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-300 text-xs flex items-center justify-center mt-0.5">{i + 1}</span>
-                    <span>{s}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-
-            {open.keyPoints && (
-              <div className="bg-emerald-950/20 border border-emerald-900/50 rounded-xl p-4">
-                <div className="text-emerald-300 font-semibold mb-2" style={{ fontFamily: FONT_HEADING }}>נקודות מפתח</div>
-                <ul className="space-y-1 text-sm text-emerald-100/90">
-                  {open.keyPoints.map((p, i) => <li key={i} className="flex gap-2"><span className="text-emerald-400">✓</span>{p}</li>)}
-                </ul>
-              </div>
-            )}
-
-            {open.mistakes && (
-              <div className="bg-red-950/20 border border-red-900/50 rounded-xl p-4">
-                <div className="text-red-300 font-semibold mb-2" style={{ fontFamily: FONT_HEADING }}>טעויות נפוצות</div>
-                <ul className="space-y-1 text-sm text-red-100/90">
-                  {open.mistakes.map((m, i) => <li key={i} className="flex gap-2"><span className="text-red-400">⚠</span>{m}</li>)}
-                </ul>
-              </div>
-            )}
-
-            <div className="bg-slate-800/40 border-r-4 border-indigo-500 rounded p-3">
-              <div className="text-xs text-slate-400 mb-1">יישום קרבי</div>
-              <div className="text-sm text-slate-200 leading-relaxed">{open.application}</div>
-            </div>
-          </div>
-        )}
-      </Modal>
-    </div>
-  );
-}
-
-function MartialDrillsList() {
-  return (
-    <div className="space-y-4">
-      {MARTIAL_DRILLS.map(d => (
-        <Card key={d.id}>
-          <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
-            <h4 className="font-semibold" style={{ fontFamily: FONT_HEADING }}>{d.name}</h4>
-            <Badge tone="indigo">{d.duration}</Badge>
-          </div>
-          <p className="text-sm text-slate-300 mb-3">{d.description}</p>
-          <div className="text-xs text-emerald-400 mb-3">🎯 {d.purpose}</div>
-          <div className="bg-slate-800/40 rounded-lg p-3 mb-2">
-            <div className="text-xs text-slate-400 mb-2">הוראות</div>
-            <ol className="space-y-1 text-sm text-slate-200">
-              {d.instructions.map((s, i) => <li key={i} className="flex gap-2"><span className="text-indigo-400">{i + 1}.</span>{s}</li>)}
-            </ol>
-          </div>
-          {d.safety && (
-            <div className="bg-red-950/20 border border-red-900/40 rounded-lg p-3 text-sm text-red-100/90">
-              ⚠ <strong>בטיחות:</strong> {d.safety}
-            </div>
-          )}
-        </Card>
-      ))}
-    </div>
-  );
-}
-
-function CombatConditioningList() {
-  return (
-    <div className="space-y-4">
-      {COMBAT_CONDITIONING.map((w, i) => (
-        <Card key={i}>
-          <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
-            <h4 className="font-semibold" style={{ fontFamily: FONT_HEADING }}>{w.name}</h4>
-            <div className="flex gap-2">
-              <Badge tone="indigo">{w.duration}</Badge>
-              <Badge tone="slate">{w.rounds} סבבים</Badge>
-            </div>
-          </div>
-          <div className="text-xs text-slate-400 mb-3">
-            עבודה: {w.workTime}״ · מנוחה: {w.restTime}״
-          </div>
-          <div className="bg-slate-800/40 rounded-lg p-3">
-            <div className="text-xs text-slate-400 mb-2">תרגילים בסבב</div>
-            <ul className="space-y-1 text-sm text-slate-200">
-              {w.exercises.map((e, ei) => <li key={ei} className="flex gap-2"><span className="text-indigo-400">·</span>{e}</li>)}
-            </ul>
-          </div>
-        </Card>
-      ))}
     </div>
   );
 }

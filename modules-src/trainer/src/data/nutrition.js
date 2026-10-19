@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════
 //                   FOOD DATABASE — Israeli/Kosher
 // ═══════════════════════════════════════════════════════════════════
-// Per 100g unless specified
+// Per 100g unless specified. ערכים ממוצעים לפי טבלאות תזונה מקובלות — למוצר מסוים קובעת התווית שלו.
 // kcal, p (protein g), c (carbs g), f (fat g)
 
 export const FOODS = [
@@ -86,11 +86,52 @@ export const FOODS = [
   { id: 'shakshuka', name: 'שקשוקה (2 ביצים, רוטב)', cat: 'mixed', kcal: 280, p: 16, c: 12, f: 18, unit: 'מנה' },
   { id: 'falafel-ball', name: 'פלאפל (כדור)', cat: 'mixed', kcal: 60, p: 2.5, c: 5, f: 4, unit: 'כדור (17 גרם)' },
   { id: 'salad-israeli', name: 'סלט ישראלי (200 גרם)', cat: 'veg', kcal: 80, p: 2, c: 10, f: 4, unit: 'מנה' },
-  { id: 'cholent', name: 'חמין (מנה)', cat: 'mixed', kcal: 450, p: 25, c: 50, f: 18, unit: 'מנה' },
-  { id: 'kugel-potato', name: 'קוגל תפוח אדמה (פרוסה)', cat: 'mixed', kcal: 200, p: 4, c: 22, f: 10, unit: 'פרוסה' },
-  { id: 'gefilte', name: 'גפילטע פיש', cat: 'protein', kcal: 84, p: 9, c: 5, f: 3, unit: '100 גרם' },
+  { id: 'cholent', name: 'חמין (מנה)', cat: 'shabbat', kcal: 450, p: 25, c: 50, f: 18, unit: 'מנה' },
+  { id: 'kugel-potato', name: 'קוגל תפוח אדמה (פרוסה)', cat: 'shabbat', kcal: 200, p: 4, c: 22, f: 10, unit: 'פרוסה' },
+  { id: 'gefilte', name: 'גפילטע פיש', cat: 'shabbat', kcal: 84, p: 9, c: 5, f: 3, unit: '100 גרם' },
   { id: 'milk-3', name: 'חלב 3%', cat: 'protein', kcal: 60, p: 3.4, c: 4.9, f: 3, unit: '100 מ"ל' },
   { id: 'milk-1', name: 'חלב 1%', cat: 'protein', kcal: 42, p: 3.4, c: 5, f: 1, unit: '100 מ"ל' },
+
+  // === מוצרי חלב נוספים ===
+  { id: 'white-cheese-5', name: 'גבינה לבנה 5%', cat: 'protein', kcal: 95, p: 9, c: 4, f: 5, unit: '100 גרם' },
+  { id: 'yellow-cheese-28', name: 'גבינה צהובה 28%', cat: 'protein', kcal: 356, p: 27, c: 0, f: 28, unit: '100 גרם' },
+  { id: 'labane-5', name: 'לבנה 5%', cat: 'protein', kcal: 103, p: 6, c: 4, f: 5, unit: '100 גרם' },
+
+  // === חלבונים נוספים ===
+  { id: 'tuna-oil', name: 'טונה בשמן (מסוננת)', cat: 'protein', kcal: 198, p: 29, c: 0, f: 8, unit: '100 גרם' },
+  { id: 'chicken-roast', name: 'עוף בתנור עם עור', cat: 'protein', kcal: 239, p: 27, c: 0, f: 14, unit: '100 גרם' },
+  { id: 'schnitzel', name: 'שניצל עוף מטוגן', cat: 'protein', kcal: 260, p: 18, c: 13, f: 15, unit: '100 גרם' },
+
+  // === פחמימות נוספות ===
+  { id: 'challah', name: 'חלה', cat: 'shabbat', kcal: 287, p: 7.6, c: 48, f: 7.3, unit: '100 גרם' },
+  { id: 'rye-bread', name: 'לחם שיפון', cat: 'carb', kcal: 259, p: 8.5, c: 48, f: 3.3, unit: '100 גרם' },
+  { id: 'rice-cake', name: 'פריכית אורז', cat: 'carb', kcal: 35, p: 0.7, c: 7.3, f: 0.3, unit: 'יחידה (9 גרם)' },
+  { id: 'ptitim-dry', name: 'פתיתים (יבש)', cat: 'carb', kcal: 357, p: 12, c: 74, f: 1.5, unit: '100 גרם' },
+  { id: 'corn', name: 'תירס', cat: 'carb', kcal: 86, p: 3.3, c: 19, f: 1.4, unit: '100 גרם' },
+
+  // === ירקות נוספים ===
+  { id: 'cabbage', name: 'כרוב', cat: 'veg', kcal: 25, p: 1.3, c: 6, f: 0.1, unit: '100 גרם' },
+  { id: 'beet', name: 'סלק', cat: 'veg', kcal: 43, p: 1.6, c: 10, f: 0.2, unit: '100 גרם' },
+  { id: 'mushrooms', name: 'פטריות', cat: 'veg', kcal: 22, p: 3.1, c: 3.3, f: 0.3, unit: '100 גרם' },
+  { id: 'green-beans', name: 'שעועית ירוקה', cat: 'veg', kcal: 31, p: 1.8, c: 7, f: 0.2, unit: '100 גרם' },
+  { id: 'peas', name: 'אפונה ירוקה', cat: 'veg', kcal: 81, p: 5.4, c: 14, f: 0.4, unit: '100 גרם' },
+
+  // === פירות נוספים ===
+  { id: 'watermelon', name: 'אבטיח', cat: 'fruit', kcal: 30, p: 0.6, c: 7.6, f: 0.2, unit: '100 גרם' },
+  { id: 'melon', name: 'מלון', cat: 'fruit', kcal: 34, p: 0.8, c: 8, f: 0.2, unit: '100 גרם' },
+  { id: 'mango', name: 'מנגו', cat: 'fruit', kcal: 60, p: 0.8, c: 15, f: 0.4, unit: '100 גרם' },
+  { id: 'clementine', name: 'קלמנטינה', cat: 'fruit', kcal: 53, p: 0.8, c: 13, f: 0.3, unit: '100 גרם' },
+  { id: 'peach', name: 'אפרסק', cat: 'fruit', kcal: 39, p: 0.9, c: 10, f: 0.3, unit: '100 גרם' },
+  { id: 'pear', name: 'אגס', cat: 'fruit', kcal: 57, p: 0.4, c: 15, f: 0.1, unit: '100 גרם' },
+  { id: 'plum', name: 'שזיף', cat: 'fruit', kcal: 46, p: 0.7, c: 11, f: 0.3, unit: '100 גרם' },
+
+  // === שומנים נוספים ===
+  { id: 'olives', name: 'זיתים שחורים', cat: 'fat', kcal: 115, p: 0.8, c: 6.3, f: 10.7, unit: '100 גרם' },
+  { id: 'pumpkin-seeds', name: 'גרעיני דלעת', cat: 'fat', kcal: 559, p: 30, c: 11, f: 49, unit: '100 גרם' },
+  { id: 'cashew', name: 'אגוזי קשיו', cat: 'fat', kcal: 553, p: 18, c: 30, f: 44, unit: '100 גרם' },
+
+  // === משקאות ===
+  { id: 'orange-juice', name: 'מיץ תפוזים טבעי', cat: 'mixed', kcal: 45, p: 0.7, c: 10, f: 0.2, unit: '100 מ"ל' },
 ];
 
 // ═══════════════════════════════════════════════════════════════════

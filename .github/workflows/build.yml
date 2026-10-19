@@ -8,7 +8,8 @@ on:
         type: boolean
         default: false
   push:
-    branches: [master]
+    # build/** — בניית מודול האימונים מענף עבודה לפני מיזוג (vite חסום ב-NetFree), בלי לגעת ב-master
+    branches: [master, 'build/**']
 # יומני הבנייה נכתבים גם לענף ci-status (משימת report): דף היומנים של GitHub Actions חסום ב-NetFree,
 # וכך אפשר לקרוא את התוצאה ב-git fetch origin ci-status.
 jobs:
