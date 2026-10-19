@@ -183,6 +183,8 @@ contextBridge.exposeInMainWorld('systemAPI', {
   saveNpoSettings: (input) => ipcRenderer.invoke('npo:saveSettings', input),
   addNpoDonation: (input) => ipcRenderer.invoke('npo:addDonation', input),
   cancelNpoDonation: (id) => ipcRenderer.invoke('npo:cancelDonation', id),
+  addNpoChequeDonation: (input, options) => ipcRenderer.invoke('npo:addChequeDonation', input, options),
+  cancelNpoCheque: (id, number, bank) => ipcRenderer.invoke('npo:cancelCheque', id, number, bank),
   addNpoGrant: (input) => ipcRenderer.invoke('npo:addGrant', input),
   updateNpoGrant: (id, input) => ipcRenderer.invoke('npo:updateGrant', id, input),
   deleteNpoGrant: (id) => ipcRenderer.invoke('npo:deleteGrant', id),

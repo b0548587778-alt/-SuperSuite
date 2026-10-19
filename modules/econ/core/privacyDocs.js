@@ -153,10 +153,11 @@ const LABELS = {
   deposit: 'פיקדון', familyName: 'שם משפחה', headName: 'ראש המשפחה', idNumber: 'ת.ז', phone: 'טלפון', address: 'כתובת', familySize: 'נפשות',
   area: 'אזור', tier: 'רמת חיסיון', active: 'פעיל', customer: 'לקוח', customerTaxId: 'ע.מ / ח.פ', net: 'לפני מע"מ', vat: 'מע"מ', total: 'סה"כ',
   items: 'פריטים', createdAt: 'נוצר', updatedAt: 'עודכן', paidAt: 'שולם', cancelledAt: 'בוטל', depositorName: 'שם המפקיד',
-  privacyMinimizedAt: 'מוזער', minimizedAt: 'מוזער', reportStatus: 'דיווח לרשות המסים', campaignId: 'קמפיין', availability: 'זמינות'
+  privacyMinimizedAt: 'מוזער', minimizedAt: 'מוזער', reportStatus: 'דיווח לרשות המסים', campaignId: 'קמפיין', availability: 'זמינות',
+  cheques: 'המחאות', receivedDate: 'ההמחאות התקבלו', bouncedCheque: 'המחאה שחזרה', replacesReceipt: 'מחליפה את קבלה', bank: 'בנק', branch: 'סניף'
 };
 // מזהים פנימיים בלבד — לא מידע על האדם
-const SKIP = new Set(['id', 'entryId', 'paymentEntryId', 'reversalEntryId', 'loanId', 'itemId', 'applicationId', 'ambassadorId', 'standingOrderId']);
+const SKIP = new Set(['id', 'entryId', 'paymentEntryId', 'reversalEntryId', 'loanId', 'itemId', 'applicationId', 'ambassadorId', 'standingOrderId', 'chequeGroupId', 'replacesId', 'replacedBy']);
 
 function show(key, v) {
   if (v === null || v === undefined || v === '') return '';
@@ -164,6 +165,7 @@ function show(key, v) {
   if (key === 'guarantors' && Array.isArray(v)) return v.map(g => [g.name, g.id, g.phone].filter(Boolean).join(' · ')).join('; ');
   if (key === 'schedule' && Array.isArray(v)) return `${v.length} תשלומים, מהם שולמו ${v.filter(x => x.status === 'paid').length}`;
   if (key === 'items' && Array.isArray(v)) return v.map(it => `${it.description || ''} × ${it.quantity || 1}`).join('; ');
+  if (key === 'cheques' && Array.isArray(v)) return v.map(c => [c.number, c.bank && `בנק ${c.bank}`, c.branch && `סניף ${c.branch}`, `פירעון ${c.dueDate}`, `${(c.amountAg / 100).toFixed(2)} ₪`].filter(Boolean).join(' · ')).join('; ');
   if (Array.isArray(v)) return v.every(x => typeof x !== 'object') ? v.join(', ') : `${v.length} פריטים`;
   if (typeof v === 'object') return Object.entries(v).filter(([k]) => !SKIP.has(k)).map(([k, x]) => `${LABELS[k] || k}: ${show(k, x)}`).filter(x => !/: $/.test(x)).join(' · ');
   return String(v);
