@@ -9,6 +9,7 @@ const path = require('path');
 const Module = require('module');
 const N = require('../modules/econ/core/npo');
 const X = require('../modules/econ/core/exports');
+const BK = require('../modules/econ/core/backupCrypto');
 
 let nextId = 0;
 const SETTINGS = N.applySettings({}, {
@@ -287,6 +288,116 @@ test('chequeBounce: המחאה שחזרה — היתרה של אותה שנה ב
   const twin = { ...y27, cheques: [CHQ('5', '2027-01-15', 1, { amountAg: 100 }), CHQ('5', '2027-02-15', 1, { bank: '20', amountAg: 100 })] };
   assert.throws(() => N.chequeBounce(twin, '5'), /לציין את הבנק/);
   assert.equal(N.chequeBounce(twin, '5', '20').bounced.bank, '20');
+});
+
+// ---------- שלב 3: השירות מול מסד אמיתי ----------
+// הערוצים נוספים בשלב 4 — כאן קוראים לשירות עצמו, שמחובר לאותו מסד אחרי initEcon
+
+const { NpoService: svc } = require('../modules/econ/services/npoService');
+const THREE = [CHQ('101', '2026-12-15', 400), CHQ('102', '2027-01-15', 400), CHQ('103', '2027-02-15', 400)];
+// סופר שמירות למסד: כל פעולה = שמירה אחת (כלל האטומיות)
+async function countSaves(fn) {
+  const orig = svc.db.save;
+  let n = 0;
+  svc.db.save = function (...a) { n++; return orig.apply(this, a); };
+  try { return { result: await fn(), saves: n }; } finally { svc.db.save = orig; }
+}
+
+test('שירות: תצוגה מקדימה לא שומרת ולא צורכת מספר קבלה', async () => {
+  await freshLogin(71);
+  const { result: pv, saves } = await countSaves(() => svc.addChequeDonation({ ...BASE, cheques: THREE }, { preview: true }));
+  assert.equal(saves, 0);
+  assert.deepEqual(pv.years.map(y => [y.year, y.date, y.amount, y.sec46]), [[2026, '2026-11-20', 400, true], [2027, '2027-01-15', 800, true]]);
+  assert.equal(pv.totalAg, 120000);
+  const o = await handlers['npo:getOverview'](ev(71), 2026);
+  assert.equal(o.donations.length, 0);
+  assert.equal(o.settings.receiptSeq, 0);
+});
+
+test('שירות: חבילת המחאות — קבלה לכל שנה בשמירה אחת, והסיכומים מתחלקים לפי שנה', async () => {
+  await freshLogin(72);
+  await handlers['npo:addDonation'](ev(72), { date: '2026-11-01', donorName: 'א', amount: 50 });
+  const { result: r, saves } = await countSaves(() => svc.addChequeDonation({ ...BASE, cheques: THREE }));
+  assert.equal(saves, 1, 'כל הקבלות באותה שמירה');
+  assert.deepEqual(r.donations.map(d => d.receipt.number), [2, 3]);
+  assert.ok(r.donations.every(d => d.chequeGroupId === r.chequeGroupId && d.status === 'active' && d.id));
+  const o26 = await handlers['npo:getOverview'](ev(72), 2026);
+  const o27 = await handlers['npo:getOverview'](ev(72), 2027);
+  assert.equal(o26.report.donationsTotal, 450, '400 של ההמחאות + 50');
+  assert.equal(o27.report.donationsTotal, 800);
+  assert.equal(o26.settings.receiptSeq, 3);
+  assert.equal(o26.tax.counts.pending, 3, 'כל קבלה ממתינה לדיווח בנפרד');
+  // נשמר כמו שהוא — בלי מספר חשבון, אגורות שלמות
+  const stored = o26.donations.find(d => d.reference === '102–103');
+  assert.deepEqual(stored.cheques.map(c => c.amountAg), [40000, 40000]);
+});
+
+test('שירות: אזהרת סעיף 46 — בלי אישור לא מופק דבר; עם אישור — מופק', async () => {
+  await freshLogin(73);
+  const input = { ...BASE, cheques: [CHQ('1', '2027-06-01', 100), CHQ('2', '2028-01-15', 100)] };
+  const { saves } = await countSaves(() => assert.rejects(svc.addChequeDonation(input), /בלי זיכוי לפי סעיף 46/));
+  assert.equal(saves, 0);
+  assert.equal((await handlers['npo:getOverview'](ev(73), 2027)).settings.receiptSeq, 0, 'שום מספר לא נצרך');
+  assert.equal((await svc.addChequeDonation({ ...input, confirmWarnings: 'כן' }).catch(e => e)).constructor, Error, 'רק true מפורש');
+  const r = await svc.addChequeDonation({ ...input, confirmWarnings: true });
+  assert.deepEqual(r.donations.map(d => d.receipt.sec46), [true, false]);
+});
+
+test('שירות: בלי פרטי עמותה, או קלט שגוי — שום דבר לא נשמר', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-cheques-'));
+  await ipc.initEcon(dir);
+  await assert.rejects(svc.addChequeDonation({ ...BASE, cheques: THREE }), /פרטי העמותה/);
+  await freshLogin(74);
+  const { saves } = await countSaves(() => assert.rejects(svc.addChequeDonation({ ...BASE, cheques: [...THREE, CHQ('104', '2026-01-01', 1)] }), /המחאה 4/));
+  assert.equal(saves, 0);
+});
+
+test('שירות: קמפיין נבדק מול יום קבלת ההמחאות, וקבלות בשנה הבאה לא חוסמות עריכת קמפיין', async () => {
+  await freshLogin(75);
+  const cmp = await handlers['npo:saveCampaign'](ev(75), null, { name: 'בניין הישיבה', goal: 100000, startDate: '2026-11-01', endDate: '2026-12-31' });
+  const r = await svc.addChequeDonation({ ...BASE, campaignId: cmp.id, cheques: THREE });
+  assert.ok(r.donations.every(d => d.campaignId === cmp.id));
+  assert.equal(r.donations[1].date, '2027-01-15', 'קבלת 2027 מחוץ לתקופה, אבל ההמחאות התקבלו בתוכה');
+  await handlers['npo:saveCampaign'](ev(75), cmp.id, { name: 'בניין הישיבה (עודכן)', goal: 120000, startDate: '2026-11-01', endDate: '2026-12-31' });
+  await assert.rejects(
+    handlers['npo:saveCampaign'](ev(75), cmp.id, { name: 'בניין הישיבה', goal: 100000, startDate: '2026-12-01', endDate: '2026-12-31' }),
+    /2 תרומות משויכות לקמפיין מחוץ לתקופה החדשה/, 'יום הקבלה 20.11 — מחוץ לתקופה המצומצמת');
+  await assert.rejects(svc.addChequeDonation({ ...BASE, receivedDate: '2027-01-02', campaignId: cmp.id, cheques: [CHQ('9', '2027-02-01', 10)] }), /מחוץ לתקופת הקמפיין/);
+});
+
+test('שירות: המחאה שחזרה — ביטול וקבלה חדשה ליתרה בשמירה אחת, והמספר הישן נשרף', async () => {
+  await freshLogin(76);
+  const { donations: [y26, y27] } = await svc.addChequeDonation({ ...BASE, cheques: THREE });
+  const { result: r, saves } = await countSaves(() => svc.cancelCheque(y27.id, '102'));
+  assert.equal(saves, 1);
+  assert.equal(r.cancelled.status, 'cancelled');
+  assert.deepEqual(r.cancelled.bouncedCheque, { number: '102', bank: '12', dueDate: '2027-01-15' });
+  assert.equal(r.cancelled.replacedBy, r.replacement.id);
+  assert.equal(r.replacement.receipt.number, 3, 'מספר חדש; 2 נשאר מבוטל');
+  assert.equal(r.replacement.amount, 400);
+  assert.equal(r.replacement.replacesId, y27.id);
+  assert.equal(r.replacement.chequeGroupId, y27.chequeGroupId);
+  const o27 = await handlers['npo:getOverview'](ev(76), 2027);
+  assert.equal(o27.report.donationsTotal, 400);
+  assert.equal(o27.donations.filter(d => String(d.date).startsWith('2027')).length, 2, 'הקבלה המבוטלת נשארת ברשימה');
+
+  // ההמחאה היחידה של 2026 — ביטול בלבד, בלי קבלה ובלי מספר חדש
+  const only = await svc.cancelCheque(y26.id, '101');
+  assert.equal(only.replacement, null);
+  assert.equal((await handlers['npo:getOverview'](ev(76), 2026)).settings.receiptSeq, 3);
+  await assert.rejects(svc.cancelCheque(y26.id, '101'), /כבר בוטלה/);
+  await assert.rejects(svc.cancelCheque('nope', '1'), /לא נמצאה/);
+  const plain = await handlers['npo:addDonation'](ev(76), { date: '2026-11-21', donorName: 'א', amount: 5 });
+  await assert.rejects(svc.cancelCheque(plain.id, '1'), /אינה תרומה בהמחאות/);
+});
+
+test('שירות: קבלות ההמחאות נכנסות לגיבוי המוצפן', async () => {
+  await freshLogin(77);
+  await svc.addChequeDonation({ ...BASE, cheques: THREE });
+  const enc = await handlers['data:backupEncrypted'](ev(77), 'backup-pass-123');
+  assert.doesNotMatch(enc, /יוסף ברגר|102–103/, 'אין טקסט גלוי בגיבוי');
+  const plain = JSON.parse(BK.decryptBackup(enc, 'backup-pass-123'));
+  assert.equal(plain.npo.donations.filter(d => Array.isArray(d.cheques)).length, 2);
 });
 
 test('הלוגיקה של ההמחאות בלי require חדש (אנדרואיד) ובלי toISOString לתאריכים', () => {

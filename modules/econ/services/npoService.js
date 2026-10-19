@@ -224,8 +224,9 @@ class NpoService {
     const usedAmbassadorIds = new Set(prev ? data.npo.donations.filter(d => d.campaignId === prev.id && d.ambassadorId).map(d => d.ambassadorId) : []);
     const clean = CMP.validateCampaign({ ...(prev || {}), ...input }, { count: prev ? 0 : list.length, fundIds, prev, usedAmbassadorIds, newId: () => crypto.randomUUID() });
     if (prev) {
-      // שינוי תקופה לא יכול "להוציא" תרומות שכבר שויכו
-      const out = data.npo.donations.filter(d => d.campaignId === prev.id && d.status !== 'cancelled' && (d.date < clean.startDate || d.date > clean.endDate));
+      // שינוי תקופה לא יכול "להוציא" תרומות שכבר שויכו. המחאות דחויות — לפי יום הקבלה, לא לפי הפירעון
+      const dayOf = d => d.receivedDate || d.date;
+      const out = data.npo.donations.filter(d => d.campaignId === prev.id && d.status !== 'cancelled' && (dayOf(d) < clean.startDate || dayOf(d) > clean.endDate));
       if (out.length) throw new Error(`${out.length} תרומות משויכות לקמפיין מחוץ לתקופה החדשה — יש להרחיב את התקופה`);
     }
     const now = new Date().toISOString();
@@ -361,6 +362,61 @@ class NpoService {
     data.npo.settings = settings;
     await this.db.save(data);
     return donation;
+  }
+
+  // המחאות דחויות ("תרומות ישראל", סעיף 2.3.2): תרומה וקבלה לכל שנת מס, כולן באותה שמירה.
+  // preview: true — החלוקה לשנים והאזהרות, בלי שמירה ובלי מספרי קבלה. אזהרה (אישור סעיף 46 שפג
+  // לפני שנה מסוימת) — ההפקה רק עם confirmWarnings: true. הקמפיין נבדק מול יום קבלת ההמחאות
+  async addChequeDonation(input, { preview = false } = {}) {
+    const data = await this._load();
+    if (!data.npo.settings.orgName) throw new Error('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
+    const { donations: list, settings } = data.npo;
+    const plan = N.planChequeDonation(input, settings, list.length);
+    if (list.length + plan.donations.length > N.MAX_DONATIONS) throw new Error('הגעת למספר המקסימלי של תרומות');
+    const first = plan.donations[0];
+    if (first.campaignId) {
+      const cmp = this._campaignFor(data, first.campaignId);
+      CMP.assertCanAssign(cmp, plan.receivedDate);
+      if (first.ambassadorId && !(cmp.ambassadors || []).some(a => a.id === first.ambassadorId)) throw new Error('השגריר שנבחר אינו שייך לקמפיין');
+    }
+    if (preview) {
+      return {
+        receivedDate: plan.receivedDate, totalAg: plan.totalAg, warnings: plan.warnings,
+        years: plan.donations.map(d => ({ year: Number(d.date.slice(0, 4)), date: d.date, amount: d.amount, sec46: N.sec46Eligible(settings, d.date), cheques: d.cheques }))
+      };
+    }
+    if (plan.warnings.length && input.confirmWarnings !== true) throw new Error(plan.warnings.map(w => w.text).join('\n'));
+    const chequeGroupId = crypto.randomUUID();
+    const issued = N.issueChequeReceipts(plan.donations.map(d => ({ ...d, chequeGroupId })), settings);
+    const now = new Date().toISOString();
+    const added = issued.donations.map(d => ({ id: crypto.randomUUID(), ...d, status: 'active', createdAt: now }));
+    list.push(...added);
+    data.npo.settings = issued.settings;
+    await this.db.save(data);
+    return { chequeGroupId, donations: added };
+  }
+
+  // המחאה שחזרה: הקבלה של אותה שנה מבוטלת (המספר נשרף), וליתרת ההמחאות של השנה מופקת קבלה חדשה — בשמירה אחת
+  async cancelCheque(donationId, number, bank) {
+    const data = await this._load();
+    const d = data.npo.donations.find(x => x.id === donationId);
+    if (!d) throw new Error('התרומה לא נמצאה');
+    const { bounced, replacement } = N.chequeBounce(d, number, bank);
+    if (replacement && data.npo.donations.length >= N.MAX_DONATIONS) throw new Error('הגעת למספר המקסימלי של תרומות');
+    const now = new Date().toISOString();
+    d.status = 'cancelled';
+    d.cancelledAt = now;
+    d.bouncedCheque = { number: bounced.number, bank: bounced.bank, dueDate: bounced.dueDate };
+    let added = null;
+    if (replacement) {
+      const { receipt, settings } = N.issueReceipt(replacement, data.npo.settings);
+      added = { id: crypto.randomUUID(), ...replacement, receipt, status: 'active', createdAt: now };
+      data.npo.donations.push(added);
+      data.npo.settings = settings;
+      d.replacedBy = added.id;
+    }
+    await this.db.save(data);
+    return { cancelled: d, replacement: added };
   }
 
   // קבלה אינה נמחקת: ביטול משאיר את המספר "שרוף" ומסומן כמבוטל, כנדרש בתיעוד קבלות
