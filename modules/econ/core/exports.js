@@ -188,7 +188,25 @@ const RECEIPT_CSS = `
   .reported { margin-top: 12px; padding: 10px 14px; border: 2px solid #1e293b; border-radius: 6px; font-weight: 800; font-size: 14px; }
   .void { color: #b91c1c; font-size: 20px; font-weight: 800; text-align: center; border: 3px solid #b91c1c; padding: 8px; margin-top: 12px; }
   .notice { margin-top: 26px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
+  .cheques { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .cheques th { text-align: right; font-weight: 600; padding: 5px 6px; border-bottom: 2px solid #0f766e; }
+  .cheques td { padding: 5px 6px; border-bottom: 1px solid #e2e8f0; }
+  .cheques .n { text-align: left; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bounced { margin-top: 8px; font-weight: 600; color: #b91c1c; }
 `;
+
+// המחאות דחויות: שנת המס, יום קבלת ההמחאות וטבלת ההמחאות של השנה הזו בלבד (סעיף 2.3.2)
+function chequesBlock(d) {
+  if (!Array.isArray(d.cheques) || !d.cheques.length) return '';
+  const rows = d.cheques.map(c => `<tr><td dir="ltr">${esc(c.number)}</td><td>${esc(c.bank || '')}</td><td>${esc(c.branch || '')}</td><td>${esc(c.dueDate)}</td><td class="n">${money(c.amountAg / 100)}</td></tr>`).join('');
+  return `<div class="box">
+  <div class="row"><span>שנת מס</span><span>${esc(String(d.date).slice(0, 4))}</span></div>
+  ${d.receivedDate ? `<div class="row"><span>ההמחאות התקבלו</span><span>${esc(d.receivedDate)}</span></div>` : ''}
+  ${d.replacesReceipt ? `<div class="row"><span>מחליפה את קבלה</span><span>${esc(d.replacesReceipt)} (המחאה שחזרה)</span></div>` : ''}
+  <table class="cheques"><thead><tr><th>מס' המחאה</th><th>בנק</th><th>סניף</th><th>פירעון</th><th class="n">סכום</th></tr></thead><tbody>${rows}</tbody></table>
+  ${d.bouncedCheque ? `<div class="bounced">המחאה מספר ${esc(d.bouncedCheque.number)} (פירעון ${esc(d.bouncedCheque.dueDate)}) חזרה — הקבלה בוטלה</div>` : ''}
+</div>`;
+}
 
 function donationReceiptBody(d) {
   const r = d.receipt || {};
@@ -216,6 +234,7 @@ ${cancelled ? '<div class="void">מבוטלת</div>' : ''}
   <div class="row"><span>ייעוד</span><span>${esc(r.fundName || 'כללי')}${d.purpose ? ` — ${esc(d.purpose)}` : ''}</span></div>
   <div class="row amount"><span>סכום התרומה</span><span>${money(d.amount)}</span></div>
 </div>
+${chequesBlock(d)}
 ${r.sec46 ? `<div class="s46">התרומה מוכרת לזיכוי ממס לפי סעיף 46 לפקודת מס הכנסה · אישור מס' ${esc(r.sec46Number)}${r.sec46ValidUntil ? ` · בתוקף עד ${esc(r.sec46ValidUntil)}` : ''}</div>` : ''}
 ${donationReportBlock(d)}
 <div class="notice">מסמך זה הופק במערכת SuperSuite. האחריות לתוקף אישור סעיף 46 ולדיווח לרשויות חלה על העמותה.</div>

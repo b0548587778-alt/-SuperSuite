@@ -292,7 +292,8 @@ function chequeBounce(d, number, bank) {
   const amountAg = remaining.reduce((t, c) => t + c.amountAg, 0);
   const replacement = {
     date: chequeYearDate(d.date.slice(0, 4), d.receivedDate, remaining), amount: fromAg(amountAg), method: 'check',
-    reference: chequeReference(remaining), cheques: remaining, receivedDate: d.receivedDate, replacesId: d.id
+    reference: chequeReference(remaining), cheques: remaining, receivedDate: d.receivedDate, replacesId: d.id,
+    replacesReceipt: d.receipt && Number.isInteger(d.receipt.number) ? d.receipt.number : null
   };
   for (const k of CHEQUE_DONOR_FIELDS) if (d[k] !== undefined) replacement[k] = d[k];
   return { bounced, replacement };
@@ -517,8 +518,9 @@ function exportTable(kind, donations, grants, settings, year) {
   if (kind === 'donations') {
     const funds = Object.fromEntries(allFunds(settings).map(f => [f.id, f.name]));
     const rows = donations.filter(d => inYear(d.date, year)).sort((a, b) => a.date.localeCompare(b.date) || byReceipt(a, b))
-      .map(d => [receiptLabel(d), d.date, d.donorName, d.donorId, d.amount, METHODS[d.method] || d.method, funds[d.fundId] || '', d.receipt.sec46 ? 'כן' : 'לא', d.status === 'cancelled' ? 'בוטלה' : 'פעילה', d.purpose]);
-    return { name: `תרומות-${year}`, headers: ['מס\' קבלה', 'תאריך', 'תורם', 'ת.ז/ח.פ', 'סכום', 'אמצעי תשלום', 'קרן', 'סעיף 46', 'סטטוס', 'ייעוד'], rows };
+      .map(d => [receiptLabel(d), d.date, d.donorName, d.donorId, d.amount, METHODS[d.method] || d.method, funds[d.fundId] || '', d.receipt.sec46 ? 'כן' : 'לא', d.status === 'cancelled' ? 'בוטלה' : 'פעילה', d.purpose,
+        Array.isArray(d.cheques) ? d.cheques.map(c => `${c.number} (${c.dueDate})`).join('; ') : '']);
+    return { name: `תרומות-${year}`, headers: ['מס\' קבלה', 'תאריך', 'תורם', 'ת.ז/ח.פ', 'סכום', 'אמצעי תשלום', 'קרן', 'סעיף 46', 'סטטוס', 'ייעוד', 'המחאות (פירעון)'], rows };
   }
   if (kind === 'grants') {
     const rows = grants.filter(g => Number(g.year) === Number(year))

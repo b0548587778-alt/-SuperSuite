@@ -446,6 +446,80 @@ test('preload: חשיפת שני הערוצים בשמות המתוכננים', 
   assert.match(preload, /cancelNpoCheque: \(id, number, bank\) => ipcRenderer\.invoke\('npo:cancelCheque', id, number, bank\)/);
 });
 
+// ---------- שלב 5: קבלה, ייצוא ופרטיות ----------
+
+const PR = require('../modules/econ/core/privacy');
+const PD = require('../modules/econ/core/privacyDocs');
+const chequeDonations = () => {
+  const plan = N.planChequeDonation({ ...BASE, donorPhone: '050-1234567', cheques: THREE }, SETTINGS);
+  return N.issueChequeReceipts(plan.donations, SETTINGS).donations.map((d, i) => ({ id: 'c' + i, ...d, status: 'active', chequeGroupId: 'g1' }));
+};
+
+test('קבלה: שנת המס, יום הקבלה וטבלת ההמחאות של אותה שנה בלבד', () => {
+  const [y26, y27] = chequeDonations();
+  const html = X.renderDonationReceiptHtml(y27);
+  assert.match(html, /<span>שנת מס<\/span><span>2027<\/span>/);
+  assert.match(html, /<span>ההמחאות התקבלו<\/span><span>2026-11-20<\/span>/);
+  assert.match(html, /<td dir="ltr">102<\/td><td>12<\/td><td>345<\/td><td>2027-01-15<\/td>/);
+  assert.match(html, /<td dir="ltr">103<\/td>/);
+  assert.doesNotMatch(html, />101</, 'המחאה של שנה אחרת לא מופיעה');
+  assert.match(html, /<strong>תאריך:<\/strong> 2027-01-15/);
+  assert.match(X.renderDonationReceiptHtml(y26), /<span>שנת מס<\/span><span>2026<\/span>/);
+});
+
+test('קבלה: המחאה שחזרה — על הקבלה המבוטלת, ועל החלופה מספר הקבלה שהיא מחליפה', () => {
+  const [, y27] = chequeDonations();
+  const { bounced, replacement } = N.chequeBounce(y27, '102');
+  const cancelled = { ...y27, status: 'cancelled', bouncedCheque: { number: bounced.number, bank: bounced.bank, dueDate: bounced.dueDate } };
+  const a = X.renderDonationReceiptHtml(cancelled);
+  assert.match(a, /class="void">מבוטלת/);
+  assert.match(a, /המחאה מספר 102 \(פירעון 2027-01-15\) חזרה — הקבלה בוטלה/);
+  const { receipt } = N.issueReceipt(replacement, { ...SETTINGS, receiptSeq: 2 });
+  const b = X.renderDonationReceiptHtml({ ...replacement, receipt, status: 'active' });
+  assert.match(b, /<span>מחליפה את קבלה<\/span><span>2 \(המחאה שחזרה\)<\/span>/);
+});
+
+test('קבלה: שדות ההמחאה עוברים בריחת HTML', () => {
+  const [, y27] = chequeDonations();
+  const evil = { ...y27, cheques: [{ ...y27.cheques[0], bank: '<b>x</b>' }] };
+  assert.doesNotMatch(X.renderDonationReceiptHtml(evil), /<b>x<\/b>/);
+});
+
+test('ייצוא התרומות: עמודת המחאות (פירעון) — ריקה בתרומה רגילה', () => {
+  const list = [...chequeDonations(), { ...donation({ date: '2027-03-01' }).d }];
+  const t = N.exportTable('donations', list, [], SETTINGS, 2027);
+  assert.equal(t.headers[10], 'המחאות (פירעון)');
+  assert.ok(t.rows.every(r => r.length === t.headers.length));
+  assert.deepEqual(t.rows.map(r => r[10]), ['102 (2027-01-15); 103 (2027-02-15)', '']);
+});
+
+test('זכות עיון: ההמחאות מוצגות בעברית, בלי המזהים הפנימיים', () => {
+  const data = { npo: { donations: chequeDonations().map(d => ({ ...d, replacesId: 'r1', replacedBy: 'r2' })) } };
+  const rep = PD.subjectReport(data, '000000018', { sources: ['npo'] });
+  assert.equal(rep.count, 2);
+  const labels = rep.sections.flatMap(s => s.fields.map(f => f.label));
+  for (const l of ['המחאות', 'ההמחאות התקבלו']) assert.ok(labels.includes(l), l);
+  for (const raw of ['cheques', 'receivedDate', 'chequeGroupId', 'replacesId', 'replacedBy']) assert.ok(!labels.includes(raw), raw);
+  const cheques = rep.sections[1].fields.find(f => f.label === 'המחאות').value;
+  assert.equal(cheques, '102 · בנק 12 · סניף 345 · פירעון 2027-01-15 · 400.00 ₪; 103 · בנק 12 · סניף 345 · פירעון 2027-02-15 · 400.00 ₪');
+});
+
+test('מזעור תורם: מספר ההמחאה, הבנק והסניף נמחקים; הפירעון, הסכום והקבלה נשמרים', () => {
+  const list = chequeDonations().map(d => ({ ...d, date: d.date.replace(/^20(26|27)/, m => String(Number(m) - 10)) }));
+  const data = { npo: { donations: list.map(d => ({ ...d, donorPhone: '' })), standingOrders: [] } };
+  const cands = PR.candidatesFor(data, 'donors', '2026-11-20', 7);
+  assert.deepEqual(cands.map(c => c.id), ['id:000000018'], 'מספרי המחאות בלי טלפון — עדיין מועמד');
+  const r = PR.applyRetention(data, 'donors', ['id:000000018'], '2026-11-20', 7, '2026-11-20T10:00:00Z');
+  assert.equal(r.minimized, 1);
+  for (const d of data.npo.donations) {
+    assert.ok(d.cheques.every(c => c.number === '' && c.bank === '' && c.branch === '' && c.dueDate && c.amountAg === 40000));
+    assert.equal(d.reference, '');
+    assert.ok(d.receipt.number && d.amount && d.privacyMinimizedAt);
+  }
+  assert.deepEqual(PR.candidatesFor(data, 'donors', '2026-11-20', 7), [], 'אחרי המזעור — כבר לא מועמד');
+  assert.match(PR.RETENTION_KINDS.donors.removes, /מספר ההמחאה, הבנק והסניף/);
+});
+
 test('הלוגיקה של ההמחאות בלי require חדש (אנדרואיד) ובלי toISOString לתאריכים', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/core/npo.js'), 'utf8');
   assert.deepEqual([...src.matchAll(/require\('([^']+)'\)/g)].map(m => m[1]), ['./israeliId']);
