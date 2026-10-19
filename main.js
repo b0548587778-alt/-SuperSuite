@@ -90,6 +90,7 @@ function registerProtocol() {
     if (rel === '/design-tokens.css') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'design-tokens.css')).toString());
     // רשת ביטחון במסכים (PLAN.md 2.4) — אותו קובץ לכל המודולים
     if (rel === '/screen-guard.js') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'screen-guard.js')).toString());
+    if (rel === '/ui-kit.css') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'ui-kit.css')).toString());
     if (rel === '/ss-dialog.js') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'ss-dialog.js')).toString());
     const file = path.normalize(path.join(root, rel));
     if (!file.startsWith(root + path.sep)) return new Response('Forbidden', { status: 403 });

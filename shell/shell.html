@@ -6,6 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <!-- שפת העיצוב המשותפת (PLAN.md 7.1) — לפני כל סגנון אחר -->
 <link rel="stylesheet" href="design-tokens.css">
+<link rel="stylesheet" href="ui-kit.css">
 <style>
 :root{
   --navy-0:var(--ss-navy-0); --navy-1:var(--ss-navy-1); --navy-2:var(--ss-navy-2); --navy-3:var(--ss-navy-3); --line:var(--ss-navy-line);
@@ -208,7 +209,7 @@ dialog p.rk-hint{font-size:12.5px;margin-bottom:8px}
 .pb-list li button{padding:5px 10px}
 #tgWarn{display:block;margin-top:4px;padding:0;border:0;background:none;color:var(--ss-danger);font:inherit;font-size:12px;cursor:pointer;text-decoration:underline;text-align:start}
 #tgWarn[hidden]{display:none}
-dialog::backdrop{background:rgba(11,20,38,.55);backdrop-filter:blur(3px)}
+dialog::backdrop{background:var(--ss-overlay);backdrop-filter:blur(3px)}
 dialog h3{margin:0 0 6px;font-size:18px;font-family:var(--ss-font-title);color:var(--navy-2)}
 dialog p{margin:0 0 14px;color:var(--muted);font-size:13.5px;line-height:1.55}
 dialog input,dialog select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--ss-surface-input);color:inherit;font:inherit;margin-bottom:10px;outline:none}
@@ -255,6 +256,16 @@ dialog.devices{width:640px;max-height:86vh;overflow:auto}
 dialog button.danger{color:var(--ss-danger);border-color:var(--ss-danger-line)}
 dialog button.danger:hover{background:var(--ss-danger-soft)}
 dialog button:disabled{opacity:.5;cursor:default}
+/* ui-kit — מיפוי: כפתורים ושדות בחלונות כמו בשאר התוכנה (shell/ui-kit.css) */
+dialog button{display:inline-flex;align-items:center;justify-content:center;gap:var(--ss-sp-2);min-height:var(--ss-ctl-h);padding:0 var(--ss-ctl-pad-x);border-radius:var(--ss-ctl-radius);font:var(--ss-ctl-font);cursor:pointer;border:1px solid var(--ss-border-strong);background:var(--ss-surface);color:var(--ss-text)}
+dialog button:hover{background:var(--ss-surface-2)}
+dialog button.primary{background:var(--ss-primary);border-color:var(--ss-primary);color:var(--ss-surface)}
+dialog button.primary:hover{background:var(--ss-primary-dark)}
+dialog button.danger{background:var(--ss-danger);border-color:var(--ss-danger);color:var(--ss-surface)}
+dialog button.danger:hover{background:var(--ss-danger);filter:brightness(.92)}
+dialog input,dialog select{min-height:var(--ss-ctl-h);padding:8px 12px;border:1px solid var(--ss-border-strong);border-radius:var(--ss-ctl-radius);background:var(--ss-surface-input);color:var(--ss-text);font:400 var(--ss-fs-md)/1.4 var(--ss-font);width:100%;margin-bottom:10px}
+dialog input:focus,dialog select:focus{border-color:var(--ss-primary);box-shadow:var(--ss-focus);outline:none}
+dialog label.chk input{min-height:0;width:auto}
 </style>
 </head>
 <body>

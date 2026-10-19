@@ -276,7 +276,7 @@ test('שפת עיצוב: הקובץ נטען לפני כל סגנון אחר ב�
   assert.match(read('main.js'), /if \(rel === '\/design-tokens\.css'\) return net\.fetch\(pathToFileURL\(path\.join\(__dirname, 'shell', 'design-tokens\.css'\)\)/);
   const apk = read('android/build-apk.js');
   assert.match(apk, /copyFileSync\(path\.join\(ROOT, 'shell', 'design-tokens\.css'\), path\.join\(dst, 'design-tokens\.css'\)\)/);
-  assert.match(apk, /'shell\.js', 'design-tokens\.css'\]/);
+  assert.match(apk, /'shell\.js', 'design-tokens\.css'[\],]/);
 });
 
 test('שפת עיצוב: שמאות — המצב הכהה והמצב הבהיר שניהם מהקובץ', () => {

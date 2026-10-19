@@ -2453,3 +2453,18 @@ select {
 .pu-item { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); }
 .pu-item .btn-ghost { width: auto; padding: 4px 10px; }
 @media (max-width: 520px) { .pu-line { grid-template-columns: 1fr 1fr; } }
+
+/* ===== ui-kit — מיפוי: המחלקות של השמאות ← ספריית הרכיבים (shell/ui-kit.css) ===== */
+/* בערכה הבהירה (ברירת המחדל) — אותו מראה כמו בשאר התוכנה. בערכה הכהה נשארים צבעי הזהב של המודול */
+[data-theme="light"] .btn-primary, [data-theme="light"] .btn-secondary, [data-theme="light"] .btn-ghost { display:inline-flex; align-items:center; justify-content:center; gap:var(--ss-sp-2);
+  min-height:var(--ss-ctl-h); padding:0 var(--ss-ctl-pad-x); border-radius:var(--ss-ctl-radius);
+  font:var(--ss-ctl-font); box-shadow:none; transform:none; cursor:pointer; min-height:var(--ss-ctl-h); }
+[data-theme="light"] .btn-primary { background:var(--ss-primary); border:1px solid var(--ss-primary); color:var(--ss-surface); }
+[data-theme="light"] .btn-primary:hover, [data-theme="light"] .btn-primary:active { background:var(--ss-primary-dark); }
+[data-theme="light"] .btn-secondary { background:var(--ss-surface); border:1px solid var(--ss-primary); color:var(--ss-primary); }
+[data-theme="light"] .btn-ghost { background:var(--ss-surface); border:1px solid var(--ss-border-strong); color:var(--ss-text); }
+[data-theme="light"] .btn-ghost.danger { color:var(--ss-danger); border-color:var(--ss-danger); }
+[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]), [data-theme="light"] select, [data-theme="light"] textarea { min-height:var(--ss-ctl-h); padding:8px 12px; border:1px solid var(--ss-border-strong); border-radius:var(--ss-ctl-radius);
+  background:var(--ss-surface-input); color:var(--ss-text); font:400 var(--ss-fs-md)/1.4 var(--ss-font); font-size:16px; }
+[data-theme="light"] input:focus, [data-theme="light"] select:focus, [data-theme="light"] textarea:focus { border-color:var(--ss-primary); box-shadow:var(--ss-focus); outline:none; }
+[data-theme="light"] .card { background:var(--ss-surface); border:1px solid var(--ss-border); border-radius:var(--ss-radius-lg); box-shadow:var(--ss-shadow); }

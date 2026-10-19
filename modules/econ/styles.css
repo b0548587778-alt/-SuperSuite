@@ -1121,3 +1121,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .sample-kinds label{display:flex;gap:6px;align-items:center;cursor:pointer}
 .sample-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ss-sp-2)}
 .sample-actions .link{background:none;border:0;color:var(--ss-muted);text-decoration:underline;cursor:pointer;font:inherit}
+
+/* ===== ui-kit — מיפוי: המחלקות של המודול הכלכלי ← ספריית הרכיבים (shell/ui-kit.css) ===== */
+button.primary, .primary, button.secondary, .secondary, button.danger, #view button:not([class]) { display:inline-flex; align-items:center; justify-content:center; gap:var(--ss-sp-2);
+  min-height:var(--ss-ctl-h); padding:0 var(--ss-ctl-pad-x); border-radius:var(--ss-ctl-radius);
+  font:var(--ss-ctl-font); box-shadow:none; transform:none; cursor:pointer; }
+button.primary, .primary { background:var(--ss-primary); border:1px solid var(--ss-primary); color:var(--ss-surface); }
+button.primary:hover, .primary:hover { background:var(--ss-primary-dark); border-color:var(--ss-primary-dark); box-shadow:none; }
+button.secondary, .secondary, #view button:not([class]) { background:var(--ss-surface); border:1px solid var(--ss-border-strong); color:var(--ss-text); }
+button.secondary:hover, .secondary:hover, #view button:not([class]):hover { background:var(--ss-surface-2); }
+button.danger, .modal-actions .danger { background:var(--ss-danger); border:1px solid var(--ss-danger); color:var(--ss-surface); }
+button.small { min-height:30px; padding:0 10px; font-size:var(--ss-fs-sm); }
+.modal-form input, .modal-form select, .modal-form textarea, #view input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), #view select, #view textarea { min-height:var(--ss-ctl-h); padding:8px 12px; border:1px solid var(--ss-border-strong); border-radius:var(--ss-ctl-radius);
+  background:var(--ss-surface-input); color:var(--ss-text); font:400 var(--ss-fs-md)/1.4 var(--ss-font); }
+.modal-form input:focus, .modal-form select:focus, .modal-form textarea:focus, #view input:focus, #view select:focus, #view textarea:focus { border-color:var(--ss-primary); box-shadow:var(--ss-focus); outline:none; }
+.card, .panel { background:var(--ss-surface); border:1px solid var(--ss-border); border-radius:var(--ss-radius-lg); box-shadow:var(--ss-shadow); }

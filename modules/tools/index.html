@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ארגז כלים</title>
 <link rel="stylesheet" href="/design-tokens.css">
+<link rel="stylesheet" href="/ui-kit.css">
 <script src="/screen-guard.js"></script>
 <script src="/ss-dialog.js"></script>
 <style>
@@ -54,6 +55,14 @@ label.c input{width:auto}
 .toast.on{opacity:1}
 .warn{margin-top:8px;font-size:13px;color:var(--ss-warning-ink);background:var(--ss-warning-soft);border-radius:8px;padding:6px 10px}
 .warn:empty{display:none}
+/* ui-kit — מיפוי: כפתורים, שדות וכרטיסים כמו בשאר התוכנה (shell/ui-kit.css) */
+button{display:inline-flex;align-items:center;justify-content:center;gap:var(--ss-sp-2);min-height:var(--ss-ctl-h);padding:0 var(--ss-ctl-pad-x);border-radius:var(--ss-ctl-radius);font:var(--ss-ctl-font);cursor:pointer;border:1px solid var(--ss-border-strong);background:var(--ss-surface);color:var(--ss-text)}
+button:hover{background:var(--ss-surface-2)}
+button.p{background:var(--ss-primary);border-color:var(--ss-primary);color:var(--ss-surface)}
+button.p:hover{background:var(--ss-primary-dark);filter:none}
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),select,textarea{min-height:var(--ss-ctl-h);padding:8px 12px;border:1px solid var(--ss-border-strong);border-radius:var(--ss-ctl-radius);background:var(--ss-surface-input);color:var(--ss-text);font:400 var(--ss-fs-md)/1.4 var(--ss-font)}
+input:focus,select:focus,textarea:focus{border-color:var(--ss-primary);box-shadow:var(--ss-focus);outline:none}
+.card{background:var(--ss-surface);border:1px solid var(--ss-border);border-radius:var(--ss-radius-lg);box-shadow:var(--ss-shadow)}
 </style>
 </head>
 <body>

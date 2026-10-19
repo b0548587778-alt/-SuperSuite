@@ -128,6 +128,7 @@ function buildWeb() {
     fs.copyFileSync(path.join(ROOT, 'shell', 'design-tokens.css'), path.join(dst, 'design-tokens.css'));
     fs.copyFileSync(path.join(ROOT, 'shell', 'screen-guard.js'), path.join(dst, 'screen-guard.js'));
     fs.copyFileSync(path.join(ROOT, 'shell', 'ss-dialog.js'), path.join(dst, 'ss-dialog.js'));
+    fs.copyFileSync(path.join(ROOT, 'shell', 'ui-kit.css'), path.join(dst, 'ui-kit.css'));
     const entry = path.join(dst, ENTRY_HTML[mod]);
     fs.writeFileSync(entry, injectIntoHead(fs.readFileSync(entry, 'utf8'), tags, entry));
   }
@@ -135,7 +136,7 @@ function buildWeb() {
   // המעטפת
   const shellDst = path.join(WWW, 'shell');
   fs.mkdirSync(shellDst, { recursive: true });
-  for (const f of ['hebcal.js', 'catalog.js', 'onboarding.js', 'shell.js', 'design-tokens.css']) fs.copyFileSync(path.join(ROOT, 'shell', f), path.join(shellDst, f));
+  for (const f of ['hebcal.js', 'catalog.js', 'onboarding.js', 'shell.js', 'design-tokens.css', 'ui-kit.css', 'ss-dialog.js']) fs.copyFileSync(path.join(ROOT, 'shell', f), path.join(shellDst, f));
   for (const f of ['node-shims.js', 'host.js', 'mobile.js']) fs.copyFileSync(path.join(AND, 'web', f), path.join(shellDst, f));
 
   const host = bundle({

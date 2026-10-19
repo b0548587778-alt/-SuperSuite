@@ -1,4 +1,5 @@
 @import url("/design-tokens.css"); /* שפת העיצוב המשותפת (PLAN.md 7.1) — חייב להיות ראשון בקובץ */
+@import url("/ui-kit.css");        /* ספריית הרכיבים המשותפת — כפתורים, שדות וכרטיסים */
 /* ערכת הצבעים של SuperSuite למודול האימונים.
    המודול הוא חבילה מהודרת (Tailwind) עם צבעים כהים קבועים; הקובץ נטען אחריה ב-index.html
    וממפה את מחלקות הצבע לפלטת התוכנה (רקע בהיר, כחול-נייבי וזהב), בלי לגעת בקוד המהודר.
@@ -92,3 +93,33 @@ select option { background: var(--ss-surface); color: var(--ss-text); }
 .overflow-x-auto { overflow-y: hidden; }
 /* תיבת המידע בגרפים מוגדרת בסגנון מוטבע כהה — !important נדרש כדי לגבור עליו */
 .recharts-default-tooltip { background: var(--ss-surface) !important; border-color: var(--ss-border) !important; color: var(--ss-text) !important; }
+
+/* ---- ui-kit — מיפוי: הרכיבים של המודול (Btn / Input / Card ב-components/ui.jsx) כמו בשאר התוכנה ----
+   בלי בנייה מחדש: הבחירה לפי המחלקות שהחבילה המהודרת כבר נותנת לרכיבים. */
+button.rounded-lg {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--ss-sp-2);
+  min-height: var(--ss-ctl-h); border-radius: var(--ss-ctl-radius); font: var(--ss-ctl-font);
+}
+button.rounded-lg.text-sm.px-3 { min-height: 30px; font-size: var(--ss-fs-sm); }
+button.rounded-lg.text-right { justify-content: flex-start; font-weight: 400; } /* כפתורי בחירה בטופס */
+/* ראשי */
+button.bg-indigo-500, button.bg-indigo-600 { background-color: var(--ss-primary); border: 1px solid var(--ss-primary); box-shadow: none; }
+button.bg-indigo-500:hover, button.bg-indigo-600:hover { background-color: var(--ss-primary-dark); border-color: var(--ss-primary-dark); }
+/* משני ומתאר */
+button.rounded-lg.bg-slate-800.border, button.rounded-lg.bg-transparent.border { background-color: var(--ss-surface); border-color: var(--ss-border-strong); color: var(--ss-text); }
+button.rounded-lg.bg-slate-800.border:hover, button.rounded-lg.bg-transparent.border:hover { background-color: var(--ss-surface-2); }
+/* סכנה */
+button.rounded-lg.bg-red-900/40 { background-color: var(--ss-danger); border-color: var(--ss-danger); color: var(--ss-surface); }
+button.rounded-lg.bg-red-900/40:hover { background-color: var(--ss-danger); filter: brightness(.92); }
+/* הצלחה */
+button.rounded-lg.bg-emerald-500 { background-color: var(--ss-success); border: 1px solid var(--ss-success); color: var(--ss-surface); }
+button.rounded-lg.bg-emerald-500:hover { background-color: var(--ss-success); filter: brightness(.92); }
+/* שדות */
+input.rounded-lg, textarea.rounded-lg, select.rounded-lg {
+  min-height: var(--ss-ctl-h); border-radius: var(--ss-ctl-radius);
+  background-color: var(--ss-surface-input); border-color: var(--ss-border-strong); color: var(--ss-text);
+  font: 400 var(--ss-fs-md) / 1.4 var(--ss-font);
+}
+input.rounded-lg:focus, textarea.rounded-lg:focus, select.rounded-lg:focus { border-color: var(--ss-primary); box-shadow: var(--ss-focus); outline: none; }
+/* כרטיס */
+.rounded-xl.backdrop-blur { background-color: var(--ss-surface); border-color: var(--ss-border); border-radius: var(--ss-radius-lg); box-shadow: var(--ss-shadow); backdrop-filter: none; }
