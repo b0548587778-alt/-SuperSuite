@@ -2411,4 +2411,4 @@ select {
 .print-preview { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.55); display: flex; flex-direction: column; padding: 12px; gap: 8px; }
 .print-preview .pp-bar { display: flex; gap: 8px; justify-content: flex-start; }
 .print-preview .pp-bar button { width: auto; }
-.print-preview .pp-frame { flex: 1; border: 0; border-radius: 8px; background: #fff; }
+.print-preview .pp-frame { flex: 1; border: 0; border-radius: 8px; background: var(--ss-surface); }
