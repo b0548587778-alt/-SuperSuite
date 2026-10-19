@@ -77,14 +77,14 @@ function chatSettingsPanel(s, contacts) {
     <input type="time" data-h-from value="${esc(h ? h.open : '09:00')}"> – <input type="time" data-h-to value="${esc(h ? h.close : '17:00')}"></div>`;
   const qr = (q, i) => `<div class="chat-set-row" data-qr="${i}"><span>/</span><input type="text" data-qr-key maxlength="24" placeholder="קיצור" value="${esc(q.shortcut)}">
     <textarea data-qr-text rows="2" maxlength="4000" placeholder="נוסח התשובה">${esc(q.text)}</textarea>
-    <button type="button" class="danger-outline small" data-chat-set-del="quickReplies" data-i="${i}">✖</button></div>`;
+    <button type="button" class="danger-outline small" title="הסרה" data-chat-set-del="quickReplies" data-i="${i}">✖</button></div>`;
   const lb = (l, i) => `<div class="chat-set-row" data-lb="${i}" data-id="${esc(l.id || '')}"><input type="text" data-lb-name maxlength="30" value="${esc(l.name)}">
     <select data-lb-color>${CHAT_COLORS.map(c => `<option value="${c}"${chatColor(l.color) === c ? ' selected' : ''} style="background:${c};color:#fff">${c}</option>`).join('')}</select>
     <span class="chat-label" style="background:${chatColor(l.color)}">${esc(l.name || 'תווית')}</span>
-    <button type="button" class="danger-outline small" data-chat-set-del="labels" data-i="${i}">✖</button></div>`;
+    <button type="button" class="danger-outline small" title="הסרה" data-chat-set-del="labels" data-i="${i}">✖</button></div>`;
   const ls = (l, i) => `<fieldset class="chat-list-set" data-ls="${i}" data-id="${esc(l.id || '')}"><legend><input type="text" data-ls-name maxlength="40" value="${esc(l.name)}" placeholder="שם הרשימה"></legend>
     ${contacts.map(c => `<label class="check"><input type="checkbox" data-ls-member value="${esc(c.id)}"${(l.members || []).includes(c.id) ? ' checked' : ''}> ${esc(c.name)}</label>`).join('') || '<small class="muted">אין אנשי קשר</small>'}
-    <button type="button" class="danger-outline small" data-chat-set-del="lists" data-i="${i}">✖ מחיקת הרשימה</button></fieldset>`;
+    <button type="button" class="danger-outline small" title="הסרה" data-chat-set-del="lists" data-i="${i}">✖ מחיקת הרשימה</button></fieldset>`;
   const p = s.profile || {};
   return `<div class="card chat-settings" id="chatSettings">
     <h3>⚙ הגדרות העסק</h3>

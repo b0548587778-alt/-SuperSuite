@@ -31,7 +31,7 @@ function renderCollect(d) {
       <td class="acct-actions">${r.status === 'open' ? `
         <button class="secondary small" data-collect-msg="${esc(r.id)}" title="נוסח הודעה עם הקישור, להעתקה">📋 הודעה ללקוח</button>
         <button class="primary small" data-collect-paid="${esc(r.id)}">✔ שולם</button>
-        <button class="danger-outline small" data-collect-cancel="${esc(r.id)}">✖</button>` : ''}</td>
+        <button class="danger-outline small" data-collect-cancel="${esc(r.id)}" title="ביטול הדרישה">✖</button>` : ''}</td>
     </tr>`;
   return `${setup}
     <div class="card">
