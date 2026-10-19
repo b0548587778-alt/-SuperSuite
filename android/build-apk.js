@@ -175,32 +175,65 @@ function buildWeb() {
 const KEYSTORE = path.join(KEYDIR, 'supersuite-release.jks');
 const PASS_FILE = path.join(KEYDIR, 'password.txt');
 
-// הסיסמה של מפתח קיים (PLAN.md 0.1): משתנה הסביבה SS_KS_PASS, אחרת password.txt (אם עוד לא נמחק),
-// אחרת הקלדה במסוף בלי הצגה. כך אפשר למחוק את password.txt מהדיסק אחרי שהמפתח מגובה.
-async function resolveKeystorePass({ env = process.env, passFile = PASS_FILE, ask = null, isTTY = process.stdin.isTTY } = {}) {
-  if (env.SS_KS_PASS && env.SS_KS_PASS.trim()) return env.SS_KS_PASS.trim();
-  if (fs.existsSync(passFile)) return fs.readFileSync(passFile, 'utf8').trim();
-  if (ask && isTTY) {
-    const p = String(await ask('סיסמת מפתח החתימה של האנדרואיד: ')).trim();
-    if (p) return p;
+// מאיפה מגיע מפתח החתימה (PLAN.md 0.1) — הבעלים צריך לזכור סיסמה אחת בלבד, זו שעל הנייר:
+//   1. גיבוי מוצפן (Documents\SuperSuite-android-key-backup.sskey) ← מקלידים את סיסמת הגיבוי, והמפתח
+//      והסיסמה שלו נפתחים בזיכרון. לא נשמר שום דבר גלוי בדיסק (רק קובץ זמני שנמחק בסוף הבנייה).
+//   2. בלי גיבוי — המפתח שבתיקייה, עם SS_KS_PASS או password.txt (אם עוד קיים).
+//   3. אין מפתח ואין גיבוי — נעצרים. **לא נוצר מפתח חדש לבד**: מפתח חדש = אי אפשר לעדכן את האפליקציה המותקנת.
+//      יצירה מכוונת בלבד: --new-key.
+async function resolveSigningKey({ env = process.env, keystore = KEYSTORE, passFile = PASS_FILE, backupFile = null,
+  ask = null, isTTY = process.stdin.isTTY, openBackup = null, allowNew = false } = {}) {
+  if (backupFile && fs.existsSync(backupFile) && openBackup) {
+    if (!(ask && isTTY)) throw new Error('יש להריץ את הבנייה בחלון רגיל, כדי להקליד את סיסמת הגיבוי');
+    for (let tries = 1; ; tries++) {
+      const pw = String(await ask('הקלידו את הסיסמה שרשמתם על הנייר (סיסמת הגיבוי): '));
+      try {
+        const k = openBackup(fs.readFileSync(backupFile), pw);
+        // מפתח בתיקייה שאינו המפתח שבגיבוי — לא מנחשים איזה נכון
+        if (fs.existsSync(keystore) && !fs.readFileSync(keystore).equals(k.jks)) {
+          throw new Error('המפתח שבתיקייה android/keystore שונה מהמפתח שבגיבוי. לא נבנה כלום — יש לבדוק איזה מהם נכון.');
+        }
+        return { source: 'backup', jksBytes: k.jks, pass: k.pass };
+      } catch (e) {
+        if (tries >= 3 || !/סיסמה שגויה/.test(e.message)) throw e;
+        console.log('הסיסמה לא נכונה. נסו שוב.');
+      }
+    }
   }
-  throw new Error('חסרה סיסמת מפתח החתימה. הריצו את הבנייה במסוף והקלידו אותה, או הגדירו את משתנה הסביבה SS_KS_PASS.' +
-    ' (הסיסמה נמצאת בגיבוי המוצפן: node tools/android-key-backup.js restore <קובץ>)');
+  if (fs.existsSync(keystore)) {
+    if (env.SS_KS_PASS && env.SS_KS_PASS.trim()) return { source: 'folder', jks: keystore, pass: env.SS_KS_PASS.trim() };
+    if (fs.existsSync(passFile)) return { source: 'folder', jks: keystore, pass: fs.readFileSync(passFile, 'utf8').trim() };
+    if (ask && isTTY) {
+      const p = String(await ask('סיסמת מפתח החתימה: ')).trim();
+      if (p) return { source: 'folder', jks: keystore, pass: p };
+    }
+    throw new Error('חסרה סיסמת מפתח החתימה, ולא נמצא הגיבוי המוצפן ב-Documents.');
+  }
+  if (allowNew) return { source: 'new' };
+  throw new Error('לא נמצא מפתח החתימה ולא נמצא הגיבוי המוצפן.\n' +
+    'שימו את הקובץ SuperSuite-android-key-backup.sskey (מ-Google Drive או מהמייל) בתיקיית המסמכים (Documents), ונסו שוב.\n' +
+    'לא נוצר מפתח חדש: עם מפתח חדש לא אפשר לעדכן את האפליקציה שכבר מותקנת אצל הלקוחות.');
 }
 
-// מפתח חדש נוצר רק כשאין מפתח בכלל — אז נוצרת גם הסיסמה ונשמרת ב-password.txt (לגיבוי מיד)
-function ensureKeystore(t, pass) {
-  fs.mkdirSync(KEYDIR, { recursive: true });
-  if (!fs.existsSync(KEYSTORE)) {
-    pass = crypto.randomBytes(24).toString('base64url');
+// מחזיר { jks, pass, cleanup }. מפתח מהגיבוי נכתב לקובץ זמני (keytool/apksigner צריכים קובץ) ונמחק ב-cleanup
+function ensureKeystore(t, key) {
+  if (key.source === 'backup') {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-sign-'));
+    const jks = path.join(tmp, 'release.jks');
+    fs.writeFileSync(jks, key.jksBytes, { mode: 0o600 });
+    return { jks, pass: key.pass, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+  }
+  if (key.source === 'new') {
+    fs.mkdirSync(KEYDIR, { recursive: true });
+    const pass = crypto.randomBytes(24).toString('base64url');
     fs.writeFileSync(PASS_FILE, pass, { mode: 0o600 });
     run(t.keytool, ['-genkeypair', '-keystore', KEYSTORE, '-storetype', 'PKCS12', '-alias', 'supersuite', '-keyalg', 'RSA', '-keysize', '3072',
       '-validity', '36500', '-dname', 'CN=SuperSuite, O=Bunim Seller', '-storepass:env', 'SS_KS_PASS', '-keypass:env', 'SS_KS_PASS'],
       { env: { ...process.env, SS_KS_PASS: pass } });
-    log('נוצר מפתח חתימה חדש: ' + path.relative(ROOT, KEYSTORE) + ' — יש לגבות אותו (node tools/android-key-backup.js backup)');
+    log('נוצר מפתח חתימה חדש: ' + path.relative(ROOT, KEYSTORE) + ' — יש לגבות אותו מיד (node tools/android-key-backup.js backup)');
+    return { jks: KEYSTORE, pass, cleanup: () => {} };
   }
-  if (!pass) throw new Error('חסרה סיסמת מפתח החתימה');
-  return { jks: KEYSTORE, pass };
+  return { jks: key.jks, pass: key.pass, cleanup: () => {} };
 }
 
 /* ---------- APK ---------- */
@@ -212,7 +245,7 @@ function copyResDir(from, to) {
   }
 }
 
-function buildApk(t, version, keyPass) {
+function buildApk(t, version, key) {
   const work = path.join(OUT, 'work');
   rmrf(work);
   fs.mkdirSync(work, { recursive: true });
@@ -251,12 +284,16 @@ function buildApk(t, version, keyPass) {
   const aligned = path.join(work, 'aligned.apk');
   run(t.zipalign, ['-f', '-p', '4', unsigned, aligned]);
 
-  const ks = ensureKeystore(t, keyPass);
+  const ks = ensureKeystore(t, key);
   fs.mkdirSync(DIST, { recursive: true });
   const apk = path.join(DIST, 'SuperSuite.apk');
   const signEnv = { ...env, SS_KS_PASS: ks.pass };
-  run(t.java, ['-jar', t.apksigner, 'sign', '--ks', ks.jks, '--ks-key-alias', 'supersuite', '--ks-pass', 'env:SS_KS_PASS',
-    '--key-pass', 'env:SS_KS_PASS', '--min-sdk-version', String(MIN_SDK), '--out', apk, aligned], { env: signEnv });
+  try {
+    run(t.java, ['-jar', t.apksigner, 'sign', '--ks', ks.jks, '--ks-key-alias', 'supersuite', '--ks-pass', 'env:SS_KS_PASS',
+      '--key-pass', 'env:SS_KS_PASS', '--min-sdk-version', String(MIN_SDK), '--out', apk, aligned], { env: signEnv });
+  } finally {
+    ks.cleanup();
+  }
   run(t.java, ['-jar', t.apksigner, 'verify', '--min-sdk-version', String(MIN_SDK), apk], { env });
   log('נחתם ואומת');
   return { apk, versionCode };
@@ -301,11 +338,14 @@ async function main() {
     console.error('חסרים כלים: ' + missing.join(', ') + '\nראו android/README.md (או הריצו עם --check).');
     process.exit(1);
   }
-  // הסיסמה לפני הבנייה הארוכה — כדי שלא תיכשל רק בסוף. מפתח חדש יוצר סיסמה בעצמו
-  const keyPass = fs.existsSync(KEYSTORE)
-    ? await resolveKeystorePass({ ask: require('../tools/android-key-backup').askHidden })
-    : null;
-  const { apk, versionCode } = buildApk(t, version, keyPass);
+  // המפתח לפני הבנייה הארוכה — כדי שלא תיכשל רק בסוף
+  const kb = require('../tools/android-key-backup');
+  const key = await resolveSigningKey({
+    backupFile: process.env.SS_KEY_BACKUP || kb.DEFAULT_BACKUP(),
+    ask: kb.askHidden, openBackup: kb.openBackup, allowNew: args.has('--new-key'),
+  });
+  if (key.source === 'backup') log('המפתח נפתח מהגיבוי המוצפן');
+  const { apk, versionCode } = buildApk(t, version, key);
   const mb = (fs.statSync(apk).size / 1024 / 1024).toFixed(1);
   console.log(`\n✓ ${apk}  (${mb}MB, גרסה ${version}, versionCode ${versionCode})`);
 }
@@ -313,4 +353,4 @@ async function main() {
 if (require.main === module) {
   main().catch(e => { console.error('\n✗ ' + e.message); process.exit(1); });
 }
-module.exports = { buildWeb, findTools, wrapPreload, injectIntoHead, resolveKeystorePass, WWW, DOMAIN };
+module.exports = { buildWeb, findTools, wrapPreload, injectIntoHead, resolveSigningKey, ensureKeystore, WWW, DOMAIN };

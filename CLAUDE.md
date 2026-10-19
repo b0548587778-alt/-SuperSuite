@@ -32,6 +32,8 @@ npm run dist:check # בדיקה מה קיים מקומית לבנייה, בלי 
 
 בנייה למשתמש קצה: `build-exe.bat` (מתקין Node אוטומטית אם חסר, ואז בונה דרך `build-local.js`), או GitHub Actions → `Build Windows installer`.
 
+אנדרואיד: `build-apk.bat` — הבעלים מקליד רק את סיסמת הגיבוי (על נייר); המפתח נפתח בזיכרון מהגיבוי המוצפן ב-Documents (`resolveSigningKey` ב-`android/build-apk.js`). **אין ליצור מפתח חתימה חדש אוטומטית** — מפתח חדש = אי אפשר לעדכן את האפליקציה המותקנת; רק `--new-key` במפורש (`tests/android-key-backup.test.js`). ראו `android/README.md`.
+
 **בנייה בסביבה מסוננת:** `build-local.js` מאתר את מה שכבר קיים במחשב ומגיש אותו
 ל-electron-builder:
 - **ארכיון ה-Electron** — זה החלק הקריטי. electron-builder מחפש את ה-**zip** של Electron

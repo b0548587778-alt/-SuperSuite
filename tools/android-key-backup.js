@@ -85,7 +85,7 @@ function readKeyFiles() {
 
 async function backup(target) {
   const files = readKeyFiles();
-  const out = target || path.join(os.homedir(), 'Documents', 'SuperSuite-android-key-backup.sskey');
+  const out = target || DEFAULT_BACKUP();
   if (fs.existsSync(out)) throw new Error('הקובץ כבר קיים, ולא נדרס: ' + out);
   console.log('גיבוי מוצפן של מפתח האנדרואיד. קבצים: ' + Object.keys(files).join(', '));
   console.log(`בחרו סיסמה של ${MIN_PASSWORD} תווים לפחות, ו**רשמו אותה על נייר**. בלעדיה אי אפשר לפתוח את הגיבוי.\n`);
@@ -130,4 +130,17 @@ if (require.main === module) {
   run.catch(e => { console.error('\n✖ ' + e.message); process.exit(1); });
 }
 
-module.exports = { encrypt, decrypt, askHidden, MAGIC };
+// מיקום ברירת המחדל של הגיבוי — שם `backup` כותב אותו, ושם הבנייה מחפשת אותו
+const DEFAULT_BACKUP = () => path.join(os.homedir(), 'Documents', 'SuperSuite-android-key-backup.sskey');
+
+// פתיחת הגיבוי בזיכרון בלבד (לבניית ה-APK): מחזיר { jks, pass } בלי לכתוב שום דבר לדיסק.
+// pass = התוכן של password.txt שבגיבוי — הסיסמה של מפתח החתימה עצמו.
+function openBackup(buf, password) {
+  const { files } = decrypt(buf, password);
+  const jksName = Object.keys(files).find(n => n.endsWith('.jks'));
+  if (!jksName) throw new Error('בגיבוי אין קובץ מפתח (.jks)');
+  if (!files['password.txt']) throw new Error('בגיבוי אין את סיסמת המפתח (password.txt)');
+  return { jks: Buffer.from(files[jksName], 'base64'), pass: Buffer.from(files['password.txt'], 'base64').toString('utf8').trim() };
+}
+
+module.exports = { encrypt, decrypt, openBackup, askHidden, DEFAULT_BACKUP, MAGIC };
