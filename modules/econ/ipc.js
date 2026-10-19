@@ -218,6 +218,8 @@ function permissionFor(channel) {
   if (channel === 'settings:getGoogle' || channel === 'settings:saveGoogle') return 'users.manage';
   // אימות כלל רגולטורי משנה את האזהרות לכל המשתמשים — מנהל בלבד
   if (channel === 'mlab:verifyRule' || channel === 'mlab:unverifyRule') return 'users.manage';
+  // הגדרות משרד הייעוץ (מי רואה אילו תיקים) — מנהל בלבד
+  if (channel === 'madv:saveSettings') return 'users.manage';
   // מיפוי מאגרים ומזעור נתונים (תיקון 13) — מנהל בלבד
   if (channel.startsWith('privacy:')) return 'users.manage';
   // רישוי: התקנה, הנפקת מערכות בת והשבתתן — מנהל בלבד. מצב הרישיון — לכל משתמש מחובר
@@ -1430,37 +1432,46 @@ function registerIpcHandlers() {
     return r;
   });
 
-  // ייעוץ משכנתאות: תיקים, הצעות, השוואה, עמלה ומסמכים
-  handle('madv:getOverview', async () => mortgageAdvisorService.getOverview());
+  // ייעוץ משכנתאות: משרד עם כמה יועצים — כל פעולה מקבלת את המשתמש (madvActor), והשירות מסנן לפי ההרשאה
+  const madvActor = (event) => {
+    const s = authService.getSession(event.sender.id);
+    return { id: s.id, username: s.username, isManager: Array.isArray(s.permissions) && s.permissions.includes('users.manage') };
+  };
+  handle('madv:getOverview', async (event) => mortgageAdvisorService.getOverview(madvActor(event)));
   handle('madv:calcTracks', async (event, input) => mortgageAdvisorService.calcTracks(input || {}));
   handle('madv:createClient', async (event, input) => {
-    const c = await mortgageAdvisorService.createClient(input);
-    await auditEvent(event, 'madv.client.create', { id: c.id });
+    const c = await mortgageAdvisorService.createClient(input, madvActor(event));
+    await auditEvent(event, 'madv.client.create', { id: c.id, advisorId: c.advisorId || null });
     return c;
   });
   handle('madv:updateClient', async (event, id, input) => {
-    const c = await mortgageAdvisorService.updateClient(id, input || {});
-    await auditEvent(event, 'madv.client.update', { id, status: c.status });
+    const c = await mortgageAdvisorService.updateClient(id, input || {}, madvActor(event));
+    await auditEvent(event, 'madv.client.update', { id, status: c.status, advisorId: c.advisorId || null });
     return c;
   });
   handle('madv:deleteClient', async (event, id) => {
-    await mortgageAdvisorService.deleteClient(id);
+    await mortgageAdvisorService.deleteClient(id, madvActor(event));
     await auditEvent(event, 'madv.client.delete', { id });
     return true;
   });
-  handle('madv:toggleDoc', async (event, id, key) => mortgageAdvisorService.toggleDoc(id, key));
+  handle('madv:toggleDoc', async (event, id, key) => mortgageAdvisorService.toggleDoc(id, key, madvActor(event)));
   handle('madv:addOffer', async (event, input) => {
-    const o = await mortgageAdvisorService.addOffer(input);
+    const o = await mortgageAdvisorService.addOffer(input, madvActor(event));
     await auditEvent(event, 'madv.offer.add', { id: o.id, clientId: o.clientId });
     return o;
   });
   handle('madv:deleteOffer', async (event, id) => {
-    await mortgageAdvisorService.deleteOffer(id);
+    await mortgageAdvisorService.deleteOffer(id, madvActor(event));
     await auditEvent(event, 'madv.offer.delete', { id });
     return true;
   });
+  handle('madv:saveSettings', async (event, input) => {
+    const s = await mortgageAdvisorService.saveSettings(input || {});
+    await auditEvent(event, 'madv.settings.save', s);
+    return s;
+  });
   handle('madv:exportSchedule', async (event, offerId) => {
-    const r = await saveCsv(await mortgageAdvisorService.getScheduleExport(offerId));
+    const r = await saveCsv(await mortgageAdvisorService.getScheduleExport(offerId, madvActor(event)));
     if (r.ok) await auditEvent(event, 'madv.export.schedule', { offerId });
     return r;
   });

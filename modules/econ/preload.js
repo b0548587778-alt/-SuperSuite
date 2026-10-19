@@ -275,6 +275,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   addMortgageOffer: (input) => ipcRenderer.invoke('madv:addOffer', input),
   deleteMortgageOffer: (id) => ipcRenderer.invoke('madv:deleteOffer', id),
   exportMortgageSchedule: (offerId) => ipcRenderer.invoke('madv:exportSchedule', offerId),
+  saveMortgageOfficeSettings: (input) => ipcRenderer.invoke('madv:saveSettings', input),
   getMortgageLab: () => ipcRenderer.invoke('mlab:getOverview'),
   calcLabMix: (input) => ipcRenderer.invoke('mlab:calcMix', input),
   calcLabBaskets: (input) => ipcRenderer.invoke('mlab:calcBaskets', input),

@@ -143,7 +143,13 @@ const KINDS = {
     ],
     validate: (raw) => M.validateClient({
       ...raw,
-      status: oneOf(M.CLIENT_STATUSES, 'preparing')(raw.status),
+      status: (() => {
+        const s = String(raw.status ?? '').trim();
+        if (!s) return M.DEFAULT_STAGE;
+        const k = M.normalizeStage(s);
+        if (!k) throw new Error(`ערך לא מוכר: "${s}"`);
+        return k;
+      })(),
       feeType: oneOf({ percent: 'אחוז', fixed: 'קבוע' }, 'percent')(raw.feeType),
       requestedAmount: String(raw.requestedAmount ?? '').replace(/[₪,\s]/g, ''),
       propertyValue: String(raw.propertyValue ?? '').replace(/[₪,\s]/g, '')

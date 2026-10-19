@@ -54,3 +54,13 @@
 /* ---------- כותרת מסך ---------- */
 .ss-title { margin: 0 0 var(--ss-sp-1); font: 700 var(--ss-fs-2xl) / 1.2 var(--ss-font-title); color: var(--ss-navy-2); }
 .ss-subtitle { margin: 0 0 var(--ss-sp-4); color: var(--ss-muted); font-size: var(--ss-fs-md); }
+
+/* ---------- לוח עמודות (צנרת שלבים) ---------- */
+.ss-board { display: flex; gap: var(--ss-sp-3); overflow-x: auto; padding-bottom: var(--ss-sp-2); align-items: flex-start; }
+.ss-board-col { flex: 0 0 200px; background: var(--ss-surface-2); border-radius: var(--ss-radius); padding: var(--ss-sp-2); }
+.ss-board-col.is-closed { opacity: .8; }
+.ss-board-col > h4 { margin: 0 0 var(--ss-sp-2); font: 700 var(--ss-fs-sm) var(--ss-font); color: var(--ss-text-2); display: flex; justify-content: space-between; gap: var(--ss-sp-1); }
+.ss-board-card { background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm); padding: var(--ss-sp-2); margin-bottom: var(--ss-sp-2); font-size: var(--ss-fs-sm); }
+.ss-board-card.is-stuck { border-color: var(--ss-warning-line); background: var(--ss-warning-soft); color: var(--ss-warning-ink); }
+.ss-board-card strong { display: block; }
+.ss-badge-warn { background: var(--ss-warning-soft); color: var(--ss-warning-ink); }

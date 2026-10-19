@@ -21,12 +21,34 @@ const TRACKS = {
 };
 const TRACK_KEYS = Object.keys(TRACKS);
 
+// שלבי התיק בצנרת המשרד, לפי הסדר. closed / lost — תיק סגור (לא נספר כתקוע)
 const CLIENT_STATUSES = {
-  preparing: 'בהכנה',
-  submitted: 'הוגש',
-  'approved-principle': 'אושר עקרונית',
-  'approved-final': 'אושר סופי'
+  lead: 'פנייה',
+  meeting: 'פגישת היכרות',
+  documents: 'איסוף מסמכים',
+  submitted: 'הוגש לבנקים',
+  principle: 'אישורים עקרוניים',
+  negotiation: 'משא ומתן',
+  final: 'אישור סופי',
+  signing: 'חתימה וביצוע',
+  closed: 'הסתיים',
+  lost: 'לא התקדם'
 };
+const STAGE_KEYS = Object.keys(CLIENT_STATUSES);
+const CLOSED_STAGES = new Set(['closed', 'lost']);
+// סטטוסים מהגרסה הקודמת (ארבעה שלבים) ← השלב המקביל
+// (גם התוויות הישנות — קובץ שיוצא מהגרסה הקודמת)
+const LEGACY_STATUS = { preparing: 'documents', 'approved-principle': 'principle', 'approved-final': 'final',
+  'בהכנה': 'documents', 'הוגש': 'submitted', 'אושר עקרונית': 'principle', 'אושר סופי': 'final' };
+const DEFAULT_STAGE = 'lead';
+
+function normalizeStage(v) {
+  const s = String(v ?? '');
+  if (CLIENT_STATUSES[s]) return s;
+  if (LEGACY_STATUS[s.trim()]) return LEGACY_STATUS[s.trim()];
+  const byLabel = STAGE_KEYS.find(k => CLIENT_STATUSES[k] === s.trim());
+  return byLabel || null;
+}
 
 // רשימת מסמכים סטנדרטית לתיק משכנתא
 const DOCUMENTS = [
@@ -60,10 +82,11 @@ function validateClient(input) {
     bank: str(input.bank, 100, 'שם הבנק'),
     requestedAmountAg: toAg(requestedAmount),
     propertyValueAg: toAg(propertyValue),
-    status: CLIENT_STATUSES[input.status] ? input.status : 'preparing',
+    status: normalizeStage(input.status) || DEFAULT_STAGE,
     feeType,
     notes: str(input.notes, 2000, 'ההערות')
   };
+  out.lostReason = out.status === 'lost' ? str(input.lostReason, 300, 'סיבת הסגירה') : '';
   if (feeType === 'percent') out.feePercent = Math.round(feeValue * 1000) / 1000;
   else out.feeFixedAg = toAg(feeValue);
   return out;
@@ -77,6 +100,7 @@ const agOf = (v) => { const n = Number(v); return Number.isFinite(n) ? toAg(n) :
 function clientStored(c) {
   if (!c || typeof c !== 'object') return c;
   const out = { ...c };
+  out.status = normalizeStage(c.status) || DEFAULT_STAGE;
   if (!isAg(out.requestedAmountAg)) out.requestedAmountAg = agOf(c.requestedAmount);
   if (!isAg(out.propertyValueAg)) out.propertyValueAg = agOf(c.propertyValue || 0);
   out.feeType = out.feeType === 'fixed' ? 'fixed' : 'percent';
@@ -271,8 +295,90 @@ function scheduleTable(offer, clientName) {
   return { name: `לוח-סילוקין-${clientName || ''}-${offer.bank}`.replace(/[\\/:*?"<>|]/g, '_'), headers, rows };
 }
 
+// ---------- משרד: יועצים, הרשאות וצנרת תיקים ----------
+// actor = { id, username, isManager }. בלי actor (קריאה פנימית / בדיקות) — גישה מלאה.
+
+const DEFAULT_SETTINGS = { ownOnly: true, stuckDays: 14 };
+
+function normalizeSettings(s) {
+  const x = s && typeof s === 'object' ? s : {};
+  const d = Number(x.stuckDays);
+  return {
+    ownOnly: x.ownOnly !== false,
+    stuckDays: Number.isInteger(d) && d >= 1 && d <= 365 ? d : DEFAULT_SETTINGS.stuckDays
+  };
+}
+
+// יועץ רואה את התיקים שלו ותיקים שלא שויכו; מנהל רואה הכול. ownOnly כבוי — כולם רואים הכול
+function canSee(client, actor, settings) {
+  if (!actor || actor.isManager) return true;
+  if (!normalizeSettings(settings).ownOnly) return true;
+  return !client.advisorId || client.advisorId === actor.id;
+}
+
+// שיוך יועץ: מנהל — לכל יועץ פעיל או בלי שיוך; יועץ — רק לעצמו (או השארת השיוך הקיים)
+function resolveAdvisor(requested, current, actor, advisorIds) {
+  const want = requested === undefined ? current : String(requested || '');
+  if (want === (current || '')) return want || '';
+  if (!actor || actor.isManager) {
+    if (want && !advisorIds.includes(want)) throw new Error('היועץ שנבחר אינו משתמש פעיל במערכת');
+    return want;
+  }
+  if (want === actor.id) return want;
+  throw new Error('רק מנהל יכול לשייך תיק ליועץ אחר');
+}
+
+// שינוי שלב נרשם בהיסטוריה — ממנה מחושבים הימים בשלב
+function withStage(prev, next, actor, at) {
+  const history = Array.isArray(prev.stageHistory) ? prev.stageHistory.slice(-100) : [];
+  if (!history.length || prev.status !== next.status) history.push({ stage: next.status, at, by: actor ? actor.id : null });
+  return { ...next, stageHistory: history };
+}
+
+const DAY_MS = 86400000;
+function stageSince(c) {
+  const h = Array.isArray(c.stageHistory) ? c.stageHistory : [];
+  const last = h.length && h[h.length - 1].stage === c.status ? h[h.length - 1].at : null;
+  return last || c.updatedAt || c.createdAt || null;
+}
+
+function daysInStage(c, nowMs) {
+  const since = Date.parse(stageSince(c));
+  if (!Number.isFinite(since)) return 0;
+  return Math.max(0, Math.floor((nowMs - since) / DAY_MS));
+}
+
+// לוח העמודות: עמודה לכל שלב, כרטיס לכל תיק. "תקוע" = תיק פתוח שעבר את מספר הימים בהגדרות.
+// קריאה בלבד — אין שום פעולה אוטומטית.
+function pipelineBoard(clients, { nowMs = Date.now(), settings, advisorName = () => '' } = {}) {
+  const st = normalizeSettings(settings);
+  const columns = STAGE_KEYS.map(k => ({ stage: k, label: CLIENT_STATUSES[k], closed: CLOSED_STAGES.has(k), cards: [], totalAg: 0 }));
+  const byStage = new Map(columns.map(c => [c.stage, c]));
+  for (const raw of clients) {
+    const c = clientStored(raw);
+    const col = byStage.get(c.status) || byStage.get(DEFAULT_STAGE);
+    const days = daysInStage(c, nowMs);
+    const stuck = !col.closed && days > st.stuckDays;
+    col.cards.push({ id: c.id, name: c.name, advisorId: c.advisorId || '', advisorName: c.advisorId ? advisorName(c.advisorId) : '',
+      requestedAmount: fromAg(c.requestedAmountAg), days, stuck, lostReason: c.lostReason || '' });
+    col.totalAg += c.requestedAmountAg;
+  }
+  for (const col of columns) {
+    col.cards.sort((a, b) => b.days - a.days);
+    col.total = fromAg(col.totalAg);
+  }
+  const open = columns.filter(c => !c.closed);
+  return {
+    columns,
+    stuckCount: open.reduce((t, c) => t + c.cards.filter(x => x.stuck).length, 0),
+    openCount: open.reduce((t, c) => t + c.cards.length, 0),
+    stuckDays: st.stuckDays
+  };
+}
+
 module.exports = {
-  TRACKS, TRACK_KEYS, CLIENT_STATUSES, DOCUMENTS,
+  TRACKS, TRACK_KEYS, CLIENT_STATUSES, STAGE_KEYS, CLOSED_STAGES, DEFAULT_STAGE, DOCUMENTS, DEFAULT_SETTINGS,
+  normalizeStage, normalizeSettings, canSee, resolveAdvisor, withStage, daysInStage, pipelineBoard,
   validateClient, clientStored, clientView, offerStored, ltv, advisoryFee, docsProgress, toggleDoc,
   validateTrack, tracksFromForm, validateOffer, trackSchedule, offerSchedule, offerSummary,
   yearlySchedule, compareOffers, scheduleTable

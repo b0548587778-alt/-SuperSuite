@@ -5,7 +5,11 @@
 // ============================================================
 // ייעוץ משכנתאות — תיקי לקוחות, מחשבון מסלולים, השוואת הצעות בנקים, עמלה ומסמכים
 // ============================================================
-const MADV_STATUS = { preparing: 'בהכנה', submitted: 'הוגש', 'approved-principle': 'אושר עקרונית', 'approved-final': 'אושר סופי' };
+// שלבי התיק — רשימת הגיבוי. בפועל נלקחים מהשרת (statuses), כדי שיהיה מקור אחד
+const MADV_STATUS = {
+  lead: 'פנייה', meeting: 'פגישת היכרות', documents: 'איסוף מסמכים', submitted: 'הוגש לבנקים', principle: 'אישורים עקרוניים',
+  negotiation: 'משא ומתן', final: 'אישור סופי', signing: 'חתימה וביצוע', closed: 'הסתיים', lost: 'לא התקדם'
+};
 const MADV_TRACKS = [
   ['fixed-indexed', 'קבועה צמודה'], ['fixed-unindexed', 'קבועה לא צמודה'],
   ['variable-5', 'משתנה כל 5 שנים'], ['prime', 'פריים']
@@ -24,7 +28,9 @@ formSchemas['mortgage-advisor'] = {
     { name: 'bank', label: 'בנק מוביל', type: 'text' },
     { name: 'requestedAmount', label: 'סכום מבוקש (₪)', type: 'number', required: true },
     { name: 'propertyValue', label: 'שווי הנכס (₪)', type: 'number' },
-    { name: 'status', label: 'סטטוס', type: 'select', options: opts(MADV_STATUS) },
+    { name: 'status', label: 'שלב', type: 'select', options: opts(MADV_STATUS) },
+    { name: 'advisorId', label: 'יועץ אחראי', type: 'select', options: [{ value: '', label: 'ללא שיוך' }] },
+    { name: 'lostReason', label: 'סיבה (אם התיק לא התקדם)', type: 'text' },
     { name: 'feeType', label: 'סוג עמלת ייעוץ', type: 'select', options: [
       { value: 'percent', label: 'אחוז מהסכום המבוקש' },
       { value: 'fixed', label: 'סכום קבוע' }
@@ -73,10 +79,59 @@ function madvSummaryHtml(sum, yearly) {
     </details>` : ''}`;
 }
 
+// רשימת היועצים בטופס התיק מתעדכנת בכל רינדור — prepare היה מונע את מילוי הערכים בעריכה.
+// יועץ שאינו מנהל רואה רק את עצמו (השרת דוחה שיוך לאחר בכל מקרה)
+function madvSyncAdvisorField(o) {
+  const f = formSchemas['mortgage-advisor'].fields.find(x => x.name === 'advisorId');
+  const me = (o && o.me) || {};
+  const list = Array.isArray(o && o.advisors) ? o.advisors : [];
+  const allowed = me.isManager ? list : list.filter(a => a.id === me.id);
+  f.options = [{ value: '', label: 'ללא שיוך' }, ...allowed.map(a => ({ value: a.id, label: a.name }))];
+  if (!me.isManager && me.id) f.value = me.id;
+  const st = formSchemas['mortgage-advisor'].fields.find(x => x.name === 'status');
+  if (o && o.statuses) st.options = opts(o.statuses);
+}
+
+function madvBoardHtml(board) {
+  if (!board || !Array.isArray(board.columns)) return '';
+  return `
+      <div class="card">
+        <div class="acct-header">
+          <h3>צנרת התיקים (${board.openCount} פתוחים)</h3>
+          ${board.stuckCount ? `<span class="ss-badge ss-badge-warn">⚠ ${board.stuckCount} תיקים תקועים יותר מ-${board.stuckDays} ימים</span>` : ''}
+        </div>
+        <div class="ss-board">${board.columns.map(col => `
+          <div class="ss-board-col${col.closed ? ' is-closed' : ''}">
+            <h4><span>${esc(col.label)}</span><span>${col.cards.length}</span></h4>
+            ${col.cards.map(k => `<div class="ss-board-card${k.stuck ? ' is-stuck' : ''}">
+              <strong>${esc(k.name)}</strong>
+              <span>${money(k.requestedAmount)}</span><br>
+              <small>${k.advisorName ? esc(k.advisorName) + ' · ' : ''}${k.days} ימים בשלב${k.stuck ? ' ⚠' : ''}</small>
+              ${k.lostReason ? `<br><small>${esc(k.lostReason)}</small>` : ''}
+            </div>`).join('')}
+          </div>`).join('')}
+        </div>
+      </div>`;
+}
+
+function madvSettingsHtml(o) {
+  if (!o || !o.me || !o.me.isManager || !o.settings) return '';
+  return `
+      <details class="card"><summary>הגדרות המשרד</summary>
+        <label class="doc-check"><input type="checkbox" id="madvOwnOnly"${o.settings.ownOnly ? ' checked' : ''}> כל יועץ רואה רק את התיקים שלו (ותיקים שלא שויכו). המנהל רואה הכול</label>
+        <label>תיק נחשב "תקוע" אחרי <input type="number" id="madvStuckDays" min="1" max="365" value="${Number(o.settings.stuckDays) || 14}"> ימים באותו שלב</label>
+        <div class="acct-actions"><button id="madvSaveSettings">שמירת ההגדרות</button></div>
+      </details>`;
+}
+
 function renderMortgageAdvisor(o) {
   const clients = Array.isArray(o && o.clients) ? o.clients : [];
+  madvSyncAdvisorField(o);
+  const statuses = (o && o.statuses) || MADV_STATUS;
   return `
     <div class="mortgage-advisor">
+      ${clients.length ? madvBoardHtml(o.board) : ''}
+      ${madvSettingsHtml(o)}
       <div class="card">
         <h3>מחשבון מסלולים</h3>
         <p class="muted">הזן סכום, ריבית ותקופה לכל מסלול רלוונטי. ריבית במשתנה ובפריים מחושבת כקבועה לאורך התקופה; המדד הוא הנחה שלך.</p>
@@ -107,10 +162,10 @@ function renderMortgageAdvisor(o) {
           <div class="acct-header">
             <div>
               <h4>${esc(c.name)}${c.phone ? ` <small class="muted">${esc(c.phone)}</small>` : ''}</h4>
-              <small>${c.bank ? esc(c.bank) + ' · ' : ''}מבוקש ${money(c.requestedAmount)}${c.ltv != null ? ` · מימון ${c.ltv}%` : ''}</small>
+              <small>${c.bank ? esc(c.bank) + ' · ' : ''}מבוקש ${money(c.requestedAmount)}${c.ltv != null ? ` · מימון ${c.ltv}%` : ''}${c.advisorName ? ` · יועץ: ${esc(c.advisorName)}` : ''} · ${Number(c.daysInStage) || 0} ימים בשלב</small>
             </div>
             <div class="acct-actions">
-              <select data-madv-status="${esc(c.id)}">${Object.entries(MADV_STATUS).map(([v, l]) => `<option value="${v}"${c.status === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+              <select data-madv-status="${esc(c.id)}" aria-label="שלב התיק">${Object.entries(statuses).map(([v, l]) => `<option value="${v}"${c.status === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
               ${renderCardActions(c.id)}
             </div>
           </div>
@@ -173,9 +228,26 @@ function attachMadvHandlers() {
     openSubForm(madvOfferSchema, values);
   });
   document.querySelectorAll('[data-madv-status]').forEach(sel => sel.addEventListener('change', async () => {
-    try { await window.systemAPI.updateMortgageClient(sel.dataset.madvStatus, { status: sel.value }); showToast('הסטטוס עודכן'); await switchView('mortgage-advisor'); }
+    const patch = { status: sel.value };
+    if (sel.value === 'lost') {
+      const v = await askFields('למה התיק לא התקדם?', [{ name: 'lostReason', label: 'סיבה (לא חובה)' }], 'שמירה');
+      if (!v) { await switchView('mortgage-advisor'); return; }
+      patch.lostReason = v.lostReason || '';
+    }
+    try { await window.systemAPI.updateMortgageClient(sel.dataset.madvStatus, patch); showToast('השלב עודכן'); await switchView('mortgage-advisor'); }
     catch (error) { showError('שגיאה בעדכון: ' + errMsg(error)); }
   }));
+  const saveSet = document.getElementById('madvSaveSettings');
+  if (saveSet) saveSet.addEventListener('click', async () => {
+    try {
+      await window.systemAPI.saveMortgageOfficeSettings({
+        ownOnly: document.getElementById('madvOwnOnly').checked,
+        stuckDays: Number(document.getElementById('madvStuckDays').value)
+      });
+      showToast('ההגדרות נשמרו');
+      await switchView('mortgage-advisor');
+    } catch (error) { showError('שגיאה בשמירה: ' + errMsg(error)); }
+  });
   document.querySelectorAll('[data-madv-doc]').forEach(cb => cb.addEventListener('change', async () => {
     try { await window.systemAPI.toggleMortgageDoc(cb.dataset.madvDoc, cb.dataset.key); await switchView('mortgage-advisor'); }
     catch (error) { showError('שגיאה בעדכון: ' + errMsg(error)); }

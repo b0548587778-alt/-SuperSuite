@@ -110,7 +110,7 @@ test('IPC ייעוץ: תיק, הצעות מכמה בנקים, השוואה, ומ
 
   const o = await handlers['madv:getOverview'](ev(51));
   const client = o.clients[0];
-  assert.equal(client.status, 'approved-principle');
+  assert.equal(client.status, 'principle', 'סטטוס מהגרסה הקודמת נשמר כשלב המקביל');
   assert.equal(client.ltv, 60);
   assert.equal(client.fee.net, 4500);
   assert.equal(client.docs.done, 1);
