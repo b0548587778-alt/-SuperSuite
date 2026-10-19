@@ -107,7 +107,10 @@ async function main() {
     await wait(3000);
 
     const styles = {};
+    // השוואה יציבה: בלי מעברי אנימציה (צבע באמצע מעבר) ובלי ריחוף של הסמן האמיתי מעל אלמנט
+    await tr.js(`(() => { const s = document.createElement('style'); s.textContent = '*,*::before,*::after{transition:none!important;animation:none!important}'; document.head.appendChild(s); return 1; })()`);
     const capture = async (name) => {
+      await tr.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 });
       await wait(900);
       report[name] = await tr.js('document.body.innerText');
       styles[name] = await tr.js(STYLE_DUMP);
