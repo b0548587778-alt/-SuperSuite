@@ -165,3 +165,133 @@ test('IPC מצב קיים: קמפיין — תאריך התרומה חייב ל�
     handlers['npo:saveCampaign'](ev(63), cmp.id, { name: 'בניין הישיבה', goal: 100000, startDate: '2026-11-01', endDate: '2026-11-30' }),
     /מחוץ לתקופה החדשה/);
 });
+
+// ---------- שלב 2: הלוגיקה הטהורה ----------
+
+const CHQ = (number, dueDate, amount, over = {}) => ({ number, bank: '12', branch: '345', dueDate, amount, ...over });
+const BASE = { donorName: 'יוסף ברגר', donorId: '000000018', receivedDate: '2026-11-20' };
+
+test('validateCheques: ממיין לפי פירעון, שומר אגורות שלמות, ובלי מספר חשבון', () => {
+  const out = N.validateCheques([CHQ('103', '2027-01-15', 400), CHQ('101', '2026-11-20', 400.1), { ...CHQ('102', '2026-12-15', 0), amountAg: 39999, account: '999999' }], '2026-11-20');
+  assert.deepEqual(out.map(c => c.number), ['101', '102', '103']);
+  assert.deepEqual(out.map(c => c.amountAg), [40010, 39999, 40000]);
+  assert.ok(out.every(c => Object.keys(c).join() === 'number,bank,branch,dueDate,amountAg'), 'שדה לא מוכר (כמו מספר חשבון) לא נשמר');
+});
+
+test('validateCheques: קלט שגוי — שגיאה בעברית עם מספר השורה', () => {
+  const v = (list, rec = '2026-11-20') => () => N.validateCheques(list, rec);
+  assert.throws(v([]), /לפחות המחאה אחת/);
+  assert.throws(v([CHQ('1', '2026-11-19', 10)]), /המחאה 1: תאריך הפירעון .* מוקדם/);
+  assert.throws(v([CHQ('1', '2032-01-01', 10)]), /רחוק מדי/);
+  assert.throws(v([CHQ('1', '2027-01-01', 10), CHQ('1', '2027-02-01', 10)]), /המחאה 2: .*הוזנה פעמיים/);
+  assert.throws(v([CHQ('12a', '2027-01-01', 10)]), /ספרות בלבד/);
+  assert.throws(v([CHQ('1', '2027-01-01', 0)]), /הסכום אינו תקין/);
+  assert.throws(v([CHQ('1', '2027-01-01', 10, { amountAg: 10.5 })]), /הסכום אינו תקין/, 'אגורות חייבות להיות שלמות');
+  assert.throws(v([CHQ('1', '2027-01-01', 10, { bank: 'לאומי' })]), /קוד הבנק/);
+  assert.throws(v([CHQ('1', '2027-01-01', 10)], '20-11-2026'), /תאריך קבלת ההמחאות/);
+  assert.throws(v(Array.from({ length: N.MAX_CHEQUES + 1 }, (_, i) => CHQ(String(i + 1), '2027-01-01', 1))), /עד 60/);
+  // אותו מספר בשני בנקים שונים — מותר
+  assert.equal(N.validateCheques([CHQ('1', '2027-01-01', 10), CHQ('1', '2027-01-01', 10, { bank: '20' })], '2026-11-20').length, 2);
+});
+
+test('generateCheques: חלוקה שווה באגורות, שארית בהמחאה האחרונה, וסוף חודש', () => {
+  const list = N.generateCheques({ total: 1000, count: 3, firstDueDate: '2027-01-31', firstNumber: '000098', bank: '12', branch: '345' });
+  assert.deepEqual(list.map(c => c.amountAg), [33333, 33333, 33334]);
+  assert.equal(list.reduce((t, c) => t + c.amountAg, 0), 100000, 'הסכום הכולל נשמר עד האגורה');
+  assert.deepEqual(list.map(c => c.dueDate), ['2027-01-31', '2027-02-28', '2027-03-31']);
+  assert.deepEqual(list.map(c => c.number), ['000098', '000099', '000100'], 'האפסים שבהתחלה נשמרים');
+  assert.deepEqual(N.generateCheques({ total: 1200, count: 12, firstDueDate: '2026-11-15', firstNumber: '1' }).map(c => c.dueDate).slice(1, 3), ['2026-12-15', '2027-01-15'], 'מעבר שנה');
+  assert.throws(() => N.generateCheques({ total: 100, count: 0, firstDueDate: '2027-01-01', firstNumber: '1' }), /בין 1 ל-60/);
+  assert.throws(() => N.generateCheques({ total: 0.02, count: 3, firstDueDate: '2027-01-01', firstNumber: '1' }), /הסכום הכולל/);
+});
+
+test('planChequeDonation: תרומה לכל שנת מס, date לפי הכלל, וסכום לפי ההמחאות של אותה שנה', () => {
+  const plan = N.planChequeDonation({ ...BASE, cheques: [CHQ('101', '2026-12-15', 400), CHQ('102', '2027-01-15', 400), CHQ('103', '2027-02-15', 400)] }, SETTINGS);
+  assert.equal(plan.totalAg, 120000);
+  assert.equal(plan.donations.length, 2);
+  const [a, b] = plan.donations;
+  assert.equal(a.date, '2026-11-20', 'בשנת הקבלה — יום הקבלה');
+  assert.equal(b.date, '2027-01-15', 'בשנה אחרת — הפירעון הראשון בה');
+  assert.deepEqual([a.amount, b.amount], [400, 800]);
+  assert.deepEqual(b.cheques.map(c => c.number), ['102', '103']);
+  assert.equal(a.reference, '101');
+  assert.equal(b.reference, '102–103');
+  assert.ok(plan.donations.every(d => d.method === 'check' && d.receivedDate === '2026-11-20' && d.donorId === '000000018'));
+  assert.equal(plan.donations.some(d => 'receipt' in d), false, 'תכנון בלבד — בלי קבלה');
+  assert.deepEqual(plan.warnings, []);
+});
+
+test('planChequeDonation: כל ההמחאות בשנה הבאה — קבלה אחת בתאריך הפירעון הראשון', () => {
+  const plan = N.planChequeDonation({ ...BASE, cheques: [CHQ('7', '2027-03-01', 500), CHQ('8', '2027-04-01', 500)] }, SETTINGS);
+  assert.equal(plan.donations.length, 1);
+  assert.equal(plan.donations[0].date, '2027-03-01');
+});
+
+test('planChequeDonation: אישור סעיף 46 שפג לפני שנה מסוימת — אזהרה, לא חסימה', () => {
+  const plan = N.planChequeDonation({ ...BASE, cheques: [CHQ('1', '2027-06-01', 100), CHQ('2', '2028-01-15', 100)] }, SETTINGS);
+  assert.equal(plan.donations.length, 2);
+  assert.deepEqual(plan.warnings.map(w => [w.code, w.year]), [['sec46-lapsed', 2028]]);
+  assert.match(plan.warnings[0].text, /בלי זיכוי לפי סעיף 46/);
+  const noApproval = N.applySettings(SETTINGS, { orgName: 'א', sec46Number: '' }, new Set(), () => 'x');
+  assert.deepEqual(N.planChequeDonation({ ...BASE, cheques: [CHQ('2', '2028-01-15', 100)] }, noApproval).warnings, [], 'בלי אישור בכלל — אין מה להזהיר');
+});
+
+test('planChequeDonation: פרטי התורם עוברים את אותה ולידציה כמו תרומה רגילה', () => {
+  assert.throws(() => N.planChequeDonation({ ...BASE, donorName: '', cheques: [CHQ('1', '2027-01-01', 10)] }, SETTINGS), /שם התורם/);
+  assert.throws(() => N.planChequeDonation({ ...BASE, donorId: '123', cheques: [CHQ('1', '2027-01-01', 10)] }, SETTINGS), /זהות/);
+  assert.throws(() => N.planChequeDonation({ ...BASE, fundId: 'nope', cheques: [CHQ('1', '2027-01-01', 10)] }, SETTINGS), /הקרן/);
+  const anon = N.planChequeDonation({ ...BASE, donorId: '', donorType: 'anonymous', cheques: [CHQ('1', '2027-01-01', 10)] }, SETTINGS);
+  assert.equal(N.reportId(anon.donations[0]), '999999999');
+});
+
+test('issueChequeReceipts: מספרים עוקבים, וזכאות סעיף 46 לפי התאריך של כל קבלה', () => {
+  const plan = N.planChequeDonation({ ...BASE, cheques: [CHQ('1', '2026-12-01', 100), CHQ('2', '2027-06-01', 100), CHQ('3', '2028-01-15', 100)] }, SETTINGS);
+  const s0 = { ...SETTINGS, receiptSeq: 41 };
+  const { donations, settings } = N.issueChequeReceipts(plan.donations, s0);
+  assert.deepEqual(donations.map(d => d.receipt.number), [42, 43, 44]);
+  assert.equal(settings.receiptSeq, 44);
+  assert.equal(s0.receiptSeq, 41, 'ההגדרות שהתקבלו לא השתנו');
+  assert.deepEqual(donations.map(d => d.receipt.sec46), [true, true, false]);
+});
+
+test('קבלות ההמחאות משתלבות בסיכומים השנתיים הקיימים בלי שינוי בהם', () => {
+  const plan = N.planChequeDonation({ ...BASE, cheques: [CHQ('101', '2026-12-15', 400), CHQ('102', '2027-01-15', 400), CHQ('103', '2027-02-15', 400)] }, SETTINGS);
+  const list = N.issueChequeReceipts(plan.donations, SETTINGS).donations.map((d, i) => ({ id: 'c' + i, ...d, status: 'active' }));
+  assert.equal(N.annualReport(list, [], SETTINGS, 2026).donationsTotal, 400);
+  assert.equal(N.annualReport(list, [], SETTINGS, 2027).donationsTotal, 800);
+  assert.equal(N.donorAnnualStatement(list, SETTINGS, 'id:000000018', 2027).total, 800);
+  assert.equal(N.taxSummary(list).counts.pending, 2, 'כל קבלה מדווחת בנפרד');
+  assert.equal(N.exportTable('tax', list, [], SETTINGS, 2026).rows.length, 2);
+});
+
+test('chequeBounce: המחאה שחזרה — היתרה של אותה שנה בקבלה חדשה, ובלי יתרה — אין קבלה', () => {
+  const plan = N.planChequeDonation({ ...BASE, purpose: 'בניין', cheques: [CHQ('101', '2026-12-15', 400), CHQ('102', '2027-01-15', 400), CHQ('103', '2027-02-15', 400)] }, SETTINGS);
+  const [y26, y27] = N.issueChequeReceipts(plan.donations, SETTINGS).donations.map((d, i) => ({ id: 'c' + i, ...d, status: 'active', chequeGroupId: 'g1' }));
+
+  const r = N.chequeBounce(y27, '102');
+  assert.equal(r.bounced.number, '102');
+  assert.equal(r.replacement.amount, 400);
+  assert.equal(r.replacement.date, '2027-02-15', 'הפירעון הראשון שנותר בשנה');
+  assert.deepEqual(r.replacement.cheques.map(c => c.number), ['103']);
+  assert.equal(r.replacement.replacesId, y27.id);
+  assert.equal(r.replacement.purpose, 'בניין');
+  assert.equal(r.replacement.chequeGroupId, 'g1');
+  assert.equal('receipt' in r.replacement, false, 'הקבלה החדשה מופקת בשירות');
+
+  assert.equal(N.chequeBounce(y27, '103').replacement.date, '2027-01-15');
+  assert.equal(N.chequeBounce(y26, '101').replacement, null, 'ההמחאה היחידה של השנה — רק ביטול');
+
+  assert.throws(() => N.chequeBounce(y27, '999'), /לא נמצאה/);
+  assert.throws(() => N.chequeBounce({ ...y27, status: 'cancelled' }, '102'), /כבר בוטלה/);
+  assert.throws(() => N.chequeBounce(donation().d, '1'), /אינה תרומה בהמחאות/);
+  const twin = { ...y27, cheques: [CHQ('5', '2027-01-15', 1, { amountAg: 100 }), CHQ('5', '2027-02-15', 1, { bank: '20', amountAg: 100 })] };
+  assert.throws(() => N.chequeBounce(twin, '5'), /לציין את הבנק/);
+  assert.equal(N.chequeBounce(twin, '5', '20').bounced.bank, '20');
+});
+
+test('הלוגיקה של ההמחאות בלי require חדש (אנדרואיד) ובלי toISOString לתאריכים', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/core/npo.js'), 'utf8');
+  assert.deepEqual([...src.matchAll(/require\('([^']+)'\)/g)].map(m => m[1]), ['./israeliId']);
+  const block = src.slice(src.indexOf('// ---------- המחאות דחויות'), src.indexOf('// רשימת מסמכים לתמיכה'));
+  assert.doesNotMatch(block, /toISOString/);
+});
