@@ -7,6 +7,7 @@ const fs = require('fs');
 const { pathToFileURL } = require('url');
 const { canShellNavigate, canModuleOpen, EDITING_CHECK_JS } = require('./shell/nav-guard');
 const AutoBk = require('./shell/auto-backup');
+const DbRecovery = require('./shell/db-recovery');
 const DbKey = require('./shell/db-key');
 const SecureStore = require('./shell/secure-store');
 const TrainerCheck = require('./shell/trainer-backup-check');
@@ -531,6 +532,47 @@ function wireSecureStore() {
   });
 }
 
+/* ---------- מסד נתונים פגום או נעול בעלייה (PLAN.md 2.3) ----------
+   נעול ← "נסו שוב". פגום ← שחזור מהגיבוי האוטומטי האחרון למסד חדש; הפגום מועבר הצידה, לא נמחק.
+   מחזיר true אם המערכת הכלכלית עלתה, false ליציאה. */
+const econInitOptions = () => ({ isRestTime: syncPaused, dbOptions: dbAtRestOptions(), trainerData: trainerDataForEcon });
+async function recoverDatabase(firstErr) {
+  let err = firstErr;
+  for (let round = 0; round < 20; round++) {
+    const kind = DbRecovery.classifyDbError(err);
+    logger.error('db-open', err);
+    const backupDir = loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
+    const backup = kind === 'corrupt' ? DbRecovery.latestAutoBackup(backupDir) : null;
+    const d = DbRecovery.dialogFor(kind, backup);
+    const r = await dialog.showMessageBox({ type: 'error', buttons: d.buttons.map(b => b.label), defaultId: 0, cancelId: d.buttons.length - 1,
+      noLink: true, message: d.message, detail: d.detail });
+    const choice = (d.buttons[r.response] || {}).id || 'quit';
+    if (choice === 'quit') return false;
+    if (choice === 'folder') { shell.openPath(app.getPath('userData')); continue; }
+    if (choice === 'report') { await crash.saveReport(); continue; }
+    try {
+      if (choice === 'restore') {
+        // פענוח לפני שנוגעים במסד: גיבוי שלא נפתח — המסד הפגום נשאר במקומו
+        const data = JSON.parse(BK.decryptBackup(fs.readFileSync(backup.file, 'utf8'), autoBackupKey(false)));
+        if (!data || data.suite !== 'SuperSuite' || !data.econ) throw new Error('קובץ הגיבוי האוטומטי אינו מכיל נתונים כלכליים');
+        const aside = DbRecovery.setAsideDamaged(app.getPath('userData'));
+        logger.error('db-open', new Error('damaged database set aside: ' + path.basename(aside)));
+        await econ.initEcon(app.getPath('userData'), econInitOptions());
+        await econ.getDb().restore(data.econ);
+        await dialog.showMessageBox({ type: 'info', message: 'הנתונים שוחזרו מהגיבוי האוטומטי', detail: `גיבוי מתאריך ${backup.day}. הקובץ הפגום נשמר בצד בתיקיית הנתונים.` });
+        return true;
+      }
+      await econ.initEcon(app.getPath('userData'), econInitOptions()); // נסו שוב
+      return true;
+    } catch (e) {
+      if (DbRecovery.classifyDbError(e)) { err = e; continue; }
+      logger.error('db-restore', e);
+      dialog.showErrorBox('השחזור לא הצליח', String(e.message || e) + '\n\nאפשר לנסות שוב, או לשמור דוח תקלה ולפנות לתמיכה.');
+    }
+  }
+  return false;
+}
+
 /* גיבוי אוטומטי יומי — מוצפן בלבד. יעד: כונן חיצוני (USB) שהוגדר, ואם לא הוגדר — Documents\SuperSuite-Backups.
    אם הכונן לא מחובר — מדלגים (לא כותבים למקום אחר בשקט). הסטטוס נשמר ומוצג במעטפת. */
 async function autoBackup() {
@@ -739,7 +781,7 @@ app.whenReady().then(async () => {
     econ = require('./modules/econ/ipc');
     if (econ.setErrorLogger) econ.setErrorLogger((scope, e) => logger.error(scope, e));
     // בשבת וביום טוב (מצב שבת) — אין תשובות אוטומטיות בהודעות
-    try { await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused, dbOptions: dbAtRestOptions(), trainerData: trainerDataForEcon }); }
+    try { await econ.initEcon(app.getPath('userData'), econInitOptions()); }
     catch (err) {
       if (!err || err.code !== 'db-key-missing') throw err;
       closeSplash();
@@ -750,15 +792,18 @@ app.whenReady().then(async () => {
       if (c.response !== 0) { app.quit(); return; }
       const aside = require('./modules/econ/core/database').setAsideLockedDatabase(app.getPath('userData'));
       logger.error('db-at-rest', new Error('locked database set aside: ' + path.basename(aside)));
-      await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused, dbOptions: dbAtRestOptions(), trainerData: trainerDataForEcon });
+      await econ.initEcon(app.getPath('userData'), econInitOptions());
     }
     // ההמרה נדחתה (הגיבוי שלפניה נכשל) — המצב נקבע במסד עצמו
     const dbNow = econ.getDb && econ.getDb();
     if (dbNow && dbNow.atRestStatus === 'pending-backup') { dbAtRest.status = 'pending-backup'; logger.error('db-at-rest', dbNow.atRestError || new Error('pending-backup')); }
   } catch (err) {
     closeSplash();
-    dialog.showErrorBox('שגיאה בפתיחת המערכת הכלכלית', String(err && err.message ? err.message : err) + '\n\nנתיב: ' + app.getPath('userData'));
-    app.quit(); return;
+    // מסד פגום או נעול (PLAN.md 2.3): הודעה בעברית ואפשרויות, במקום שגיאה טכנית וסגירה
+    if (!(DbRecovery.classifyDbError(err) && await recoverDatabase(err))) {
+      if (!DbRecovery.classifyDbError(err)) dialog.showErrorBox('שגיאה בפתיחת המערכת הכלכלית', String(err && err.message ? err.message : err) + '\n\nנתיב: ' + app.getPath('userData'));
+      app.quit(); return;
+    }
   }
 
   // רישוי: שינוי סטטוס (התקנה, עדכון, סנכרון, או פקיעה עם הזמן — נבדק כל דקה) נאכף מיד

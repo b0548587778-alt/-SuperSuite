@@ -223,7 +223,13 @@ class Database {
     this._beforeEncrypt = beforeEncrypt;
   }
 
+  // כל כשל בפתיחה (מסד פגום, נעול, בלי מפתח) סוגר את הקובץ — אחרת ב-Windows אי אפשר להעביר אותו הצידה (PLAN.md 2.3)
   async initialize() {
+    try { await this._open(); }
+    catch (e) { if (this.db) { try { this.db.close(); } catch {} } this.db = null; throw e; }
+  }
+
+  async _open() {
     // Ensure directory exists
     const userDataPath = path.dirname(this.dbPath);
     fs.mkdirSync(userDataPath, { recursive: true });
@@ -248,9 +254,8 @@ class Database {
     // Run migrations
     await this.migrate();
 
-    // המפתח נבחר לפני כל קריאה או כתיבה של נתונים. בלי מפתח — סוגרים את הקובץ, כדי שאפשר יהיה להזיז אותו הצידה
-    try { await this._setupCipher(); }
-    catch (e) { try { this.db.close(); } catch {} this.db = null; throw e; }
+    // המפתח נבחר לפני כל קריאה או כתיבה של נתונים
+    await this._setupCipher();
 
     // Initialize with default data if empty
     await this.initializeDefaults();

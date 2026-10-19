@@ -172,7 +172,9 @@ test('main.js: הנתונים רק לתצוגת המודול הכלכלי, רק 
   assert.match(body, /s\.state !== 'encrypted'/);
   assert.match(body, /snapshot\(\)/);
   assert.doesNotMatch(body, /\.set\(|\.remove\(|\.clear\(/, 'קריאה בלבד');
-  assert.equal((MAIN.match(/trainerData: trainerDataForEcon/g) || []).length, 2, 'בשתי הקריאות ל-initEcon');
+  assert.equal((MAIN.match(/trainerData: trainerDataForEcon/g) || []).length, 1, 'מוגדר במקום אחד — econInitOptions');
+  const calls = MAIN.match(/econ\.initEcon\([^\n]*/g) || [];
+  assert.ok(calls.length >= 2 && calls.every(c => c.includes('econInitOptions()')), 'כל קריאה ל-initEcon עוברת דרך econInitOptions: ' + calls.join(' | '));
 });
 
 test('ממשק: כפתור במסך הגבייה, אישור לפני הפקה, וחשיפה ב-preload', () => {
