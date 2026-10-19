@@ -55,6 +55,7 @@ function initSubView(parent, sub) {
   // Render the appropriate view based on sub-id
   const renderers = {
     'gold': renderGoldView,
+    'cases': renderCasesView,
     'purchase': renderPurchaseView,
     'diamond': renderDiamondView,
     'watch': renderWatchView,
@@ -83,7 +84,7 @@ function initSubView(parent, sub) {
     'auth': renderAuthHubView,
     'calc': renderCalcView,
     'compare': renderCompare,
-    'settings': () => { renderSettingsStats(); renderAppraiserSettings(); },
+    'settings': () => { renderSettingsStats(); renderAppraiserSettings(); renderAppraiserEnSettings(); },
   };
   // Vehicle appraisal (sub) vs Vehicle TCO tool (data-tool)
   if (parent === 'tools' && sub === 'vehicle') {

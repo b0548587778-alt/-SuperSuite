@@ -11,6 +11,7 @@ const PRICE_FIELDS = [
   { k: 'palladium', name: 'פלדיום', unit: '$ לאונקיה', min: 50, max: 20000, aliases: ['palladium', 'xpd', 'pd', 'פלדיום'] },
   { k: 'usdIls', name: 'דולר', unit: '₪ לדולר', min: 1, max: 10, aliases: ['usdils', 'usd', 'דולר', 'usd/ils'] },
   { k: 'eurIls', name: 'אירו', unit: '₪ לאירו', min: 1, max: 10, aliases: ['eurils', 'eur', 'אירו', 'eur/ils'] },
+  { k: 'gbpIls', name: 'לירה שטרלינג', unit: '₪ לליש״ט', min: 1, max: 12, aliases: ['gbpils', 'gbp', 'ליש״ט', 'לישט', 'לירה', 'gbp/ils'] },
   { k: 'copper', name: 'נחושת', unit: '$ לליברה', min: 0.1, max: 50, aliases: ['copper', 'נחושת'] },
   { k: 'aluminum', name: 'אלומיניום', unit: '$ לליברה', min: 0.05, max: 20, aliases: ['aluminum', 'aluminium', 'אלומיניום'] }
 ];
@@ -188,12 +189,12 @@ function renderPricePanel() {
     const fr = priceFreshness(state.prices, f.k, today);
     return `<div class="pp-row ${PRICE_STATE_CLASS[fr.state]}">
       <span class="pp-name">${escapeHtml(f.name)}</span>
-      <span class="pp-val">${fmt(state.prices[f.k], f.k === 'usdIls' || f.k === 'eurIls' ? 3 : 2)} <small>${escapeHtml(f.unit)}</small></span>
+      <span class="pp-val">${fmt(state.prices[f.k], /Ils$/.test(f.k) ? 3 : 2)} <small>${escapeHtml(f.unit)}</small></span>
       <span class="pp-age">${escapeHtml(priceAgeLabel(fr))}${fr.date ? ` · ${shortDay(fr.date)}` : ''}${fr.source !== 'default' ? ` · ${escapeHtml(PRICE_SOURCES[fr.source] || '')}` : ''}${fr.note ? ` (${escapeHtml(fr.note)})` : ''}</span>
     </div>`;
   }).join('');
   form.innerHTML = PRICE_FIELDS.map(f => `<label>${escapeHtml(f.name)} <small>${escapeHtml(f.unit)}</small>
-    <input type="text" inputmode="decimal" id="pp-${f.k}" autocomplete="off" placeholder="${fmt(state.prices[f.k], f.k === 'usdIls' || f.k === 'eurIls' ? 3 : 2)}" /></label>`).join('');
+    <input type="text" inputmode="decimal" id="pp-${f.k}" autocomplete="off" placeholder="${fmt(state.prices[f.k], /Ils$/.test(f.k) ? 3 : 2)}" /></label>`).join('');
   const date = $('#pp-date');
   if (date) { date.max = today; if (!date.value) date.value = today; }
 }

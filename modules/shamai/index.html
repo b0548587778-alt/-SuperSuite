@@ -171,6 +171,10 @@
           <div class="hub-title">בחר תחום שמאות</div>
           <div class="hub-group-title">זהב, תכשיטים ומטלטלין</div>
           <div class="hub-grid" id="hub-main">
+            <button class="hub-card" data-sub="cases">
+              <div class="hc-icon">▤</div><div class="hc-name">תיק שמאות מקצועי</div>
+              <div class="hc-desc">לקוח, פריטים ואבנים, דוח עברית/אנגלית</div>
+            </button>
             <button class="hub-card" data-sub="gold">
               <div class="hc-icon">◆</div><div class="hc-name">זהב/כסף</div>
               <div class="hc-desc">ערך התכה לפי טוהר</div>
@@ -246,7 +250,6 @@
               </div>
           </details>
         </div>
-        </div>
 
         <!-- Sub-views -->
         <div class="sub-view" data-sub="gold" hidden>
@@ -300,6 +303,14 @@
           <div class="result-box" id="g-result"></div>
 
           <button class="btn-secondary" id="g-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="cases" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>תיק שמאות מקצועי</h2>
+          </div>
+          <div id="cs-root"></div>
         </div>
 
         <div class="sub-view" data-sub="purchase" hidden>
@@ -1530,6 +1541,18 @@
             <button class="btn-primary" id="ap-save">שמור פרטי שמאי</button>
           </div>
 
+          <div class="settings-card" id="appraiser-en-card">
+            <h3>פרטי השמאי באנגלית</h3>
+            <p class="text-faint">לדוח דו-לשוני (עברית ואנגלית) בתיק השמאות. שדה ריק — לא יופיע.</p>
+            <div class="field-row">
+              <div class="field"><label for="ape-name">שם השמאי באנגלית</label><input id="ape-name" maxlength="200" dir="ltr" /></div>
+              <div class="field"><label for="ape-business">שם העסק באנגלית</label><input id="ape-business" maxlength="200" dir="ltr" /></div>
+            </div>
+            <div class="field"><label for="ape-address">כתובת באנגלית</label><input id="ape-address" maxlength="200" dir="ltr" /></div>
+            <div class="field"><label for="ape-declaration">הצהרת השמאי באנגלית</label><textarea id="ape-declaration" rows="4" maxlength="2000" dir="ltr"></textarea></div>
+            <button class="btn-primary" id="ape-save">שמור פרטים באנגלית</button>
+          </div>
+
           <div class="settings-card">
             <h3>סנכרון בין מכשירים</h3>
             <p class="text-faint">העבר את הנתונים שלך בין מכשירים בלי אינטרנט - באמצעות סריקת QR.</p>
@@ -1586,6 +1609,9 @@
   <script src="src/widgets.js"></script>
   <script src="src/report.js"></script>
   <script src="src/purchase.js"></script>
+  <script src="src/casefile.js"></script>
+  <script src="src/case-report.js"></script>
+  <script src="src/case-ui.js"></script>
   <script src="src/opp-extras.js"></script>
   <script src="src/contacts.js"></script>
   <script src="src/inventory.js"></script>
