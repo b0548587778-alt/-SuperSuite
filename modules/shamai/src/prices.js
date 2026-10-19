@@ -23,7 +23,13 @@ const PRICE_OLD_DAYS = 7;
 const PRICE_SOURCES = { manual: 'הזנה ידנית', file: 'קובץ מחירים', default: 'ערך ייחוס קבוע' };
 const MAX_PRICE_FILE = 64 * 1024;
 
-const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(String(v) + 'T00:00:00Z'));
+// תאריך אמיתי בלבד (Date.parse מקבל גם 30 בפברואר)
+const isDay = (v) => {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+};
 // היום לפי השעון המקומי (לא toISOString — בישראל הוא מזיז את היום בין חצות ל-03:00)
 function localToday(now = new Date()) {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;

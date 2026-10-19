@@ -116,7 +116,13 @@ const CASE_MAX_STONES = 30;
 const CASE_MAX_PHOTOS = 6;
 const CASE_MAX_PHOTO_CHARS = 400 * 1024; // תמונה דחוסה אחת ב-data:image
 const caseTxt = (v, max) => String(v ?? '').trim().slice(0, max);
-const caseIsDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(String(v) + 'T00:00:00Z'));
+// תאריך אמיתי בלבד (Date.parse מקבל 2026-02-30 ומגלגל למרץ)
+const caseIsDay = (v) => {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+};
 
 // מספר עשרוני מהקלדה (פסיק או נקודה), או NaN
 function caseNum(raw) {

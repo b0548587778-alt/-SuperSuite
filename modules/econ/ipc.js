@@ -24,6 +24,7 @@ const { SampleService: sampleService } = require('./services/sampleService');
 const { PrivacyService: privacyService } = require('./services/privacyService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
 const { MortgageLabService: mortgageLabService } = require('./services/mortgageLabService');
+const { RealEstateService: realEstateService } = require('./services/realEstateService');
 const BK = require('./core/backupCrypto');
 const DP = require('./core/dataPorts');
 const MB = require('./core/dashboard');
@@ -190,6 +191,7 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, relayUrl = DEFAULT
   privacyService.initialize(db);
   mortgageAdvisorService.initialize(db);
   mortgageLabService.initialize(db);
+  realEstateService.initialize(db);
   const startSettings = (await db.load()).settings || {};
   authService.setIdleMinutes(startSettings.idleMinutes);
   googlePolicy = normalizeGoogle(startSettings.google);
@@ -1465,6 +1467,45 @@ function registerIpcHandlers() {
     return r;
   });
 
+  // שמאות מקרקעין: תיק שומה, עסקאות השוואה (הקלדה או קובץ — בלי רשת), שלוש גישות, נעילה ודוח
+  handle('realestate:getOverview', async () => realEstateService.getOverview());
+  handle('realestate:getCase', async (event, id) => realEstateService.getCase(String(id || '')));
+  handle('realestate:createCase', async (event, input) => {
+    const c = await realEstateService.createCase(input || {});
+    await auditEvent(event, 'realestate.case.create', { id: c.id, no: c.no });
+    return c;
+  });
+  handle('realestate:updateCase', async (event, id, input) => realEstateService.updateCase(String(id || ''), input || {}));
+  handle('realestate:deleteCase', async (event, id) => {
+    await realEstateService.deleteCase(String(id || ''));
+    await auditEvent(event, 'realestate.case.delete', { id });
+    return true;
+  });
+  handle('realestate:importComparables', async (event, id, text, opts) => {
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const r = await realEstateService.importComparables(String(id || ''), String(text || '').slice(0, 2000000), { source: String(o.source || '').slice(0, 80), apply: o.apply === true });
+    if (o.apply === true) await auditEvent(event, 'realestate.comps.import', { id, added: r.added });
+    return r;
+  });
+  handle('realestate:finalizeCase', async (event, id) => {
+    const s = await realEstateService.finalizeCase(String(id || ''));
+    await auditEvent(event, 'realestate.case.finalize', { id: s.id, reportNo: s.reportNo });
+    return s;
+  });
+  handle('realestate:reopenCase', async (event, id) => {
+    const s = await realEstateService.reopenCase(String(id || ''));
+    await auditEvent(event, 'realestate.case.reopen', { id: s.id, reportNo: s.reportNo });
+    return s;
+  });
+  handle('realestate:saveSettings', async (event, input) => realEstateService.saveSettings(input || {}));
+  handle('realestate:getReportHtml', async (event, id) => realEstateService.getReportHtml(String(id || '')));
+  handle('realestate:exportReport', async (event, id) => {
+    const d = await realEstateService.getReportHtml(String(id || ''));
+    const r = await saveHtmlAsPdf(d.html, d.name.replace(/[\\/:*?"<>|]/g, '') + '.pdf');
+    if (r && r.ok) await auditEvent(event, 'realestate.report.export', { id, final: d.final });
+    return r;
+  });
+
   // מעבדת תמהיל: מנוע התמהיל המלא, סלים אחידים, כושר החזר, מחזור, אישורים, עמלת פירעון ואופטימייזר
   handle('mlab:getOverview', async () => mortgageLabService.getOverview());
   handle('mlab:calcMix', async (event, input) => mortgageLabService.calcMix(input || {}));
@@ -1512,7 +1553,7 @@ function registerIpcHandlers() {
   });
 
   // ---------- הגדרות מתקדמות ----------
-  const VIEWS_ALLOWED = ['dashboard', 'acct-reports', 'acct-invoices', 'acct-journal', 'personal-finance', 'finance', 'contacts', 'tasks', 'npo', 'gemach', 'chesed', 'people', 'mortgage-advisor', 'mortgage-lab'];
+  const VIEWS_ALLOWED = ['dashboard', 'acct-reports', 'acct-invoices', 'acct-journal', 'personal-finance', 'finance', 'contacts', 'tasks', 'npo', 'gemach', 'chesed', 'people', 'mortgage-advisor', 'mortgage-lab', 'realestate'];
   handle('settings:getAdvanced', async (event) => {
     const data = await db.load();
     const st = data.settings || {};

@@ -12,6 +12,7 @@ const ECON_SUB_FEATURES = {
   chesed: 'econ.chesed',
   madv: 'econ.mortgage-advisor',
   mlab: 'econ.mortgage-lab',
+  realestate: 'econ.realestate',
   mortgage: 'econ.mortgage',
 };
 

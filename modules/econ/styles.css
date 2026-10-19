@@ -1136,3 +1136,14 @@ button.small { min-height:30px; padding:0 10px; font-size:var(--ss-fs-sm); }
   background:var(--ss-surface-input); color:var(--ss-text); font:400 var(--ss-fs-md)/1.4 var(--ss-font); }
 .modal-form input:focus, .modal-form select:focus, .modal-form textarea:focus, #view input:focus, #view select:focus, #view textarea:focus { border-color:var(--ss-primary); box-shadow:var(--ss-focus); outline:none; }
 .card, .panel { background:var(--ss-surface); border:1px solid var(--ss-border); border-radius:var(--ss-radius-lg); box-shadow:var(--ss-shadow); }
+
+/* שמאות מקרקעין */
+.realestate .re-form { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:10px 14px; padding:14px; margin-bottom:14px; }
+.realestate .re-form h3, .realestate .re-form .re-wide { grid-column:1 / -1; }
+.realestate .re-form label { display:flex; flex-direction:column; gap:4px; font-size:var(--ss-fs-sm); color:var(--ss-text-2); }
+.realestate .re-form label.re-check { flex-direction:row; align-items:center; }
+.realestate .card { padding:14px; margin-bottom:14px; }
+.realestate .re-comps input, .realestate .re-adj input { width:100%; min-width:5.5rem; }
+.realestate .re-adj input { min-width:4rem; }
+.realestate .re-warn { border-inline-start:4px solid var(--ss-warning); }
+.realestate .re-import { border-inline-start:4px solid var(--ss-primary); margin-top:12px; }

@@ -24,6 +24,7 @@ function dataMap(data, userCounts = {}) {
     { area: 'חסד — נזקקים חסויים', count: conf, fields: 'כמו נזקקים — מוסתר בשרת', sensitivity: 'high', access: 'מנהל בלבד (צפייה נרשמת ביומן הביקורת)' },
     { area: 'חסד — מתנדבים', count: len(ch.volunteers), fields: 'שם, טלפון, אזור, זמינות', sensitivity: 'regular', access: all },
     { area: 'ייעוץ משכנתאות — תיקי לקוחות', count: len(data.mortgageAdvisor && data.mortgageAdvisor.clients), fields: 'פרטי לקוח, נכס והצעות משכנתא', sensitivity: 'sensitive', access: all },
+    { area: 'שמאות מקרקעין — תיקי שומה', count: len(data.realEstate && data.realEstate.cases), fields: 'שם מזמין השומה, ת.ז, טלפון, כתובת הנכס, גוש/חלקה ושווי', sensitivity: 'sensitive', access: all },
     { area: 'אנשי קשר', count: len(data.contacts), fields: 'שם, טלפון, דוא"ל, כתובת', sensitivity: 'regular', access: all }
   ].map(r => ({ ...r, sensitivityLabel: SENSITIVITY[r.sensitivity] }));
   return {

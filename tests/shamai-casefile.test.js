@@ -181,3 +181,10 @@ test('חיבור למודול: קבצים ב-index.html וב-sw.js, אין רש�
   assert.match(html, /data-sub="cases"/);
   assert.match(shamaiSource(), /'cases': renderCasesView/);
 });
+
+test('תאריך: 30 בפברואר נדחה', () => {
+  const { run } = setup();
+  assert.equal(run(`caseIsDay('2026-02-30')`), false);
+  assert.equal(run(`caseIsDay('2028-02-29')`), true);
+  assert.ok(j(run(`caseFinalizeProblems(Object.assign(newCase(1, '${D}'), { effectiveDate: '2026-02-30' }), P, '${D}')`)).includes('יש להזין את המועד הקובע'));
+});

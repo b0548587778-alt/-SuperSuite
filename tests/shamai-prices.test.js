@@ -51,6 +51,7 @@ test('עדכון: אימות טווח, תאריך לא עתידי, מחיר יש
   assert.equal(older.prices.gold, 4712.5);
   assert.throws(() => run(`applyPriceUpdate(P, { gold: 4700 }, { date: '2026-10-20', today: '2026-10-19' })`), /אחרי היום/);
   assert.throws(() => run(`applyPriceUpdate(P, { gold: 4700 }, { date: '19/10/2026', today: '2026-10-19' })`), /אינו תקין/);
+  assert.throws(() => run(`applyPriceUpdate(P, { gold: 4700 }, { date: '2026-02-30', today: '2026-10-19' })`), /אינו תקין/, '30 בפברואר נדחה');
   assert.throws(() => run(`applyPriceUpdate(P, {}, { today: '2026-10-19' })`), /מחיר אחד לפחות/);
   // מחיר לגרם במקום לאונקיה, דולר 36 במקום 3.6, טקסט
   assert.throws(() => run(`applyPriceUpdate(P, { gold: 150 }, { today: '2026-10-19' })`), /מחוץ לטווח/);

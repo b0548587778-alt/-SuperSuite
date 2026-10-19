@@ -42,6 +42,7 @@ const viewTitles = {
   'mortgage': 'משכנתאות והלוואות',
   'mortgage-advisor': 'ייעוץ משכנתאות — תיקי לקוחות',
   'mortgage-lab': 'מעבדת תמהיל — סימולטור, סלים, מחזור ואופטימייזר',
+  'realestate': 'שמאות מקרקעין — תיקי שומה',
   'npo': 'עמותה — תרומות, קרנות ותמיכות',
   'gemach': 'גמ"ח — הלוואות, ערבים והפקדות',
   'chesed': 'חסד וחלוקות — נזקקים, מתנדבים וסבבי חלוקה',
@@ -195,6 +196,9 @@ async function loadViewData(viewName) {
         break;
       case 'mortgage-advisor':
         state.data.mortgageAdvisor = await window.systemAPI.getMortgageAdvisor();
+        break;
+      case 'realestate':
+        state.data.realEstate = await window.systemAPI.getRealEstate();
         break;
       case 'mortgage-lab':
         state.data.mortgageLab = await window.systemAPI.getMortgageLab();
@@ -377,6 +381,7 @@ const DATA_KEYS = {
   'mortgage': 'mortgage',
   'mortgage-advisor': 'mortgageAdvisor',
   'mortgage-lab': 'mortgageLab',
+  'realestate': 'realEstate',
   'npo': 'npo',
   'gemach': 'gemach',
   'chesed': 'chesed',
@@ -429,6 +434,9 @@ function renderView(viewName) {
       break;
     case 'mortgage-lab':
       html = renderMortgageLab(data);
+      break;
+    case 'realestate':
+      html = renderRealEstate(data);
       break;
     case 'npo':
       html = renderNpo(data);
