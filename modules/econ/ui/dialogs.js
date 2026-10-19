@@ -21,6 +21,7 @@ function errMsg(error) {
 }
 
 // opts.screen — מסך מלא (כניסה / מנהל ראשון): בלי סגירה ב-Escape, המשתמש חייב להשלים
+let dialogSeq = 0;
 function openDialog(build, opts = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
@@ -104,6 +105,8 @@ function askFields(title, fields, submitText, initial = {}, opts = {}) {
     if (opts.screen) authHeader(card, opts.screen.intro);
     const h = document.createElement('h2');
     h.textContent = title;
+    h.id = 'dlgTitle' + (++dialogSeq);
+    card.parentNode.setAttribute('aria-labelledby', h.id);
     const form = document.createElement('form');
     form.className = 'modal-form';
     form.noValidate = true;

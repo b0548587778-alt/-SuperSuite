@@ -12,7 +12,7 @@ function el(tag) {
     style: {}, attrs: {}, listeners: {}, focused: false,
     classList: { add: (c) => { e.className = (e.className + ' ' + c).trim(); }, remove() {}, contains: (c) => e.className.split(' ').includes(c) },
     setAttribute(k, v) { this.attrs[k] = v; },
-    appendChild(c) { c.parent = this; this.children.push(c); return c; },
+    appendChild(c) { c.parent = c.parentNode = this; this.children.push(c); return c; },
     append(...cs) { cs.forEach(c => this.appendChild(c)); },
     prepend(c) { c.parent = this; this.children.unshift(c); },
     remove() { if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this); },

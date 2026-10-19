@@ -503,6 +503,14 @@ function renderView(viewName) {
   elements.view.innerHTML = html;
   attachViewHandlers(viewName);
   elements.view.querySelectorAll('[data-empty-add]').forEach(b => b.addEventListener('click', () => handleAdd()));
+  labelIconButtons(elements.view);
+}
+
+// נגישות (7.3): כפתור שכל התוכן שלו אייקון (🗑, ✎...) — הכותרת שלו הופכת לשם שקורא המסך מקריא
+function labelIconButtons(root) {
+  root.querySelectorAll('button[title]:not([aria-label])').forEach(b => {
+    if (!/[֐-׿A-Za-z]{2,}/.test(b.textContent || '')) b.setAttribute('aria-label', b.getAttribute('title'));
+  });
 }
 
 // תיבת חיפוש — מוצגת רק בתצוגות שתומכות בחיפוש

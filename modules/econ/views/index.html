@@ -70,9 +70,9 @@
         </header>
         <section id="view"></section>
     </main>
-    <div id="modal" class="modal hidden">
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal-card">
-            <button class="close" id="closeModal">×</button>
+            <button class="close" id="closeModal" aria-label="סגירה">×</button>
             <h2 id="modalTitle"></h2>
             <form id="modalForm"></form>
             <div class="modal-actions">
@@ -81,7 +81,7 @@
             </div>
         </div>
     </div>
-    <div id="toastContainer"></div>
+    <div id="toastContainer" role="status" aria-live="polite"></div>
     <!-- ממשק המודול: סקריפטים רגילים בטווח שמות משותף — הסדר מחייב, boot.js אחרון -->
     <script src="../ui/core.js"></script>
     <script src="../ui/views-general.js"></script>

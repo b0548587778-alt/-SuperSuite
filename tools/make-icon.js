@@ -1,4 +1,4 @@
-// יצירת אייקון התוכנה מ-build/icon.svg (PLAN.md 7.2): build/icon.png (512) ו-build/icon.ico (16–256).
+// יצירת אייקון התוכנה מ-build/icon.svg (PLAN.md 7.2): build/icon.png (512), build/icon.ico (16–256) ו-build/android/ (אייקונים ולוגו פתיחה).
 // רץ ב-Electron (בלי חבילות נוספות): node_modules/electron/dist/electron.exe tools/make-icon.js
 // ציור אחד ב-512 בחלון נסתר שקוף, והקטנה לכל גודל. קובץ ה-ICO נבנה כאן (PNG בתוך ICO — נתמך מ-Windows Vista).
 'use strict';
@@ -7,6 +7,9 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
+// אנדרואיד: אייקון לכל צפיפות מסך (48dp), ולוגו למסך הפתיחה (96dp ב-xxxhdpi — אנדרואיד מקטין לשאר)
+const ANDROID_ICONS = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
+const ANDROID_SPLASH = 384;
 
 // ICO: כותרת 6 בתים, רשומה של 16 בתים לכל תמונה, ואחריהן קובצי ה-PNG כמו שהם
 function buildIco(images) {
@@ -70,10 +73,17 @@ async function main() {
   const src = nativeImage.createFromBuffer(big);
   const images = ICO_SIZES.map(size => ({ size, png: src.resize({ width: size, height: size, quality: 'best' }).toPNG() }));
   fs.writeFileSync(path.join(out, 'icon.ico'), buildIco(images));
-  console.log('נוצרו icon.png ו-icon.ico ב-' + out);
+  const andOut = path.join(out, 'android');
+  for (const [dpi, size] of Object.entries(ANDROID_ICONS)) {
+    fs.mkdirSync(path.join(andOut, 'mipmap-' + dpi), { recursive: true });
+    fs.writeFileSync(path.join(andOut, 'mipmap-' + dpi, 'ic_launcher.png'), src.resize({ width: size, height: size, quality: 'best' }).toPNG());
+  }
+  fs.mkdirSync(path.join(andOut, 'drawable-xxxhdpi'), { recursive: true });
+  fs.writeFileSync(path.join(andOut, 'drawable-xxxhdpi', 'splash_logo.png'), src.resize({ width: ANDROID_SPLASH, height: ANDROID_SPLASH, quality: 'best' }).toPNG());
+  console.log('נוצרו icon.png, icon.ico ואייקוני אנדרואיד ב-' + out);
   app.quit();
 }
 
 // ב-Electron, require.main אינו המודול הזה כשהוא קובץ הכניסה — מזהים לפי process.type
 if (process.versions.electron && process.type === 'browser') main().catch(e => { console.error(e); process.exit(1); });
-module.exports = { buildIco, readIco, ICO_SIZES };
+module.exports = { buildIco, readIco, ICO_SIZES, ANDROID_ICONS, ANDROID_SPLASH };

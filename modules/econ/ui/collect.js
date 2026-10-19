@@ -31,7 +31,7 @@ function renderCollect(d) {
       <td class="acct-actions">${r.status === 'open' ? `
         <button class="secondary small" data-collect-msg="${esc(r.id)}" title="נוסח הודעה עם הקישור, להעתקה">📋 הודעה ללקוח</button>
         <button class="primary small" data-collect-paid="${esc(r.id)}">✔ שולם</button>
-        <button class="danger-outline small" data-collect-cancel="${esc(r.id)}">✖</button>` : ''}</td>
+        <button class="danger-outline small" data-collect-cancel="${esc(r.id)}" title="ביטול הדרישה">✖</button>` : ''}</td>
     </tr>`;
   return `${setup}
     <div class="card">
@@ -191,11 +191,12 @@ async function collectImport() {
   return true;
 }
 
-// נוסח האישור לפני הפקה — כל הפרטים שיופיעו בחשבונית
+// נוסח האישור לפני הפקה — כל הפרטים שיופיעו במסמך
 function collectTrainerConfirmText(p) {
-  return `להפיק חשבונית מס/קבלה על ${money(p.amount)} ל${p.clientName} (${p.membershipName}), בתאריך ${p.date}, ב${p.methodLabel}? ` +
-    'החשבונית נרשמת ביומן ומקבלת מספר רץ. אחרי ההפקה אפשר לבטל אותה רק במסך החשבוניות.';
+  return `הפקת מסמך על ${money(p.amount)} ל${p.clientName} (${p.membershipName}), בתאריך ${p.date}, ב${p.methodLabel}. ` +
+    'המסמך נרשם ביומן ומקבל מספר רץ. אחרי ההפקה אפשר לבטל אותו רק במסך החשבוניות.';
 }
+const COLLECT_TRAINER_DOCS = [['taxed', 'חשבונית מס/קבלה — עוסק מורשה (הסכום כולל מע"מ)'], ['exempt', 'חשבונית עסקה וקבלה — עוסק פטור (בלי מע"מ)']];
 
 // תשלומי מנויים ממודול האימונים: רשימה, ולכל תשלום בלי חשבונית — הפקה אחרי אישור מפורש
 async function collectTrainerPayments() {
@@ -218,9 +219,12 @@ async function collectTrainerPayments() {
     });
     const p = pick && list.find(x => x.key === pick);
     if (!p) return true;
-    if (!(await askConfirm(collectTrainerConfirmText(p)))) continue;
-    const inv = await window.systemAPI.collectIssueTrainerReceipt(p.key, { confirmed: true });
-    showToast(`הופקה חשבונית מס/קבלה ${inv.number} — להדפסה במסך החשבוניות`);
+    const v = await licForm('אישור הפקה', [{ name: 'doc', label: 'סוג המסמך', type: 'select', options: COLLECT_TRAINER_DOCS,
+      value: r.exemptDefault ? 'exempt' : 'taxed' }], '🧾 אישור והפקה', collectTrainerConfirmText(p));
+    if (!v) continue;
+    const inv = await window.systemAPI.collectIssueTrainerReceipt(p.key, { confirmed: true, exempt: v.doc === 'exempt' });
+    showToast(inv.exempt ? `הופקו חשבונית עסקה ${inv.number} וקבלה ${inv.receiptNumber} — להדפסה במסך החשבוניות`
+      : `הופקה חשבונית מס/קבלה ${inv.number} — להדפסה במסך החשבוניות`);
   }
 }
 

@@ -30,7 +30,7 @@
   --ss-text: #14213d;
   --ss-text-2: #2b3a58;
   --ss-muted: #5d6b85;
-  --ss-faint: #8a96ad;
+  --ss-faint: #626e87;   /* 7.3: ניגודיות 4.5 לפחות על לבן ועל הרקעים הבהירים (היה #8a96ad — 2.98) */
 
   /* ---- טקסט על רקע כהה (סרגל הצד) ---- */
   --ss-ink: #e9eef8;
@@ -83,7 +83,7 @@
   --ss-dark-gold-dim: #c19c0a;
   --ss-dark-text: #f0f0f5;
   --ss-dark-muted: #9999a8;
-  --ss-dark-faint: #5e5e72;
+  --ss-dark-faint: #7a7a8f;   /* 7.3: 4.5 לפחות על הרקע הכהה (היה #5e5e72) */
   --ss-dark-green: #34d399;
   --ss-dark-yellow: #fbbf24;
   --ss-dark-orange: #fb923c;
@@ -118,4 +118,11 @@
   --ss-shadow: 0 1px 2px rgba(20, 33, 61, .05), 0 8px 24px rgba(20, 33, 61, .06);
   --ss-shadow-lg: 0 12px 40px rgba(20, 33, 61, .18);
   --ss-focus: 0 0 0 3px rgba(36, 71, 158, .14);
+  --ss-focus-ring: var(--ss-primary);        /* מסגרת מיקוד במקלדת (7.3) — על רקע בהיר */
+  --ss-focus-ring-dark: var(--ss-gold-bright); /* על רקע כהה (הסרגל, המצב הכהה) */
 }
+
+/* נגישות (PLAN.md 7.3): מסגרת מיקוד ברורה בכל מסך כשעוברים במקלדת (Tab). רק ב-focus-visible — לחיצת עכבר לא מציירת מסגרת.
+   important: כללים ישנים מבטלים outline ב-:focus, ומסגרת המיקוד חייבת לגבור עליהם. */
+:focus-visible { outline: 3px solid var(--ss-focus-ring) !important; outline-offset: 2px !important; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
