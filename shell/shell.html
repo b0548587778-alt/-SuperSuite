@@ -27,6 +27,9 @@ body{font-family:"Segoe UI",Heebo,Arial,sans-serif;display:flex;flex-direction:r
       background:radial-gradient(420px 220px at 100% 0%,rgba(212,167,58,.14),transparent 70%)}
 .stage{flex:1 1 auto;min-width:0;overflow-y:auto}
 
+.guide-top{margin:0 0 6px}
+.doc-dlg{width:min(760px,92vw)}
+.doc-dlg pre{white-space:pre-wrap;font:inherit;font-size:13.5px;line-height:1.6;max-height:60vh;overflow:auto;background:var(--ss-surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin:8px 0 12px;direction:auto;text-align:start}
 .side :focus-visible{outline-color:var(--ss-focus-ring-dark) !important}
 /* ---- מותג ---- */
 .brand{display:flex;align-items:center;gap:11px;padding:18px 16px 14px;position:relative}
@@ -378,6 +381,7 @@ dialog button:disabled{opacity:.5;cursor:default}
 </dialog>
 <dialog id="guide" class="guide" aria-labelledby="guideTitle">
   <h3 id="guideTitle">מדריך מהיר</h3>
+  <div class="row guide-top"><button type="button" class="primary" id="userGuideBtn">📖 מדריך מלא למשתמש</button><button type="button" id="userGuidePdfBtn">💾 שמירת המדריך כ-PDF</button></div>
   <h4>ניווט</h4>
   <ul>
     <li>כל הפעולות של התוכנה מופיעות בסרגל הימני, מחולקות לפי תחומים.</li>
@@ -420,7 +424,15 @@ dialog button:disabled{opacity:.5;cursor:default}
   <ul>
     <li>אם משהו לא עובד — שמרו דוח תקלה וצרפו אותו לפנייה. הדוח כולל רק את יומן התקלות, בלי נתונים ובלי מידע אישי.</li>
   </ul>
+  <h4 id="about">אודות</h4>
+  <p id="aboutText" class="muted">SuperSuite</p>
+  <div class="row"><button type="button" id="eulaBtn">הסכם הרישיון</button><button type="button" id="noticesBtn">רכיבי קוד פתוח</button></div>
   <div class="row"><button type="button" id="crashReportBtn">💾 שמירת דוח תקלה</button><button type="button" class="primary" id="guideOk">סגור</button></div>
+</dialog>
+<dialog id="docDlg" class="doc-dlg" aria-labelledby="docTitle">
+  <h3 id="docTitle"></h3>
+  <pre id="docText" tabindex="0"></pre>
+  <div class="row"><button type="button" class="primary" id="docOk">סגירה</button></div>
 </dialog>
 <dialog id="calDlg" aria-labelledby="calTitle">
   <form method="dialog" id="calForm">

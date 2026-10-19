@@ -373,6 +373,27 @@ $('rs').onclick = runRestore;
 $('hp').onclick = showGuide;
 $('guideOk').onclick = () => closeDialog($('guide'));
 // דוח תקלה לתמיכה (PLAN.md 2.2) — נשמר מהתהליך הראשי, היומן בלבד
+// אודות ומדריך המשתמש (PLAN.md 5.1, 1.6) — באנדרואיד הערוצים לא קיימים, והכפתורים מוסתרים
+const ABOUT = { eula: 'הסכם הרישיון למשתמש', notices: 'רכיבי קוד פתוח' };
+let aboutCache = null;
+async function aboutData() {
+  if (!aboutCache && window.shellAPI.getAbout) aboutCache = await window.shellAPI.getAbout().catch(() => null);
+  return aboutCache;
+}
+async function showDoc(kind) {
+  const a = await aboutData();
+  if (!a) return;
+  $('docTitle').textContent = ABOUT[kind];
+  $('docText').textContent = a[kind] || 'הקובץ לא נמצא';
+  showDialog($('docDlg'));
+}
+$('docOk').onclick = () => closeDialog($('docDlg'));
+$('eulaBtn').onclick = () => showDoc('eula');
+$('noticesBtn').onclick = () => showDoc('notices');
+$('userGuideBtn').onclick = () => { if (window.shellAPI.openUserGuide) window.shellAPI.openUserGuide().catch(() => {}); };
+$('userGuidePdfBtn').onclick = () => { if (window.shellAPI.saveUserGuidePdf) window.shellAPI.saveUserGuidePdf().catch(() => {}); };
+if (!window.shellAPI.getAbout) for (const id of ['eulaBtn', 'noticesBtn', 'userGuideBtn', 'userGuidePdfBtn']) $(id).hidden = true;
+aboutData().then(a => { if (a) $('aboutText').textContent = 'SuperSuite גרסה ' + a.version + ' · © 2026 Bunim Seller. כל הזכויות שמורות. הנתונים נשמרים במחשב שלך בלבד.'; });
 $('crashReportBtn').onclick = () => { if (window.shellAPI.saveCrashReport) window.shellAPI.saveCrashReport().catch(() => {}); };
 $('hm').onclick = goHome;
 

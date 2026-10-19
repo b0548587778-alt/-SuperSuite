@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>SuperSuite — מדריך למשתמש</title>
+<link rel="stylesheet" href="../design-tokens.css">
+<style>
+body{margin:0;background:var(--ss-bg);color:var(--ss-text);font-family:var(--ss-font, system-ui, sans-serif);line-height:1.7}
+main{max-width:860px;margin:0 auto;padding:24px 28px 60px}
+h1{color:var(--ss-primary);margin:0 0 4px}
+h2{color:var(--ss-primary);border-bottom:2px solid var(--ss-surface-2);padding-bottom:4px;margin-top:36px;page-break-after:avoid}
+h3{margin:20px 0 6px}
+.lead{color:var(--ss-muted);margin:0 0 18px}
+nav{background:var(--ss-surface);border-radius:10px;padding:12px 18px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+nav ol{margin:0;padding-inline-start:22px;columns:2}
+a{color:var(--ss-primary)}
+figure{margin:14px 0;background:var(--ss-surface);border-radius:10px;padding:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);page-break-inside:avoid}
+figure img{max-width:100%;display:block;margin:0 auto;border-radius:6px}
+figcaption{color:var(--ss-muted);font-size:.9em;text-align:center;margin-top:6px}
+.note{background:var(--ss-warning-soft);color:var(--ss-warning-ink);border-radius:8px;padding:10px 14px}
+.tip{background:var(--ss-info-soft);color:var(--ss-info-ink);border-radius:8px;padding:10px 14px}
+kbd{background:var(--ss-surface);border:1px solid var(--ss-surface-2);border-radius:4px;padding:0 5px;font-family:inherit}
+dt{font-weight:700;margin-top:12px}
+dd{margin:2px 0 0;margin-inline-start:18px}
+@media print{body{background:var(--ss-surface)}nav{box-shadow:none}figure{box-shadow:none}}
+</style>
+</head>
+<body>
+<main>
+<h1>SuperSuite — מדריך למשתמש</h1>
+<p class="lead">מדריך קצר לצעדים הראשונים. אפשר לפתוח אותו בכל רגע מהמדריך המהיר (<kbd>F1</kbd>), ולשמור אותו כקובץ PDF.</p>
+
+<nav aria-label="תוכן המדריך">
+<ol>
+<li><a href="#install">התקנה</a></li>
+<li><a href="#login">כניסה ראשונה</a></li>
+<li><a href="#home">מסך הבית</a></li>
+<li><a href="#receipt">קבלה ראשונה</a></li>
+<li><a href="#sample">נתוני דוגמה</a></li>
+<li><a href="#backup">גיבוי ושחזור</a></li>
+<li><a href="#recovery">קוד שחזור</a></li>
+<li><a href="#license">רישיון ותקופת ניסיון</a></li>
+<li><a href="#keys">מקלדת ונגישות</a></li>
+<li><a href="#faq">שאלות נפוצות</a></li>
+</ol>
+</nav>
+
+<h2 id="install">1. התקנה</h2>
+<ol>
+<li>הפעילו את קובץ ההתקנה (SuperSuite-Setup).</li>
+<li>במסך הפתיחה לחצו "הבא".</li>
+<li>קראו את הסכם הרישיון וסמנו "אני מסכים".</li>
+<li>בחרו תיקיית התקנה, או השאירו את מה שמוצע (מומלץ).</li>
+<li>בסיום — סמנו "הפעל את SuperSuite" ולחצו "סיום".</li>
+</ol>
+<p class="tip">שדרוג מגרסה קודמת: מתקינים את הגרסה החדשה באותה תיקייה. הנתונים נשמרים. גם הסרת התוכנה אינה מוחקת את הנתונים.</p>
+
+<h2 id="login">2. כניסה ראשונה</h2>
+<p>בפעם הראשונה שפותחים את המערכת הכלכלית, התוכנה מבקשת ליצור משתמש מנהל: שם משתמש וסיסמה (פעמיים). מכאן ואילך נכנסים עם הפרטים האלה.</p>
+<figure><img src="img/02-first-admin.png" alt="מסך יצירת המנהל הראשון"><figcaption>יצירת המנהל הראשון</figcaption></figure>
+<p class="note">שמרו את הסיסמה במקום בטוח. אין דרך לשחזר אותה מבחוץ — מנהל נוסף יכול לאפס סיסמה של משתמש אחר.</p>
+
+<h2 id="home">3. מסך הבית</h2>
+<p>בצד ימין — הסרגל עם כל התחומים. במרכז — המסכים שבחרתם, פעולות אחרונות ומצב הגיבוי. אפשר לחפש כל מסך עם <kbd>Ctrl</kbd>+<kbd>K</kbd>.</p>
+<figure><img src="img/01-home.png" alt="מסך הבית של התוכנה"><figcaption>מסך הבית</figcaption></figure>
+
+<h2 id="receipt">4. קבלה ראשונה</h2>
+<ol>
+<li>בסרגל בחרו "עמותה".</li>
+<li>בפעם הראשונה — מלאו את פרטי העמותה (שם, מספר עמותה, כתובת).</li>
+<li>לחצו "＋ הוספת רשומה", מלאו את שם התורם, הסכום, התאריך ואמצעי התשלום, ושמרו.</li>
+<li>הקבלה נוצרת עם מספר רץ. אפשר להדפיס אותה או לשמור כ-PDF.</li>
+</ol>
+<figure><img src="img/05-donation-form.png" alt="טופס הוספת תרומה"><figcaption>הוספת תרומה וקבלה</figcaption></figure>
+<p class="tip">קבלה לפי סעיף 46 — רק אם לעמותה יש אישור בתוקף, ואת מספר האישור רושמים בפרטי העמותה.</p>
+
+<h2 id="sample">5. נתוני דוגמה</h2>
+<p>בלוח הבקרה אפשר להוסיף נתוני דוגמה כדי להכיר את התוכנה: תורמים ותרומות, הלוואת גמ"ח, ומחירון קצר. הם מסומנים "דוגמה", לא מקבלים מספר קבלה ולא מדווחים לשום מקום.</p>
+<figure><img src="img/03-sample-offer.png" alt="כרטיס נתוני הדוגמה בלוח הבקרה"><figcaption>הצעה להוסיף נתוני דוגמה</figcaption></figure>
+<figure><img src="img/04-npo.png" alt="מסך העמותה עם נתוני דוגמה"><figcaption>מסך העמותה עם נתוני הדוגמה</figcaption></figure>
+<p>כשמסיימים — לחצו "מחיקת נתוני הדוגמה" בפס שבראש המסך. רק נתוני הדוגמה נמחקים; מה שהזנתם בעצמכם נשאר.</p>
+
+<h2 id="backup">6. גיבוי ושחזור</h2>
+<p>התוכנה מגבה לבד פעם ביום, בהצפנה, לתיקייה "SuperSuite-Backups" במסמכים. מומלץ לבחור גם דיסק נייד או תיקייה מגובה.</p>
+<ul>
+<li><b>גיבוי ידני:</b> כפתור ⬇ בתחתית הסרגל, או <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>. בוחרים סיסמה לקובץ.</li>
+<li><b>שחזור:</b> כפתור ↥ בתחתית הסרגל, או <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>. בוחרים את הקובץ ומקלידים את סיסמת הקובץ (או את קוד השחזור).</li>
+</ul>
+<figure><img src="img/06-backup.png" alt="חלון הגיבוי"><figcaption>גיבוי ידני</figcaption></figure>
+<p class="note">בלי סיסמת הקובץ אי אפשר לפתוח את הגיבוי — גם לא אנחנו.</p>
+
+<h2 id="recovery">7. קוד שחזור</h2>
+<p>הגיבויים האוטומטיים ומסד הנתונים מוצפנים במפתח שנשמר במחשב. אם המחשב מתקלקל או מוחלף — צריך את <b>קוד השחזור</b> כדי לפתוח אותם.</p>
+<ol>
+<li>בתחתית הסרגל לחצו על כפתור המפתח 🔑.</li>
+<li>הדפיסו את הקוד או רשמו אותו, ושמרו במקום בטוח מחוץ למחשב.</li>
+<li>בשחזור במחשב חדש — מקלידים את הקוד במקום סיסמה.</li>
+</ol>
+<p class="note">מי שמחזיק את קוד השחזור יכול לפתוח את הגיבויים. אל תשמרו אותו בקובץ על אותו מחשב.</p>
+
+<h2 id="license">8. רישיון ותקופת ניסיון</h2>
+<p>מצב הרישיון מופיע במסך "רישוי" במערכת הכלכלית: כרטיס אחד בראש המסך אומר מה המצב ומה לעשות. בתקופת ניסיון כל התחומים פתוחים; בסופה אפשר לצפות בנתונים אך לא לשנות אותם, עד להתקנת רישיון.</p>
+<p>להתקנת רישיון: "טעינת קובץ רישיון", או "הדבקת קוד רישיון". פרטי הגרסה והסכם הרישיון — במדריך המהיר (<kbd>F1</kbd>) תחת "אודות".</p>
+
+<h2 id="keys">9. מקלדת ונגישות</h2>
+<ul>
+<li><kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>4</kbd> — מעבר בין המודולים.</li>
+<li><kbd>Ctrl</kbd>+<kbd>K</kbd> — חיפוש מסך.</li>
+<li><kbd>Ctrl</kbd>+<kbd>=</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd> / <kbd>Ctrl</kbd>+<kbd>0</kbd> — הגדלה, הקטנה וחזרה לגודל רגיל.</li>
+<li><kbd>Tab</kbd> — מעבר בין כפתורים ושדות; המיקוד מסומן במסגרת בולטת.</li>
+<li><kbd>F1</kbd> — המדריך המהיר.</li>
+</ul>
+
+<h2 id="faq">10. שאלות נפוצות</h2>
+<dl>
+<dt>האם התוכנה צריכה אינטרנט?</dt>
+<dd>לא. הכול עובד במחשב, גם בלי חיבור.</dd>
+<dt>איפה נשמרים הנתונים?</dt>
+<dd>במחשב שלכם בלבד, מוצפנים.</dd>
+<dt>שכחתי את הסיסמה.</dt>
+<dd>מנהל אחר יכול לאפס אותה במסך המשתמשים. אם אין מנהל נוסף — פנו לספק.</dd>
+<dt>עברתי מחשב. איך מעבירים את הנתונים?</dt>
+<dd>מתקינים את התוכנה במחשב החדש, לוחצים על כפתור השחזור ↥ ובוחרים קובץ גיבוי, עם סיסמת הקובץ או קוד השחזור.</dd>
+<dt>התוכנה הציגה הודעת תקלה.</dt>
+<dd>אפשר להמשיך לעבוד. כדי לעזור לנו לתקן — במדריך המהיר לחצו "שמירת דוח תקלה" ושלחו את הקובץ לספק. הדוח לא כולל את הנתונים שלכם.</dd>
+<dt>האם הסרת התוכנה מוחקת נתונים?</dt>
+<dd>לא. הנתונים והגיבויים נשארים.</dd>
+</dl>
+</main>
+</body>
+</html>

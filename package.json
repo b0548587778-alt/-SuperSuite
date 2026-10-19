@@ -4,7 +4,7 @@
   "description": "חבילת העבודה המאוחדת — כלכלה, שמאות, כושר וכלים",
   "main": "main.js",
   "author": "Bunim Seller",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "scripts": {
     "start": "node run-electron.js",
     "dist": "electron-builder --win nsis portable",
@@ -31,7 +31,10 @@
       "modules/**/*",
       "build/icon.ico",
       "build/icon.png",
-      "package.json"
+      "package.json",
+      "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.txt",
+      "build/eula.txt"
     ],
     "npmRebuild": false,
     "electronFuses": {
@@ -53,14 +56,35 @@
       "artifactName": "SuperSuite-Portable.exe"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "license": "build/eula.txt",
+      "include": "build/installer.nsh",
+      "installerLanguages": [
+        "he_IL"
+      ],
+      "language": "1037",
       "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": false,
       "artifactName": "SuperSuite-Setup.${ext}"
     },
-    "icon": "build/icon.ico"
+    "icon": "build/icon.ico",
+    "extraFiles": [
+      {
+        "from": "LICENSE.txt",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "THIRD-PARTY-NOTICES.txt",
+        "to": "THIRD-PARTY-NOTICES.txt"
+      },
+      {
+        "from": "build/eula.txt",
+        "to": "EULA.txt"
+      }
+    ]
   }
 }

@@ -370,6 +370,24 @@ function openSplash() {
     return w;
   } });
 }
+/* ---------- מדריך המשתמש (PLAN.md 1.6) ---------- */
+const USER_GUIDE = path.join(__dirname, 'shell', 'guide', 'index.html');
+function guideWindow(show) {
+  const w = new BrowserWindow({ width: 900, height: 860, show, title: 'SuperSuite — מדריך למשתמש', icon: path.join(__dirname, 'build', 'icon.png'), autoHideMenuBar: true,
+    webPreferences: CodeGuard.guardPrefs({ contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false }, app.isPackaged) });
+  w.removeMenu();
+  CodeGuard.wireDevToolsGuard(w.webContents, app.isPackaged);
+  w.webContents.on('will-navigate', ev => ev.preventDefault());
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  return w;
+}
+let guideWin = null;
+function openUserGuide() {
+  if (guideWin && !guideWin.isDestroyed()) { guideWin.focus(); return; }
+  guideWin = guideWindow(true);
+  guideWin.on('closed', () => { guideWin = null; });
+  guideWin.loadFile(USER_GUIDE);
+}
 function closeSplash() { if (splash) { splash.close(); splash = null; } }
 
 function createWindow() {
@@ -895,6 +913,29 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('shell:home', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; goHome(); return true; });
   ipcMain.handle('shell:quit', (e) => { if (!win || e.sender.id !== win.webContents.id) return false; app.quit(); return true; });
+  // אודות (PLAN.md 5.1): גרסה, זכויות יוצרים, הסכם הרישיון ורכיבי צד שלישי — מהקבצים שנארזו עם התוכנה
+  ipcMain.handle('shell:get-about', (e) => {
+    if (!win || e.sender.id !== win.webContents.id) return null;
+    const txt = (rel) => { try { return fs.readFileSync(path.join(__dirname, rel), 'utf8').replace(/^﻿/, ''); } catch { return ''; } };
+    return { version: app.getVersion(), license: txt('LICENSE.txt'), eula: txt('build/eula.txt'), notices: txt('THIRD-PARTY-NOTICES.txt') };
+  });
+  // מדריך המשתמש (PLAN.md 1.6): חלון נפרד, בלי סקריפט; ושמירה כ-PDF
+  ipcMain.handle('shell:open-user-guide', (e) => {
+    if (!win || e.sender.id !== win.webContents.id) return false;
+    openUserGuide();
+    return true;
+  });
+  ipcMain.handle('shell:save-user-guide-pdf', async (e) => {
+    if (!win || e.sender.id !== win.webContents.id) return false;
+    const r = await dialog.showSaveDialog(win, { title: 'שמירת מדריך המשתמש', defaultPath: path.join(app.getPath('documents'), 'SuperSuite-מדריך.pdf'), filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+    if (r.canceled || !r.filePath) return false;
+    const w = guideWindow(false);
+    try {
+      await w.loadFile(USER_GUIDE);
+      fs.writeFileSync(r.filePath, await w.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'default' } }));
+    } finally { w.destroy(); }
+    return true;
+  });
   // דוח תקלה לתמיכה — היומן בלבד, בלי נתונים (PLAN.md 2.2)
   ipcMain.handle('shell:save-crash-report', (e) => {
     if (!win || e.sender.id !== win.webContents.id) return false;

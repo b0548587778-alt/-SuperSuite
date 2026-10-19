@@ -1,0 +1,8 @@
+SuperSuite
+Copyright (c) 2026 Bunim Seller. All rights reserved.
+© 2026 Bunim Seller. כל הזכויות שמורות.
+
+This software is proprietary. Use is governed by the End User License Agreement (EULA.txt).
+השימוש בתוכנה כפוף להסכם הרישיון למשתמש (EULA.txt).
+
+Open-source components: see THIRD-PARTY-NOTICES.txt.
