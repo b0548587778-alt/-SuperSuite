@@ -187,3 +187,49 @@ test('ממשק: כפתור במסך הגבייה, אישור לפני הפקה, 
   assert.match(pre, /collectTrainerPayments: \(\) => ipcRenderer\.invoke\('collect:getTrainerPayments'\)/);
   assert.match(pre, /collectIssueTrainerReceipt: \(key, opts\) => ipcRenderer\.invoke\('collect:issueTrainerReceipt', key, opts\)/);
 });
+
+// הזרימה בממשק עצמו (ui/collect.js בתוך כל קבצי הממשק): ביטול באישור = אין הפקה; בחירת עוסק פטור עוברת לערוץ
+test('ממשק — הזרימה: רשימה ← הפקה ← אישור; ביטול לא מפיק, והבחירה נשלחת כמו שהיא', async () => {
+  const vm = require('vm');
+  const EconUI = require('./helpers/econ-ui');
+  const ctx = { console, setTimeout, clearTimeout, Date, Intl, URLSearchParams, location: { search: '' },
+    document: { readyState: 'loading', addEventListener() {}, getElementById() { return null; }, querySelectorAll() { return []; } } };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  EconUI.run(ctx);
+  const payment = { key: 'c_1/m_1/p_1', date: '2026-10-01', clientName: 'יוסף כהן', membershipName: '<b>כרטיסייה</b>', amount: 350, methodLabel: 'מזומן' };
+  const issued = [], toasts = [], forms = [];
+  let listHtml = '';
+  let picks = [];      // מה המשתמש לוחץ ברשימה, לפי הסדר (null = סגירה)
+  let answers = [];    // מה עונה חלון האישור, לפי הסדר (null = ביטול)
+  ctx.systemAPI = {
+    collectTrainerPayments: async () => ({ available: true, exemptDefault: true, payments: [payment] }),
+    collectIssueTrainerReceipt: async (key, opts) => { issued.push({ key, opts }); return { number: 12, receiptNumber: 4, exempt: opts.exempt }; },
+  };
+  vm.runInContext('openDialog = (build) => new Promise((resolve) => { const card = { style: {}, set innerHTML(v) { __list(v); }, querySelector: () => ({ addEventListener() {} }), querySelectorAll: () => [] }; build(card, resolve); __pick(resolve); });', ctx);
+  ctx.__list = (h) => { listHtml = h; };
+  ctx.__pick = (resolve) => resolve(picks.shift() ?? null);
+  vm.runInContext('licForm = async (title, fields, submit, intro) => __form(title, fields, intro); showToast = (m) => __toast(m); showError = (m) => { throw new Error(m); };', ctx);
+  ctx.__form = (title, fields, intro) => { forms.push({ title, fields, intro }); return answers.shift() ?? null; };
+  ctx.__toast = (m) => toasts.push(m);
+
+  // ביטול בחלון האישור — אין הפקה, חוזרים לרשימה וסוגרים
+  picks = [payment.key, null];
+  answers = [null];
+  assert.equal(await vm.runInContext('collectTrainerPayments()', ctx), true);
+  assert.equal(issued.length, 0, 'ביטול — שום הפקה');
+  assert.match(listHtml, /data-trainer-issue="c_1\/m_1\/p_1"/);
+  assert.doesNotMatch(listHtml, /<b>כרטיסייה<\/b>/, 'שם המנוי מנוטרל');
+  const f = forms[0];
+  assert.equal(f.title, 'אישור הפקה');
+  assert.match(f.intro, /יוסף כהן/);
+  assert.match(f.intro, /350/);
+  assert.equal(f.fields[0].value, 'exempt', 'ברירת המחדל לפי ההפקה האחרונה');
+
+  // אישור עם עוסק פטור
+  picks = [payment.key, null];
+  answers = [{ doc: 'exempt' }];
+  await vm.runInContext('collectTrainerPayments()', ctx);
+  assert.equal(JSON.stringify(issued), JSON.stringify([{ key: 'c_1/m_1/p_1', opts: { confirmed: true, exempt: true } }]));
+  assert.match(toasts.at(-1), /חשבונית עסקה 12 וקבלה 4/);
+});
