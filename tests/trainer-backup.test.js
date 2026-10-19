@@ -75,7 +75,7 @@ test('קובץ ישן: גיבוי של SuperSuite או קובץ שאינו של 
 });
 
 test('המודול: אין ייצוא JSON גלוי ואין שחזור שמוחק את האחסון', () => {
-  const app = read('modules-src', 'trainer', 'src', 'App.jsx');
+  const app = require('./helpers/trainer-src').trainerUiSource(); // כל קבצי הממשק (PLAN.md 6.2)
   assert.ok(!/ייצוא גיבוי \(JSON\)/.test(app));
   assert.ok(!/trainer-pro-backup/.test(app));
   assert.ok(!/application\/json/.test(app));
