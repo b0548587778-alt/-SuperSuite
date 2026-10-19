@@ -960,6 +960,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* רישוי ומערכות */
 .modal-form fieldset { border: 1px solid var(--ss-border); border-radius: 8px; padding: 8px 12px; margin: 0 0 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; }
 .modal-form fieldset legend { padding: 0 6px; font-weight: 600; }
+/* המחאות דחויות: label ו-div בטופס מקבלים display — בלי זה hidden לא מסתיר */
+.modal-form [data-chq][hidden] { display: none; }
+.modal-form [data-chq="equal"], .modal-form [data-chq="manual"] { grid-column: 1 / -1; }
+.modal-form [data-chq="equal"] { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; }
 .modal-form label.check { display: flex; align-items: center; gap: 6px; font-size: .92rem; }
 .owner-panel { border-inline-start: 4px solid var(--ss-warning); }
 /* הודעות */

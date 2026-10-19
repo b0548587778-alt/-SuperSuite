@@ -367,11 +367,14 @@ class NpoService {
   // המחאות דחויות ("תרומות ישראל", סעיף 2.3.2): תרומה וקבלה לכל שנת מס, כולן באותה שמירה.
   // preview: true — החלוקה לשנים והאזהרות, בלי שמירה ובלי מספרי קבלה. אזהרה (אישור סעיף 46 שפג
   // לפני שנה מסוימת) — ההפקה רק עם confirmWarnings: true. הקמפיין נבדק מול יום קבלת ההמחאות
+  // input.generate (בלי cheques) — חלוקה שווה לחודשים (N.generateCheques), כדי שהחישוב יהיה רק כאן
   async addChequeDonation(input, { preview = false } = {}) {
     const data = await this._load();
     if (!data.npo.settings.orgName) throw new Error('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
     const { donations: list, settings } = data.npo;
-    const plan = N.planChequeDonation(input, settings, list.length);
+    const src = !Array.isArray(input.cheques) && input.generate && typeof input.generate === 'object'
+      ? { ...input, cheques: N.generateCheques(input.generate) } : input;
+    const plan = N.planChequeDonation(src, settings, list.length);
     if (list.length + plan.donations.length > N.MAX_DONATIONS) throw new Error('הגעת למספר המקסימלי של תרומות');
     const first = plan.donations[0];
     if (first.campaignId) {

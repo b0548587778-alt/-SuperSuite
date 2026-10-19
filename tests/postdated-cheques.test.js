@@ -520,6 +520,17 @@ test('מזעור תורם: מספר ההמחאה, הבנק והסניף נמחק
   assert.match(PR.RETENTION_KINDS.donors.removes, /מספר ההמחאה, הבנק והסניף/);
 });
 
+test('שירות: חלוקה שווה (generate) מחושבת בשרת, ו-cheques גובר עליה', async () => {
+  await freshLogin(91);
+  const gen = { total: 1000, count: 3, firstDueDate: '2026-12-31', firstNumber: '000098', bank: '12', branch: '345' };
+  const pv = await svc.addChequeDonation({ ...BASE, generate: gen }, { preview: true });
+  assert.deepEqual(pv.years.map(y => [y.year, y.amount]), [[2026, 333.33], [2027, 666.67]]);
+  assert.deepEqual(pv.years[1].cheques.map(c => [c.number, c.dueDate]), [['000099', '2027-01-31'], ['000100', '2027-02-28']]);
+  const r = await svc.addChequeDonation({ ...BASE, generate: gen, cheques: [CHQ('7', '2027-01-01', 50)] }, { preview: true });
+  assert.equal(r.totalAg, 5000);
+  await assert.rejects(svc.addChequeDonation({ ...BASE, generate: { ...gen, count: 0 } }, { preview: true }), /בין 1 ל-60/);
+});
+
 test('הלוגיקה של ההמחאות בלי require חדש (אנדרואיד) ובלי toISOString לתאריכים', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/core/npo.js'), 'utf8');
   assert.deepEqual([...src.matchAll(/require\('([^']+)'\)/g)].map(m => m[1]), ['./israeliId']);
