@@ -2442,3 +2442,14 @@ select {
 .pp-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .pp-actions > button { flex: 1 1 160px; }
 .pp-help { font-size: 11px; color: var(--text-faint); margin-top: 8px; line-height: 1.5; }
+
+/* קניית זהב מלקוח (src/purchase.js) */
+.pu-title { font-size: 15px; margin: 18px 0 8px; color: var(--text); }
+.pu-lines { display: grid; gap: 8px; margin-bottom: 10px; }
+.pu-line { display: grid; grid-template-columns: 80px 80px 90px 1fr 40px; gap: 6px; align-items: center; }
+.pu-line .pu-del { width: auto; padding: 6px; }
+.pu-warn { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); border-right: 3px solid var(--yellow); font-size: 13px; }
+.pu-list { display: grid; gap: 6px; }
+.pu-item { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); }
+.pu-item .btn-ghost { width: auto; padding: 4px 10px; }
+@media (max-width: 520px) { .pu-line { grid-template-columns: 1fr 1fr; } }

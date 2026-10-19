@@ -55,6 +55,7 @@ function initSubView(parent, sub) {
   // Render the appropriate view based on sub-id
   const renderers = {
     'gold': renderGoldView,
+    'purchase': renderPurchaseView,
     'diamond': renderDiamondView,
     'watch': renderWatchView,
     'antique': renderAntiqueView,
@@ -97,6 +98,7 @@ function initSubView(parent, sub) {
 function recalcCurrent() {
   const recalcs = {
     'gold': recalcGold,
+    'purchase': recalcPurchase,
     'diamond': recalcDiamond,
     'watch': recalcWatch,
     'antique': recalcAntique,
@@ -166,6 +168,7 @@ function bindEvents() {
 
   // עדכון מחירים: הקלדה או קובץ, עם תאריך לכל מחיר (src/prices.js)
   attachPricePanel();
+  attachPurchase();
   renderPricePanel();
 
   // Install
