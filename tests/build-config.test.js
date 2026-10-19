@@ -18,3 +18,12 @@ test('CI: משימת הבדיקות מורידה היסטוריה מלאה (בד
   const trainer = yml.slice(yml.indexOf('\n  trainer:'), yml.indexOf('\n  build:'));
   assert.match(trainer, /actions\/checkout@v4\s*\n\s*with:\s*\{\s*fetch-depth:\s*0\s*\}/);
 });
+
+test('CI: המתקין אורז את מודול האימונים שנבנה מהמקור באותה ריצה (PLAN.md 6.1)', () => {
+  const yml = require('fs').readFileSync(require('path').join(__dirname, '..', '.github', 'workflows', 'build.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  publish:'));
+  require('assert').match(build, /needs: \[trainer\]/);
+  const dl = build.indexOf('name: trainer-module');
+  require('assert').ok(build.indexOf('rm -rf modules/trainer') < dl && dl > 0 && dl < build.indexOf('electron-builder'), 'המודול הבנוי לא מחליף את העותק שבמאגר לפני האריזה');
+  require('assert').match(yml, /if \[ -f package-lock\.json \]; then CMD="npm ci"/);
+});
