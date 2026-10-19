@@ -7,9 +7,16 @@ on:
         description: 'גרסה להפצה ללקוחות (נכשל אם root-keys.js ריק)'
         type: boolean
         default: false
+      # קישור הורדה קבוע (PLAN.md 1.1): מעלה את המתקין למאגר ההורדות הציבורי (משימת publish למטה)
+      publish:
+        description: 'לפרסם את המתקין במאגר ההורדות הציבורי'
+        type: boolean
+        default: false
   push:
     # build/** — בניית מודול האימונים מענף עבודה לפני מיזוג (vite חסום ב-NetFree), בלי לגעת ב-master
     branches: [master, 'build/**']
+    # תגית גרסה (v3.11.0) ← בנייה ופרסום במאגר ההורדות (PLAN.md 1.1). דף ה-Actions חסום ב-NetFree, ותגית אפשר לדחוף ב-git
+    tags: ['v*']
 # יומני הבנייה נכתבים גם לענף ci-status (משימת report): דף היומנים של GitHub Actions חסום ב-NetFree,
 # וכך אפשר לקרוא את התוצאה ב-git fetch origin ci-status.
 jobs:
@@ -64,7 +71,7 @@ jobs:
       - name: npm install
         run: set -o pipefail; { echo "== npm install"; npm install 2>&1; } | tee -a "$LOG"
       # --publish never: בלי זה electron-builder מזהה CI ומנסה לפרסם ל-GitHub Releases (ונכשל בלי GH_TOKEN).
-      # פרסום גרסאות — PLAN.md 1.1, בנפרד.
+      # פרסום גרסאות — משימת publish (PLAN.md 1.1), למאגר ההורדות הציבורי.
       # חתימת קוד — רק אם הוגדרו סודות במאגר (docs/CODE-SIGNING.md). בלי סודות: בנייה לא חתומה, כמו קודם.
       # טוקן USB אינו זמין בשרת של GitHub — כאן אפשר רק PFX או Azure Trusted Signing.
       - name: Build
@@ -102,9 +109,44 @@ jobs:
         with:
           name: ci-logs-build
           path: ci-logs
+  # פרסום למאגר ההורדות הציבורי (PLAN.md 1.1) — רק בהפעלה ידנית עם publish, ורק אחרי בנייה ובדיקת עלייה שעברו.
+  # המאגר הזה פרטי; ההורדות במאגר ציבורי נפרד (משתנה SS_DOWNLOADS_REPO, למשל owner/SuperSuite-Downloads),
+  # עם טוקן שמורשה לכתוב רק אליו (סוד SS_DOWNLOADS_TOKEN). מדריך: docs/DOWNLOADS.md.
+  # קישור קבוע לגרסה האחרונה: https://github.com/<מאגר>/releases/latest/download/SuperSuite-Setup.exe
+  publish:
+    needs: [build]
+    if: ${{ (inputs.publish || startsWith(github.ref, 'refs/tags/v')) && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: package.json, sparse-checkout-cone-mode: false }
+      - uses: actions/download-artifact@v4
+        with:
+          name: SuperSuite-Windows
+          path: out
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.SS_DOWNLOADS_TOKEN }}
+          REPO: ${{ vars.SS_DOWNLOADS_REPO }}
+        run: |
+          set -e
+          if [ -z "$GH_TOKEN" ] || [ -z "$REPO" ]; then
+            echo "חסרים SS_DOWNLOADS_TOKEN או SS_DOWNLOADS_REPO — ראו docs/DOWNLOADS.md"; exit 1
+          fi
+          V="$(node -p "require('./package.json').version")"
+          # תגית שלא תואמת את package.json — טעות; לא מפרסמים
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$V" ]; then
+            echo "התגית ${GITHUB_REF_NAME} לא תואמת לגרסה v$V שב-package.json"; exit 1
+          fi
+          # גרסה שכבר פורסמה לא נדרסת — יש להעלות את מספר הגרסה ב-package.json
+          if gh release view "v$V" --repo "$REPO" >/dev/null 2>&1; then
+            echo "הגרסה v$V כבר פורסמה ב-$REPO"; exit 1
+          fi
+          gh release create "v$V" --repo "$REPO" --title "SuperSuite $V" --latest             --notes "SuperSuite גרסה $V" out/SuperSuite-Setup.exe out/SuperSuite-Portable.exe
+          echo "פורסם: https://github.com/$REPO/releases/latest/download/SuperSuite-Setup.exe"
   # סיכום ויומנים לענף ci-status (קומיט יחיד, נדרס בכל ריצה). הענף לא מפעיל בנייה (רק master מפעיל)
   report:
-    needs: [trainer, build]
+    needs: [trainer, build, publish]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -128,8 +170,8 @@ jobs:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p logs && cd logs
-          printf 'run: %s (#%s)\nsha: %s\ntrainer: %s\nbuild: %s\n' \
-            "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "${{ needs.trainer.result }}" "${{ needs.build.result }}" > summary.txt
+          printf 'run: %s (#%s)\nsha: %s\ntrainer: %s\nbuild: %s\npublish: %s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "${{ needs.trainer.result }}" "${{ needs.build.result }}" "${{ needs.publish.result }}" > summary.txt
           git init -q
           git config user.name "ci"
           git config user.email "ci@users.noreply.github.com"
