@@ -400,6 +400,52 @@ test('שירות: קבלות ההמחאות נכנסות לגיבוי המוצפ
   assert.equal(plain.npo.donations.filter(d => Array.isArray(d.cheques)).length, 2);
 });
 
+// ---------- שלב 4: ערוצים ו-preload ----------
+
+const { AuthService } = require('../modules/econ/services/authService');
+
+test('ערוצים: דרך handle(), דורשים כניסה, והרשאה לפי התפקיד', async () => {
+  await freshLogin(81);
+  await assert.rejects(handlers['npo:addChequeDonation'](ev(99), { ...BASE, cheques: THREE }), /נדרשת כניסה/);
+  await assert.rejects(handlers['npo:cancelCheque'](ev(99), 'x', '1'), /נדרשת כניסה/);
+  const { donations: [, y27] } = await handlers['npo:addChequeDonation'](ev(81), { ...BASE, cheques: THREE });
+  AuthService.getSession(81).permissions = ['data.view'];
+  await assert.rejects(handlers['npo:addChequeDonation'](ev(81), { ...BASE, cheques: THREE }), /אין הרשאה/);
+  await assert.rejects(handlers['npo:addChequeDonation'](ev(81), { ...BASE, cheques: THREE }, { preview: true }), /אין הרשאה/, 'גם תצוגה מקדימה — ערוץ עריכה');
+  AuthService.getSession(81).permissions = ['data.view', 'data.edit'];
+  await assert.rejects(handlers['npo:cancelCheque'](ev(81), y27.id, '102'), /אין הרשאה/, 'ביטול דורש data.delete');
+  AuthService.getSession(81).permissions = ['data.view', 'data.edit', 'data.delete'];
+  const r = await handlers['npo:cancelCheque'](ev(81), y27.id, '102');
+  assert.equal(r.replacement.amount, 400);
+});
+
+test('ערוצים: preview רק כשנשלח true מפורש; קלט שאינו אובייקט — שגיאה בעברית', async () => {
+  await freshLogin(82);
+  const pv = await handlers['npo:addChequeDonation'](ev(82), { ...BASE, cheques: THREE }, { preview: true });
+  assert.equal(pv.years.length, 2);
+  assert.equal((await handlers['npo:getOverview'](ev(82), 2026)).donations.length, 0);
+  const r = await handlers['npo:addChequeDonation'](ev(82), { ...BASE, cheques: THREE }, { preview: 'yes' });
+  assert.equal(r.donations.length, 2, 'ערך שאינו true — הפקה רגילה');
+  await assert.rejects(handlers['npo:addChequeDonation'](ev(82), 'garbage'), /לפחות המחאה אחת/);
+});
+
+test('ערוצים: יומן הפעולות רושם מספרי קבלות בלבד — בלי מספרי המחאות, בנקים ושמות', async () => {
+  await freshLogin(83);
+  const { donations: [, y27] } = await handlers['npo:addChequeDonation'](ev(83), { ...BASE, cheques: THREE });
+  await handlers['npo:cancelCheque'](ev(83), y27.id, '102');
+  const rows = await ipc.getDb().all("SELECT action, details FROM audit_events WHERE action LIKE 'npo.cheques.%' ORDER BY created_at");
+  assert.deepEqual(rows.map(r => r.action), ['npo.cheques.add', 'npo.cheques.bounce']);
+  assert.deepEqual(JSON.parse(rows[0].details), { receipts: [1, 2], years: 2 });
+  assert.deepEqual(JSON.parse(rows[1].details), { receipt: 2, replacement: 3 });
+  assert.ok(rows.every(r => !/102|345|ברגר|000000018/.test(r.details)));
+});
+
+test('preload: חשיפת שני הערוצים בשמות המתוכננים', () => {
+  const preload = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/preload.js'), 'utf8');
+  assert.match(preload, /addNpoChequeDonation: \(input, options\) => ipcRenderer\.invoke\('npo:addChequeDonation', input, options\)/);
+  assert.match(preload, /cancelNpoCheque: \(id, number, bank\) => ipcRenderer\.invoke\('npo:cancelCheque', id, number, bank\)/);
+});
+
 test('הלוגיקה של ההמחאות בלי require חדש (אנדרואיד) ובלי toISOString לתאריכים', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/core/npo.js'), 'utf8');
   assert.deepEqual([...src.matchAll(/require\('([^']+)'\)/g)].map(m => m[1]), ['./israeliId']);
