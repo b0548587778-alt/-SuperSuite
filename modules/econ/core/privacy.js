@@ -122,7 +122,8 @@ const RETENTION_KINDS = {
   beneficiaries: { label: 'נזקקים לא פעילים (חסד)', minYears: 1,
     removes: 'ראש המשפחה, ת.ז, טלפון, כתובת והערות. נשמרים: שם המשפחה, גודל המשפחה והאזור (להיסטוריית החלוקות).' },
   donors: { label: 'תורמים שלא תרמו בתקופה (עמותה)', minYears: 7,
-    removes: 'טלפון וכתובת בכל התרומות של התורם ובהוראות קבע שהסתיימו. נשמרים: שם, ת.ז, סכום ומספר הקבלה. ' +
+    removes: 'טלפון וכתובת בכל התרומות של התורם ובהוראות קבע שהסתיימו, ומספר ההמחאה, הבנק והסניף בהמחאות דחויות. ' +
+      'נשמרים: שם, ת.ז, סכום, תאריכי הפירעון ומספר הקבלה. ' +
       'קבלה שתודפס מחדש תצא בלי כתובת. מינימום 7 שנים — כמו תקופת השמירה של קבלות.' },
   borrowers: { label: 'לווים בהלוואות שנפרעו או בוטלו (גמ"ח)', minYears: 1,
     removes: 'טלפון, כתובת והערות של הלווה, וטלפון הערבים. נשמרים: שמות, ת.ז, סכום ולוח התשלומים.' },
@@ -161,6 +162,7 @@ function candidatesFor(data, kind, today, years) {
       const cur = byDonor.get(key) || { id: key, label: normName(d.donorName), last: '', contact: false };
       cur.last = maxDay(cur.last, d.date);
       if (d.donorPhone || d.donorAddress) cur.contact = true;
+      if (Array.isArray(d.cheques) && d.cheques.some(c => c.number || c.bank || c.branch)) cur.contact = true;
       byDonor.set(key, cur);
     }
     for (const o of npo.standingOrders || []) {
@@ -206,7 +208,10 @@ function applyRetention(data, kind, ids, today, years, at) {
       const key = donorKey(d);
       if (!ok(key)) return d;
       hit.add(key);
-      return { ...d, donorPhone: '', donorAddress: '', privacyMinimizedAt: at };
+      // המחאות דחויות: נשמרים הפירעון והסכום (הקבלה); מספר ההמחאה, הבנק והסניף נמחקים
+      const cheques = Array.isArray(d.cheques) ? { cheques: d.cheques.map(c => ({ number: '', bank: '', branch: '', dueDate: c.dueDate, amountAg: c.amountAg })), reference: '' } : {};
+      const bounced = d.bouncedCheque ? { bouncedCheque: { number: '', bank: '', dueDate: d.bouncedCheque.dueDate } } : {};
+      return { ...d, ...cheques, ...bounced, donorPhone: '', donorAddress: '', privacyMinimizedAt: at };
     });
     data.npo.standingOrders = (data.npo.standingOrders || []).map(o => (ok(donorKey(o)) ? { ...withoutBank(o), donorPhone: '', donorAddress: '', privacyMinimizedAt: at } : o));
     done = hit.size;

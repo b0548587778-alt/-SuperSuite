@@ -160,6 +160,145 @@ function issueReceipt(donation, settings) {
   };
 }
 
+// ---------- המחאות דחויות ("תרומות ישראל", סעיף 2.3.2): קבלה נפרדת לכל שנת מס לפי תאריך הפירעון ----------
+// חבילת המחאות הופכת לתרומה אחת לכל שנה, כל אחת עם קבלה משלה — כך כל הסיכומים השנתיים (לפי date)
+// נשארים נכונים בלי שינוי. date: בשנה שבה ההמחאות התקבלו — יום הקבלה; בשנה אחרת — הפירעון הראשון בה.
+// נשמרים מספר המחאה, בנק, סניף, פירעון וסכום באגורות — בלי מספר חשבון.
+const MAX_CHEQUES = 60;
+const MAX_CHEQUE_YEARS = 5;
+const pad2 = (n) => String(n).padStart(2, '0');
+const localToday = () => { const t = new Date(); return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`; };
+const plusYears = (date, n) => `${Number(date.slice(0, 4)) + n}${date.slice(4)}`;
+const chequeReference = (cheques) => (cheques.length === 1 ? cheques[0].number : `${cheques[0].number}–${cheques[cheques.length - 1].number}`);
+
+function validateCheques(list, receivedDate) {
+  if (!isDate(receivedDate)) throw new Error('תאריך קבלת ההמחאות אינו תקין (YYYY-MM-DD)');
+  if (!Array.isArray(list) || !list.length) throw new Error('יש להזין לפחות המחאה אחת');
+  if (list.length > MAX_CHEQUES) throw new Error(`ניתן להזין עד ${MAX_CHEQUES} המחאות בפעם אחת`);
+  const last = plusYears(receivedDate, MAX_CHEQUE_YEARS);
+  const seen = new Set();
+  const out = list.map((c, i) => {
+    const row = `המחאה ${i + 1}`;
+    if (!c || typeof c !== 'object') throw new Error(`${row}: נתונים לא תקינים`);
+    const number = str(c.number, 10, `${row}: מספר ההמחאה`);
+    if (!/^\d{1,10}$/.test(number)) throw new Error(`${row}: מספר ההמחאה חייב להכיל ספרות בלבד`);
+    const bank = str(c.bank, 3, `${row}: קוד הבנק`);
+    if (bank && !/^\d{1,3}$/.test(bank)) throw new Error(`${row}: קוד הבנק חייב להכיל ספרות בלבד`);
+    const branch = str(c.branch, 4, `${row}: מספר הסניף`);
+    if (branch && !/^\d{1,4}$/.test(branch)) throw new Error(`${row}: מספר הסניף חייב להכיל ספרות בלבד`);
+    const dueDate = String(c.dueDate || '');
+    if (!isDate(dueDate)) throw new Error(`${row}: תאריך הפירעון אינו תקין`);
+    if (dueDate < receivedDate) throw new Error(`${row}: תאריך הפירעון (${dueDate}) מוקדם מיום קבלת ההמחאות`);
+    if (dueDate > last) throw new Error(`${row}: תאריך הפירעון רחוק מדי (עד ${MAX_CHEQUE_YEARS} שנים מיום הקבלה)`);
+    const amountAg = c.amountAg != null ? Number(c.amountAg) : toAg(c.amount);
+    if (!Number.isInteger(amountAg) || amountAg <= 0 || amountAg > 1e11) throw new Error(`${row}: הסכום אינו תקין`);
+    const key = `${bank}|${number}`;
+    if (seen.has(key)) throw new Error(`${row}: המחאה מספר ${number} הוזנה פעמיים`);
+    seen.add(key);
+    return { number, bank, branch, dueDate, amountAg };
+  });
+  return out.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.number.localeCompare(b.number, undefined, { numeric: true }));
+}
+
+function splitChequesByYear(cheques) {
+  const map = new Map();
+  for (const c of cheques) {
+    const year = Number(c.dueDate.slice(0, 4));
+    const g = map.get(year) || { year, cheques: [], amountAg: 0 };
+    g.cheques.push(c);
+    g.amountAg += c.amountAg;
+    map.set(year, g);
+  }
+  return [...map.values()].sort((a, b) => a.year - b.year);
+}
+
+function chequeYearDate(year, receivedDate, cheques) {
+  if (receivedDate.slice(0, 4) === String(year)) return receivedDate;
+  const due = cheques.map(c => c.dueDate).filter(d => d.slice(0, 4) === String(year)).sort();
+  if (!due.length) throw new Error(`אין המחאות לשנת ${year}`);
+  return due[0];
+}
+
+// מחולל: N המחאות חודשיות שוות מהפירעון הראשון. השארית באגורות — בהמחאה האחרונה; יום שאינו קיים
+// בחודש (31 בפברואר) — היום האחרון של החודש. מספרי ההמחאות עוקבים, עם האפסים שבהתחלה.
+function generateCheques({ total, count, firstDueDate, firstNumber, bank = '', branch = '' } = {}) {
+  const n = Number(count);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_CHEQUES) throw new Error(`מספר ההמחאות חייב להיות בין 1 ל-${MAX_CHEQUES}`);
+  const totalAg = toAg(total);
+  if (!Number.isInteger(totalAg) || totalAg < n || totalAg > 1e11) throw new Error('הסכום הכולל אינו תקין');
+  if (!isDate(firstDueDate)) throw new Error('תאריך הפירעון הראשון אינו תקין');
+  const first = String(firstNumber ?? '').trim();
+  if (!/^\d{1,10}$/.test(first)) throw new Error('מספר ההמחאה הראשונה חייב להכיל ספרות בלבד');
+  const [y, m, d] = firstDueDate.split('-').map(Number);
+  const base = Math.floor(totalAg / n);
+  return Array.from({ length: n }, (_, i) => {
+    const mm = m - 1 + i;
+    const yy = y + Math.floor(mm / 12);
+    const month = (mm % 12) + 1;
+    const lastDay = new Date(Date.UTC(yy, month, 0)).getUTCDate();
+    const num = String(Number(first) + i);
+    if (num.length > 10) throw new Error('מספרי ההמחאות חורגים מ-10 ספרות');
+    return {
+      number: num.padStart(first.length, '0'), bank: String(bank || ''), branch: String(branch || ''),
+      dueDate: `${yy}-${pad2(month)}-${pad2(Math.min(d, lastDay))}`,
+      amountAg: i === n - 1 ? totalAg - base * (n - 1) : base
+    };
+  });
+}
+
+// תכנון בלי שמירה ובלי מספרי קבלה: תרומה לכל שנה + אזהרות (לתצוגה המקדימה ולשירות).
+// אזהרה sec46-lapsed — האישור בתוקף ביום הקבלה אך פג לפני שנה מסוימת: הקבלה שלה תצא בלי סעיף 46
+function planChequeDonation(input, settings, count = 0) {
+  if (!input || typeof input !== 'object') throw new Error('תרומה לא תקינה');
+  const receivedDate = input.receivedDate || localToday();
+  const cheques = validateCheques(input.cheques, receivedDate);
+  const s = normalizeSettings(settings);
+  const warnings = [];
+  const donations = splitChequesByYear(cheques).map((g, i) => {
+    const date = chequeYearDate(g.year, receivedDate, g.cheques);
+    const clean = validateDonation({ ...input, date, amount: fromAg(g.amountAg), method: 'check', reference: chequeReference(g.cheques) }, s, count + i);
+    if (sec46Eligible(s, receivedDate) && !sec46Eligible(s, date)) {
+      warnings.push({ code: 'sec46-lapsed', year: g.year, text: `אישור סעיף 46 בתוקף עד ${s.sec46ValidUntil} — הקבלה לשנת ${g.year} תצא בלי זיכוי לפי סעיף 46` });
+    }
+    return { ...clean, cheques: g.cheques, receivedDate };
+  });
+  return { receivedDate, totalAg: cheques.reduce((t, c) => t + c.amountAg, 0), donations, warnings };
+}
+
+// קבלה לכל תרומה ברצף — מספרים עוקבים, כמו בייבוא
+function issueChequeReceipts(records, settings) {
+  let s = settings;
+  const donations = records.map(rec => {
+    const r = issueReceipt(rec, s);
+    s = r.settings;
+    return { ...rec, receipt: r.receipt };
+  });
+  return { donations, settings: s };
+}
+
+// המחאה שחזרה: הקבלה של אותה שנה מתבטלת, וליתרת ההמחאות של השנה מופקת קבלה חדשה (replacement).
+// בלי המחאות שנותרו — replacement: null. bank נדרש רק כשיש שתי המחאות באותו מספר
+const CHEQUE_DONOR_FIELDS = ['donorName', 'donorId', 'donorType', 'donorAddress', 'donorPhone', 'fundId', 'purpose', 'campaignId', 'ambassadorId', 'chequeGroupId'];
+function chequeBounce(d, number, bank) {
+  if (!d || !Array.isArray(d.cheques) || !d.cheques.length || !isDate(d.receivedDate)) throw new Error('התרומה אינה תרומה בהמחאות');
+  if (d.status === 'cancelled') throw new Error('הקבלה כבר בוטלה');
+  const num = String(number ?? '').trim();
+  const hits = d.cheques.filter(c => c.number === num && (bank == null || bank === '' || c.bank === String(bank)));
+  if (!hits.length) throw new Error(`המחאה מספר ${num} לא נמצאה בקבלה זו`);
+  if (hits.length > 1) throw new Error(`יש כמה המחאות במספר ${num} — יש לציין את הבנק`);
+  const bounced = hits[0];
+  const remaining = d.cheques.filter(c => c !== bounced);
+  if (!remaining.length) return { bounced, replacement: null };
+  const amountAg = remaining.reduce((t, c) => t + c.amountAg, 0);
+  const replacement = {
+    date: chequeYearDate(d.date.slice(0, 4), d.receivedDate, remaining), amount: fromAg(amountAg), method: 'check',
+    reference: chequeReference(remaining), cheques: remaining, receivedDate: d.receivedDate, replacesId: d.id,
+    replacesReceipt: d.receipt && Number.isInteger(d.receipt.number) ? d.receipt.number : null
+  };
+  for (const k of CHEQUE_DONOR_FIELDS) if (d[k] !== undefined) replacement[k] = d[k];
+  return { bounced, replacement };
+}
+
 // רשימת מסמכים לתמיכה: שורה לכל מסמך. מסמך שכבר סומן כ"הוגש" שומר את הסימון לפי שמו
 function parseDocuments(text, prev = []) {
   const done = new Map((Array.isArray(prev) ? prev : []).map(d => [d.name, !!d.done]));
@@ -379,8 +518,9 @@ function exportTable(kind, donations, grants, settings, year) {
   if (kind === 'donations') {
     const funds = Object.fromEntries(allFunds(settings).map(f => [f.id, f.name]));
     const rows = donations.filter(d => inYear(d.date, year)).sort((a, b) => a.date.localeCompare(b.date) || byReceipt(a, b))
-      .map(d => [receiptLabel(d), d.date, d.donorName, d.donorId, d.amount, METHODS[d.method] || d.method, funds[d.fundId] || '', d.receipt.sec46 ? 'כן' : 'לא', d.status === 'cancelled' ? 'בוטלה' : 'פעילה', d.purpose]);
-    return { name: `תרומות-${year}`, headers: ['מס\' קבלה', 'תאריך', 'תורם', 'ת.ז/ח.פ', 'סכום', 'אמצעי תשלום', 'קרן', 'סעיף 46', 'סטטוס', 'ייעוד'], rows };
+      .map(d => [receiptLabel(d), d.date, d.donorName, d.donorId, d.amount, METHODS[d.method] || d.method, funds[d.fundId] || '', d.receipt.sec46 ? 'כן' : 'לא', d.status === 'cancelled' ? 'בוטלה' : 'פעילה', d.purpose,
+        Array.isArray(d.cheques) ? d.cheques.map(c => `${c.number} (${c.dueDate})`).join('; ') : '']);
+    return { name: `תרומות-${year}`, headers: ['מס\' קבלה', 'תאריך', 'תורם', 'ת.ז/ח.פ', 'סכום', 'אמצעי תשלום', 'קרן', 'סעיף 46', 'סטטוס', 'ייעוד', 'המחאות (פירעון)'], rows };
   }
   if (kind === 'grants') {
     const rows = grants.filter(g => Number(g.year) === Number(year))
@@ -418,5 +558,6 @@ module.exports = {
   GENERAL_FUND, VAT_STATUSES, METHODS, GRANT_STATUSES, TAX_STATUSES, DONOR_TYPES, REPORT_IDS, donorType, reportId, DEFAULT_SETTINGS, MAX_DONATIONS, MAX_GRANTS,
   parseDocuments, matchingRequired, grantAlerts, taxStatus, recordTaxReport, taxSummary,
   normalizeSettings, allFunds, applySettings, sec46Eligible, validateDonation, issueReceipt,
-  validateGrant, donorSummary, receiptNo, byReceipt, receiptLabel, donorYearDonations, donorAnnualStatement, fundSummary, annualReport, exportTable
+  validateGrant, donorSummary, receiptNo, byReceipt, receiptLabel, donorYearDonations, donorAnnualStatement, fundSummary, annualReport, exportTable,
+  MAX_CHEQUES, MAX_CHEQUE_YEARS, validateCheques, splitChequesByYear, chequeYearDate, generateCheques, planChequeDonation, issueChequeReceipts, chequeBounce
 };

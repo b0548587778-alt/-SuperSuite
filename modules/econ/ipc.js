@@ -953,6 +953,19 @@ function registerIpcHandlers() {
     await auditEvent(event, 'npo.donation.cancel', { receipt: d.receipt.number });
     return d;
   });
+  // המחאות דחויות: קבלה לכל שנת מס לפי הפירעון. options.preview — החלוקה לשנים בלי שמירה.
+  // ביומן הפעולות רק מספרי הקבלות — בלי מספרי המחאות ובנקים
+  handle('npo:addChequeDonation', async (event, input, options) => {
+    const preview = !!(options && options.preview === true);
+    const r = await npoService.addChequeDonation(input && typeof input === 'object' ? input : {}, { preview });
+    if (!preview) await auditEvent(event, 'npo.cheques.add', { receipts: r.donations.map(d => d.receipt.number), years: r.donations.length });
+    return r;
+  });
+  handle('npo:cancelCheque', async (event, id, number, bank) => {
+    const r = await npoService.cancelCheque(id, number, bank);
+    await auditEvent(event, 'npo.cheques.bounce', { receipt: r.cancelled.receipt.number, replacement: r.replacement ? r.replacement.receipt.number : null });
+    return r;
+  });
   handle('npo:addGrant', async (event, input) => {
     const g = await npoService.addGrant(input);
     await auditEvent(event, 'npo.grant.add', { id: g.id });

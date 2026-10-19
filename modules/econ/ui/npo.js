@@ -381,6 +381,7 @@ function renderNpo(o) {
           <button class="secondary" id="npoSettingsBtn">הגדרות עמותה</button>
           <button class="secondary" id="npoGrantBtn">＋ תמיכה / מענק</button>
           <button class="secondary" id="npoImportBtn" title="ייבוא תרומות מקובץ של נדרים פלוס, קהילות, Charidy וכדומה">⬆ ייבוא תרומות</button>
+          <button class="secondary" id="npoChequesBtn" title="המחאות דחויות — קבלה נפרדת לכל שנת מס לפי תאריך הפירעון">＋ המחאות דחויות</button>
         </div>
       </div>
       ${s.orgName ? '' : `<div class="card"><h4>כדי להפיק קבלות יש להגדיר תחילה את פרטי העמותה</h4><p class="muted">שם, מספר עמותה, אישור סעיף 46 ומעמד מע"מ — בכפתור "הגדרות עמותה".</p></div>`}
@@ -438,12 +439,13 @@ function renderNpo(o) {
               <tr class="${d.status === 'cancelled' ? 'muted' : ''}">
                 <td>${d.receipt && d.receipt.external ? `<small class="muted" title="הקבלה הופקה בערוץ התרומה">${esc(NPO_IMPORT_SOURCES[d.receipt.source] || 'חיצונית')}${d.receipt.externalNumber ? ' ' + esc(d.receipt.externalNumber) : ''}</small>` : esc(d.receipt && d.receipt.number)}</td><td>${esc(d.date)}</td>
                 <td>${esc(d.donorName)}</td><td>${money(d.amount)}</td>
-                <td>${esc(NPO_METHODS[d.method] || d.method)}</td><td>${esc(funds[d.fundId] || 'כללי')}</td>
+                <td>${esc(NPO_METHODS[d.method] || d.method)}${Array.isArray(d.cheques) && d.cheques.length ? ` <small class="muted" title="${esc(d.cheques.map(c => c.number + ' · ' + c.dueDate).join('\n'))}">${d.cheques.length} דחויות</small>` : ''}${d.bouncedCheque ? ' <small class="bad">חזרה</small>' : ''}</td><td>${esc(funds[d.fundId] || 'כללי')}</td>
                 <td>${d.receipt && d.receipt.sec46 ? '✓' : '—'}</td>
                 <td><small class="${d.taxStatus === 'pending' || d.taxStatus === 'cancel-pending' ? 'bad' : 'muted'}">${esc(NPO_TAX[d.taxStatus] || '')}${d.taxReport && d.taxReport.registrationNumber ? ' · ' + esc(d.taxReport.registrationNumber) : ''}</small>
                   ${d.taxStatus === 'pending' || d.taxStatus === 'cancel-pending' ? `<button class="icon-btn" data-npo-tax="${esc(d.id)}" title="רישום דיווח לרשות המסים">🏛</button>` : ''}</td>
                 <td>${d.status === 'cancelled' ? 'מבוטלת' : ''}
                   ${d.receipt && d.receipt.external ? '' : `<button class="icon-btn" data-npo-pdf="${esc(d.id)}" title="קבלה ל-PDF">📄</button>`}
+                  ${d.status !== 'cancelled' && Array.isArray(d.cheques) && d.cheques.length ? `<button class="icon-btn danger" data-npo-bounce="${esc(d.id)}" title="המחאה שחזרה">↩</button>` : ''}
                   ${d.status === 'cancelled' ? '' : `<button class="icon-btn danger" data-npo-cancel="${esc(d.id)}" title="ביטול קבלה">✖</button>`}
                 </td>
               </tr>`).join('')}</tbody>
@@ -574,6 +576,7 @@ function attachNpoHandlers() {
   attachNpoStandingHandlers();
   attachNpoCampaignHandlers();
   attachNpoMemorialHandlers();
+  attachNpoChequeHandlers();
   document.querySelectorAll('[data-npo-doc]').forEach(btn => btn.addEventListener('click', async () => {
     try { await window.systemAPI.toggleNpoGrantDocument(btn.dataset.npoDoc, Number(btn.dataset.docIndex)); await switchView('npo'); }
     catch (error) { showError('שגיאה בעדכון המסמך: ' + errMsg(error)); }

@@ -92,6 +92,35 @@ test('עמותה: קמפיין עם הכפלה ושגרירים, קבלה חיצ
   assert.doesNotMatch(html, /data-cmp-del="c1"/, 'קמפיין עם תרומות — אין מחיקה');
 });
 
+test('עמותה: כפתור המחאות דחויות, סימון "דחויות" וכפתור "המחאה שחזרה" רק בקבלה פעילה של המחאות', async () => {
+  const cheques = [{ number: '102', bank: '12', branch: '345', dueDate: '2026-11-15', amountAg: 40000 }];
+  const list = [
+    ...donations,
+    { id: 'q1', date: '2026-10-05', donorName: 'יוסף ברגר', amount: 400, method: 'check', fundId: 'general', status: 'active', cheques, receivedDate: '2026-10-05', receipt: { number: 4, sec46: true } },
+    { id: 'q2', date: '2026-10-05', donorName: 'יוסף ברגר', amount: 400, method: 'check', fundId: 'general', status: 'cancelled', cheques, bouncedCheque: { number: '102', bank: '12', dueDate: '2026-11-15' }, receivedDate: '2026-10-05', receipt: { number: 5, sec46: true } }
+  ];
+  const { html } = await render('npo', { getNpoOverview: { ...NPO, donations: list }, getNpoStandingOrders: { month: '2026-10', rows: [] }, getNpoMemorials: null });
+  assert.match(html, /id="npoChequesBtn"/);
+  assert.match(html, /1 דחויות/);
+  assert.match(html, /data-npo-bounce="q1"/);
+  assert.doesNotMatch(html, /data-npo-bounce="q2"/, 'קבלה מבוטלת — בלי כפתור');
+  assert.doesNotMatch(html, /data-npo-bounce="d1"/, 'תרומה רגילה — בלי כפתור');
+  assert.match(html, /class="bad">חזרה/);
+});
+
+test('חלון ההמחאות: כל שדה עם תווית, אין צבע hex, וההפקה רק אחרי תצוגה מקדימה', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'modules/econ/ui/npo-cheques.js'), 'utf8');
+  assert.doesNotMatch(src, /#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b/);
+  assert.match(src, /aria-label="\$\{label\} — המחאה \$\{i \+ 1\}"/, 'שדות הטבלה — aria-label');
+  assert.match(src, /aria-labelledby/);
+  assert.match(src, /<button type="submit" class="primary" disabled>/, 'ההפקה כבויה עד לתצוגה המקדימה');
+  assert.match(src, /addNpoChequeDonation\(input, \{ preview: true \}\)/);
+  assert.match(src, /confirmWarnings: preview\.warnings \? true : undefined/);
+  assert.doesNotMatch(src, /toAg|\* 100|Math\.round/, 'אין חישובי כסף בממשק — רק בשרת');
+  const css = fs.readFileSync(path.join(ROOT, 'modules/econ/styles.css'), 'utf8');
+  assert.match(css, /\.modal-form \[data-chq\]\[hidden\] \{ display: none; \}/);
+});
+
 test('מאגר אנשים: טבלה עם תפקידים וסימון "לפי שם"', async () => {
   const data = { npo: { donations, standingOrders: [], memorials: [memorial] }, gemach: { loans: [], deposits: [] }, chesed: { beneficiaries: [], volunteers: [{ id: 'v', name: 'יוסף', phone: '050-1' }] } };
   const { html, calls } = await render('people', { searchPeople: P.search(data, '', { today: TODAY }) });
