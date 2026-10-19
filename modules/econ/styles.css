@@ -1107,3 +1107,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .biz-hint{padding:var(--ss-sp-4) 0}
 .biz-dash{margin-bottom:14px}
 .biz-dash h3 small{font-weight:400;margin-inline-start:6px}
+
+/* נתוני דוגמה וקבלה ראשונה (PLAN.md 1.5) — ui/sample.js */
+.sample-banner{display:flex;align-items:center;gap:var(--ss-sp-3);flex-wrap:wrap;margin:0 0 var(--ss-sp-4);padding:10px 14px;border-radius:var(--ss-radius);background:var(--ss-info-soft);border:1px solid var(--ss-info-line);color:var(--ss-info-ink);font-size:var(--ss-fs-sm)}
+.sample-banner span{flex:1 1 280px}
+.sample-offer{margin:0 0 var(--ss-sp-5);padding:var(--ss-sp-4) var(--ss-sp-5);border-radius:var(--ss-radius-lg);background:var(--ss-surface);border:1px solid var(--ss-border);box-shadow:var(--ss-shadow-sm)}
+.sample-offer h3{margin:0 0 4px}
+.sample-kinds{display:flex;flex-wrap:wrap;gap:var(--ss-sp-2) var(--ss-sp-5);margin:var(--ss-sp-3) 0}
+.sample-kinds label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.sample-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ss-sp-2)}
+.sample-actions .link{background:none;border:0;color:var(--ss-muted);text-decoration:underline;cursor:pointer;font:inherit}

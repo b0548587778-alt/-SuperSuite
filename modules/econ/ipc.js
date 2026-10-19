@@ -20,6 +20,7 @@ const { GemachService: gemachService } = require('./services/gemachService');
 const { CollectService: collectService } = require('./services/collectService');
 const { ChesedService: chesedService } = require('./services/chesedService');
 const { PeopleService: peopleService } = require('./services/peopleService');
+const { SampleService: sampleService } = require('./services/sampleService');
 const { PrivacyService: privacyService } = require('./services/privacyService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
 const { MortgageLabService: mortgageLabService } = require('./services/mortgageLabService');
@@ -185,6 +186,7 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, relayUrl = DEFAULT
   collectService.initialize(db);
   chesedService.initialize(db);
   peopleService.initialize(db);
+  sampleService.initialize(db);
   privacyService.initialize(db);
   mortgageAdvisorService.initialize(db);
   mortgageLabService.initialize(db);
@@ -1239,6 +1241,18 @@ function registerIpcHandlers() {
 
   // חסד וחלוקות: נזקקים, מתנדבים וסבבי חלוקה. פרטי נזקק חסוי (מתן בסתר) — למנהל בלבד
   const canSeeConfidential = (event) => authService.hasPermission(event.sender.id, 'users.manage');
+  // נתוני דוגמה (PLAN.md 1.5): רק בבחירת המשתמש, רק לתחומים הפתוחים ברישיון, ומחיקה של הדוגמה בלבד
+  handle('sample:getStatus', async () => sampleService.getStatus(licenseState()));
+  handle('sample:add', async (event, kinds) => {
+    const r = await sampleService.add(kinds, licenseState(), localDay(Date.now()));
+    await auditEvent(event, 'sample.add', r.added);
+    return r;
+  });
+  handle('sample:deleteAll', async (event) => {
+    const r = await sampleService.removeAll();
+    await auditEvent(event, 'sample.delete', { removed: r.removed });
+    return r;
+  });
   // מאגר אנשים — קריאה בלבד. נזקק חסוי נכלל רק למי שמורשה לראות חסויים (כמו במסך החסד)
   // רק התחומים הפתוחים ברישיון — כרטיס אדם לא חושף תחום סגור (סקירת אבטחה 10.2026, ממצא 6)
   handle('people:search', async (event, query) => peopleService.search(query, canSeeConfidential(event), LG.peopleSources(licenseState())));

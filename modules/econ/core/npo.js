@@ -137,6 +137,7 @@ const byReceipt = (a, b) => receiptNo(a) - receiptNo(b);
 function receiptLabel(d) {
   const r = d.receipt || {};
   if (Number.isInteger(r.number)) return r.number;
+  if (r.external && r.source === 'sample') return 'דוגמה'; // נתוני דוגמה (core/sampleData.js) — בלי מספר
   return r.external ? `חיצונית${r.externalNumber ? ' ' + r.externalNumber : ''}` : '';
 }
 
