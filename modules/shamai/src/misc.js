@@ -61,9 +61,10 @@ function setupPullToRefresh() {
     if (distance > 80) {
       indicator.textContent = '↻ מרענן...';
       indicator.classList.add('visible');
-      fetchAllPrices(false).then(() => {
-        setTimeout(() => indicator.classList.remove('visible'), 800);
-      });
+      // אין מקור מחירים ברשת — רענון התצוגה בלבד
+      renderHeader();
+      renderDashboard();
+      setTimeout(() => indicator.classList.remove('visible'), 800);
     }
     pulling = false;
     startY = 0;

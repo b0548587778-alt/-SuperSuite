@@ -144,17 +144,20 @@
         </div>
         <div id="reminders-list" class="reminders-list"></div>
 
-        <details class="manual-prices">
-          <summary>עדכון מחירים ידני</summary>
-          <div class="manual-grid">
-            <label>זהב $/oz <input type="number" id="manual-gold" step="0.01" /></label>
-            <label>כסף $/oz <input type="number" id="manual-silver" step="0.01" /></label>
-            <label>פלטינה $/oz <input type="number" id="manual-platinum" step="0.01" /></label>
-            <label>USD/ILS <input type="number" id="manual-usdils" step="0.001" /></label>
-            <label>נחושת $/lb <input type="number" id="manual-copper" step="0.01" /></label>
-            <label>אלומיניום $/lb <input type="number" id="manual-aluminum" step="0.01" /></label>
-            <button class="btn-secondary" id="btn-save-manual">שמור</button>
+        <details class="manual-prices" id="price-panel">
+          <summary>עדכון מחירים <span class="pp-hint">הקלדה או קובץ מחירים — בלי אינטרנט</span></summary>
+          <div class="pp-list" id="pp-list"></div>
+          <div class="manual-grid" id="pp-form"></div>
+          <div class="manual-grid pp-meta">
+            <label>תאריך המחירים <input type="date" id="pp-date" /></label>
+            <label>מקור (לא חובה) <input type="text" id="pp-note" maxlength="80" placeholder="למשל: מחירון הבורסה ליהלומים" /></label>
           </div>
+          <div class="pp-actions">
+            <button class="btn-secondary" id="btn-save-manual">שמירת המחירים</button>
+            <button class="btn-ghost" id="btn-price-file">📄 טעינה מקובץ</button>
+            <input type="file" id="price-file" hidden accept=".json,.csv,.txt,application/json,text/csv,text/plain" />
+          </div>
+          <p class="pp-help">קובץ מחירים: CSV עם שורה לכל מחיר ("זהב,4650", "דולר,3.62", ואפשר "תאריך,2026-10-19"), או JSON. כל מחיר נשמר עם התאריך שלו.</p>
         </details>
       </section>
 
@@ -1523,6 +1526,7 @@
 
   <script src="src/core.js"></script>
   <script src="src/calc.js"></script>
+  <script src="src/prices.js"></script>
   <script src="src/dashboard.js"></script>
   <script src="src/appraise-metals.js"></script>
   <script src="src/appraise-gems.js"></script>

@@ -477,7 +477,14 @@ function verdictHTML(profit, marginPct) {
 //  PRICE FETCHING
 // ─────────────────────────────────────────────────────────────────────────────
 
-// אין שליפת מחירים מהרשת: האפליקציה פועלת אופליין (CLAUDE.md, כלל 6). המחירים מוזנים ידנית.
-async function fetchAllPrices(silent = false) {
-  if (!silent) toast('אין עדכון מחירים אוטומטי (אופליין) — ניתן להזין מחירים ידנית', 'info');
+// אין שליפת מחירים מהרשת: האפליקציה פועלת אופליין (CLAUDE.md, כלל 6). המחירים מוזנים ידנית או מקובץ (src/prices.js).
+// פותח את לוח עדכון המחירים במסך הבית
+function openPricePanel() {
+  if (typeof switchView === 'function' && state.view !== 'dashboard') switchView('dashboard');
+  const panel = document.getElementById('price-panel');
+  if (!panel) return;
+  panel.open = true;
+  if (typeof renderPricePanel === 'function') renderPricePanel();
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setTimeout(() => document.getElementById('pp-gold')?.focus(), 300);
 }

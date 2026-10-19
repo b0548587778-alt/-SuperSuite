@@ -163,40 +163,10 @@ function bindEvents() {
   }));
 
   // Refresh
-  $('#btn-refresh')?.addEventListener('click', () => fetchAllPrices(false));
 
-  // Manual prices
-  $('#btn-save-manual')?.addEventListener('click', () => {
-    const fields = ['gold', 'silver', 'platinum', 'usdils', 'copper', 'aluminum'];
-    let updated = false;
-    fields.forEach(f => {
-      const id = f === 'usdils' ? 'manual-usdils' : `manual-${f}`;
-      const v = parseFloat($('#' + id)?.value);
-      if (v && v > 0) {
-        if (f === 'usdils') state.prices.usdIls = v;
-        else state.prices[f] = v;
-        updated = true;
-      }
-    });
-    if (updated) {
-      state.prices.lastUpdate = new Date().toISOString();
-      state.prices.source = 'manual';
-      Storage.save('prices', state.prices);
-      renderHeader();
-      renderDashboard();
-      // Clear all manual inputs and close the details panel
-      fields.forEach(f => {
-        const id = f === 'usdils' ? 'manual-usdils' : `manual-${f}`;
-        const el = $('#' + id);
-        if (el) el.value = '';
-      });
-      const det = document.querySelector('.manual-prices');
-      if (det) det.open = false;
-      toast('מחירים נשמרו ✓', 'success');
-    } else {
-      toast('הזן ערך אחד לפחות', 'error');
-    }
-  });
+  // עדכון מחירים: הקלדה או קובץ, עם תאריך לכל מחיר (src/prices.js)
+  attachPricePanel();
+  renderPricePanel();
 
   // Install
   let deferredPrompt;
@@ -652,7 +622,6 @@ async function init() {
   }
 
   // Try fetching live prices (silent on initial load)
-  fetchAllPrices(true);
 
   // Pull-to-refresh on dashboard
   setupPullToRefresh();
