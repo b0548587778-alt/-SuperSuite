@@ -1,4 +1,5 @@
 const test = require('node:test');
+const { shamaiSource } = require('./helpers/shamai-src');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -61,7 +62,7 @@ test('econ מפעיל מודולים רק דרך הערוץ החדש (בדיקת
 });
 
 test('כלל 6: שמאי לא שולח בקשות רשת לשירותים חיצוניים', () => {
-  const src = read('modules/shamai/app.js');
+  const src = shamaiSource();
   assert.doesNotMatch(src, /fetch\(\s*['`]https?:\/\//, 'אין fetch לכתובת חיצונית');
   assert.doesNotMatch(src, /fetch\(\s*`https?:\/\//, 'אין fetch לכתובת חיצונית (תבנית)');
 });

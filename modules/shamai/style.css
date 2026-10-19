@@ -400,6 +400,10 @@ textarea { min-height: 70px; resize: vertical; }
 .hub-card:active { background: var(--surface-2); transform: scale(0.97); border-color: var(--gold); }
 .hc-icon { font-size: 28px; color: var(--gold); margin-bottom: 4px; }
 .hc-name { font-size: 14px; font-weight: 700; }
+.hub-group-title { font-size: 13px; font-weight: 700; color: var(--text-dim); margin: 0 0 8px; }
+.hub-more { margin-top: 14px; }
+.hub-more > summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text-dim); padding: 8px 0; }
+.hub-more > .hub-grid { margin-top: 8px; }
 .hc-desc { font-size: 11px; color: var(--text-dim); line-height: 1.3; }
 
 /* SUB VIEWS */
@@ -2402,3 +2406,9 @@ select {
   margin-top: 16px;
 }
 .auth-actions button { flex: 1; }
+
+/* תצוגת הדפסה של דוח שמאות / קטלוג (PLAN.md 9.8) */
+.print-preview { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.55); display: flex; flex-direction: column; padding: 12px; gap: 8px; }
+.print-preview .pp-bar { display: flex; gap: 8px; justify-content: flex-start; }
+.print-preview .pp-bar button { width: auto; }
+.print-preview .pp-frame { flex: 1; border: 0; border-radius: 8px; background: #fff; }

@@ -2,6 +2,7 @@
 // המודול הכלכלי: ממשק המודול (modules/econ/ui) רץ ב-vm עם DOM מדומה ונבדק מה המשתמש רואה.
 // שמאות ואימונים: בדיקות סטטיות לקבצי הסגנון והתבנית (המודולים אינם נטענים ב-Node).
 const test = require('node:test');
+const { shamaiSource } = require('./helpers/shamai-src');
 const EconUI = require('./helpers/econ-ui');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -143,13 +144,13 @@ test('שמאות: פס "התקן את שמאי" מוסתר כשהמאפיין hi
 
 test('שמאות: אין כפתורי ענן ואין "מחירים חיים" (התוכנה אופליין)', () => {
   const html = read('modules/shamai/index.html');
-  const js = read('modules/shamai/app.js');
+  const js = shamaiSource();
   assert.doesNotMatch(html, /btn-cloud-upload|btn-cloud-download|העלה לענן/);
   assert.doesNotMatch(html + js, /מחירי שוק חיים|שווקים חיים|"העלה לענן"/);
 });
 
 test('שמאות: ערכה בהירה כברירת מחדל, ברוחב שולחני', () => {
-  const js = read('modules/shamai/app.js');
+  const js = shamaiSource();
   assert.match(js, /localStorage\.getItem\('shamai_theme'\) \|\| 'light'/);
   assert.doesNotMatch(read('modules/shamai/style.css'), /max-width: 720px/);
 });
@@ -209,7 +210,7 @@ test('גמ"ח: כותרות ההלוואות וההפקדות עטופות ב-ac
 
 test('שמאות: אנליטיקה ריקה מסתירה את כותרות האזורים; שינוי 0 אינו חץ ירוק', () => {
   const html = read('modules/shamai/index.html');
-  const js = read('modules/shamai/app.js');
+  const js = shamaiSource();
   assert.match(html, /<div id="analytics-details">[\s\S]*id="analytics-history"[\s\S]*<\/div>/);
   assert.match(js, /\$\('#analytics-details'\)\.hidden = true;/);
   assert.match(js, /\$\('#analytics-details'\)\.hidden = false;/);
@@ -227,7 +228,7 @@ test('ברכת השעה זהה במעטפת ובמודול השמאות בכל �
   const shellFn = read('shell/shell.js').match(/function greeting\(h\) \{[\s\S]*?\n\}/);
   assert.ok(shellFn, 'greeting במעטפת');
   const shellGreeting = vm.runInNewContext(`(${shellFn[0]})`);
-  const block = read('modules/shamai/app.js').match(/let greet = [\s\S]*?greet = 'לילה טוב';/);
+  const block = shamaiSource().match(/let greet = [\s\S]*?greet = 'לילה טוב';/);
   assert.ok(block, 'חישוב הברכה במודול השמאות');
   const shamaiGreeting = vm.runInNewContext(`(hr) => { ${block[0]} return greet; }`);
   for (let h = 0; h < 24; h++) assert.equal(shamaiGreeting(h), shellGreeting(h), 'שעה ' + h);

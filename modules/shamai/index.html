@@ -162,7 +162,8 @@
         <!-- Sub-nav grid -->
         <div class="sub-hub" id="appraisal-hub">
           <div class="hub-title">בחר תחום שמאות</div>
-          <div class="hub-grid">
+          <div class="hub-group-title">זהב, תכשיטים ומטלטלין</div>
+          <div class="hub-grid" id="hub-main">
             <button class="hub-card" data-sub="gold">
               <div class="hc-icon">◆</div><div class="hc-name">זהב/כסף</div>
               <div class="hc-desc">ערך התכה לפי טוהר</div>
@@ -179,55 +180,61 @@
               <div class="hc-icon">❦</div><div class="hc-name">יודאיקה ועתיקות</div>
               <div class="hc-desc">8 קטגוריות</div>
             </button>
-            <button class="hub-card" data-sub="book">
-              <div class="hc-icon">✡</div><div class="hc-name">ספרי קודש</div>
-              <div class="hc-desc">מהדורות נדירות</div>
-            </button>
             <button class="hub-card" data-sub="coin">
               <div class="hc-icon">◉</div><div class="hc-name">מטבעות</div>
               <div class="hc-desc">נומיסמטי + התכה</div>
             </button>
-            <button class="hub-card" data-sub="phone">
-              <div class="hc-icon">▢</div><div class="hc-name">טלפונים</div>
-              <div class="hc-desc">iPhone, Samsung</div>
-            </button>
-            <button class="hub-card" data-sub="art">
-              <div class="hc-icon">✺</div><div class="hc-name">אומנות</div>
-              <div class="hc-desc">ציורים, פסלים</div>
-            </button>
-            <button class="hub-card" data-sub="rug">
-              <div class="hc-icon">▦</div><div class="hc-name">שטיחי משי</div>
-              <div class="hc-desc">פרסיים, אנטיים</div>
-            </button>
-            <button class="hub-card" data-sub="scrap">
-              <div class="hc-icon">⚒</div><div class="hc-name">סקראפ</div>
-              <div class="hc-desc">נחושת, אלומיניום</div>
-            </button>
-            <button class="hub-card" data-sub="realestate">
-              <div class="hc-icon">⌂</div><div class="hc-name">נדל"ן</div>
-              <div class="hc-desc">דירה, חנות, משרד</div>
-            </button>
-            <button class="hub-card" data-sub="vehicle">
-              <div class="hc-icon">⊞</div><div class="hc-name">רכב</div>
-              <div class="hc-desc">מחיר מחירון, פיחות</div>
-            </button>
-            <button class="hub-card" data-sub="nft">
-              <div class="hc-icon">⬢</div><div class="hc-name">NFT/דיגיטלי</div>
-              <div class="hc-desc">אספנות דיגיטלית</div>
-            </button>
-            <button class="hub-card" data-sub="wine">
-              <div class="hc-icon">🍷</div><div class="hc-name">יין</div>
-              <div class="hc-desc">בורדו, בורגונדי, כשר</div>
-            </button>
-            <button class="hub-card" data-sub="bag">
-              <div class="hc-icon">👜</div><div class="hc-name">תיקי יוקרה</div>
-              <div class="hc-desc">Hermès, Chanel, LV</div>
-            </button>
-            <button class="hub-card" data-sub="gbook">
-              <div class="hc-icon">📚</div><div class="hc-name">ספרי אספנות</div>
-              <div class="hc-desc">מהדורות, חתומים</div>
+            <button class="hub-card" data-sub="book">
+              <div class="hc-icon">✡</div><div class="hc-name">ספרי קודש</div>
+              <div class="hc-desc">מהדורות נדירות</div>
             </button>
           </div>
+          <details class="hub-more" id="hub-more">
+            <summary>תחומים נוספים</summary>
+            <div class="hub-grid">
+              <button class="hub-card" data-sub="phone">
+                <div class="hc-icon">▢</div><div class="hc-name">טלפונים</div>
+                <div class="hc-desc">iPhone, Samsung</div>
+              </button>
+                <button class="hub-card" data-sub="art">
+                <div class="hc-icon">✺</div><div class="hc-name">אומנות</div>
+                <div class="hc-desc">ציורים, פסלים</div>
+              </button>
+                <button class="hub-card" data-sub="rug">
+                <div class="hc-icon">▦</div><div class="hc-name">שטיחי משי</div>
+                <div class="hc-desc">פרסיים, אנטיים</div>
+              </button>
+                <button class="hub-card" data-sub="scrap">
+                <div class="hc-icon">⚒</div><div class="hc-name">סקראפ</div>
+                <div class="hc-desc">נחושת, אלומיניום</div>
+              </button>
+                <button class="hub-card" data-sub="realestate">
+                <div class="hc-icon">⌂</div><div class="hc-name">נדל"ן</div>
+                <div class="hc-desc">דירה, חנות, משרד</div>
+              </button>
+                <button class="hub-card" data-sub="vehicle">
+                <div class="hc-icon">⊞</div><div class="hc-name">רכב</div>
+                <div class="hc-desc">מחיר מחירון, פיחות</div>
+              </button>
+                <button class="hub-card" data-sub="nft">
+                <div class="hc-icon">⬢</div><div class="hc-name">NFT/דיגיטלי</div>
+                <div class="hc-desc">אספנות דיגיטלית</div>
+              </button>
+                <button class="hub-card" data-sub="wine">
+                <div class="hc-icon">🍷</div><div class="hc-name">יין</div>
+                <div class="hc-desc">בורדו, בורגונדי, כשר</div>
+              </button>
+                <button class="hub-card" data-sub="bag">
+                <div class="hc-icon">👜</div><div class="hc-name">תיקי יוקרה</div>
+                <div class="hc-desc">Hermès, Chanel, LV</div>
+              </button>
+                <button class="hub-card" data-sub="gbook">
+                <div class="hc-icon">📚</div><div class="hc-name">ספרי אספנות</div>
+                <div class="hc-desc">מהדורות, חתומים</div>
+              </button>
+              </div>
+          </details>
+        </div>
         </div>
 
         <!-- Sub-views -->
@@ -1458,6 +1465,23 @@
         <div class="sub-view" data-tool="settings" hidden>
           <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>הגדרות</h2></div>
 
+          <div class="settings-card" id="appraiser-card">
+            <h3>פרטי השמאי לדוח</h3>
+            <p class="text-faint">מופיעים בכל דוח שמאות שמופק מהיומן (כפתור PDF).</p>
+            <div class="field-row">
+              <div class="field"><label for="ap-name">שם השמאי</label><input id="ap-name" maxlength="200" /></div>
+              <div class="field"><label for="ap-business">שם העסק</label><input id="ap-business" maxlength="200" /></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="ap-license">מספר עוסק / רישיון</label><input id="ap-license" maxlength="200" /></div>
+              <div class="field"><label for="ap-phone">טלפון</label><input id="ap-phone" maxlength="200" /></div>
+            </div>
+            <div class="field"><label for="ap-address">כתובת</label><input id="ap-address" maxlength="200" /></div>
+            <div class="field"><label for="ap-declaration">הצהרת השמאי</label><textarea id="ap-declaration" rows="4" maxlength="2000"></textarea>
+              <div class="field-hint">שדה ריק — ההצהרה הרגילה.</div></div>
+            <button class="btn-primary" id="ap-save">שמור פרטי שמאי</button>
+          </div>
+
           <div class="settings-card">
             <h3>סנכרון בין מכשירים</h3>
             <p class="text-faint">העבר את הנתונים שלך בין מכשירים בלי אינטרנט - באמצעות סריקת QR.</p>
@@ -1496,6 +1520,26 @@
     <div class="toast" id="toast"></div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="src/core.js"></script>
+  <script src="src/calc.js"></script>
+  <script src="src/dashboard.js"></script>
+  <script src="src/appraise-metals.js"></script>
+  <script src="src/appraise-gems.js"></script>
+  <script src="src/appraise-judaica.js"></script>
+  <script src="src/appraise-other.js"></script>
+  <script src="src/ledger.js"></script>
+  <script src="src/tools.js"></script>
+  <script src="src/navigation.js"></script>
+  <script src="src/appraise-assets.js"></script>
+  <script src="src/analytics.js"></script>
+  <script src="src/misc.js"></script>
+  <script src="src/appraise-luxury.js"></script>
+  <script src="src/widgets.js"></script>
+  <script src="src/report.js"></script>
+  <script src="src/opp-extras.js"></script>
+  <script src="src/contacts.js"></script>
+  <script src="src/inventory.js"></script>
+  <script src="src/ocr-prices.js"></script>
+  <script src="src/authenticity.js"></script>
 </body>
 </html>

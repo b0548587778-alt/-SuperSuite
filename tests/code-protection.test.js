@@ -73,7 +73,7 @@ test('כיווץ: קבצים גלובליים (ui/*.js, המעטפת, שמאות
   assert.equal(MIN.modeFor('shell/shell.js'), 'whitespace');
   assert.equal(MIN.modeFor('shell/catalog.js'), 'whitespace');
   assert.equal(MIN.modeFor('modules/tools/app.js'), 'whitespace');
-  assert.equal(MIN.modeFor('modules/shamai/app.js'), 'whitespace');
+  assert.equal(MIN.modeFor('modules/shamai/src/core.js'), 'whitespace');
   assert.equal(MIN.modeFor('main.js'), 'full');
   assert.equal(MIN.modeFor('modules/econ/ipc.js'), 'full');
   assert.equal(MIN.modeFor('modules/econ/core/database.js'), 'full');

@@ -1,0 +1,369 @@
+// שמאי — תאריך עברי, קלט קולי, סנכרון מכשירים והגדרות. חלק מ-modules/shamai/src (סקריפטים רגילים בטווח שמות אחד, לפי סדר התגים ב-index.html)
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  HEBREW DATE - using simple algorithm (Noda Time-style for Heb cal)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HEB_MONTHS = ['ניסן','אייר','סיון','תמוז','אב','אלול','תשרי','חשון','כסלו','טבת','שבט','אדר','אדר ב\''];
+const HEB_DAYS = ['יום ראשון','יום שני','יום שלישי','יום רביעי','יום חמישי','יום שישי','שבת'];
+
+function getHebrewDate() {
+  // Use Intl.DateTimeFormat with hebrew calendar - more accurate than manual calc
+  try {
+    const now = new Date();
+    const fmt = new Intl.DateTimeFormat('he-IL-u-ca-hebrew', {
+      day: 'numeric', month: 'long', year: 'numeric'
+    });
+    const heb = fmt.format(now);
+    const dayName = HEB_DAYS[now.getDay()];
+    return `${dayName} · ${heb}`;
+  } catch (e) {
+    return new Date().toLocaleDateString('he-IL');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PULL-TO-REFRESH
+// ─────────────────────────────────────────────────────────────────────────────
+
+function setupPullToRefresh() {
+  let startY = 0, currentY = 0, pulling = false;
+  const indicator = document.createElement('div');
+  indicator.className = 'ptr-indicator';
+  indicator.textContent = '↓ משוך לרענון';
+  document.body.appendChild(indicator);
+
+  const main = document.querySelector('.main');
+  if (!main) return;
+
+  document.addEventListener('touchstart', (e) => {
+    if (window.scrollY > 0) return;
+    if (state.view !== 'dashboard') return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!pulling) return;
+    currentY = e.touches[0].clientY;
+    const distance = currentY - startY;
+    if (distance > 0 && distance < 200) {
+      indicator.classList.add('visible');
+      indicator.textContent = distance > 80 ? '↻ שחרר לרענון' : '↓ משוך לרענון';
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (!pulling) return;
+    const distance = currentY - startY;
+    indicator.classList.remove('visible');
+    if (distance > 80) {
+      indicator.textContent = '↻ מרענן...';
+      indicator.classList.add('visible');
+      fetchAllPrices(false).then(() => {
+        setTimeout(() => indicator.classList.remove('visible'), 800);
+      });
+    }
+    pulling = false;
+    startY = 0;
+    currentY = 0;
+  }, { passive: true });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  VOICE INPUT
+// ─────────────────────────────────────────────────────────────────────────────
+
+function setupVoiceInput() {
+  const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Speech) return;
+
+  // Add voice button next to text inputs we care about
+  const targets = [
+    '#opp-search',
+    '#no-name',
+    '#no-notes',
+    '#no-seller',
+    '#a-name',
+    '#b-name',
+    '#cn-name',
+    '#ph-model',
+    '#ar-artist',
+    '#nft-name',
+    '#veh-model',
+    '#w-model',
+  ];
+
+  targets.forEach(sel => {
+    const el = document.querySelector(sel);
+    if (!el || el.dataset.voiceWired) return;
+    el.dataset.voiceWired = '1';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'voice-btn';
+    btn.innerHTML = '🎤';
+    btn.title = 'הקלטה קולית';
+    btn.setAttribute('aria-label', 'הקלטה קולית');
+
+    // Wrap input + button in a flex container
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:flex;gap:6px;align-items:stretch';
+    el.parentNode.insertBefore(wrapper, el);
+    wrapper.appendChild(el);
+    wrapper.appendChild(btn);
+
+    btn.addEventListener('click', () => {
+      const recognition = new Speech();
+      recognition.lang = 'he-IL';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      btn.classList.add('recording');
+      btn.innerHTML = '⏺';
+
+      recognition.onresult = (e) => {
+        const text = e.results[0][0].transcript;
+        // Append rather than replace
+        if (el.value && el.tagName === 'TEXTAREA') {
+          el.value += '\n' + text;
+        } else {
+          el.value = text;
+        }
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        toast(`✓ "${text.substring(0, 40)}..."`, 'success');
+      };
+      recognition.onerror = (e) => {
+        toast('הקלטה נכשלה: ' + e.error, 'error');
+      };
+      recognition.onend = () => {
+        btn.classList.remove('recording');
+        btn.innerHTML = '🎤';
+      };
+
+      recognition.start();
+    });
+  });
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  DEVICE SYNC - QR Code Backup/Restore
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function generateBackupQR() {
+  const container = $('#qr-container');
+  if (!container) return;
+
+  // Compress all data
+  const data = {
+    v: '3.0',
+    t: Date.now(),
+    opps: state.opportunities,
+    prices: state.prices,
+  };
+  const jsonStr = JSON.stringify(data);
+  const compressed = LZString.compressToEncodedURIComponent(jsonStr);
+
+  // Calculate size
+  const sizeKB = (compressed.length / 1024).toFixed(1);
+
+  // QR code can hold ~2900 chars at version 40 with low correction
+  if (compressed.length > 2800) {
+    container.hidden = false;
+    container.innerHTML = `
+      <div class="qr-warning">
+        ⚠️ הנתונים גדולים מדי ל-QR יחיד (${sizeKB}KB).
+        <br>השתמש בגיבוי מלא (JSON) במקום.
+      </div>
+    `;
+    return;
+  }
+
+  try {
+    const qr = qrcode(0, 'L'); // auto version, low error correction = max capacity
+    qr.addData(compressed);
+    qr.make();
+
+    const cellSize = 6;
+    const margin = 12;
+    const moduleCount = qr.getModuleCount();
+    const size = moduleCount * cellSize + margin * 2;
+
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges">`;
+    svg += `<rect width="${size}" height="${size}" fill="white"/>`;
+    for (let r = 0; r < moduleCount; r++) {
+      for (let c = 0; c < moduleCount; c++) {
+        if (qr.isDark(r, c)) {
+          svg += `<rect x="${c * cellSize + margin}" y="${r * cellSize + margin}" width="${cellSize}" height="${cellSize}" fill="black"/>`;
+        }
+      }
+    }
+    svg += '</svg>';
+
+    container.hidden = false;
+    container.innerHTML = `
+      <div class="qr-display">
+        <div class="qr-title">סרוק את הקוד עם המכשיר השני</div>
+        <div class="qr-code">${svg}</div>
+        <div class="qr-info">
+          📦 ${state.opportunities.length} פריטים · ${sizeKB}KB דחוס
+        </div>
+        <button class="btn-ghost" id="qr-close">סגור</button>
+      </div>
+    `;
+    $('#qr-close')?.addEventListener('click', () => {
+      container.hidden = true;
+      container.innerHTML = '';
+    });
+  } catch (e) {
+    container.hidden = false;
+    container.innerHTML = `<div class="qr-warning">שגיאה ביצירת QR: ${e.message}</div>`;
+  }
+}
+
+async function scanBackupQR() {
+  const container = $('#qr-container');
+  if (!container) return;
+
+  // Check if BarcodeDetector is supported
+  if (!('BarcodeDetector' in window)) {
+    // Fallback: paste manually
+    container.hidden = false;
+    container.innerHTML = `
+      <div class="qr-scanner">
+        <div class="qr-title">⚠️ סריקה אוטומטית לא נתמכת בדפדפן זה</div>
+        <p class="text-faint">הדבק את הטקסט מה-QR כאן:</p>
+        <textarea id="qr-paste" rows="4" placeholder="הדבק את הקוד..."></textarea>
+        <button class="btn-primary" id="qr-paste-go">שחזר</button>
+        <button class="btn-ghost" id="qr-paste-close">בטל</button>
+      </div>
+    `;
+    $('#qr-paste-go')?.addEventListener('click', () => {
+      const code = $('#qr-paste').value.trim();
+      if (code) restoreFromCode(code);
+    });
+    $('#qr-paste-close')?.addEventListener('click', () => {
+      container.hidden = true;
+      container.innerHTML = '';
+    });
+    return;
+  }
+
+  // Use camera + BarcodeDetector
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    });
+
+    container.hidden = false;
+    container.innerHTML = `
+      <div class="qr-scanner">
+        <div class="qr-title">כוון את המצלמה אל קוד ה-QR</div>
+        <video id="qr-video" autoplay playsinline></video>
+        <button class="btn-ghost" id="qr-stop">בטל</button>
+      </div>
+    `;
+
+    const video = $('#qr-video');
+    video.srcObject = stream;
+    await video.play();
+
+    const detector = new BarcodeDetector({ formats: ['qr_code'] });
+    let scanning = true;
+
+    const stopScan = () => {
+      scanning = false;
+      stream.getTracks().forEach(t => t.stop());
+      container.hidden = true;
+      container.innerHTML = '';
+    };
+
+    $('#qr-stop')?.addEventListener('click', stopScan);
+
+    const tick = async () => {
+      if (!scanning) return;
+      try {
+        const codes = await detector.detect(video);
+        if (codes.length > 0) {
+          stopScan();
+          restoreFromCode(codes[0].rawValue);
+          return;
+        }
+      } catch (e) {}
+      requestAnimationFrame(tick);
+    };
+    tick();
+  } catch (e) {
+    container.hidden = false;
+    container.innerHTML = `
+      <div class="qr-warning">
+        לא ניתן לגשת למצלמה: ${e.message}
+        <br><br>
+        אפשרויות חלופיות:
+        <br>• השתמש ב"גיבוי בענן"
+        <br>• השתמש ב"שחזור מגיבוי" (קובץ JSON)
+      </div>
+    `;
+  }
+}
+
+function restoreFromCode(code) {
+  try {
+    const decompressed = LZString.decompressFromEncodedURIComponent(code);
+    if (!decompressed) throw new Error('פענוח נכשל');
+    const data = JSON.parse(decompressed);
+    if (!data.opps || !Array.isArray(data.opps)) throw new Error('פורמט לא תקין');
+    if (!confirm(`לטעון ${data.opps.length} פריטים? פעולה זו תחליף את הנתונים הנוכחיים.`)) return;
+    state.opportunities = data.opps;
+    if (data.prices) state.prices = { ...state.prices, ...data.prices };
+    Storage.save('opportunities', state.opportunities);
+    Storage.save('prices', state.prices);
+    renderHeader();
+    renderDashboard();
+    toast(`✓ שוחזרו ${data.opps.length} פריטים`, 'success');
+    $('#qr-container').hidden = true;
+    $('#qr-container').innerHTML = '';
+  } catch (e) {
+    toast('שחזור נכשל: ' + e.message, 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CLOUD SYNC - הוסר (אופליין)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// סנכרון ענן הוסר: האפליקציה פועלת אופליין. לגיבוי השתמש בקובץ JSON מוצפן.
+async function uploadToCloud() {
+  const status = $('#cloud-status');
+  if (status) status.textContent = 'סנכרון ענן כבוי — השתמש בגיבוי ידני';
+}
+
+async function downloadFromCloud() {
+  const status = $('#cloud-status');
+  if (status) status.textContent = 'סנכרון ענן כבוי — השתמש בשחזור מגיבוי ידני';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SETTINGS STATS - show usage info
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderSettingsStats() {
+  const el = $('#settings-stats');
+  if (!el) return;
+  const opps = state.opportunities;
+  const totalSize = JSON.stringify({ opps, prices: state.prices }).length;
+  const photos = opps.filter(o => o.photo || o.hasPhoto).length;
+  const lastUpdate = state.prices.lastUpdate
+    ? new Date(state.prices.lastUpdate).toLocaleString('he-IL')
+    : 'לא עודכן';
+
+  el.innerHTML = `
+    <div class="r-row"><span class="r-label">סה"כ פריטים</span><span class="r-value">${opps.length}</span></div>
+    <div class="r-row"><span class="r-label">פריטים עם תמונה</span><span class="r-value">${photos}</span></div>
+    <div class="r-row"><span class="r-label">גודל נתונים</span><span class="r-value">${(totalSize/1024).toFixed(1)} KB</span></div>
+    <div class="r-row"><span class="r-label">עדכון מחירים אחרון</span><span class="r-value text-faint" style="font-size:11px">${lastUpdate}</span></div>
+    <div class="r-row"><span class="r-label">מקור מחירים</span><span class="r-value">${state.prices.source === 'live' ? '🟢 חי' : state.prices.source === 'manual' ? '🟡 ידני' : '⚪ ברירת מחדל'}</span></div>
+  `;
+}

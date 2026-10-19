@@ -2,6 +2,7 @@
 // גיבוי אוטומטי (DPAPI / יעד USB / תיקיית ברירת מחדל), מפתח הגיבוי, הפעלת electron בלי path.txt,
 // ו-CSP בכל המודולים.
 const test = require('node:test');
+const { shamaiSource } = require('./helpers/shamai-src');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -130,7 +131,7 @@ test('CSP: לכל מודול יש מדיניות אבטחת תוכן, בלי uns
 });
 
 test('שמאי: Service Worker לא נרשם מ-app:// (גרם לשגיאה בכל טעינה)', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'modules/shamai/app.js'), 'utf8');
+  const src = shamaiSource();
   const i = src.indexOf('serviceWorker.register');
   const guard = src.slice(src.lastIndexOf('if (', i), i);
   assert.match(guard, /location\.protocol/);

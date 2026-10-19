@@ -1,4 +1,5 @@
 const test = require('node:test');
+const { shamaiSource } = require('./helpers/shamai-src');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -158,7 +159,7 @@ test('תיקון: אין תלות ברשת חיצונית באף מודול — 
   const trainerJs = read('modules/trainer/' + read('modules/trainer/index.html').match(/src="\/(assets\/index-[^"]+\.js)"/)[1]);
   assert.doesNotMatch(trainerJs, /fonts\.googleapis\.com/, 'הבאנדל של trainer לא מזריק גוגל פונטים');
   // גופן ה-OCR נטען מקומית, לא מ-CDN, וההודעה אינה מפנה לאינטרנט
-  const shamaiApp = read('modules/shamai/app.js');
+  const shamaiApp = shamaiSource();
   assert.doesNotMatch(shamaiApp, /cdn\.jsdelivr\.net/, 'שַׁמַּאי לא טוען tesseract מ-CDN');
   assert.match(shamaiApp, /script\.src = 'lib\/tesseract\//, 'הגופן/מנוע ה-OCR נטען מהעותק המקומי');
   assert.doesNotMatch(shamaiApp, /check internet/, 'ההודעה לא מפנה את המשתמש לאינטרנט');
