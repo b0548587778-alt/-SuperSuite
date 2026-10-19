@@ -21,14 +21,15 @@
          ובמידה ואינם — נופלים לגופן עברי חלופי מותקן. -->
     <style>
       :root{
-        --font-display:"Frank Ruhl Libre","FrankRuehl","David","Times New Roman",serif;
-        --font-body:"Heebo","Segoe UI","Arial",sans-serif;
+        --font-display:var(--ss-font-title);
+        --font-body:var(--ss-font);
       }
     </style>
     <!-- ערכת הצבעים של SuperSuite — אחרי ה-CSS המהודר כדי לגבור עליו -->
     <link rel="stylesheet" href="/suite-theme.css">
     <!-- רשת ביטחון במסכים (PLAN.md 2.4) — מוגש מהמעטפת, לא חלק מהבנייה -->
-    <script src="/screen-guard.js"></script></head>
+    <script src="/screen-guard.js"></script>
+    <script src="/ss-dialog.js"></script></head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>

@@ -4,6 +4,7 @@ import { GOALS } from '../data/constants.js';
 import { S, K } from '../lib/db.js';
 import { TodayPanel } from '../studio.jsx';
 import { FONT_HEADING, FONT_BODY, Btn, Card, Field, Input, Textarea } from '../components/legacy-ui.jsx';
+import { askConfirm } from '../lib/dialog.js';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -266,9 +267,9 @@ export function TrainerSettings({ trainer, onSave }) {
   // גיבוי ושחזור — רק דרך הגיבוי המוצפן של SuperSuite (PLAN.md 3.4).
   // הייצוא הישן (JSON גלוי) הוסר; קבצים ישנים משוחזרים מהשחזור של התוכנה, אחרי בדיקת מבנה.
 
-  const handleResetAll = () => {
-    if (!confirm('פעולה זו תמחק את כל הנתונים — מתאמנים, תוכניות, מדידות, היסטוריה. האם להמשיך?')) return;
-    if (!confirm('בטוח לחלוטין? הפעולה בלתי הפיכה.')) return;
+  const handleResetAll = async () => {
+    if (!(await askConfirm('פעולה זו תמחק את כל הנתונים — מתאמנים, תוכניות, מדידות, היסטוריה. האם להמשיך?', { danger: true }))) return;
+    if (!(await askConfirm('בטוח לחלוטין? הפעולה בלתי הפיכה.', { danger: true, okText: 'מחיקה' }))) return;
     localStorage.clear();
     window.location.reload();
   };

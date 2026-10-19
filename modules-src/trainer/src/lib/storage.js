@@ -1,3 +1,4 @@
+import { showMessage } from './dialog.js';
 // localStorage-backed storage adapter.
 // Implements the same API as Claude artifact window.storage so App.jsx works unchanged.
 // All data is stored locally in the browser — nothing leaves the device.
@@ -21,7 +22,7 @@ if (typeof window !== 'undefined' && !window.storage) {
       } catch (e) {
         console.error('storage.set failed:', e);
         if (e.name === 'QuotaExceededError') {
-          alert('אחסון מקומי מלא. מומלץ לייצא גיבוי של נתוני המתאמנים ולמחוק ישנים.');
+          showMessage('אחסון מקומי מלא. מומלץ לייצא גיבוי של נתוני המתאמנים ולמחוק ישנים.');
         }
         return null;
       }

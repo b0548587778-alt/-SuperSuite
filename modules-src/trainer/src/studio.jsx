@@ -5,6 +5,7 @@ import { Btn, Card, Field, Input, Textarea, Badge, Modal, Toggle, PageHeader, FO
 import { S, K } from './lib/db.js';
 import * as St from './lib/studio.js';
 import { whatsappShareUrl, copyToClipboard } from './lib/sharing.js';
+import { askConfirm } from './lib/dialog.js';
 
 // ═══════════════════════════════════════════════════════════════════
 //                      נתוני הסטודיו
@@ -286,7 +287,7 @@ function AppointmentDetail({ appt, clients, studio, onClose, onNotice, setView }
   const remove = async (scope) => {
     const ids = scope === 'series' ? studio.schedule.filter((a) => a.seriesId === appt.seriesId && a.date >= appt.date).map((a) => a.id) : [appt.id];
     const attendedRefs = studio.schedule.filter((a) => ids.includes(a.id)).flatMap((a) => a.participants.filter((p) => p.status === 'attended').map((p) => [p.clientId, St.attendanceRef(a.id, p.clientId)]));
-    if (!confirm(scope === 'series' ? `למחוק ${ids.length} אימונים בסדרה (מהיום הזה והלאה)?` : 'למחוק את האימון?')) return;
+    if (!(await askConfirm(scope === 'series' ? `למחוק ${ids.length} אימונים בסדרה (מהיום הזה והלאה)?` : 'למחוק את האימון?', { danger: true }))) return;
     // כמה ניצולים של אותו מתאמן — מצטברים לפני שמירה אחת לכל מתאמן
     const byClient = {};
     for (const [cid, ref] of attendedRefs) byClient[cid] = St.removeUseByRef(byClient[cid] || studio.memberships[cid] || [], ref);
@@ -630,7 +631,7 @@ export function ClientMembershipTab({ client, clients, onReport }) {
                 <span className="text-sm text-slate-400">{St.fmtAg(st.paidAg)} / {St.fmtAg(m.priceAg)}</span>
                 {st.dueAg > 0 && !m.cancelledAt && <Btn size="sm" variant="success" onClick={() => setPayFor(m)}>תשלום</Btn>}
                 {!m.cancelledAt && st.state !== 'ended' && (
-                  <Btn size="sm" variant="ghost" onClick={async () => { if (confirm(`לבטל את ${m.name}? האימונים והתשלומים שנרשמו נשמרים.`)) await save(list.map((x) => (x.id === m.id ? { ...x, cancelledAt: today } : x))); }}>ביטול מנוי</Btn>
+                  <Btn size="sm" variant="ghost" onClick={async () => { if (await askConfirm(`לבטל את ${m.name}? האימונים והתשלומים שנרשמו נשמרים.`)) await save(list.map((x) => (x.id === m.id ? { ...x, cancelledAt: today } : x))); }}>ביטול מנוי</Btn>
                 )}
               </div>
             </div>
@@ -654,7 +655,7 @@ export function ClientMembershipTab({ client, clients, onReport }) {
                   <div key={p.id} className="flex justify-between text-xs py-1 border-b border-slate-800/50">
                     <span>{St.formatShortHe(p.date)} · {St.PAY_METHODS.find((x) => x.id === p.method)?.label}{p.note ? ` · ${p.note}` : ''}</span>
                     <span className="flex gap-2"><span className="text-emerald-300">{St.fmtAg(p.amountAg)}</span>
-                      <button title="מחיקת התשלום" className="text-slate-500 hover:text-red-300" onClick={() => { if (confirm('למחוק את התשלום?')) save(St.removePayment(list, m.id, p.id)); }}>×</button></span>
+                      <button title="מחיקת התשלום" className="text-slate-500 hover:text-red-300" onClick={async () => { if (await askConfirm('למחוק את התשלום?', { danger: true })) save(St.removePayment(list, m.id, p.id)); }}>×</button></span>
                   </div>
                 ))}
               </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 
-export const FONT_HEADING = '"Frank Ruhl Libre", "David Libre", serif';
-export const FONT_BODY = '"Heebo", "Assistant", system-ui, sans-serif';
+export const FONT_HEADING = 'var(--ss-font-title)';
+export const FONT_BODY = 'var(--ss-font)';
 
 export function Btn({ children, onClick, variant = 'primary', disabled, size = 'md', className = '', type, title }) {
   const sizes = { sm: 'px-3 py-1.5 text-sm', md: 'px-5 py-2.5 text-sm', lg: 'px-6 py-3' };

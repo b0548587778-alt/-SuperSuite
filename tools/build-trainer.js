@@ -21,13 +21,14 @@ const KEEP = ['preload.js', 'suite-theme.css'];
 const FORBIDDEN = [/fonts\.googleapis\.com/, /fonts\.gstatic\.com/, /api\.qrserver\.com/, /cdn\.jsdelivr\.net/, /unpkg\.com/];
 
 // ערכת הצבעים חייבת לבוא אחרי כל CSS אחר ב-head
-// רשת הביטחון (screen-guard.js, PLAN.md 2.4) נשארת מיד אחריה
+// רשת הביטחון (screen-guard.js, PLAN.md 2.4) וחלון ההודעה המשותף (ss-dialog.js) נשארים מיד אחריה
 function fixThemeOrder(html) {
   const tag = /\s*<link rel="stylesheet" href="\/suite-theme\.css">/;
   const guard = /\s*(<!--[^>]*2\.4[^>]*-->\s*)?<script src="\/screen-guard\.js"><\/script>/;
+  const dialog = /\s*<script src="\/ss-dialog\.js"><\/script>/;
   if (!tag.test(html)) throw new Error('index.html: חסר הקישור ל-suite-theme.css');
-  const out = html.replace(tag, '').replace(guard, '');
-  return out.replace('</head>', '    <!-- ערכת הצבעים של SuperSuite — אחרי ה-CSS המהודר כדי לגבור עליו -->\n    <link rel="stylesheet" href="/suite-theme.css">\n    <script src="/screen-guard.js"></script>\n  </head>');
+  const out = html.replace(tag, '').replace(guard, '').replace(dialog, '');
+  return out.replace('</head>', '    <!-- ערכת הצבעים של SuperSuite — אחרי ה-CSS המהודר כדי לגבור עליו -->\n    <link rel="stylesheet" href="/suite-theme.css">\n    <script src="/screen-guard.js"></script>\n    <script src="/ss-dialog.js"></script>\n  </head>');
 }
 
 function findForbidden(dir) {

@@ -110,3 +110,22 @@ test('גופן אחד: כל המסכים משתמשים במשתני הגופן 
     assert.equal(bad, null, `${f}: ${bad} — להשתמש ב-var(--ss-font) / var(--ss-font-title)`);
   }
 });
+
+test('אימונים (קוד המקור): אותו חלון ואותו גופן', () => {
+  const SRC = 'modules-src/trainer/src';
+  const bad = [];
+  (function walk(d) {
+    for (const n of fs.readdirSync(path.join(ROOT, d))) {
+      const rel = d + '/' + n;
+      if (fs.statSync(path.join(ROOT, rel)).isDirectory()) { walk(rel); continue; }
+      if (!/\.(js|jsx)$/.test(n) || rel.endsWith('lib/dialog.js')) continue;
+      const src = read(rel).replace(/\/\/.*$/gm, '');
+      for (const m of src.matchAll(/(^|[^.\w])(alert|confirm|prompt)\(/g)) bad.push(`${rel}: ${m[2]}(`);
+      if (/["'](?:Heebo|Frank Ruhl Libre)["']/.test(src)) bad.push(`${rel}: גופן קבוע`);
+    }
+  })(SRC);
+  assert.deepEqual(bad, [], 'להשתמש ב-askConfirm / showMessage מ-lib/dialog.js וב-var(--ss-font)');
+  const html = read('modules-src/trainer/index.html');
+  assert.match(html, /<script src="\/ss-dialog\.js"><\/script>/);
+  assert.match(html, /--font-body:var\(--ss-font\)/);
+});

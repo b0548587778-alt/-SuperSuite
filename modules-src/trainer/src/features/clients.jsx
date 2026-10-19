@@ -9,6 +9,7 @@ import { FONT_HEADING, Btn, Card, Field, Input, Textarea, Badge, Toggle } from '
 import { ProgramTab } from './program.jsx';
 import { ClientNutritionTab } from './nutrition.jsx';
 import { ClientAssessmentTab } from './tools.jsx';
+import { askConfirm } from '../lib/dialog.js';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -85,7 +86,7 @@ export function ClientsList({ clients, setView, onDelete }) {
                   <td className="p-4">
                     <div className="flex gap-2">
                       <Btn size="sm" variant="outline" onClick={() => setView({ name: 'client-detail', id: c.id })}>פתח</Btn>
-                      <Btn size="sm" variant="danger" onClick={() => { if (confirm(`למחוק את ${c.name}?`)) onDelete(c.id); }} title="מחק">✕</Btn>
+                      <Btn size="sm" variant="danger" onClick={async () => { if (await askConfirm(`למחוק את ${c.name}?`, { danger: true })) onDelete(c.id); }} title="מחק">✕</Btn>
                     </div>
                   </td>
                 </tr>
@@ -338,7 +339,7 @@ export function ClientDetail({ clientId, initialTab, clients, trainer, setView, 
         <div className="flex gap-2">
           <Btn variant="outline" onClick={() => setReport(true)}>📈 כרטיס ודוח למתאמן</Btn>
           <Btn variant="outline" onClick={() => setEditing(true)}>עריכה</Btn>
-          <Btn variant="danger" onClick={() => { if (confirm(`למחוק לצמיתות את ${client.name} וכל הנתונים הקשורים?`)) { onDelete(client.id); setView({ name: 'clients' }); } }}>מחק</Btn>
+          <Btn variant="danger" onClick={async () => { if (await askConfirm(`למחוק לצמיתות את ${client.name} וכל הנתונים הקשורים?`, { danger: true })) { onDelete(client.id); setView({ name: 'clients' }); } }}>מחק</Btn>
         </div>
       </div>
 
