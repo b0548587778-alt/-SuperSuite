@@ -128,6 +128,6 @@ test('צעד: לחיצה פותחת את המסך או את הפעולה; "בו�
   assert.ok(s.state().done.includes('backup-target'));
   // המסך של העמותה נפתח, ולכן מסך הבית לא צויר מחדש ברקע — הוא מתעדכן בחזרה הביתה
   s.$('hm').onclick();
-  assert.match(s.$('obProgress').textContent, /^2 מתוך 5$/);
-  assert.equal(s.$('obMeter').style.width, '40%', 'מד ההתקדמות');
+  assert.match(s.$('obProgress').textContent, /^2 מתוך 6$/);
+  assert.equal(s.$('obMeter').style.width, '33%', 'מד ההתקדמות');
 });

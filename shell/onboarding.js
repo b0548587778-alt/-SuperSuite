@@ -7,6 +7,7 @@
       screens: ['econ:npo', 'econ:people'],
       steps: [
         { id: 'npo-settings', title: 'הגדרות העמותה', detail: 'מספר עמותה, אישור סעיף 46 וקרנות — לפני הקבלה הראשונה', key: 'econ:npo' },
+        { id: 'npo-first-receipt', title: 'קבלה ראשונה', detail: 'בלוח הבקרה: "הפקת קבלה ראשונה". רוצים קודם לראות איך זה נראה? "הכנסת נתוני דוגמה" — ומחיקה בלחיצה', key: 'econ:dashboard' },
         { id: 'npo-import', title: 'ייבוא תרומות קיימות', detail: 'קובץ CSV מנדרים פלוס, קהילות, Charidy או דף בנק — במסך העמותה', key: 'econ:npo' },
       ] },
     { id: 'gemach', icon: '🫱', name: 'גמ"ח', desc: 'הלוואות ללא ריבית, ערבים וגמ"ח חפצים',

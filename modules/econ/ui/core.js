@@ -172,6 +172,8 @@ async function switchView(viewName) {
 // Load data for current view
 async function loadViewData(viewName) {
   try {
+    // נתוני דוגמה (1.5): המצב מתעדכן בכל כניסה למסך שבו הם מופיעים
+    if (SAMPLE_VIEWS.includes(viewName)) await refreshSampleStatus();
     switch (viewName) {
       case 'dashboard':
         state.data.dashboard = await loadDashboardData();
@@ -405,7 +407,7 @@ function renderView(viewName) {
 
   switch (viewName) {
     case 'dashboard':
-      html = renderDashboard(data);
+      html = renderSampleOffer() + renderDashboard(data);
       break;
     case 'finance':
       html = renderFinance(data);
@@ -500,9 +502,11 @@ function renderView(viewName) {
 
   const ports = PORT_VIEWS[viewName];
   if (ports) html = renderPortsBar(ports) + html;
+  html = renderSampleBanner(viewName) + html;
   elements.view.innerHTML = html;
   attachViewHandlers(viewName);
   elements.view.querySelectorAll('[data-empty-add]').forEach(b => b.addEventListener('click', () => handleAdd()));
+  attachSampleHandlers(elements.view);
   labelIconButtons(elements.view);
 }
 
