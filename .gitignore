@@ -45,6 +45,8 @@ venv/
 # Android (android/build-apk.js) — תוצרי בנייה ומפתח החתימה (לא לשתף! לגבות בנפרד)
 android/build/
 android/keystore/
+# גיבוי מוצפן של המפתח (tools/android-key-backup.js) — נשמר אצל הבעלים, לא במאגר
+*.sskey
 
 # מפתח השורש של מנהל-העל — לעולם לא במאגר (tools/licensing/owner.js)
 owner-data/
