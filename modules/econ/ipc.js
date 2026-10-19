@@ -1118,17 +1118,21 @@ function registerIpcHandlers() {
     if (!trainerSource) return { available: false, reason: 'תשלומי האימונים אינם זמינים במכשיר הזה', payments: [] };
     const payments = TP.readPayments(trainerItems(event));
     const { invoices } = await accountingService._load();
-    return { available: true, payments: TP.withReceipts(payments, invoices) };
+    // סוג המסמך המוצע — כמו בהפקה האחרונה (עוסק פטור / מורשה)
+    const last = invoices.filter(i => i.trainerPayment).sort((a, b) => b.number - a.number)[0];
+    return { available: true, exemptDefault: !!(last && last.vatExempt), payments: TP.withReceipts(payments, invoices) };
   });
-  // אישור מפורש של המשתמש (confirmed) — אחרת לא מופקת חשבונית
+  // אישור מפורש של המשתמש (confirmed) — אחרת לא מופקת חשבונית. exempt: עוסק פטור — חשבונית עסקה וקבלה, בלי מע"מ
   handle('collect:issueTrainerReceipt', async (event, key, opts) => {
     assertCollectDomain('invoice');
     if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
     const p = TP.readPayments(trainerItems(event)).find(x => x.key === String(key || ''));
     if (!p) throw new Error('התשלום לא נמצא במודול האימונים (ייתכן שנמחק)');
-    const inv = await accountingService.createTrainerReceipt(TP.invoiceInput(p));
-    await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'trainer', amountAg: p.amountAg });
-    return { id: inv.id, number: inv.number, total: inv.total, customer: inv.customer };
+    const exempt = opts.exempt === true;
+    const created = await accountingService.createTrainerReceipt({ ...TP.invoiceInput(p), exempt });
+    const inv = await accountingService.getInvoice(created.id);
+    await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'trainer', amountAg: p.amountAg, exempt });
+    return { id: inv.id, number: inv.number, total: inv.total, customer: inv.customer, exempt, ...(inv.receiptNumber ? { receiptNumber: inv.receiptNumber } : {}) };
   });
 
   handle('gemach:getOverview', async (event, asOf) => gemachService.getOverview(asOf));
