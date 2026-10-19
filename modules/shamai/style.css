@@ -1,26 +1,26 @@
 /* ═══════════════ SHAMAI v2 STYLE ═══════════════ */
 :root {
-  --bg: #0a0a0f;
-  --bg-2: #0f0f17;
-  --surface: #161624;
-  --surface-2: #1f1f30;
-  --border: #2a2a3e;
-  --border-light: #3a3a52;
-  --gold: #f5c518;
-  --gold-light: #ffd84d;
-  --gold-dim: #c19c0a;
-  --text: #f0f0f5;
-  --text-dim: #9999a8;
-  --text-faint: #5e5e72;
-  --green: #34d399;
+  --bg: var(--ss-dark-bg);
+  --bg-2: var(--ss-dark-bg-2);
+  --surface: var(--ss-dark-surface);
+  --surface-2: var(--ss-dark-surface-2);
+  --border: var(--ss-dark-border);
+  --border-light: var(--ss-dark-border-strong);
+  --gold: var(--ss-dark-gold);
+  --gold-light: var(--ss-dark-gold-light);
+  --gold-dim: var(--ss-dark-gold-dim);
+  --text: var(--ss-dark-text);
+  --text-dim: var(--ss-dark-muted);
+  --text-faint: var(--ss-dark-faint);
+  --green: var(--ss-dark-green);
   --green-bg: rgba(52, 211, 153, 0.1);
-  --yellow: #fbbf24;
+  --yellow: var(--ss-dark-yellow);
   --yellow-bg: rgba(251, 191, 36, 0.1);
-  --orange: #fb923c;
-  --red: #ef4444;
+  --orange: var(--ss-dark-orange);
+  --red: var(--ss-dark-red);
   --red-bg: rgba(239, 68, 68, 0.1);
-  --purple: #a78bfa;
-  --blue: #60a5fa;
+  --purple: var(--ss-dark-purple);
+  --blue: var(--ss-dark-blue);
   --safe-top: env(safe-area-inset-top, 0);
   --safe-bottom: env(safe-area-inset-bottom, 0);
   --safe-left: env(safe-area-inset-left, 0);
@@ -294,8 +294,8 @@ textarea { min-height: 70px; resize: vertical; }
   padding: 14px;
 }
 .card.gold-accent { border-top: 3px solid var(--gold); }
-.card.silver-accent { border-top: 3px solid #c0c0c0; }
-.card.platinum-accent { border-top: 3px solid #e5e4e2; }
+.card.silver-accent { border-top: 3px solid var(--ss-silver); }
+.card.platinum-accent { border-top: 3px solid var(--ss-platinum); }
 .c-sym { font-size: 11px; font-weight: 700; color: var(--gold); letter-spacing: 0.5px; }
 .c-name { font-size: 12px; color: var(--text-dim); }
 .c-price { font-size: 22px; font-weight: 800; line-height: 1.1; margin: 4px 0 2px; }
@@ -680,7 +680,7 @@ textarea { min-height: 70px; resize: vertical; }
   color: var(--gold);
   margin-bottom: 6px;
 }
-.tip-body { font-size: 12px; line-height: 1.6; color: #cbd5e1; }
+.tip-body { font-size: 12px; line-height: 1.6; color: var(--ss-border-strong); }
 .tip-body ul { padding-right: 18px; padding-left: 0; }
 .tip-body li { margin-bottom: 3px; }
 
@@ -1146,8 +1146,8 @@ select {
 
 /* Share button */
 .opp-actions button.share {
-  color: #25d366;
-  border-color: #25d366;
+  color: var(--ss-whatsapp);
+  border-color: var(--ss-whatsapp);
 }
 
 /* Better install banner on small screens */
@@ -1660,8 +1660,8 @@ select {
   border-color: var(--blue);
 }
 .opp-actions button.whatsapp {
-  color: #25d366;
-  border-color: #25d366;
+  color: var(--ss-whatsapp);
+  border-color: var(--ss-whatsapp);
 }
 
 /* ═══════ PHOTO ZOOM MODAL ═══════ */
@@ -1707,33 +1707,33 @@ select {
 
 /* ═══════ LIGHT THEME ═══════ */
 [data-theme="light"] {
-  --bg: #f4f6fb;
-  --bg-2: #ffffff;
-  --surface: #ffffff;
-  --surface-2: #eef1f7;
-  --border: #e3e7f0;
-  --border-light: #cfd6e4;
-  --gold: #b8860b;
-  --gold-light: #d4a017;
-  --gold-dim: #8b6508;
-  --text: #14213d;
-  --text-dim: #5d6b85;
-  --text-faint: #8a96ad;
-  --green: #13865b;
+  --bg: var(--ss-bg);
+  --bg-2: var(--ss-surface);
+  --surface: var(--ss-surface);
+  --surface-2: var(--ss-surface-2);
+  --border: var(--ss-border);
+  --border-light: var(--ss-border-strong);
+  --gold: var(--ss-gold);
+  --gold-light: var(--ss-warning-mid);
+  --gold-dim: var(--ss-gold-deep);
+  --text: var(--ss-text);
+  --text-dim: var(--ss-muted);
+  --text-faint: var(--ss-faint);
+  --green: var(--ss-success);
   --green-bg: rgba(19, 134, 91, 0.1);
-  --red: #c43c3c;
+  --red: var(--ss-danger);
   --red-bg: rgba(196, 60, 60, 0.08);
-  --blue: #24479e;
+  --blue: var(--ss-primary);
 }
 [data-theme="light"] .hdr {
-  background: linear-gradient(180deg, #ffffff, #f5f5f7);
+  background: linear-gradient(180deg, var(--ss-surface), var(--ss-bg));
 }
 [data-theme="light"] .top-nav {
-  background: #ffffff;
+  background: var(--ss-surface);
 }
 [data-theme="light"] .install-banner {
-  background: linear-gradient(135deg, #d4a017, #f5c518);
-  color: #1d1d1f;
+  background: linear-gradient(135deg, var(--ss-warning-mid), var(--ss-dark-gold));
+  color: var(--ss-navy-0);
 }
 [data-theme="light"] .photo-zoom { background: rgba(0, 0, 0, 0.85); }
 
@@ -1909,7 +1909,7 @@ select {
 .barcode-scanner video {
   width: 100%;
   border-radius: 12px;
-  background: #000;
+  background: var(--ss-photo-bg);
 }
 .scanner-frame {
   position: absolute;
@@ -2106,7 +2106,7 @@ select {
   object-fit: contain;
   border-radius: 8px;
   margin-bottom: 12px;
-  background: #000;
+  background: var(--ss-photo-bg);
 }
 .ocr-parsed {
   background: var(--bg);
@@ -2283,19 +2283,19 @@ select {
 }
 .auth-verdict-pending { border-color: var(--border); }
 .auth-verdict-genuine {
-  border-color: var(--green, #22c55e);
+  border-color: var(--green, var(--ss-success));
   background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), var(--surface));
 }
 .auth-verdict-medium {
-  border-color: var(--yellow, #eab308);
+  border-color: var(--yellow, var(--ss-warning-mid));
   background: linear-gradient(135deg, rgba(234, 179, 8, 0.1), var(--surface));
 }
 .auth-verdict-warning {
-  border-color: #f97316;
+  border-color: var(--ss-warning-mid);
   background: linear-gradient(135deg, rgba(249, 115, 22, 0.15), var(--surface));
 }
 .auth-verdict-fake {
-  border-color: var(--red, #ef4444);
+  border-color: var(--red, var(--ss-dark-red));
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), var(--surface));
   animation: pulse 2s infinite;
 }
@@ -2338,11 +2338,11 @@ select {
   transition: all 0.15s;
 }
 .auth-item-pass {
-  border-color: var(--green, #22c55e);
+  border-color: var(--green, var(--ss-success));
   background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), var(--surface));
 }
 .auth-item-fail {
-  border-color: var(--red, #ef4444);
+  border-color: var(--red, var(--ss-dark-red));
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), var(--surface));
 }
 .auth-item-skip {
@@ -2357,7 +2357,7 @@ select {
   gap: 6px;
 }
 .auth-critical {
-  background: var(--red, #ef4444);
+  background: var(--red, var(--ss-dark-red));
   color: white;
   padding: 1px 6px;
   border-radius: 3px;
@@ -2386,14 +2386,14 @@ select {
   color: var(--text-dim);
 }
 .auth-btn.auth-pass.active {
-  background: var(--green, #22c55e);
+  background: var(--green, var(--ss-success));
   color: white;
-  border-color: var(--green, #22c55e);
+  border-color: var(--green, var(--ss-success));
 }
 .auth-btn.auth-fail.active {
-  background: var(--red, #ef4444);
+  background: var(--red, var(--ss-dark-red));
   color: white;
-  border-color: var(--red, #ef4444);
+  border-color: var(--red, var(--ss-dark-red));
 }
 .auth-btn.auth-skip.active {
   background: var(--text-dim);

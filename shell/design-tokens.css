@@ -1,0 +1,121 @@
+/* שפת העיצוב של SuperSuite (PLAN.md 7.1) — מקור יחיד לצבעים, גופנים, מרווחים, פינות וצללים.
+   נטען ראשון בכל מסך: במעטפת מכאן, ובמודולים דרך app://<מודול>/design-tokens.css (main.js מגיש את הקובץ הזה;
+   באנדרואיד — מועתק לכל מודול בבנייה). המודולים ממפים את המשתנים הישנים שלהם (--primary, --gold וכו') לכאן.
+   צבע חדש — מוסיפים כאן, לא בקובץ של המודול (tests/ui-consistency.test.js). */
+:root {
+  /* ---- מותג: נייבי וזהב ---- */
+  --ss-navy-0: #0b1426;
+  --ss-navy-1: #0f1a30;
+  --ss-navy-2: #13264a;
+  --ss-navy-3: #1b3260;
+  --ss-navy-line: #22365e;
+  --ss-gold: #b8860b;
+  --ss-gold-bright: #d4a73a;
+  --ss-gold-deep: #8b6508;
+  --ss-gold-soft: #f6eccb;
+
+  /* ---- פעולה ראשית (כחול) ---- */
+  --ss-primary: #24479e;
+  --ss-primary-dark: #1a3678;
+  --ss-primary-soft: #eaf0fb;
+  --ss-primary-ring: rgba(36, 71, 158, .14);
+
+  /* ---- משטחים וטקסט (מצב בהיר) ---- */
+  --ss-bg: #f4f6fb;
+  --ss-surface: #ffffff;
+  --ss-surface-2: #eef1f7;
+  --ss-surface-input: #fbfcfe;
+  --ss-border: #e3e7f0;
+  --ss-border-strong: #cfd6e4;
+  --ss-text: #14213d;
+  --ss-text-2: #2b3a58;
+  --ss-muted: #5d6b85;
+  --ss-faint: #8a96ad;
+
+  /* ---- טקסט על רקע כהה (סרגל הצד) ---- */
+  --ss-ink: #e9eef8;
+  --ss-ink-2: #a9b5cc;
+  --ss-ink-3: #7584a0;
+
+  /* ---- מצבים: צבע, רקע רך, קו, וטקסט כהה על הרקע הרך ---- */
+  --ss-success: #13865b;
+  --ss-success-soft: #e7f6ef;
+  --ss-success-line: #bfe3d1;
+  --ss-success-ink: #166534;
+  --ss-warning: #b45309;
+  --ss-warning-mid: #c98a0c;
+  --ss-warning-soft: #fff4d6;
+  --ss-warning-line: #f0d58a;
+  --ss-warning-ink: #6b4a00;
+  --ss-danger: #c43c3c;
+  --ss-danger-soft: #fde8e8;
+  --ss-danger-line: #f3b4b4;
+  --ss-danger-ink: #8a1c1c;
+  --ss-info: #2c55b8;
+  --ss-info-soft: #e8f1fb;
+  --ss-info-line: #b9d3ef;
+  --ss-info-ink: #1d4f86;
+  --ss-on-primary: #ffffff;
+
+  /* ---- צבעי קטגוריה (תחומים, גרפים) ---- */
+  --ss-cat-blue: #2c55b8;
+  --ss-cat-green: #13865b;
+  --ss-cat-amber: #b8860b;
+  --ss-cat-purple: #6b4fbb;
+  --ss-cat-teal: #0f8a8a;
+  --ss-cat-slate: #5d6b85;
+
+  /* ---- צבעים בעלי משמעות קבועה (לא חלק מהפלטה) ---- */
+  --ss-whatsapp: #25d366;
+  --ss-silver: #c0c0c0;
+  --ss-platinum: #e5e4e2;
+  --ss-photo-bg: #000000;
+
+  /* ---- מצב כהה (שמאות: data-theme="dark") ---- */
+  --ss-dark-bg: #0a0a0f;
+  --ss-dark-bg-2: #0f0f17;
+  --ss-dark-surface: #161624;
+  --ss-dark-surface-2: #1f1f30;
+  --ss-dark-border: #2a2a3e;
+  --ss-dark-border-strong: #3a3a52;
+  --ss-dark-gold: #f5c518;
+  --ss-dark-gold-light: #ffd84d;
+  --ss-dark-gold-dim: #c19c0a;
+  --ss-dark-text: #f0f0f5;
+  --ss-dark-muted: #9999a8;
+  --ss-dark-faint: #5e5e72;
+  --ss-dark-green: #34d399;
+  --ss-dark-yellow: #fbbf24;
+  --ss-dark-orange: #fb923c;
+  --ss-dark-red: #ef4444;
+  --ss-dark-purple: #a78bfa;
+  --ss-dark-blue: #60a5fa;
+
+  /* ---- גופנים ---- */
+  --ss-font: "Segoe UI", Heebo, Arial, system-ui, sans-serif;
+  --ss-font-title: "David", "Frank Ruhl Libre", serif;
+  --ss-font-mono: Consolas, "Courier New", monospace;
+  --ss-fs-xs: 12px;
+  --ss-fs-sm: 13px;
+  --ss-fs-md: 14px;
+  --ss-fs-lg: 17px;
+  --ss-fs-xl: 22px;
+  --ss-fs-2xl: 28px;
+
+  /* ---- מרווחים ---- */
+  --ss-sp-1: 4px;
+  --ss-sp-2: 8px;
+  --ss-sp-3: 12px;
+  --ss-sp-4: 16px;
+  --ss-sp-5: 24px;
+  --ss-sp-6: 32px;
+
+  /* ---- פינות וצללים ---- */
+  --ss-radius-sm: 8px;
+  --ss-radius: 12px;
+  --ss-radius-lg: 14px;
+  --ss-shadow-sm: 0 1px 2px rgba(20, 33, 61, .05);
+  --ss-shadow: 0 1px 2px rgba(20, 33, 61, .05), 0 8px 24px rgba(20, 33, 61, .06);
+  --ss-shadow-lg: 0 12px 40px rgba(20, 33, 61, .18);
+  --ss-focus: 0 0 0 3px rgba(36, 71, 158, .14);
+}

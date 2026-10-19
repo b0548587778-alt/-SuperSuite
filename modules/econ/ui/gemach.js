@@ -220,7 +220,7 @@ function attachGemachExtraHandlers() {
           <label>להחזרה עד<input name="dueDate" type="date"></label>
           <label>פיקדון שהתקבל (₪)<input name="depositHeld" type="number" value="${esc(it.deposit || 0)}"></label>
           <label>הערות<input name="notes"></label>
-          <div class="gx-err" style="color:#b91c1c;font-size:.9rem"></div>
+          <div class="gx-err" style="color:var(--ss-danger);font-size:.9rem"></div>
           <div class="modal-actions"><button type="button" class="secondary" data-act="cancel">ביטול</button><button type="submit" class="primary">השאלה</button></div>
         </form>`;
       const form = card.querySelector('form');

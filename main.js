@@ -28,7 +28,7 @@ crash.installProcessHandlers();
 // בדיקת עלייה של הגרסה הארוזה (PLAN.md 3.5, CI בלבד): רק עם תיקיית נתונים נפרדת — לא נוגעים בנתונים אמיתיים
 const Smoke = require('./shell/smoke');
 const smoke = Smoke.isSmoke(process.argv)
-  ? (process.argv.some(a => a.startsWith('--user-data-dir=')) ? Smoke.createSmoke({ fs, path, dir: app.getPath('userData'), dialog, exit: (c) => app.exit(c) }) : (app.exit(2), null))
+  ? (process.argv.some(a => a.startsWith('--user-data-dir=')) ? Smoke.createSmoke({ fs, path, dir: app.getPath('userData'), dialog, exit: (c) => app.exit(c), shots: Smoke.shotsDir(process.argv) }) : (app.exit(2), null))
   : null;
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
@@ -84,6 +84,8 @@ function registerProtocol() {
     try { rel = decodeURIComponent(url.pathname); }
     catch { return new Response('Bad request', { status: 400 }); }
     if (rel === '/' || rel === '') rel = '/index.html';
+    // שפת העיצוב המשותפת (PLAN.md 7.1): קובץ אחד מהמעטפת לכל המודולים — רק הנתיב המדויק הזה
+    if (rel === '/design-tokens.css') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'design-tokens.css')).toString());
     const file = path.normalize(path.join(root, rel));
     if (!file.startsWith(root + path.sep)) return new Response('Forbidden', { status: 403 });
     return net.fetch(pathToFileURL(file).toString());
@@ -884,7 +886,19 @@ app.whenReady().then(async () => {
   registerSyncHandlers();
   createWindow();
   // בדיקת עלייה: טוענים את המעטפת וכל מודול, ויוצאים. בלי גיבוי אוטומטי (הוא כותב לתיקיית המסמכים האמיתית)
-  if (smoke) { smoke.run((id) => (id === 'shell' ? win.webContents : ensureView(id).webContents), ['shell', ...MODS], waitLoaded); return; }
+  if (smoke) {
+    // --shots: כל מודול מוצג בתורו (בלי הסרגל של הכניסה/הרישוי) ומצולם
+    const capture = async (id) => {
+      for (const k of Object.keys(views)) views[k].setVisible(false);
+      if (id === 'shell') { await new Promise(r => setTimeout(r, 400)); return win.webContents.capturePage(); }
+      views[id].setVisible(true);
+      layout();
+      await new Promise(r => setTimeout(r, 1200));
+      return views[id].webContents.capturePage();
+    };
+    smoke.run((id) => (id === 'shell' ? win.webContents : ensureView(id).webContents), ['shell', ...MODS], waitLoaded, capture);
+    return;
+  }
   setTimeout(autoBackup, 15000);
   setInterval(autoBackup, 6 * 3600 * 1000);
 });

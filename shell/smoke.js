@@ -7,8 +7,10 @@ const SETTLE_MS = 2500;
 const TIMEOUT_MS = 120 * 1000;
 
 const isSmoke = (argv) => (argv || []).includes('--smoke');
+// --shots=<תיקייה>: צילום מסך של כל מודול (PLAN.md 7.1 — השוואת מראה לפני/אחרי). רק יחד עם --smoke
+const shotsDir = (argv) => { const a = (argv || []).find(x => String(x).startsWith('--shots=')); return a ? String(a).slice(8) : null; };
 
-function createSmoke({ fs, path, dir, dialog, exit, now = Date.now, setTimer = setTimeout }) {
+function createSmoke({ fs, path, dir, dialog, exit, now = Date.now, setTimer = setTimeout, shots = null }) {
   const errors = [];
   const loaded = [];
   const started = now();
@@ -41,8 +43,9 @@ function createSmoke({ fs, path, dir, dialog, exit, now = Date.now, setTimer = s
     wc.on('render-process-gone', (_e, d) => add('gone:' + name, d && d.reason));
   }
 
-  // modules: [[שם, webContents מוכן לטעינה]]. waitLoaded מחזיר Promise כשהטעינה הסתיימה
-  async function run(open, ids, waitLoaded) {
+  // modules: [[שם, webContents מוכן לטעינה]]. waitLoaded מחזיר Promise כשהטעינה הסתיימה.
+  // capture(id) (אופציונלי, עם --shots) מחזיר Promise לתמונה (NativeImage עם toPNG, או Buffer)
+  async function run(open, ids, waitLoaded, capture) {
     try {
       for (const id of ids) {
         const wc = open(id);
@@ -50,6 +53,15 @@ function createSmoke({ fs, path, dir, dialog, exit, now = Date.now, setTimer = s
         loaded.push(id);
       }
       await new Promise(r => setTimer(r, SETTLE_MS));
+      if (shots && capture) {
+        fs.mkdirSync(shots, { recursive: true });
+        for (const id of ids) {
+          const img = await capture(id);
+          const png = img && typeof img.toPNG === 'function' ? img.toPNG() : img;
+          if (!png || !png.length) add('shots', 'צילום ריק: ' + id);
+          else fs.writeFileSync(path.join(shots, id + '.png'), png);
+        }
+      }
     } catch (e) { add('smoke', e && e.message); }
     finish();
   }
@@ -57,4 +69,4 @@ function createSmoke({ fs, path, dir, dialog, exit, now = Date.now, setTimer = s
   return { watch, run, finish, add, errors, loaded };
 }
 
-module.exports = { createSmoke, isSmoke, SETTLE_MS, TIMEOUT_MS };
+module.exports = { createSmoke, isSmoke, shotsDir, SETTLE_MS, TIMEOUT_MS };

@@ -220,8 +220,9 @@ test('שמאות: אנליטיקה ריקה מסתירה את כותרות הא�
 
 test('אימונים: פס הגלילה ותיבת המידע בגרפים בצבעים בהירים', () => {
   const theme = read('modules/trainer/suite-theme.css');
-  assert.match(theme, /::-webkit-scrollbar-track \{ background: #f4f6fb; \}/);
-  assert.match(theme, /\.recharts-default-tooltip \{ background: #ffffff !important;/);
+  // מאז 7.1 — דרך משתני שפת העיצוב (רקע בהיר / משטח לבן)
+  assert.match(theme, /::-webkit-scrollbar-track \{ background: var\(--ss-bg\); \}/);
+  assert.match(theme, /\.recharts-default-tooltip \{ background: var\(--ss-surface\) !important;/);
 });
 
 test('ברכת השעה זהה במעטפת ובמודול השמאות בכל שעה (בעבר 05:00–06:00: "בוקר טוב" מול "לילה טוב")', () => {
@@ -232,4 +233,68 @@ test('ברכת השעה זהה במעטפת ובמודול השמאות בכל �
   assert.ok(block, 'חישוב הברכה במודול השמאות');
   const shamaiGreeting = vm.runInNewContext(`(hr) => { ${block[0]} return greet; }`);
   for (let h = 0; h < 24; h++) assert.equal(shamaiGreeting(h), shellGreeting(h), 'שעה ' + h);
+});
+
+// ---------- שפת עיצוב אחת (PLAN.md 7.1) ----------
+const TOKENS = read('shell/design-tokens.css');
+const TOKEN_NAMES = new Set([...TOKENS.matchAll(/(--ss-[a-z0-9-]+)\s*:/g)].map(m => m[1]));
+const STYLED = ['shell/shell.html', 'modules/econ/styles.css', 'modules/tools/index.html', 'modules/trainer/suite-theme.css', 'modules/shamai/style.css'];
+const ECON_UI = () => fs.readdirSync(path.join(ROOT, 'modules/econ/ui')).map(f => 'modules/econ/ui/' + f);
+// חריגים מתועדים: בורר צבע (input type=color חייב hex), theme-color של הדפדפן, צבע מסמכים שהמשתמש מקליד,
+// צבעי תוויות בהודעות (נשמרים בנתונים), ודיו החתימה על הקנבס
+const HEX_ALLOWED = [/type="color"/, /name="theme-color"/, /brandColor/, /CHAT_COLORS/, /strokeStyle = '#/];
+const hexLines = (text) => text.split(/\r?\n/).map((l, i) => [i + 1, l])
+  .filter(([, l]) => /#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b/.test(l) && !HEX_ALLOWED.some(r => r.test(l)));
+
+test('שפת עיצוב: אין צבע קבוע מחוץ ל-design-tokens.css (סגנונות וממשק המודול הכלכלי)', () => {
+  for (const f of [...STYLED, ...ECON_UI()]) {
+    const bad = hexLines(read(f)).map(([n, l]) => n + ': ' + l.trim().slice(0, 90));
+    assert.deepEqual(bad, [], f + ' — צבע חדש מוסיפים ל-shell/design-tokens.css ומשתמשים ב-var(--ss-...)');
+  }
+});
+
+test('שפת עיצוב: כל var(--ss-...) מוגדר בקובץ', () => {
+  for (const f of [...STYLED, ...ECON_UI()]) {
+    const missing = [...read(f).matchAll(/var\((--ss-[a-z0-9-]+)/g)].map(m => m[1]).filter(n => !TOKEN_NAMES.has(n));
+    assert.deepEqual([...new Set(missing)], [], f);
+  }
+});
+
+test('שפת עיצוב: הקובץ נטען לפני כל סגנון אחר בכל מסך, ו-main.js מגיש רק אותו מהמעטפת', () => {
+  const first = (html, href) => {
+    const i = html.indexOf(href);
+    assert.ok(i > 0, href);
+    assert.ok(!/<style[\s>]|rel="stylesheet" href="(?!\/?design-tokens)/.test(html.slice(0, i)), 'לפני כל סגנון אחר: ' + href);
+  };
+  first(read('shell/shell.html'), 'href="design-tokens.css"');
+  first(read('modules/econ/views/index.html'), 'href="/design-tokens.css"');
+  first(read('modules/tools/index.html'), 'href="/design-tokens.css"');
+  const shamai = read('modules/shamai/index.html');
+  assert.ok(shamai.indexOf('href="/design-tokens.css"') > 0 && shamai.indexOf('href="/design-tokens.css"') < shamai.indexOf('href="style.css"'));
+  assert.match(read('modules/trainer/suite-theme.css'), /^@import url\("\/design-tokens\.css"\);/);
+  assert.match(read('shell/shell.html'), /style-src 'self' 'unsafe-inline'/);
+  assert.match(read('main.js'), /if \(rel === '\/design-tokens\.css'\) return net\.fetch\(pathToFileURL\(path\.join\(__dirname, 'shell', 'design-tokens\.css'\)\)/);
+  const apk = read('android/build-apk.js');
+  assert.match(apk, /copyFileSync\(path\.join\(ROOT, 'shell', 'design-tokens\.css'\), path\.join\(dst, 'design-tokens\.css'\)\)/);
+  assert.match(apk, /'shell\.js', 'design-tokens\.css'\]/);
+});
+
+test('שפת עיצוב: שמאות — המצב הכהה והמצב הבהיר שניהם מהקובץ', () => {
+  const css = read('modules/shamai/style.css');
+  assert.match(css, /:root \{\s*--bg: var\(--ss-dark-bg\);/);
+  assert.match(css, /\[data-theme="light"\] \{\s*--bg: var\(--ss-bg\);/);
+});
+
+test('צילומי מסך: --shots שומר תמונה לכל מסך (רק בבדיקת עלייה)', async () => {
+  const Smoke = require('../shell/smoke');
+  assert.equal(Smoke.shotsDir(['x', '--shots=C:/tmp/a']), 'C:/tmp/a');
+  assert.equal(Smoke.shotsDir(['--smoke']), null);
+  const written = {};
+  const fakeFs = { writeFileSync: (p, d) => { written[p] = d; }, mkdirSync() {} };
+  let code = null;
+  const s = Smoke.createSmoke({ fs: fakeFs, path, dir: 'D', dialog: {}, exit: (c) => { code = c; }, setTimer: (fn, ms) => { if (ms < Smoke.TIMEOUT_MS) fn(); return {}; }, shots: 'S' });
+  await s.run(() => ({}), ['shell', 'econ'], async () => {}, async (id) => (id === 'econ' ? { toPNG: () => Buffer.from('png') } : Buffer.from('raw')));
+  assert.equal(String(written[path.join('S', 'econ.png')]), 'png');
+  assert.equal(String(written[path.join('S', 'shell.png')]), 'raw');
+  assert.equal(code, 0);
 });

@@ -57,3 +57,6 @@ relay-data/
 # קוד המקור של מודול האימונים — תוצרי בנייה (התוצר הסופי ב-modules/trainer)
 modules-src/*/node_modules/
 modules-src/*/dist/
+
+# צילומי מסך מ---smoke --shots (PLAN.md 7.1) — השוואת מראה, לא במאגר
+shots/
