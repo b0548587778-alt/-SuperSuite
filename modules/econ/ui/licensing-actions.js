@@ -73,7 +73,7 @@ function licForm(title, fields, submitText, intro) {
       get[f.name] = () => (f.type === 'password' ? input.value : input.value.trim());
     }
     const err = document.createElement('div');
-    err.style.color = '#b91c1c';
+    err.style.color = 'var(--ss-danger)';
     const actions = document.createElement('div');
     actions.className = 'modal-actions';
     const cancel = document.createElement('button');

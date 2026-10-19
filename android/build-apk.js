@@ -124,6 +124,8 @@ function buildWeb() {
       fs.writeFileSync(path.join(ssDir, 'preload.js'), wrapPreload(fs.readFileSync(path.join(ROOT, PRELOADS[mod]), 'utf8')));
       tags += '\n<script src="/ss-android/preload.js"></script>';
     }
+    // שפת העיצוב המשותפת (PLAN.md 7.1) — במחשב main.js מגיש אותה לכל מודול; כאן עותק בשורש של כל מודול
+    fs.copyFileSync(path.join(ROOT, 'shell', 'design-tokens.css'), path.join(dst, 'design-tokens.css'));
     const entry = path.join(dst, ENTRY_HTML[mod]);
     fs.writeFileSync(entry, injectIntoHead(fs.readFileSync(entry, 'utf8'), tags, entry));
   }
@@ -131,7 +133,7 @@ function buildWeb() {
   // המעטפת
   const shellDst = path.join(WWW, 'shell');
   fs.mkdirSync(shellDst, { recursive: true });
-  for (const f of ['hebcal.js', 'catalog.js', 'onboarding.js', 'shell.js']) fs.copyFileSync(path.join(ROOT, 'shell', f), path.join(shellDst, f));
+  for (const f of ['hebcal.js', 'catalog.js', 'onboarding.js', 'shell.js', 'design-tokens.css']) fs.copyFileSync(path.join(ROOT, 'shell', f), path.join(shellDst, f));
   for (const f of ['node-shims.js', 'host.js', 'mobile.js']) fs.copyFileSync(path.join(AND, 'web', f), path.join(shellDst, f));
 
   const host = bundle({

@@ -174,6 +174,8 @@ test('smoke: מופעל רק עם --smoke, ורק עם תיקיית נתונים
   const src = read('main.js');
   assert.match(src, /process\.argv\.some\(a => a\.startsWith\('--user-data-dir='\)\)/);
   // בבדיקה אין גיבוי אוטומטי (כותב לתיקיית המסמכים האמיתית)
-  const tail = src.slice(src.indexOf('if (smoke) { smoke.run('));
+  const at = src.indexOf('smoke.run(');
+  assert.ok(at > 0);
+  const tail = src.slice(at);
   assert.ok(tail.indexOf('return;') < tail.indexOf('setTimeout(autoBackup'));
 });

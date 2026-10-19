@@ -82,6 +82,7 @@ python -m unittest test_encryption -v
 | `shell.html` | סרגל צד, מסך ראשי, דיאלוגים (סיסמה, מדריך). כולל CSP מחמיר. |
 | `catalog.js` | קטלוג התחומים והפריטים — מקור הסרגל, מסך הבית והחיפוש |
 | `hebcal.js` | לוח עברי (ICU מובנה), מועדים ודחיית צומות, זמני היום לפי עיר, מצב שבת/יו"ט. משותף ל-main.js ולמעטפת. הגדרות ב-`ui-settings.json` → `calendar` (ערוצי `shell:get-calendar` / `shell:save-calendar`). **במצב שבת אין פעולות אוטומטיות** — הגיבוי האוטומטי נדחה (`reason: 'shabbat'`) |
+| `design-tokens.css` | **שפת העיצוב — מקור יחיד לצבעים, גופנים, מרווחים, פינות וצללים** (PLAN.md 7.1), משתני `--ss-*`. נטען ראשון בכל מסך; המודולים מקבלים אותו ב-`app://<מודול>/design-tokens.css` (`registerProtocol` ב-`main.js` מגיש את הקובץ מהמעטפת), באנדרואיד — עותק בבנייה. **אין צבע hex בסגנונות או בממשק הכלכלי** — צבע חדש מוסיפים כאן ומשתמשים ב-`var(--ss-...)` (`tests/ui-consistency.test.js`, עם רשימת חריגים `HEX_ALLOWED`). במודול האימונים: `@import` בראש `suite-theme.css`. צילומי מסך: `electron.exe . --smoke --user-data-dir=<תיקייה> --shots=<תיקייה>` (התיקייה `shots/` מחוץ למאגר) |
 | `shell.js` | סרגל אחיד, מסך בית, חיפוש, אחרונים, גיבוי/שחזור, זיהוי יעד גיבוי |
 | `preload.js` | חשיפת `window.shellAPI` מעל `contextBridge` |
 | `onboarding.js` | אשף התחלה: פרופילים (עמותה, גמ"ח, עסק...) ← "המסכים שלי" וצעדים ראשונים במסך הבית. מצב ב-`localStorage` (`suite.onboarding`), מנורמל כקלט לא מהימן. **רק סידור מסכים — לא יוצר נתונים.** כל מפתח בו חייב להיות בקטלוג (`tests/onboarding.test.js`). נטען גם באנדרואיד (`android/build-apk.js`) |

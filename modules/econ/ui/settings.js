@@ -304,7 +304,7 @@ function askGoogleSettings(cfg) {
     note.className = 'muted';
     note.textContent = 'יוצרים ב-Google Cloud Console מזהה לקוח מסוג "Desktop app". הכניסה בסיסמה נשארת לכל המשתמשים.';
     const err = document.createElement('div');
-    err.style.color = '#b91c1c';
+    err.style.color = 'var(--ss-danger)';
     err.style.fontSize = '0.9rem';
     const actions = document.createElement('div');
     actions.className = 'modal-actions';

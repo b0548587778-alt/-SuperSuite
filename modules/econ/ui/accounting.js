@@ -754,7 +754,7 @@ function askDocFields(title, fields, submitText) {
       inputs[f.name] = input;
     }
     const err = document.createElement('div');
-    err.style.color = '#b91c1c';
+    err.style.color = 'var(--ss-danger)';
     err.style.fontSize = '0.9rem';
     const actions = document.createElement('div');
     actions.className = 'modal-actions';

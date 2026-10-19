@@ -158,7 +158,7 @@ const openCampaignOptions = (o) => [{ value: '', label: '— ללא —' },
 
 function renderNpoCampaigns(list) {
   if (!Array.isArray(list)) return '';
-  const bar = (p) => `<div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden"><div style="width:${Math.min(100, Math.max(0, Number(p) || 0))}%;height:100%;background:var(--accent, #0f766e)"></div></div>`;
+  const bar = (p) => `<div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden"><div style="width:${Math.min(100, Math.max(0, Number(p) || 0))}%;height:100%;background:var(--ss-cat-teal)"></div></div>`;
   return `<div class="card acct-wide">
     <div class="hub-head"><h3>קמפיינים (${list.length})</h3>
       <div class="acct-actions"><button class="secondary" id="npoCampaignAdd">＋ קמפיין</button></div></div>
@@ -523,7 +523,7 @@ async function importNpoDonations() {
             <thead><tr>${pv.headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
             <tbody>${pv.sample.map(r => `<tr>${pv.headers.map((h, i) => `<td>${esc(r[i] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody>
           </table></div>
-          <div class="npo-import-err" style="color:#b91c1c;font-size:.9rem"></div>
+          <div class="npo-import-err" style="color:var(--ss-danger);font-size:.9rem"></div>
           <div class="modal-actions"><button type="button" class="secondary" data-act="cancel">ביטול</button><button type="submit" class="primary">ייבוא</button></div>
         </form>`;
       const form = card.querySelector('form');
