@@ -59,23 +59,7 @@ self.addEventListener('fetch', e => {
 
   const url = new URL(request.url);
 
-  // API requests: network-first, cache fallback
-  if (url.host.includes('gold-api.com') ||
-      url.host.includes('frankfurter.app') ||
-      url.host.includes('coingecko.com') ||
-      url.host.includes('boi.org.il')) {
-    e.respondWith(
-      fetch(request)
-        .then(r => {
-          const copy = r.clone();
-          caches.open(RUNTIME_CACHE).then(c => c.put(request, copy));
-          return r;
-        })
-        .catch(() => caches.match(request))
-    );
-    return;
-  }
-
+  // אין מקורות מחירים ברשת (PLAN.md 9.9, 5.3) — המחירים מוזנים ידנית או מקובץ.
   // Static assets: cache-first
   if (url.origin === self.location.origin) {
     e.respondWith(

@@ -88,6 +88,8 @@ function registerProtocol() {
     if (rel === '/' || rel === '') rel = '/index.html';
     // שפת העיצוב המשותפת (PLAN.md 7.1): קובץ אחד מהמעטפת לכל המודולים — רק הנתיב המדויק הזה
     if (rel === '/design-tokens.css') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'design-tokens.css')).toString());
+    // רשת ביטחון במסכים (PLAN.md 2.4) — אותו קובץ לכל המודולים
+    if (rel === '/screen-guard.js') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'screen-guard.js')).toString());
     const file = path.normalize(path.join(root, rel));
     if (!file.startsWith(root + path.sep)) return new Response('Forbidden', { status: 403 });
     return net.fetch(pathToFileURL(file).toString());
