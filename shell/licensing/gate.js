@@ -13,6 +13,7 @@ const ECON_SUB_FEATURES = {
   madv: 'econ.mortgage-advisor',
   mlab: 'econ.mortgage-lab',
   mortgage: 'econ.mortgage',
+  rlty: 'econ.realty',            // נדל"ן ותיווך: נכסים, עסקאות, עמלות תיווך, כדאיות ותזרים ליזם
 };
 
 // ערוצים שתמיד פתוחים, גם במערכת מושבתת: כניסה/יציאה, כדי שהמשתמש יראה את מסך הסיבה.

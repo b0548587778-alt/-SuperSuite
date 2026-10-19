@@ -370,7 +370,7 @@ function labTabSettings(o, lab) {
     <div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>כלל</th><th>ערך</th><th>מקור</th><th>מצב</th><th></th></tr></thead>
       <tbody>${rules.map(r => `<tr><td>${esc(r.description)}</td><td>${fmtVal(r)}</td><td><small>${esc(r.source)}</small></td>
-        <td>${r.needsVerification ? '<span class="warn">⚠ יש לאמת</span>' : `<span class="ok">✓ אומת</span> <small>${esc(String(r.verifiedAt || '').slice(0, 10))} · ${esc(r.verifiedNote)}</small>`}</td>
+        <td>${r.needsVerification ? `<span class="warn">⚠ ${esc(r.statusLabel || 'לא מאומת')}</span>` : `<span class="ok">✓ אומת</span> <small>${esc(String(r.verifiedAt || '').slice(0, 10))} · ${esc(r.verifiedNote)}</small>`}</td>
         <td>${r.needsVerification ? `<button class="secondary" data-lab-verify="${esc(r.id)}">אימות</button>` : `<button class="icon-btn" data-lab-unverify="${esc(r.id)}" title="ביטול אימות">↺</button>`}</td></tr>`).join('')}</tbody>
     </table></div>
   </div>`;

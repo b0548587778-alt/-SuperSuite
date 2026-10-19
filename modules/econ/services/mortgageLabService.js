@@ -163,7 +163,7 @@ class MortgageLabService {
       engineVersion: E.ENGINE_VERSION,
       rules: ctx.rules.inForce(ctx.asOf).map(r => ({
         id: r.id, description: r.description, source: r.source, effectiveFrom: r.effectiveFrom,
-        value: r.value, needsVerification: r.needsVerification,
+        value: r.value, needsVerification: r.needsVerification, valueYear: r.valueYear, statusLabel: R.statusLabel(r),
         verifiedAt: verifiedAt.has(r.id) ? verifiedAt.get(r.id).verifiedAt : null,
         verifiedNote: verifiedAt.has(r.id) ? verifiedAt.get(r.id).note : ''
       })),

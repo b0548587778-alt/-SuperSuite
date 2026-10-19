@@ -19,7 +19,7 @@ const LIC_HOLD_KINDS = { suspended: 'השבתה זמנית', locked: 'נעילה
 const LIC_FEATURES = [
   ['econ', 'מערכת כלכלית (בסיס)'], ['econ.accounting', 'הנהלת חשבונות'], ['econ.npo', 'עמותה ותרומות'], ['econ.gemach', 'גמ"ח'],
   ['econ.chesed', 'חסד וחלוקות'], ['econ.mortgage', 'משכנתאות'], ['econ.mortgage-advisor', 'ייעוץ משכנתאות'], ['econ.mortgage-lab', 'מעבדת תמהיל'],
-  ['shamai', 'שמאות'], ['trainer', 'ניהול אימונים'], ['tools', 'ארגז כלים']
+  ['econ.realty', 'נדל"ן ותיווך'], ['shamai', 'שמאות'], ['trainer', 'ניהול אימונים'], ['tools', 'ארגז כלים']
 ];
 const licFeatureLabel = (f) => (LIC_FEATURES.find(x => x[0] === f) || [f, f])[1];
 const licDate = (ms) => (ms ? new Date(ms).toLocaleDateString('he-IL') : '');
