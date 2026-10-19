@@ -48,12 +48,12 @@ test('index.html של המקור: CSP, גופנים מקומיים, ערכת ה�
   assert.doesNotMatch(html, /\/assets\//, 'אין הפניה לחבילה מהודרת ישנה');
 });
 
-test('המקור תואם למודול שרץ היום: כל טקסט ממשק ב-App.jsx קיים בחבילה המהודרת', () => {
+test('המקור תואם למודול שרץ היום: כל טקסט ממשק במקור קיים בחבילה המהודרת', () => {
   const html = fs.readFileSync(path.join(ROOT, 'modules', 'trainer', 'index.html'), 'utf8');
   const bundle = fs.readFileSync(path.join(ROOT, 'modules', 'trainer', html.match(/src="\/(assets\/index-[^"]+\.js)"/)[1]), 'utf8');
   // תוויות הניווט של הסרגל הפנימי — מהן נגזר הסרגל האחיד (shell/catalog.js)
   const Catalog = require('../shell/catalog');
-  const app = read('src/App.jsx');
+  const app = require('./helpers/trainer-src').trainerUiSource(); // כל קבצי הממשק (PLAN.md 6.2)
   for (const label of Object.values(Catalog.TRAINER_LABELS)) {
     assert.ok(app.includes(label), 'תווית בסרגל חסרה במקור: ' + label);
     assert.ok(bundle.includes(label), 'תווית בסרגל חסרה בחבילה: ' + label);
