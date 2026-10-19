@@ -172,19 +172,35 @@ function buildWeb() {
 
 /* ---------- מפתח חתימה ---------- */
 // מפתח קבוע לכל הבניות: עדכון APK מותקן אפשרי רק עם אותו מפתח. לא נכנס ל-git (.gitignore).
-function ensureKeystore(t) {
-  const jks = path.join(KEYDIR, 'supersuite-release.jks');
-  const passFile = path.join(KEYDIR, 'password.txt');
+const KEYSTORE = path.join(KEYDIR, 'supersuite-release.jks');
+const PASS_FILE = path.join(KEYDIR, 'password.txt');
+
+// הסיסמה של מפתח קיים (PLAN.md 0.1): משתנה הסביבה SS_KS_PASS, אחרת password.txt (אם עוד לא נמחק),
+// אחרת הקלדה במסוף בלי הצגה. כך אפשר למחוק את password.txt מהדיסק אחרי שהמפתח מגובה.
+async function resolveKeystorePass({ env = process.env, passFile = PASS_FILE, ask = null, isTTY = process.stdin.isTTY } = {}) {
+  if (env.SS_KS_PASS && env.SS_KS_PASS.trim()) return env.SS_KS_PASS.trim();
+  if (fs.existsSync(passFile)) return fs.readFileSync(passFile, 'utf8').trim();
+  if (ask && isTTY) {
+    const p = String(await ask('סיסמת מפתח החתימה של האנדרואיד: ')).trim();
+    if (p) return p;
+  }
+  throw new Error('חסרה סיסמת מפתח החתימה. הריצו את הבנייה במסוף והקלידו אותה, או הגדירו את משתנה הסביבה SS_KS_PASS.' +
+    ' (הסיסמה נמצאת בגיבוי המוצפן: node tools/android-key-backup.js restore <קובץ>)');
+}
+
+// מפתח חדש נוצר רק כשאין מפתח בכלל — אז נוצרת גם הסיסמה ונשמרת ב-password.txt (לגיבוי מיד)
+function ensureKeystore(t, pass) {
   fs.mkdirSync(KEYDIR, { recursive: true });
-  if (!fs.existsSync(jks)) {
-    const pass = crypto.randomBytes(24).toString('base64url');
-    fs.writeFileSync(passFile, pass, { mode: 0o600 });
-    run(t.keytool, ['-genkeypair', '-keystore', jks, '-storetype', 'PKCS12', '-alias', 'supersuite', '-keyalg', 'RSA', '-keysize', '3072',
+  if (!fs.existsSync(KEYSTORE)) {
+    pass = crypto.randomBytes(24).toString('base64url');
+    fs.writeFileSync(PASS_FILE, pass, { mode: 0o600 });
+    run(t.keytool, ['-genkeypair', '-keystore', KEYSTORE, '-storetype', 'PKCS12', '-alias', 'supersuite', '-keyalg', 'RSA', '-keysize', '3072',
       '-validity', '36500', '-dname', 'CN=SuperSuite, O=Bunim Seller', '-storepass:env', 'SS_KS_PASS', '-keypass:env', 'SS_KS_PASS'],
       { env: { ...process.env, SS_KS_PASS: pass } });
-    log('נוצר מפתח חתימה חדש: ' + path.relative(ROOT, jks) + ' — יש לגבות אותו (בלעדיו אי אפשר לעדכן את האפליקציה המותקנת)');
+    log('נוצר מפתח חתימה חדש: ' + path.relative(ROOT, KEYSTORE) + ' — יש לגבות אותו (node tools/android-key-backup.js backup)');
   }
-  return { jks, pass: fs.readFileSync(passFile, 'utf8').trim() };
+  if (!pass) throw new Error('חסרה סיסמת מפתח החתימה');
+  return { jks: KEYSTORE, pass };
 }
 
 /* ---------- APK ---------- */
@@ -196,7 +212,7 @@ function copyResDir(from, to) {
   }
 }
 
-function buildApk(t, version) {
+function buildApk(t, version, keyPass) {
   const work = path.join(OUT, 'work');
   rmrf(work);
   fs.mkdirSync(work, { recursive: true });
@@ -235,7 +251,7 @@ function buildApk(t, version) {
   const aligned = path.join(work, 'aligned.apk');
   run(t.zipalign, ['-f', '-p', '4', unsigned, aligned]);
 
-  const ks = ensureKeystore(t);
+  const ks = ensureKeystore(t, keyPass);
   fs.mkdirSync(DIST, { recursive: true });
   const apk = path.join(DIST, 'SuperSuite.apk');
   const signEnv = { ...env, SS_KS_PASS: ks.pass };
@@ -272,7 +288,7 @@ function assertZipNames(apk) {
   if (!have.has('classes.dex')) throw new Error('חסר classes.dex');
 }
 
-function main() {
+async function main() {
   const { t, missing } = findTools();
   if (args.has('--check')) {
     console.log('תיקיית כלים:', t.root);
@@ -285,12 +301,16 @@ function main() {
     console.error('חסרים כלים: ' + missing.join(', ') + '\nראו android/README.md (או הריצו עם --check).');
     process.exit(1);
   }
-  const { apk, versionCode } = buildApk(t, version);
+  // הסיסמה לפני הבנייה הארוכה — כדי שלא תיכשל רק בסוף. מפתח חדש יוצר סיסמה בעצמו
+  const keyPass = fs.existsSync(KEYSTORE)
+    ? await resolveKeystorePass({ ask: require('../tools/android-key-backup').askHidden })
+    : null;
+  const { apk, versionCode } = buildApk(t, version, keyPass);
   const mb = (fs.statSync(apk).size / 1024 / 1024).toFixed(1);
   console.log(`\n✓ ${apk}  (${mb}MB, גרסה ${version}, versionCode ${versionCode})`);
 }
 
 if (require.main === module) {
-  try { main(); } catch (e) { console.error('\n✗ ' + e.message); process.exit(1); }
+  main().catch(e => { console.error('\n✗ ' + e.message); process.exit(1); });
 }
-module.exports = { buildWeb, findTools, wrapPreload, injectIntoHead, WWW, DOMAIN };
+module.exports = { buildWeb, findTools, wrapPreload, injectIntoHead, resolveKeystorePass, WWW, DOMAIN };

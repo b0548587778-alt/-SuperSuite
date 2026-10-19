@@ -35,3 +35,38 @@ test('המפתח עצמו לא נכנס לגיט', () => {
   assert.match(ignore, /^android\/keystore\/?$/m);
   assert.match(ignore, /\.sskey$/m, 'גם קובץ הגיבוי המוצפן לא נכנס למאגר');
 });
+
+// בניית ה-APK בלי password.txt (PLAN.md 0.1) — קבצים זמניים בלבד, לא המפתח האמיתי
+const os = require('os');
+const { resolveKeystorePass } = require('../android/build-apk');
+
+function tmpPassFile(content) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-kspass-'));
+  const f = path.join(dir, 'password.txt');
+  if (content != null) fs.writeFileSync(f, content);
+  return f;
+}
+
+test('סיסמת המפתח: משתנה הסביבה גובר על הקובץ', async () => {
+  const f = tmpPassFile('from-file\n');
+  assert.equal(await resolveKeystorePass({ env: { SS_KS_PASS: ' from-env ' }, passFile: f }), 'from-env');
+});
+
+test('סיסמת המפתח: בלי משתנה סביבה — מהקובץ, אם עוד קיים', async () => {
+  const f = tmpPassFile('from-file\r\n');
+  assert.equal(await resolveKeystorePass({ env: {}, passFile: f }), 'from-file');
+});
+
+test('סיסמת המפתח: אחרי מחיקת password.txt — הקלדה במסוף', async () => {
+  const f = tmpPassFile(null);
+  let asked = 0;
+  const pass = await resolveKeystorePass({ env: {}, passFile: f, isTTY: true, ask: async () => { asked++; return 'typed'; } });
+  assert.equal(pass, 'typed');
+  assert.equal(asked, 1);
+});
+
+test('סיסמת המפתח: בלי מסוף ובלי קובץ — שגיאה בעברית שמפנה לגיבוי (לא בנייה עם סיסמה ריקה)', async () => {
+  const f = tmpPassFile(null);
+  await assert.rejects(resolveKeystorePass({ env: {}, passFile: f, isTTY: false, ask: async () => 'x' }), /חסרה סיסמת מפתח החתימה.*android-key-backup/);
+  await assert.rejects(resolveKeystorePass({ env: { SS_KS_PASS: '   ' }, passFile: f, isTTY: true, ask: async () => '' }), /חסרה סיסמת/);
+});

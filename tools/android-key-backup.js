@@ -130,4 +130,4 @@ if (require.main === module) {
   run.catch(e => { console.error('\n✖ ' + e.message); process.exit(1); });
 }
 
-module.exports = { encrypt, decrypt, MAGIC };
+module.exports = { encrypt, decrypt, askHidden, MAGIC };

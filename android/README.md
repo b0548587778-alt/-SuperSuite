@@ -26,6 +26,10 @@ node android/build-apk.js --web   # רק קבצי ה-web (android/build/assets) 
 
 **מפתח חתימה:** `android/keystore/` נוצר בבנייה הראשונה (לא נכנס ל-git). **יש לגבות אותו** —
 עדכון של אפליקציה מותקנת אפשרי רק עם אותו מפתח. בלעדיו יש להסיר ולהתקין מחדש (והנתונים במכשיר נמחקים).
+גיבוי מוצפן: `node tools/android-key-backup.js backup` (שחזור: `restore <קובץ>`).
+
+**סיסמת המפתח:** משתנה הסביבה `SS_KS_PASS`, אחרת `android/keystore/password.txt` (אם קיים), ואחרת הבנייה מבקשת
+להקליד אותה במסוף. אחרי שהמפתח מגובה, אפשר למחוק את `password.txt`.
 
 ## ארכיטקטורה
 
