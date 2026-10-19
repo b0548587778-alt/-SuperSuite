@@ -50,11 +50,13 @@ label.c{display:inline-flex;gap:4px;align-items:center;font-size:14px;flex:0 0 a
 label.c input{width:auto}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ss-navy-2);color:var(--ss-surface);padding:8px 16px;border-radius:20px;opacity:0;transition:.25s;pointer-events:none}
 .toast.on{opacity:1}
+.warn{margin-top:8px;font-size:13px;color:var(--ss-warning-ink);background:var(--ss-warning-soft);border-radius:8px;padding:6px 10px}
+.warn:empty{display:none}
 </style>
 </head>
 <body>
 <h1>ארגז כלים</h1>
-<p class="sub">שלושה-עשר כלים בדף אחד. הנתונים נשמרים במחשב שלך בלבד.</p>
+<p class="sub">כל הכלים בדף אחד. הנתונים נשמרים במחשב שלך בלבד.</p>
 <div class="grid">
 
 <section class="card"><h2>מחשבון</h2><p class="d">אפשר להקליד מהמקלדת. התוצאות האחרונות מופיעות מתחת.</p>
@@ -144,6 +146,42 @@ label.c input{width:auto}
 <div class="row"><span class="fix">סכום התחלתי</span><input id="ciP" type="number" value="10000"><span class="fix">הפקדה חודשית</span><input id="ciM" type="number" value="500"></div>
 <div class="row"><span class="fix">ריבית שנתית (%)</span><input id="ciR" type="number" value="4" step="0.1"><span class="fix">שנים</span><input id="ciY" type="number" value="10"></div>
 <div class="out" id="ciOut"></div></section>
+
+<!-- כלים לקהל היעד (PLAN.md 9.12) -->
+<section class="card" id="salaryCard"><h2>שכר ברוטו–נטו</h2><p class="d">הערכה חודשית: מס הכנסה, ביטוח לאומי, בריאות ופנסיה. בלי זיכוי בגין הפקדה לפנסיה, שווי והחזרי מס.</p>
+<div class="row"><span class="fix">ברוטו (₪)</span><input id="sgG" inputmode="decimal" value="12000"><span class="fix">נקודות זיכוי</span><input id="sgC" type="number" step="0.25" min="0" value="2.25"></div>
+<div class="row"><span class="fix">פנסיה לעובד (%)</span><input id="sgP" type="number" step="0.5" min="0" max="10" value="6"></div>
+<div class="out" id="sgO" style="direction:rtl;text-align:right"></div>
+<div class="warn" id="sgW"></div>
+<div class="row"><button id="sgFile">טעינת טבלת מדרגות מקובץ…</button><button id="sgReset" class="fix">חזרה לטבלה המובנית</button><input type="file" id="sgIn" accept=".json,application/json" hidden></div></section>
+
+<section class="card" id="maaserCard"><h2>מעקב מעשרות</h2><p class="d">הכנסות מול נתינה לפי שנה עברית. הכלי מחשב בלבד — מה נחשב הכנסה ומה נחשב נתינה, יש לשאול רב.</p>
+<div class="row"><label class="c"><input type="radio" name="mR" value="10" checked>מעשר (10%)</label><label class="c"><input type="radio" name="mR" value="20">חומש (20%)</label></div>
+<div class="row"><select id="mK" class="fix" style="width:auto" aria-label="סוג רשומה"><option value="income">הכנסה</option><option value="given">נתינה</option></select><input id="mA" inputmode="decimal" placeholder="סכום (₪)" aria-label="סכום"><input id="mD" type="date" aria-label="תאריך"></div>
+<div class="row"><input id="mN" placeholder="הערה (אופציונלי)" maxlength="80" aria-label="הערה"><button class="p fix" id="mAdd">הוספה</button></div>
+<div class="out" id="mO" style="direction:rtl;text-align:right"></div>
+<div id="mList" class="hist" style="direction:rtl;text-align:right;max-height:160px"></div></section>
+
+<section class="card"><h2>הצמדה למדד</h2><p class="d">סכום צמוד לפי מדד בסיס ומדד חדש (מקלידים את המדדים מהפרסום הרשמי).</p>
+<div class="row"><span class="fix">סכום (₪)</span><input id="ixA" inputmode="decimal" value="100000"></div>
+<div class="row"><span class="fix">מדד בסיס</span><input id="ixB" type="number" step="0.01" value="100"><span class="fix">מדד חדש</span><input id="ixC" type="number" step="0.01" value="103.5"></div>
+<div class="row"><label class="c"><input type="checkbox" id="ixF">בלי ירידה מתחת לסכום המקורי</label></div>
+<div class="out" id="ixO" style="direction:rtl;text-align:right"></div></section>
+
+<section class="card"><h2>גימטריה</h2><p class="d">ערך כל מילה וסך הכול. ומספר לאותיות, כמו בתאריך עברי.</p>
+<textarea id="gmT" style="min-height:70px" aria-label="טקסט לחישוב">בראשית ברא</textarea>
+<div class="row"><label class="c"><input type="checkbox" id="gmF">אותיות סופיות 500–900</label></div>
+<div class="out" id="gmO" style="direction:rtl;text-align:right"></div>
+<div class="row"><span class="fix">מספר</span><input id="gmN" type="number" min="1" max="9999" value="5786"></div>
+<div class="out" id="gmH" style="direction:rtl;text-align:right"></div></section>
+
+<section class="card"><h2>דמי הבראה ופיצויים</h2><p class="d">הערכה לעובד במגזר הפרטי. שווי יום ההבראה משתנה — יש לבדוק את הערך העדכני.</p>
+<div class="row"><span class="fix">ותק (שנים)</span><input id="hvY" type="number" step="0.5" min="0" value="4"><span class="fix">היקף משרה (%)</span><input id="hvP" type="number" min="1" max="100" value="100"></div>
+<div class="row"><span class="fix">שווי יום הבראה (₪)</span><input id="hvR" inputmode="decimal" value="418"></div>
+<div class="out" id="hvO" style="direction:rtl;text-align:right"></div><hr style="border:0;border-top:1px solid var(--line)">
+<div class="row"><span class="fix">שכר אחרון (₪)</span><input id="svS" inputmode="decimal" value="10000"></div>
+<div class="row"><span class="fix">מ-</span><input id="svA" type="date" value="2020-01-01"><span class="fix">עד</span><input id="svB" type="date"></div>
+<div class="out" id="svO" style="direction:rtl;text-align:right"></div></section>
 
 </div>
 <div class="toast" id="toast"></div>

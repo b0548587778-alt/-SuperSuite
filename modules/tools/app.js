@@ -165,3 +165,60 @@ $('b64e').onclick=t(u8);$('b64d').onclick=t(un);o.onclick=()=>copy(o.textContent
   ['dN','dX'].forEach(i=>$(i).onchange=da); ['ciP','ciM','ciR','ciY'].forEach(i=>$(i).oninput=ci);
   pw(); ci(); (()=>{const t=new Date().toISOString().slice(0,10);$('dA').value=t;$('dX').value=t;$('dB').value=C.addDays(t,30);dd();da()})();
 })();
+
+/* ---------- כלים לקהל היעד (PLAN.md 9.12) ---------- */
+(function(){
+  const C=window.ToolsCalc;
+  const ils=ag=>'₪'+(ag/100).toLocaleString('he-IL',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const err=(el,e)=>{el.textContent='שגיאה: '+(e.message||e)};
+  const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+
+  // שכר: טבלה מקובץ שנשמרה (נבדקת שוב בכל טעינה), אחרת המובנית
+  let table=C.SALARY_TABLE_DEFAULT;
+  try{const saved=store.get('salaryTable',null);if(saved)table=C.parseSalaryTable(saved)}catch{store.set('salaryTable',null)}
+  const sg=()=>{
+    $('sgW').textContent=(table.verified?'':'⚠ ')+`טבלה לשנת ${table.year}`+(table.note?' — '+table.note:(table.verified?'':' — לא מאומתת: לבדוק מול מחשבון רשות המסים לפני הסתמכות.'));
+    try{const r=C.netSalary({gross:$('sgG').value,creditPoints:$('sgC').value,pensionPct:$('sgP').value,table});
+      $('sgO').innerHTML=`נטו משוער: <b>${ils(r.netAg)}</b><br>מס הכנסה ${ils(r.incomeTaxAg)} (אחרי זיכוי ${ils(r.creditAg)}) · ביטוח לאומי ${ils(r.bituachAg)} · בריאות ${ils(r.healthAg)} · פנסיה ${ils(r.pensionAg)}<br>`+
+        r.steps.map(s=>`מדרגה ${s.rate}%: ${ils(s.partAg)} ← ${ils(s.taxAg)}`).join(' · ')}catch(e){err($('sgO'),e)}};
+  ['sgG','sgC','sgP'].forEach(i=>$(i).oninput=sg);
+  $('sgFile').onclick=()=>$('sgIn').click();
+  $('sgIn').onchange=async e=>{const f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;
+    try{if(f.size>32768)throw new Error('הקובץ גדול מדי');const t=C.parseSalaryTable(await f.text());table=t;store.set('salaryTable',t);toast('הטבלה נטענה');sg()}catch(x){toast('הטבלה לא נטענה: '+x.message)}};
+  $('sgReset').onclick=()=>{table=C.SALARY_TABLE_DEFAULT;store.set('salaryTable',null);sg()};
+  sg();
+
+  // מעשרות
+  let M=store.get('maaser',[]);if(!Array.isArray(M))M=[];
+  const rate=()=>Number((document.querySelector('input[name="mR"]:checked')||{}).value||store.get('maaserRate',10));
+  const mDraw=()=>{try{const r=C.maaserSummary(M,rate());
+      $('mO').innerHTML=`הכנסות ${ils(r.incomeAg)} · ${r.rate}% = ${ils(r.dueAg)} · ניתן ${ils(r.givenAg)}<br><b>${r.balanceAg>0?'נותר לתת: '+ils(r.balanceAg):r.balanceAg<0?'ניתן מעבר לחשבון: '+ils(-r.balanceAg):'מאוזן'}</b>`+
+        (r.years.length>1?'<br>'+r.years.map(y=>`${esc(y.year)}: הכנסות ${ils(y.incomeAg)}, ניתן ${ils(y.givenAg)}`).join('<br>'):'');
+    }catch(e){err($('mO'),e)}
+    $('mList').innerHTML=M.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100).map(e=>`<div>${e.kind==='income'?'➕ הכנסה':'➖ נתינה'} ${ils(e.amountAg)} · ${esc(e.date)}${e.note?' · '+esc(e.note):''} <button data-mx="${esc(e.id)}" aria-label="מחיקת רשומה">✕</button></div>`).join('')};
+  document.querySelectorAll('input[name="mR"]').forEach(r=>{if(Number(r.value)===store.get('maaserRate',10))r.checked=true;r.onchange=()=>{store.set('maaserRate',rate());mDraw()}});
+  $('mD').value=today();
+  $('mAdd').onclick=()=>{try{M.push(C.newMaaserEntry({kind:$('mK').value,amount:$('mA').value,date:$('mD').value,note:$('mN').value}));store.set('maaser',M);$('mA').value='';$('mN').value='';mDraw()}catch(e){toast(e.message)}};
+  $('mList').onclick=e=>{const id=e.target.dataset.mx;if(!id||!confirm('למחוק את הרשומה?'))return;M=M.filter(x=>x.id!==id);store.set('maaser',M);mDraw()};
+  mDraw();
+
+  // הצמדה למדד
+  const ix=()=>{try{const r=C.indexLinkage({amount:$('ixA').value,baseIndex:$('ixB').value,currentIndex:$('ixC').value,floor:$('ixF').checked});
+    $('ixO').innerHTML=`סכום צמוד: <b>${ils(r.linkedAg)}</b> · הפרש ${ils(r.diffAg)} · שינוי במדד ${r.changePct}%`}catch(e){err($('ixO'),e)}};
+  ['ixA','ixB','ixC'].forEach(i=>$(i).oninput=ix);$('ixF').onchange=ix;ix();
+
+  // גימטריה
+  const gm=()=>{const r=C.gematria($('gmT').value,{finals:$('gmF').checked});
+    $('gmO').innerHTML=r.total?`סך הכול: <b>${r.total}</b>`+(r.words.length>1?'<br>'+r.words.slice(0,50).map(w=>`${esc(w.word)} = ${w.value}`).join(' · '):''):'אין אותיות עבריות'};
+  const gh=()=>{try{$('gmH').textContent=C.numberToHebrew(+$('gmN').value)}catch(e){err($('gmH'),e)}};
+  $('gmT').oninput=gm;$('gmF').onchange=gm;$('gmN').oninput=gh;gm();gh();
+
+  // הבראה ופיצויים
+  const hv=()=>{try{const r=C.havraa({years:$('hvY').value,jobPct:$('hvP').value,dayRate:$('hvR').value});
+    $('hvO').innerHTML=r.eligible?`${r.days} ימי הבראה לשנה · <b>${ils(r.amountAg)}</b>`:'הזכאות מתחילה אחרי שנת עבודה מלאה'}catch(e){err($('hvO'),e)}};
+  const sv=()=>{try{const r=C.severance({salary:$('svS').value,from:$('svA').value,to:$('svB').value});
+    $('svO').innerHTML=`ותק ${r.years} שנים · פיצויים: <b>${ils(r.amountAg)}</b>`+(r.eligible?'':'<br>בדרך כלל הזכאות לפיצויים מתחילה אחרי שנת עבודה')}catch(e){err($('svO'),e)}};
+  ['hvY','hvP','hvR'].forEach(i=>$(i).oninput=hv);['svS','svA','svB'].forEach(i=>$(i).oninput=sv);
+  $('svB').value=today();hv();sv();
+})();
