@@ -9,6 +9,7 @@ const UF = require('../core/uniformFile');
 const PCN = require('../core/pcn874');
 const RC = require('../core/recurring');
 const BR = require('../core/bankReconcile');
+const BZ = require('../core/bizReports');
 const { assertIsraeliId } = require('../core/israeliId');
 
 const toAgSafe = (n) => Math.round(Number(n) * 100);
@@ -718,6 +719,50 @@ class AccountingService {
     data.settings = { ...(data.settings || {}), vatRate: rate, lockDate, business };
     await this.db.save(data);
     return this.getSettings();
+  }
+
+  // ---------- דוחות לעסק (PLAN.md 9.5): כרטסת לקוח, תזרים צפוי, מקדמות ולוח בקרה — קריאה בלבד ----------
+  _reportSettings(data) { return BZ.normalizeSettings(data.settings && data.settings.reports); }
+
+  async getBizSettings() {
+    const data = await this._load();
+    return this._reportSettings(data);
+  }
+
+  // תנאי תשלום, תקופת דיווח ושיעור מקדמה — לא נוגע ביומן, ולכן מותר גם בתקופה נעולה
+  async saveBizSettings(input) {
+    const data = await this._load();
+    const reports = BZ.validateSettings(input);
+    data.settings = { ...(data.settings || {}), reports };
+    await this.db.save(data);
+    return reports;
+  }
+
+  async getCustomerBalances({ today } = {}) {
+    const data = await this._load();
+    return BZ.customerBalances(data, today || localDay());
+  }
+
+  async getCustomerLedger(customer, { from, to } = {}) {
+    const data = await this._load();
+    return BZ.customerLedger(data, customer, { from: from || undefined, to: to || undefined });
+  }
+
+  async getCashForecast({ today, months, includeExpenses } = {}) {
+    const data = await this._load();
+    return BZ.cashForecast(data, { today: today || localDay(), months, includeExpenses: includeExpenses !== false,
+      settings: this._reportSettings(data), vatRate: this._vatRate(data) });
+  }
+
+  async getAdvancesReport({ year, today } = {}) {
+    const data = await this._load();
+    const day = today || localDay();
+    return BZ.advancesReport(data, { year: year || Number(day.slice(0, 4)), today: day, settings: this._reportSettings(data) });
+  }
+
+  async getBizDashboard({ today } = {}) {
+    const data = await this._load();
+    return BZ.dashboardSummary(data, { today: today || localDay(), settings: this._reportSettings(data), vatRate: this._vatRate(data) });
   }
 
   // ---------- התאמת בנק (PLAN.md 9.4): קליטת דף בנק מקובץ והתאמה לחשבוניות ולרשומות ----------

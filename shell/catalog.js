@@ -11,6 +11,7 @@
         { mod: 'econ', view: 'acct-invoices',    icon: '🧾', name: 'חשבוניות מס',          desc: 'הפקה, תשלום וביטול' },
         { mod: 'econ', view: 'collect',          icon: '💳', name: 'גבייה וקישורי תשלום',   desc: 'קישור תשלום ללקוח, לתורם או ללווה, וקליטת דוח הסליקה' },
         { mod: 'econ', view: 'acct-reports',     icon: '📈', name: 'דוחות ומע"מ',          desc: 'רווח והפסד, מאזן בוחן ודוח מע"מ' },
+        { mod: 'econ', view: 'biz-reports',      icon: '💧', name: 'תזרים, כרטסת ומקדמות', desc: 'תזרים צפוי, כרטסת ויתרות לקוחות, מקדמות ומע"מ לפי תקופה' },
         { mod: 'econ', view: 'acct-bank',        icon: '🏦', name: 'התאמת בנק',            desc: 'קליטת דף בנק מקובץ והתאמה לחשבוניות' },
         { mod: 'econ', view: 'acct-journal',     icon: '📒', name: 'יומן חשבונאי',         desc: 'פקודות יומן בהנה"ח כפולה' },
         { mod: 'econ', view: 'acct-chart',       icon: '🗂',  name: 'תוכנית חשבונות',       desc: 'מבנה החשבונות של העסק' },

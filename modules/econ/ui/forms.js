@@ -118,6 +118,8 @@ function attachViewHandlers(viewName) {
 
   if (viewName === 'acct-invoices') attachInvoiceViewHandlers();
   if (viewName === 'acct-bank') attachBankHandlers();
+  if (viewName === 'biz-reports') attachBizHandlers();
+  if (viewName === 'dashboard') attachBizDashHandlers();
   if (viewName === 'npo') attachNpoHandlers();
   if (viewName === 'gemach') attachGemachHandlers();
   if (viewName === 'chesed') attachChesedHandlers();

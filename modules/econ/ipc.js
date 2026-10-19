@@ -779,6 +779,33 @@ function registerIpcHandlers() {
     return result;
   });
   handle('acct:getReports', async (event, range) => accountingService.getReports(range || {}));
+  // דוחות לעסק (PLAN.md 9.5) — "היום" נקבע כאן לפי השעון המקומי, לא מהממשק
+  const bizStr = (v, n = 200) => String(v ?? '').slice(0, n);
+  const bizDay = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : undefined);
+  handle('acct:getBizSettings', async () => accountingService.getBizSettings());
+  handle('acct:saveBizSettings', async (event, input) => {
+    const saved = await accountingService.saveBizSettings(input || {});
+    await auditEvent(event, 'acct.reports.settings', { period: saved.period, terms: saved.paymentTermsDays, advanceRateBp: saved.advanceRateBp });
+    return saved;
+  });
+  handle('acct:getCustomerBalances', async () => accountingService.getCustomerBalances({ today: localDay(Date.now()) }));
+  handle('acct:getCustomerLedger', async (event, customer, range) => accountingService.getCustomerLedger(bizStr(customer),
+    { from: bizDay(range && range.from), to: bizDay(range && range.to) }));
+  handle('acct:getCashForecast', async (event, opts) => accountingService.getCashForecast({ today: localDay(Date.now()),
+    months: Number(opts && opts.months) || 3, includeExpenses: !(opts && opts.includeExpenses === false) }));
+  handle('acct:getAdvancesReport', async (event, year) => accountingService.getAdvancesReport({ year: Number(year) || undefined, today: localDay(Date.now()) }));
+  handle('acct:getBizDashboard', async () => accountingService.getBizDashboard({ today: localDay(Date.now()) }));
+  // כרטסת לקוח לקובץ: הנתונים נקראים שוב מהספרים, לא מהממשק
+  handle('acct:exportCustomerLedger', async (event, customer, range) => {
+    const l = await accountingService.getCustomerLedger(bizStr(customer), { from: bizDay(range && range.from), to: bizDay(range && range.to) });
+    const n = (ag) => (ag / 100).toFixed(2);
+    const rows = [...(l.from ? [[l.from, '', 'יתרת פתיחה', '', '', n(l.openingAg)]] : []),
+      ...l.rows.map(r => [r.date, r.ref, r.label, r.debitAg ? n(r.debitAg) : '', r.creditAg ? n(r.creditAg) : '', n(r.balanceAg)])];
+    const name = 'כרטסת ' + l.customer.replace(/[\\/:*?"<>|]/g, '_');
+    const result = await saveCsv({ headers: ['תאריך', 'מסמך', 'פרטים', 'חובה', 'זכות', 'יתרה'], rows, name });
+    if (result.ok) await auditEvent(event, 'acct.export.ledger', { rows: rows.length });
+    return result;
+  });
   handle('acct:setVatRate', async (event, rate) => accountingService.setVatRate(rate));
   handle('acct:getSettings', async () => accountingService.getSettings());
   handle('acct:getProducts', async () => accountingService.getProducts());

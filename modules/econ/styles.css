@@ -1072,3 +1072,38 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .empty-title{font-weight:700;color:var(--ss-text);font-size:var(--ss-fs-md)}
 .empty-hint{max-width:46ch;line-height:1.55;font-size:var(--ss-fs-sm)}
 .empty-add{margin-top:var(--ss-sp-2)}
+
+/* דוחות לעסק (PLAN.md 9.5): לשוניות, גרף תזרים, כרטסת */
+.biz-tabs{display:flex;gap:var(--ss-sp-2);flex-wrap:wrap;margin-bottom:var(--ss-sp-4);border-bottom:2px solid var(--ss-border)}
+.biz-tab{background:none;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;padding:10px 16px;font-size:var(--ss-fs-md);color:var(--ss-muted);cursor:pointer;font-family:var(--ss-font)}
+.biz-tab:hover{color:var(--ss-text)}
+.biz-tab.active{color:var(--ss-navy-2);border-bottom-color:var(--ss-gold);font-weight:700}
+.biz-chart{width:100%;max-height:200px}
+.biz-chart text{font-size:12px;fill:var(--ss-muted);font-family:var(--ss-font)}
+.biz-axis{stroke:var(--ss-border-strong)}
+.biz-chart .biz-in,.biz-dot.biz-in{fill:var(--ss-success);background:var(--ss-success)}
+.biz-chart .biz-out,.biz-dot.biz-out{fill:var(--ss-gold);background:var(--ss-gold)}
+.biz-legend{display:flex;gap:var(--ss-sp-3);align-items:center;font-size:var(--ss-fs-sm);color:var(--ss-muted)}
+.biz-dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-inline-end:4px}
+.biz-month h3{margin-top:0}
+.biz-item small.muted{margin-inline-start:4px}
+.biz-tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:var(--ss-fs-xs);background:var(--ss-info-soft);color:var(--ss-info-ink);border:1px solid var(--ss-info-line)}
+.biz-tag.vat,.biz-tag.advance{background:var(--ss-warning-soft);color:var(--ss-warning-ink);border-color:var(--ss-warning-line)}
+.biz-tag.expenses{background:var(--ss-surface-2);color:var(--ss-muted);border-color:var(--ss-border)}
+.biz-tag.recurring{background:var(--ss-success-soft);color:var(--ss-success-ink);border-color:var(--ss-success-line)}
+.biz-item .neg,.biz-reports td.neg{color:var(--ss-danger-ink)}
+.biz-item .pos{color:var(--ss-success-ink)}
+.biz-warn{background:var(--ss-danger-soft);border-color:var(--ss-danger-line);color:var(--ss-danger-ink);font-weight:600}
+.biz-split{display:grid;grid-template-columns:minmax(300px,1fr) minmax(360px,1.4fr);gap:var(--ss-sp-4);align-items:start}
+@media (max-width:1100px){.biz-split{grid-template-columns:1fr}}
+.biz-reports tr.biz-selected td{background:var(--ss-primary-soft)}
+.biz-reports tr.biz-future td{color:var(--ss-faint)}
+.biz-reports tr.biz-current td{font-weight:700}
+.biz-reports tr.biz-opening td{font-style:italic;color:var(--ss-muted)}
+.biz-ledger-head{display:flex;justify-content:space-between;align-items:center;gap:var(--ss-sp-3);flex-wrap:wrap}
+.biz-ledger-head h3{margin:0}
+.field-inline{display:inline-flex;align-items:center;gap:6px;font-size:var(--ss-fs-sm)}
+.biz-year{font-size:var(--ss-fs-lg);min-width:4ch;text-align:center}
+.biz-hint{padding:var(--ss-sp-4) 0}
+.biz-dash{margin-bottom:14px}
+.biz-dash h3 small{font-weight:400;margin-inline-start:6px}

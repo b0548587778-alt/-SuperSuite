@@ -39,9 +39,9 @@ function renderDashboard(data) {
   const invoices = (Array.isArray(data?.invoices) ? data.invoices : []).slice(0, 5);
   const cash = acc ? (acc.balanceSheet.assets.find(a => a.code === '1000')?.amount || 0) : 0;
   const quick = [
-    ['acct-reports', '📈', 'דוחות ומע"מ'], ['acct-journal', '📒', 'יומן חשבונאי'],
+    ['acct-reports', '📈', 'דוחות ומע"מ'], ['biz-reports', '💧', 'תזרים וכרטסת'],
     ['acct-invoices', '🧾', 'חשבוניות מס'], ['acct-pricing', '🏷', 'מחירון ותמחור'],
-    ['acct-chart', '🗂', 'תוכנית חשבונות'], ['acct-settings', '🏢', 'הגדרות עסק']
+    ['acct-journal', '📒', 'יומן חשבונאי'], ['acct-settings', '🏢', 'הגדרות עסק']
   ];
 
   return `
@@ -64,6 +64,7 @@ function renderDashboard(data) {
           <div class="kpi ${tone(-acc.vat.netPayable)}"><small>${acc.vat.netPayable >= 0 ? 'מע"מ לתשלום' : 'מע"מ לזיכוי'}</small><strong>${money(Math.abs(acc.vat.netPayable))}</strong></div>
           <div class="kpi"><small>מוצרים במחירון</small><strong>${(data.products || []).length}</strong></div>
         </div>
+        ${renderBizDashCard(data.biz)}
         <div class="hub-grid">
           <div class="card">
             <h3>חשבוניות אחרונות</h3>

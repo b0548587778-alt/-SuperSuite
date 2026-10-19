@@ -63,7 +63,8 @@ const viewTitles = {
   'acct-settings': 'הגדרות עסק ומע"מ',
   'acct-pricing': 'מחירון ומחשבון תמחור',
   'acct-personal': 'הוצאות אישיות ומשפחתיות',
-  'acct-bank': 'התאמת בנק'
+  'acct-bank': 'התאמת בנק',
+  'biz-reports': 'תזרים צפוי, כרטסת לקוחות ומקדמות'
 };
 
 // Initialize application
@@ -318,6 +319,9 @@ async function loadViewData(viewName) {
         state.data.acctBank = { ...bank, chart };
         break;
       }
+      case 'biz-reports':
+        state.data.bizReports = await loadBizReports();
+        break;
       case 'acct-chart':
         state.data.acctChart = await window.systemAPI.getChart();
         break;
@@ -336,7 +340,7 @@ async function loadViewData(viewName) {
 
 // Load dashboard data
 async function loadDashboardData() {
-  const [finance, tasks, marketIntel, accounting, invoices, products, brief] = await Promise.all([
+  const [finance, tasks, marketIntel, accounting, invoices, products, brief, biz] = await Promise.all([
     window.systemAPI.getPersonalFinance().catch(() => null),
     window.systemAPI.getTasks().catch(() => null),
     window.systemAPI.getMarketIntel().catch(() => null),
@@ -344,9 +348,11 @@ async function loadDashboardData() {
     window.systemAPI.getInvoices().catch(() => []),
     window.systemAPI.getProducts().catch(() => []),
     // לוח הבוקר (עמותה, גמ"ח, חסד) — תחום סגור ברישיון או תקלה לא מפילים את מסך הבית
-    typeof window.systemAPI.getMorningBrief === 'function' ? window.systemAPI.getMorningBrief().catch(() => null) : null
+    typeof window.systemAPI.getMorningBrief === 'function' ? window.systemAPI.getMorningBrief().catch(() => null) : null,
+    // תזרים, חייבים ותשלומים לרשויות (9.5) — בלי רישיון לחשבונות פשוט לא מוצג
+    typeof window.systemAPI.getBizDashboard === 'function' ? window.systemAPI.getBizDashboard().catch(() => null) : null
   ]);
-  return { finance, tasks, marketIntel, accounting, invoices, products, brief };
+  return { finance, tasks, marketIntel, accounting, invoices, products, brief, biz };
 }
 
 // Load finance data
@@ -387,12 +393,13 @@ const DATA_KEYS = {
   'acct-settings': 'acctSettings',
   'acct-pricing': 'acctPricing',
   'acct-personal': 'acctPersonal',
-  'acct-bank': 'acctBank'
+  'acct-bank': 'acctBank',
+  'biz-reports': 'bizReports'
 };
 
 // Render current view
 function renderView(viewName) {
-  elements.view.classList.toggle('royal', String(viewName).startsWith('acct-') || viewName === 'dashboard');
+  elements.view.classList.toggle('royal', String(viewName).startsWith('acct-') || viewName === 'dashboard' || viewName === 'biz-reports');
   const data = state.data[DATA_KEYS[viewName] || viewName];
   let html = '';
 
@@ -483,6 +490,9 @@ function renderView(viewName) {
       break;
     case 'acct-bank':
       html = renderAcctBank(data);
+      break;
+    case 'biz-reports':
+      html = renderBizReports(data);
       break;
     default:
       html = renderEmpty('לא נמצאו נתונים');
