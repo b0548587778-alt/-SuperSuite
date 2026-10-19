@@ -485,13 +485,14 @@ function renderView(viewName) {
       html = renderAcctBank(data);
       break;
     default:
-      html = '<div class="empty">לא נמצאו נתונים</div>';
+      html = renderEmpty('לא נמצאו נתונים');
   }
 
   const ports = PORT_VIEWS[viewName];
   if (ports) html = renderPortsBar(ports) + html;
   elements.view.innerHTML = html;
   attachViewHandlers(viewName);
+  elements.view.querySelectorAll('[data-empty-add]').forEach(b => b.addEventListener('click', () => handleAdd()));
 }
 
 // תיבת חיפוש — מוצגת רק בתצוגות שתומכות בחיפוש
@@ -520,9 +521,24 @@ function renderCardActions(id) {
   `;
 }
 
-// הוספת רשימה ריקה — הודעה ידידותית במקום מסך ריק
-function renderEmpty(message) {
-  return `<div class="empty">${message}</div>`;
+// רשימה ריקה (PLAN.md 7.2): אייקון, משפט, הסבר קצר ופעולה הבאה — במקום מסך ריק.
+// message — טקסט קבוע מהקוד (לא קלט משתמש). "כותרת — הסבר" מתפצל לשתי שורות;
+// הזכרה של "＋ הוספת רשומה" בתצוגה שיש לה טופס ← כפתור אמיתי (data-empty-add).
+function emptyIcon(view) {
+  const btn = [...(elements.navButtons || [])].find(b => b.dataset && b.dataset.view === view);
+  const icon = btn && btn.firstChild && String(btn.firstChild.textContent || '').trim();
+  return icon || '📭';
+}
+function renderEmpty(message, icon) {
+  const raw = String(message);
+  const [title, ...rest] = raw.split(' — ');
+  let hint = rest.join(' — ');
+  // "לחץ ... כדי להתחיל" — הכפתור עצמו אומר את זה
+  if (/^לחץ "＋ הוספת רשומה" כדי להתחיל$/.test(hint) && formSchemas[state.currentView]) hint = '';
+  const canAdd = /＋ הוספת רשומה/.test(raw) && !!formSchemas[state.currentView];
+  return `<div class="empty"><div class="empty-icon" aria-hidden="true">${icon || emptyIcon(state.currentView)}</div>` +
+    `<div class="empty-title">${title}</div>${hint ? `<div class="empty-hint">${hint}</div>` : ''}` +
+    `${canAdd ? '<button type="button" class="primary empty-add" data-empty-add>＋ הוספת רשומה</button>' : ''}</div>`;
 }
 
 // איתור רשומה לפי מזהה בנתונים הטעונים של התצוגה הנוכחית

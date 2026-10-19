@@ -55,7 +55,7 @@ class BrowserWindowStub {
   getContentSize() { return [1500, 940]; }
   on() {}
   removeMenu() {}
-  loadFile() {}
+  loadFile(p) { this.file = String(p); }
   maximize() {}
 }
 
@@ -123,7 +123,8 @@ const viewSender = (view) => ({ sender: { id: view.id } });
 
 test('תצוגות מודול מתווספות לחלון ומוחלפות לפי המודול הפעיל', async () => {
   await boot();
-  const win = created.windows[0];
+  // החלון הראשי = זה שטוען את המעטפת (לפניו נפתח מסך הפתיחה)
+  const win = created.windows.find(w => /shell.html$/.test(w.file || ''));
   await handlers['shell:switch'](shellSender(), 'econ');
   // ארגז הכלים לא דורש כניסה (שמאי ואימונים — כן; ראו בדיקות login-gate)
   await handlers['shell:switch'](shellSender(), 'tools');

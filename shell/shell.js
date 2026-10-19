@@ -137,7 +137,12 @@ function renderOnboarding() {
   $('obSteps').hidden = !show;
   if (!show) return;
   const done = new Set(st.done);
-  $('obProgress').textContent = `${p.steps.filter(s => done.has(s.id)).length} מתוך ${p.steps.length}`;
+  const doneCount = p.steps.filter(s => done.has(s.id)).length;
+  const pct = Math.round(doneCount / p.steps.length * 100);
+  $('obProgress').textContent = `${doneCount} מתוך ${p.steps.length}`;
+  $('obMeter').style.width = pct + '%';
+  $('obMeterBar').setAttribute('aria-valuenow', String(pct));
+  $('obSteps').classList.toggle('all-done', doneCount === p.steps.length);
   $('obList').innerHTML = p.steps.map(s => `<li class="${done.has(s.id) ? 'done' : ''}">` +
     `<button type="button" data-ob-step="${esc(s.id)}">${esc(s.title)}</button>` +
     `<label><input type="checkbox" data-ob-done="${esc(s.id)}"${done.has(s.id) ? ' checked' : ''}> בוצע</label>` +
@@ -148,7 +153,13 @@ function openOnboarding() {
   const st = obState();
   $('obErr').textContent = '';
   $('obChoices').innerHTML = OB.PROFILES.map(p => `<label><input type="checkbox" name="ob" value="${esc(p.id)}"${st.profiles.includes(p.id) ? ' checked' : ''}>` +
-    `<span>${esc(p.icon)} <b>${esc(p.name)}</b><small>${esc(p.desc)}</small></span></label>`).join('');
+    `<span class="ob-check" aria-hidden="true">✓</span><span class="ob-icon" aria-hidden="true">${esc(p.icon)}</span><b>${esc(p.name)}</b><small>${esc(p.desc)}</small></label>`).join('');
+  const count = () => {
+    const n = $('obChoices').querySelectorAll('input[name="ob"]:checked').length;
+    $('obCount').textContent = n ? (n === 1 ? 'נבחרה אפשרות אחת' : `נבחרו ${n} אפשרויות`) : 'עדיין לא נבחר דבר';
+  };
+  $('obChoices').onchange = count;
+  count();
   const done = () => { $('obForm').onsubmit = null; dlg.oncancel = null; closeDialog(dlg); };
   $('obForm').onsubmit = (e) => {
     e.preventDefault();

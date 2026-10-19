@@ -31,7 +31,7 @@ body{font-family:"Segoe UI",Heebo,Arial,sans-serif;display:flex;flex-direction:r
 .brand{display:flex;align-items:center;gap:11px;padding:18px 16px 14px;position:relative}
 .mark{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:19px;color:var(--navy-1);
       background:linear-gradient(135deg,var(--ss-warning-line),var(--gold) 55%,var(--gold-2));box-shadow:0 4px 14px rgba(212,167,58,.35)}
-.brand b{display:block;font-size:18px;letter-spacing:.3px;font-family:"David","Frank Ruhl Libre","Segoe UI",serif;color:var(--ss-surface)}
+.brand b{display:block;font-size:18px;letter-spacing:.3px;font-family:var(--ss-font-title);color:var(--ss-surface)}
 .brand small{display:block;color:var(--ink-3);font-size:11.5px;margin-top:1px}
 
 /* ---- אחורה / קדימה ---- */
@@ -82,7 +82,7 @@ nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:rgba(2
       background:radial-gradient(520px 260px at 8% 120%,rgba(212,167,58,.28),transparent 70%),
                  radial-gradient(380px 200px at 95% -30%,rgba(255,255,255,.10),transparent 70%)}
 .bsd{position:absolute;top:12px;left:18px;font-size:12px;color:rgba(255,255,255,.7);font-family:"David",serif}
-.hero h1{margin:0;font-family:"David","Frank Ruhl Libre",serif;font-weight:700;font-size:34px;letter-spacing:.3px;position:relative;z-index:1}
+.hero h1{margin:0;font-family:var(--ss-font-title);font-weight:700;font-size:34px;letter-spacing:.3px;position:relative;z-index:1}
 .hero .dates{margin-top:6px;color:var(--ss-border-strong);font-size:14px;position:relative;z-index:1}
 .hero .dates b{color:var(--gold);font-weight:600}
 .cta{margin-top:20px;display:flex;align-items:center;gap:10px;max-width:520px;padding:11px 14px;border-radius:12px;cursor:pointer;position:relative;z-index:1;
@@ -122,12 +122,24 @@ button.link:hover{text-decoration:underline}
 .ob-steps li button{background:none;border:0;padding:0;font:inherit;font-weight:600;color:var(--blue);cursor:pointer}
 .ob-steps li small{display:block;color:var(--muted);font-size:12.5px;text-decoration:none}
 .ob-steps li label{margin-inline-start:8px;font-size:12px;color:var(--muted);cursor:pointer}
-.ob-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
-.ob-grid label{display:flex;gap:8px;align-items:flex-start;padding:9px 10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:13.5px;line-height:1.35}
-.ob-grid label:has(input:checked){border-color:var(--blue);background:var(--ss-bg)}
-.ob-grid input{width:auto;margin:2px 0 0}
-.ob-grid small{display:block;color:var(--muted);font-size:11.5px}
-#obDlg{width:520px}
+/* אשף ההתחלה (PLAN.md 7.2): כרטיסים גדולים עם אייקון, סימון וי בפינה */
+.ob-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:14px 0 10px}
+.ob-grid label{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:16px 12px 14px;border:1.5px solid var(--border);border-radius:var(--ss-radius-lg);cursor:pointer;font-size:14px;line-height:1.35;background:var(--ss-surface);transition:border-color .15s,box-shadow .15s,transform .15s}
+.ob-grid label:hover{border-color:var(--ss-border-strong);transform:translateY(-1px)}
+.ob-grid label:has(input:checked){border-color:var(--blue);background:var(--ss-primary-soft);box-shadow:0 0 0 3px var(--ss-primary-ring)}
+.ob-grid label:has(input:focus-visible){outline:2px solid var(--blue);outline-offset:2px}
+.ob-grid input{position:absolute;opacity:0;pointer-events:none}
+.ob-grid .ob-icon{font-size:30px;line-height:1;width:54px;height:54px;display:grid;place-items:center;border-radius:50%;background:var(--ss-bg)}
+.ob-grid label:has(input:checked) .ob-icon{background:var(--ss-surface)}
+.ob-grid b{font-size:14.5px}
+.ob-grid small{display:block;color:var(--muted);font-size:12px}
+.ob-grid .ob-check{position:absolute;top:8px;inset-inline-start:8px;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--ss-border-strong);display:grid;place-items:center;font-size:12px;color:transparent}
+.ob-grid label:has(input:checked) .ob-check{background:var(--blue);border-color:var(--blue);color:var(--ss-on-primary)}
+.ob-count{color:var(--muted);font-size:13px;margin-inline-end:auto}
+#obDlg{width:min(680px,94vw)}
+.ob-meter{height:8px;border-radius:4px;background:var(--ss-bg);overflow:hidden;margin:4px 0 12px}
+.ob-meter i{display:block;height:100%;width:0;border-radius:4px;background:linear-gradient(90deg,var(--ss-success),var(--ss-gold-bright));transition:width .3s}
+.ob-steps.all-done h2{color:var(--ss-success-ink)}
 .recent .card{padding:11px 12px;align-items:center}
 .recent .card .ic{width:32px;height:32px;flex-basis:32px;font-size:16px}
 .hue-blue{--hue:var(--blue)} .hue-green{--hue:var(--green)} .hue-gold{--hue:var(--amber)}
@@ -244,7 +256,7 @@ dialog button:disabled{opacity:.5;cursor:default}
 <body>
 <div class="side">
   <div class="brand">
-    <div class="mark">✦</div>
+    <div class="mark" aria-hidden="true"><svg viewBox="92 92 328 328" width="20" height="20"><path d="M256 92 L296 216 L420 256 L296 296 L256 420 L216 296 L92 256 L216 216 Z" fill="currentColor"/></svg></div>
     <div><b>SuperSuite</b><small>כל העבודה שלך — במקום אחד</small></div>
     <span class="hd" id="sideDate"></span>
   </div>
@@ -293,6 +305,7 @@ dialog button:disabled{opacity:.5;cursor:default}
     </section>
     <section class="ob-steps" id="obSteps" hidden aria-label="צעדים ראשונים">
       <h2>צעדים ראשונים <small id="obProgress"></small></h2>
+      <div class="ob-meter" role="progressbar" aria-label="התקדמות בצעדים הראשונים" aria-valuemin="0" aria-valuemax="100" id="obMeterBar"><i id="obMeter"></i></div>
       <ol id="obList"></ol>
       <button type="button" class="link" id="obHide">הסתרה</button>
     </section>
@@ -334,6 +347,7 @@ dialog button:disabled{opacity:.5;cursor:default}
     <div class="ob-grid" id="obChoices"></div>
     <div class="err" id="obErr"></div>
     <div class="row">
+      <span class="ob-count" id="obCount" aria-live="polite"></span>
       <button type="submit" class="primary">שמירה</button>
       <button type="button" id="obCancel">ביטול</button>
     </div>

@@ -27,6 +27,7 @@ const crash = createCrashGuard({ logger, dialog, app, getWin: () => win, version
 crash.installProcessHandlers();
 // בדיקת עלייה של הגרסה הארוזה (PLAN.md 3.5, CI בלבד): רק עם תיקיית נתונים נפרדת — לא נוגעים בנתונים אמיתיים
 const Smoke = require('./shell/smoke');
+const Splash = require('./shell/splash');
 const smoke = Smoke.isSmoke(process.argv)
   ? (process.argv.some(a => a.startsWith('--user-data-dir=')) ? Smoke.createSmoke({ fs, path, dir: app.getPath('userData'), dialog, exit: (c) => app.exit(c), shots: Smoke.shotsDir(process.argv) }) : (app.exit(2), null))
   : null;
@@ -353,6 +354,23 @@ function saveState() {
   } catch {}
 }
 
+/* ---------- מסך פתיחה (PLAN.md 7.2) ----------
+   עד שהמעטפת נטענת. נסגר לפני כל חלון הודעה או קוד שחזור, ובכל מקרה אחרי Splash.MAX_MS */
+let splash = null;
+function openSplash() {
+  splash = Splash.createSplash({ open: () => {
+    const w = new BrowserWindow({ width: 420, height: 300, frame: false, resizable: false, movable: true, center: true, skipTaskbar: false,
+      show: true, backgroundColor: '#0f1a30', title: 'SuperSuite', icon: path.join(__dirname, 'build', 'icon.png'),
+      webPreferences: CodeGuard.guardPrefs({ contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false }, app.isPackaged) });
+    w.removeMenu();
+    w.webContents.on('will-navigate', e => e.preventDefault());
+    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    w.loadFile(path.join(__dirname, 'shell', 'splash.html'));
+    return w;
+  } });
+}
+function closeSplash() { if (splash) { splash.close(); splash = null; } }
+
 function createWindow() {
   const st = loadState();
   zoom = Number(loadJson(uiFile()).zoom) || 1;
@@ -374,6 +392,8 @@ function createWindow() {
   win.webContents.on('before-input-event', (e, input) => { if (handleShortcut(input, win.webContents)) e.preventDefault(); });
   wireAppCommand(win);
   crash.wireContents('shell', win.webContents, () => { if (win && !win.isDestroyed()) win.loadFile(path.join(__dirname, 'shell', 'shell.html')); });
+  win.webContents.once('did-finish-load', closeSplash);
+  win.webContents.once('did-fail-load', closeSplash);
   win.loadFile(path.join(__dirname, 'shell', 'shell.html'));
   // לא נכנסים לשום מודול אוטומטית: המשתמש בוחר מהמסך הראשי.
   // (קודם נכנסנו ל-'econ' מיד עם העלייה, וזה נעל את המשתמש בלי אפשרות לצאת.)
@@ -445,6 +465,7 @@ function dbAtRestOptions() {
 
 // חלון קוד השחזור — לפני שהחלון הראשי קיים. מחזיר את הקוד, או null אם המשתמש ביטל
 function promptRecoveryCode({ message }) {
+  closeSplash();
   return new Promise((resolve) => {
     const w = new BrowserWindow({ width: 520, height: 420, resizable: false, title: 'SuperSuite — קוד שחזור', autoHideMenuBar: true,
       webPreferences: CodeGuard.guardPrefs({ preload: path.join(__dirname, 'shell', 'recovery-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }, app.isPackaged) });
@@ -705,6 +726,7 @@ app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  if (!smoke) openSplash();
   registerProtocol();
   wireSecureStore();
 
@@ -720,6 +742,7 @@ app.whenReady().then(async () => {
     try { await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused, dbOptions: dbAtRestOptions(), trainerData: trainerDataForEcon }); }
     catch (err) {
       if (!err || err.code !== 'db-key-missing') throw err;
+      closeSplash();
       // אין קוד שחזור: בלי האפשרות הזו התוכנה לא עולה, ואי אפשר גם לשחזר מגיבוי בסיסמה
       const c = await dialog.showMessageBox({ type: 'warning', buttons: ['פתיחה ריקה לשחזור מגיבוי', 'יציאה'], defaultId: 1, cancelId: 1,
         message: 'הנתונים מוצפנים ואין קוד שחזור',
@@ -733,6 +756,7 @@ app.whenReady().then(async () => {
     const dbNow = econ.getDb && econ.getDb();
     if (dbNow && dbNow.atRestStatus === 'pending-backup') { dbAtRest.status = 'pending-backup'; logger.error('db-at-rest', dbNow.atRestError || new Error('pending-backup')); }
   } catch (err) {
+    closeSplash();
     dialog.showErrorBox('שגיאה בפתיחת המערכת הכלכלית', String(err && err.message ? err.message : err) + '\n\nנתיב: ' + app.getPath('userData'));
     app.quit(); return;
   }

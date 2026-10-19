@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<title>SuperSuite</title>
+<!-- מסך פתיחה (PLAN.md 7.2): מוצג עד שהחלון הראשי מוכן. בלי סקריפט — main.js סוגר אותו -->
+<link rel="stylesheet" href="design-tokens.css">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;user-select:none;-webkit-app-region:drag}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:var(--ss-font);color:var(--ss-ink);
+     background:radial-gradient(360px 220px at 100% 0%,rgba(212,167,58,.18),transparent 70%),linear-gradient(180deg,var(--ss-navy-2),var(--ss-navy-0))}
+img{width:88px;height:88px;filter:drop-shadow(0 8px 24px rgba(212,167,58,.35))}
+b{font-family:var(--ss-font-title);font-size:30px;letter-spacing:.5px;color:var(--ss-surface)}
+small{color:var(--ss-ink-2);font-size:var(--ss-fs-sm)}
+.bar{width:160px;height:3px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden;margin-top:6px}
+.bar i{display:block;width:40%;height:100%;border-radius:2px;background:var(--ss-gold-bright);animation:run 1.2s ease-in-out infinite}
+@keyframes run{0%{transform:translateX(160px)}100%{transform:translateX(-160px)}}
+@media (prefers-reduced-motion:reduce){.bar i{animation:none;width:100%}}
+</style>
+</head>
+<body>
+  <img src="../build/icon.png" alt="">
+  <b>SuperSuite</b>
+  <small>כל העבודה שלך — במקום אחד</small>
+  <div class="bar" role="progressbar" aria-label="טוען"><i></i></div>
+  <small>טוען…</small>
+</body>
+</html>

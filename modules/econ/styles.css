@@ -1030,17 +1030,45 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* מסך הרישוי — כרטיס המצב (PLAN.md 4.3) */
 .lic-status{border-inline-start:6px solid var(--success)}
 .lic-status.lic-trial{border-inline-start-color:var(--primary)}
-.lic-status.lic-expiring{border-inline-start-color:var(--warning);background:var(--ss-danger-soft)}
-.lic-status.lic-limited{border-inline-start-color:var(--warning);background:var(--ss-danger-soft)}
-.lic-status.lic-locked{border-inline-start-color:var(--danger);background:var(--ss-bg)}
+.lic-status.lic-expiring{border-inline-start-color:var(--warning);background:var(--ss-warning-soft)}
+.lic-status.lic-limited{border-inline-start-color:var(--warning);background:var(--ss-warning-soft)}
+.lic-status.lic-locked{border-inline-start-color:var(--danger);background:var(--ss-danger-soft)}
 .lic-status.lic-unlicensed{border-inline-start-color:var(--gray)}
 .lic-status-head{display:flex;gap:12px;align-items:flex-start}
 .lic-status-head h3{margin:0 0 4px}
 .lic-status-head p{margin:0}
-.lic-status-icon{font-size:28px;line-height:1}
-.lic-fix{margin:12px 0 4px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,.7);border:1px solid var(--border)}
+.lic-status{border-radius:var(--ss-radius-lg);box-shadow:var(--ss-shadow-sm)}
+.lic-status-icon{font-size:26px;line-height:1;flex:0 0 52px;height:52px;display:grid;place-items:center;border-radius:50%;background:var(--ss-surface);box-shadow:var(--ss-shadow-sm)}
+.lic-status .acct-actions{margin-top:var(--ss-sp-3)}
+.lic-fix{margin:12px 0 4px;padding:10px 12px;border-radius:var(--ss-radius);background:var(--ss-surface);border:1px solid var(--border)}
 .lic-fix ol{margin:6px 0;padding-inline-start:22px}
 .lic-fix li{margin:3px 0}
 .lic-advanced{margin-top:12px}
 .lic-advanced>summary{cursor:pointer;font-weight:700;padding:8px 0}
 .modal-form textarea{width:100%;font-family:var(--font-mono);font-size:12px;padding:8px;border:1px solid var(--border);border-radius:var(--radius);resize:vertical}
+
+/* מסך הכניסה והמנהל הראשון (PLAN.md 7.2) — מסך מלא בצבעי המותג, כרטיס במרכז */
+.modal.auth-screen{background:radial-gradient(600px 360px at 100% 0%,rgba(212,167,58,.16),transparent 70%),linear-gradient(180deg,var(--ss-navy-2),var(--ss-navy-0))}
+.modal.auth-screen{overflow-y:auto;align-items:safe center;padding:var(--ss-sp-4) 0}
+.auth-card{width:min(440px,92vw);max-width:none;max-height:none;overflow:visible;margin:auto 0;border-radius:var(--ss-radius-lg);box-shadow:var(--ss-shadow-lg);padding-top:var(--ss-sp-4)}
+.auth-head{display:flex;flex-direction:column;align-items:center;gap:6px;padding:0 var(--ss-sp-5)}
+.auth-head svg{filter:drop-shadow(0 6px 16px rgba(184,134,11,.30))}
+.auth-head b{font-family:var(--ss-font-title);font-size:26px;color:var(--ss-text);letter-spacing:.3px}
+.auth-hello{color:var(--ss-muted);font-size:var(--ss-fs-md)}
+.auth-card h2{margin:var(--ss-sp-3) 0 0;font-size:var(--ss-fs-lg)}
+.auth-card .modal-form{gap:.7rem;padding-top:var(--ss-sp-3)}
+.auth-card .modal-form{padding-bottom:var(--ss-sp-3)}
+.auth-card .modal-form input{padding:10px 12px;font-size:var(--ss-fs-md)}
+.auth-card .modal-actions{border-top:0;padding-top:0;flex-direction:column;align-items:stretch;gap:var(--ss-sp-2)}
+.auth-card .modal-actions button{width:100%;padding:11px;font-size:var(--ss-fs-md)}
+.auth-card .modal-actions .primary{order:-1}
+.field-hint{color:var(--ss-muted);font-weight:400;font-size:var(--ss-fs-xs)}
+.auth-note{background:var(--ss-warning-soft);border:1px solid var(--ss-warning-line);color:var(--ss-warning-ink);border-radius:var(--ss-radius);padding:10px 12px;font-size:var(--ss-fs-sm);line-height:1.55}
+
+/* מצב ריק אחיד (PLAN.md 7.2) — renderEmpty ב-ui/core.js */
+.empty{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;font-style:normal;padding:2.25rem 1.5rem;margin:var(--ss-sp-3) 0;
+  border:1px dashed var(--ss-border-strong);border-radius:var(--ss-radius-lg);background:var(--ss-surface-2);color:var(--ss-muted)}
+.empty-icon{font-size:34px;line-height:1;width:64px;height:64px;display:grid;place-items:center;border-radius:50%;background:var(--ss-primary-soft);margin-bottom:4px}
+.empty-title{font-weight:700;color:var(--ss-text);font-size:var(--ss-fs-md)}
+.empty-hint{max-width:46ch;line-height:1.55;font-size:var(--ss-fs-sm)}
+.empty-add{margin-top:var(--ss-sp-2)}
