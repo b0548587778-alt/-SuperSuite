@@ -135,18 +135,24 @@ class MortgageLabService {
     };
   }
 
-  _clients(data) {
-    const ma = data.mortgageAdvisor && Array.isArray(data.mortgageAdvisor.clients) ? data.mortgageAdvisor.clients : [];
+  // רק תיקים שהמשתמש רשאי לראות (משרד עם כמה יועצים — MA.canSee). בלי actor — הכול
+  _clients(data, actor) {
+    const settings = data.mortgageAdvisor && data.mortgageAdvisor.settings;
+    const ma = (data.mortgageAdvisor && Array.isArray(data.mortgageAdvisor.clients) ? data.mortgageAdvisor.clients : []).filter(c => MA.canSee(c, actor, settings));
     // התיקים נשמרים באגורות — clientView מחזיר את הסכומים בשקלים, כמו שהמעבדה מצפה
     return ma.map(MA.clientView).map(c => ({ id: c.id, name: c.name, requestedAmount: c.requestedAmount, propertyValue: c.propertyValue, status: c.status }));
   }
 
-  async getOverview() {
+  async getOverview(actor) {
     const data = await this._load();
     const ml = data.mortgageLab;
     const ctx = this._ctx(data);
     const forecast = ctx.forecast;
-    const clients = this._clients(data);
+    const clients = this._clients(data, actor);
+    // תרחיש של תיק שהמשתמש לא רואה — מוסתר גם הוא
+    const allIds = new Set(((data.mortgageAdvisor && data.mortgageAdvisor.clients) || []).map(c => c.id));
+    const visibleIds = new Set(clients.map(c => c.id));
+    const scenarios = ml.scenarios.filter(s => !s.clientId || !allIds.has(s.clientId) || visibleIds.has(s.clientId));
     const verifiedAt = new Map(ml.verifications.filter(v => v.rulesVersion === R.RULES_VERSION).map(v => [v.ruleId, v]));
     return {
       forecast: {
@@ -171,9 +177,9 @@ class MortgageLabService {
       buyerTypes: R.BUYER_TYPES,
       repayments: E.REPAYMENTS,
       clients,
-      scenarios: ml.scenarios.map(s => ({ ...s, clientName: (clients.find(c => c.id === s.clientId) || {}).name || '' }))
+      scenarios: scenarios.map(s => ({ ...s, clientName: (clients.find(c => c.id === s.clientId) || {}).name || '' }))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
-      retention: retentionEvents(ml.scenarios, clients, ctx.asOf)
+      retention: retentionEvents(scenarios, clients, ctx.asOf)
     };
   }
 
@@ -330,12 +336,12 @@ class MortgageLabService {
 
   // ---------- תרחישים שמורים ----------
 
-  async saveScenario(input = {}) {
+  async saveScenario(input = {}, actor) {
     const data = await this._load();
     if (data.mortgageLab.scenarios.length >= MAX_SCENARIOS) throw new Error('הגעת למספר המקסימלי של תרחישים');
     const name = str(input.name, 200, 'שם התרחיש');
     if (!name) throw new Error('יש לתת שם לתרחיש');
-    const clients = this._clients(data);
+    const clients = this._clients(data, actor);
     if (!blank(input.clientId) && !clients.some(c => c.id === input.clientId)) throw new Error('תיק הלקוח לא נמצא');
     const tracks = Array.isArray(input.tracks) ? input.tracks : [];
     const ctx = this._ctx(data);

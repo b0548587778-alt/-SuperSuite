@@ -74,11 +74,14 @@ class MortgageAdvisorService {
           ltv: M.ltv(c),
           fee: M.advisoryFee(c, vat),
           docs: M.docsProgress(c),
+          approvals: M.approvalsSummary(c, new Date().toISOString().slice(0, 10)),
           offers: own.map(o => ({ ...o, summary: M.offerSummary(o), yearly: M.yearlySchedule(o) })),
           comparison: M.compareOffers(own)
         };
       }).sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt))),
       statuses: M.CLIENT_STATUSES,
+      employment: M.EMPLOYMENT,
+      deals: M.DEALS,
       tracks: M.TRACKS
     };
   }
@@ -122,13 +125,63 @@ class MortgageAdvisorService {
     return true;
   }
 
-  async toggleDoc(clientId, key, actor) {
+  // state: received / na / missing. בלי state — החלפה בין התקבל / חסר
+  async toggleDoc(clientId, key, actor, state) {
     const data = await this._load();
     const c = this._findClient(data, clientId, actor);
-    c.docs = M.toggleDoc(c, key);
+    Object.assign(c, M.setDocState(c, key, state));
     c.updatedAt = new Date().toISOString();
     await this.db.save(data);
     return M.docsProgress(c);
+  }
+
+  // נוסח ללקוח עם המסמכים החסרים — להעתקה בלבד
+  async getMissingDocsMessage(clientId, actor) {
+    const data = await this._load();
+    const c = this._findClient(data, clientId, actor);
+    const office = (data.mortgageAdvisor.brand && data.mortgageAdvisor.brand.officeName) || (data.settings && data.settings.business && data.settings.business.name) || '';
+    return { text: M.missingDocsMessage(c, office), missing: M.docsProgress(c).missing };
+  }
+
+  // ---------- אישורים עקרוניים ----------
+  // החלפה של כל רשימת האישורים בתיק בשמירה אחת. האישור הנבחר נשמר רק אם עדיין ברשימה
+  async saveApprovals(clientId, list, actor) {
+    const data = await this._load();
+    const c = this._findClient(data, clientId, actor);
+    const input = Array.isArray(list) ? list : [];
+    if (input.length > M.MAX_APPROVALS) throw new Error(`עד ${M.MAX_APPROVALS} אישורים בתיק`);
+    const now = new Date().toISOString();
+    const today = now.slice(0, 10);
+    const prev = new Map((c.approvals || []).map(a => [a.id, a]));
+    c.approvals = input.map((x, i) => {
+      const a = M.validateApproval(x, i);
+      const old = a.id && prev.get(a.id);
+      return { ...a, id: old ? a.id : crypto.randomUUID(), receivedAt: a.receivedAt || (old && old.receivedAt) || today, savedAt: now };
+    });
+    if (c.chosenApprovalId && !c.approvals.some(a => a.id === c.chosenApprovalId)) c.chosenApprovalId = '';
+    c.updatedAt = now;
+    await this.db.save(data);
+    return M.approvalsSummary(c, today);
+  }
+
+  async chooseApproval(clientId, approvalId, actor) {
+    const data = await this._load();
+    const c = this._findClient(data, clientId, actor);
+    const id = String(approvalId || '');
+    if (id && !(c.approvals || []).some(a => a.id === id)) throw new Error('האישור לא נמצא בתיק');
+    c.chosenApprovalId = id;
+    c.updatedAt = new Date().toISOString();
+    await this.db.save(data);
+    return M.approvalsSummary(c, c.updatedAt.slice(0, 10));
+  }
+
+  // הקלט להשוואה במנוע המעבדה (ה-IPC מעביר אותו ל-mlab calcApprovals)
+  async approvalsInput(clientId, actor) {
+    const data = await this._load();
+    const c = this._findClient(data, clientId, actor);
+    const input = M.approvalsForLab(c);
+    if (!input.offers.length) throw new Error('אין אישורים עקרוניים בתיק');
+    return input;
   }
 
   async addOffer(input, actor) {

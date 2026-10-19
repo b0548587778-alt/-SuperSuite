@@ -30,6 +30,8 @@ formSchemas['mortgage-advisor'] = {
     { name: 'propertyValue', label: 'שווי הנכס (₪)', type: 'number' },
     { name: 'status', label: 'שלב', type: 'select', options: opts(MADV_STATUS) },
     { name: 'advisorId', label: 'יועץ אחראי', type: 'select', options: [{ value: '', label: 'ללא שיוך' }] },
+    { name: 'employment', label: 'תעסוקת הלווים', type: 'select', options: opts({ employee: 'שכיר', selfEmployed: 'עצמאי', mixed: 'שכיר ועצמאי', pension: 'פנסיונר' }) },
+    { name: 'deal', label: 'סוג העסקה', type: 'select', options: opts({ secondHand: 'דירה יד שנייה', contractor: 'דירה מקבלן', upgrader: 'משפר דיור (מוכר דירה קיימת)', refinance: 'מחזור משכנתא' }) },
     { name: 'lostReason', label: 'סיבה (אם התיק לא התקדם)', type: 'text' },
     { name: 'feeType', label: 'סוג עמלת ייעוץ', type: 'select', options: [
       { value: 'percent', label: 'אחוז מהסכום המבוקש' },
@@ -114,6 +116,76 @@ function madvBoardHtml(board) {
       </div>`;
 }
 
+// אישורים עקרוניים של התיק — הרשימה כאן, העריכה במעבדת התמהיל (אותו עורך), וההשוואה במנוע המעבדה
+function madvApprovalsHtml(c) {
+  const list = Array.isArray(c.approvals) ? c.approvals : [];
+  return `
+          <h4>אישורים עקרוניים (${list.length})</h4>
+          ${list.length ? `<div class="acct-scroll"><table class="acct-table">
+            <thead><tr><th>בנק</th><th>התקבל</th><th>בתוקף עד</th><th>עמלות</th><th>סכום מאושר</th><th>נבחר</th></tr></thead>
+            <tbody>${list.map(a => `<tr>
+              <td>${esc(a.lender)}</td><td>${esc(a.receivedAt || '')}</td>
+              <td>${esc(a.validUntil || '—')}${a.expired ? ' <span class="ss-badge ss-badge-warn">פג תוקף</span>' : ''}</td>
+              <td>${money(a.fees)}</td><td>${a.maxAmount === '' ? '—' : money(a.maxAmount)}</td>
+              <td><button class="icon-btn" data-madv-choose="${esc(c.id)}" data-appr="${a.chosen ? '' : esc(a.id)}" title="${a.chosen ? 'ביטול הבחירה' : 'בחירת האישור הזה'}">${a.chosen ? '★' : '☆'}</button></td>
+            </tr>`).join('')}</tbody>
+          </table></div>` : '<div class="acct-row muted">אין עדיין אישורים עקרוניים בתיק</div>'}
+          <div class="acct-actions">
+            <button class="secondary" data-madv-appr-edit="${esc(c.id)}">${list.length ? 'עריכת האישורים' : '＋ הזנת אישורים'} במעבדת התמהיל</button>
+            ${list.length ? `<button data-madv-appr-cmp="${esc(c.id)}">השוואת האישורים</button>` : ''}
+          </div>
+          <div id="madvApprOut-${esc(c.id)}"></div>`;
+}
+
+function madvApprovalsResultHtml(r) {
+  const rank = Object.fromEntries((r.byTotalCost || []).map((id, i) => [id, i + 1]));
+  return `<div class="acct-scroll"><table class="acct-table">
+    <thead><tr><th>דירוג</th><th>בנק</th><th>החזר ראשון</th><th>החזר מקסימלי</th><th>עלות כוללת עם עמלות</th><th>הערות</th></tr></thead>
+    <tbody>${(r.offers || []).map(x => `<tr><td>${rank[x.offer.id] || '—'}</td><td>${esc(x.offer.lender)}</td>
+      <td>${x.result ? money(x.result.summary.firstPayment) : '—'}</td><td>${x.result ? money(x.result.summary.maxPayment) : '—'}</td>
+      <td>${x.totalCostWithFees == null ? '—' : money(x.totalCostWithFees)}</td>
+      <td>${[x.expired ? 'פג תוקף' : '', x.overMax ? 'מעל הסכום המאושר' : '', x.error ? esc(x.error) : ''].filter(Boolean).join(' · ')}</td></tr>`).join('')}</tbody>
+  </table></div>
+  <p class="muted">החישוב לפי התחזית שבמעבדת התמהיל. להמחשה בלבד — הבנק קובע את התנאים הסופיים.</p>`;
+}
+
+// חלון עם טקסט להעתקה (התוכנה לא שולחת — המשתמש מעתיק לערוץ שלו)
+function madvShowMessage(title, text) {
+  return openDialog((card, finish) => {
+    const h = document.createElement('h2');
+    h.textContent = title;
+    const ta = document.createElement('textarea');
+    ta.rows = 12; ta.readOnly = true; ta.value = text; ta.className = 'ss-input';
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const close = document.createElement('button');
+    close.type = 'button'; close.className = 'secondary'; close.textContent = 'סגירה';
+    const copy = document.createElement('button');
+    copy.type = 'button'; copy.className = 'primary'; copy.textContent = '📋 העתקה';
+    copy.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(ta.value); showToast('הנוסח הועתק'); }
+      catch { ta.select(); showToast('סמנו והעתיקו (Ctrl+C)'); }
+    });
+    close.addEventListener('click', () => finish(null));
+    actions.append(close, copy);
+    card.append(h, ta, actions);
+  });
+}
+
+// פתיחת המעבדה עם האישורים של התיק, לשמירה חזרה לאותו תיק
+function madvOpenApprovalsInLab(c) {
+  const lab = labState();
+  const list = Array.isArray(c.approvals) ? c.approvals : [];
+  lab.approvals = list.length
+    ? list.map(a => ({ id: a.id, lender: a.lender, validUntil: a.validUntil || '', fees: a.fees, maxAmount: a.maxAmount, tracks: a.tracks.map(t => ({ ...t })) }))
+    : [{ lender: '', validUntil: '', fees: '', maxAmount: '', tracks: labShares(labDefaultMix(), [34, 33, 33]) }];
+  lab.form.apAmount = c.requestedAmount;
+  lab.form.apClient = c.id;
+  lab.results.approvals = null;
+  lab.tab = 'approvals';
+  return switchView('mortgage-lab');
+}
+
 function madvSettingsHtml(o) {
   if (!o || !o.me || !o.me.isManager || !o.settings) return '';
   return `
@@ -177,10 +249,13 @@ function renderMortgageAdvisor(o) {
               <div class="acct-row acct-total"><span>סה"כ</span><span>${money(fee.total)}</span></div>
             </div>
             <div>
-              <h4>מסמכים (${docs.done}/${docs.total})</h4>
-              ${docs.items.map(d => `<label class="doc-check"><input type="checkbox" data-madv-doc="${esc(c.id)}" data-key="${esc(d.key)}"${d.done ? ' checked' : ''}> ${esc(d.label)}</label>`).join('')}
+              <h4>מסמכים (${docs.done}/${docs.total})${docs.profile ? ` <small class="muted">${esc((o.employment || {})[docs.profile.employment] || '')} · ${esc((o.deals || {})[docs.profile.deal] || '')}</small>` : ''}</h4>
+              ${docs.items.map(d => `<label class="doc-check"><input type="checkbox" data-madv-doc="${esc(c.id)}" data-key="${esc(d.key)}"${d.done ? ' checked' : ''}${d.na ? ' disabled' : ''}> <span${d.na ? ' class="muted"' : ''}>${esc(d.label)}</span>
+                <button class="icon-btn" data-madv-docna="${esc(c.id)}" data-key="${esc(d.key)}" data-na="${d.na ? '1' : ''}" title="${d.na ? 'סימון כרלוונטי' : 'לא רלוונטי לתיק הזה'}">${d.na ? '↺' : '⊘'}</button></label>`).join('')}
+              ${Array.isArray(docs.missing) && docs.missing.length ? `<button class="secondary" data-madv-missing="${esc(c.id)}">נוסח ללקוח: ${docs.missing.length} מסמכים חסרים</button>` : ''}
             </div>
           </div>
+          ${madvApprovalsHtml(c)}
           <h4>השוואת הצעות (${cmp.length})</h4>
           ${cmp.length === 0 ? '<div class="acct-row muted">אין הצעות עדיין</div>' : `
           <div class="acct-scroll"><table class="acct-table">
@@ -236,6 +311,32 @@ function attachMadvHandlers() {
     }
     try { await window.systemAPI.updateMortgageClient(sel.dataset.madvStatus, patch); showToast('השלב עודכן'); await switchView('mortgage-advisor'); }
     catch (error) { showError('שגיאה בעדכון: ' + errMsg(error)); }
+  }));
+  const madvClient = (id) => ((state.data.mortgageAdvisor || {}).clients || []).find(c => c.id === id);
+  document.querySelectorAll('[data-madv-docna]').forEach(btn => btn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    try { await window.systemAPI.toggleMortgageDoc(btn.dataset.madvDocna, btn.dataset.key, btn.dataset.na ? 'missing' : 'na'); await switchView('mortgage-advisor'); }
+    catch (error) { showError('שגיאה בעדכון: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-madv-missing]').forEach(btn => btn.addEventListener('click', async () => {
+    try { const r = await window.systemAPI.getMortgageMissingDocs(btn.dataset.madvMissing); if (r && r.text) await madvShowMessage('מסמכים חסרים — נוסח ללקוח', r.text); }
+    catch (error) { showError('שגיאה: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-madv-choose]').forEach(btn => btn.addEventListener('click', async () => {
+    try { await window.systemAPI.chooseMortgageApproval(btn.dataset.madvChoose, btn.dataset.appr); showToast(btn.dataset.appr ? 'האישור סומן כנבחר' : 'הבחירה בוטלה'); await switchView('mortgage-advisor'); }
+    catch (error) { showError('שגיאה בעדכון: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-madv-appr-edit]').forEach(btn => btn.addEventListener('click', async () => {
+    const c = madvClient(btn.dataset.madvApprEdit);
+    if (c) await madvOpenApprovalsInLab(c);
+  }));
+  document.querySelectorAll('[data-madv-appr-cmp]').forEach(btn => btn.addEventListener('click', async () => {
+    const id = btn.dataset.madvApprCmp;
+    try {
+      const r = await window.systemAPI.calcMortgageApprovals(id);
+      const out = document.getElementById('madvApprOut-' + id);
+      if (out) out.innerHTML = madvApprovalsResultHtml(r);
+    } catch (error) { showError('שגיאה בהשוואה: ' + errMsg(error)); }
   }));
   const saveSet = document.getElementById('madvSaveSettings');
   if (saveSet) saveSet.addEventListener('click', async () => {

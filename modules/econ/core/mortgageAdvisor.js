@@ -50,20 +50,45 @@ function normalizeStage(v) {
   return byLabel || null;
 }
 
-// רשימת מסמכים סטנדרטית לתיק משכנתא
+// פרופיל הלווה קובע אילו מסמכים נדרשים. זו רשימת עבודה מקובלת — לא דרישה של בנק מסוים;
+// כל בנק עשוי לבקש מסמכים נוספים, והיועץ מסמן "לא רלוונטי" לפי הצורך.
+const EMPLOYMENT = { employee: 'שכיר', selfEmployed: 'עצמאי', mixed: 'שכיר ועצמאי', pension: 'פנסיונר' };
+const DEALS = { secondHand: 'דירה יד שנייה', contractor: 'דירה מקבלן', upgrader: 'משפר דיור (מוכר דירה קיימת)', refinance: 'מחזור משכנתא' };
+const DEFAULT_PROFILE = { employment: 'employee', deal: 'secondHand' };
+const SALARIED = ['employee', 'mixed'];
+const SELF = ['selfEmployed', 'mixed'];
+
+// for: { employment?: [...], deal?: [...] } — בלי מפתח = לכולם
 const DOCUMENTS = [
   { key: 'id', label: 'תעודות זהות + ספח של כל הלווים' },
-  { key: 'payslips', label: 'תלושי שכר — 3 חודשים אחרונים' },
+  { key: 'payslips', label: 'תלושי שכר — 3 חודשים אחרונים', for: { employment: SALARIED } },
+  { key: 'form106', label: 'טופס 106 לשנה האחרונה', for: { employment: SALARIED } },
+  { key: 'employer', label: 'אישור העסקה ממעסיק', for: { employment: SALARIED } },
+  { key: 'selfTax', label: 'שומות מס / דוחות שנתיים — שנתיים אחרונות', for: { employment: SELF } },
+  { key: 'cpaLetter', label: 'אישור רואה חשבון על הכנסה שוטפת', for: { employment: SELF } },
+  { key: 'pensionSlip', label: 'אישור קצבה / תלוש פנסיה', for: { employment: ['pension'] } },
   { key: 'bank', label: 'דפי עו"ש — 3 חודשים אחרונים' },
-  { key: 'employer', label: 'אישור העסקה / אישור רואה חשבון לעצמאי' },
-  { key: 'contract', label: 'חוזה רכישה / זיכרון דברים' },
-  { key: 'tabu', label: 'נסח טאבו / אישור זכויות' },
-  { key: 'appraisal', label: 'דוח שמאי' },
-  { key: 'equity', label: 'אישור הון עצמי' },
   { key: 'loans', label: 'פירוט הלוואות קיימות' },
+  { key: 'equity', label: 'אישור הון עצמי', for: { deal: ['secondHand', 'contractor', 'upgrader'] } },
+  { key: 'contract', label: 'חוזה רכישה / זיכרון דברים', for: { deal: ['secondHand', 'contractor', 'upgrader'] } },
+  { key: 'tabu', label: 'נסח טאבו / אישור זכויות', for: { deal: ['secondHand', 'upgrader', 'refinance'] } },
+  { key: 'contractorDocs', label: 'מסמכי הקבלן: אישור ליווי בנקאי / מכתב החרגה / ערבות חוק מכר', for: { deal: ['contractor'] } },
+  { key: 'saleContract', label: 'חוזה מכירת הדירה הקיימת', for: { deal: ['upgrader'] } },
+  { key: 'payoffReport', label: 'דוח יתרה לסילוק מהבנק הנוכחי', for: { deal: ['upgrader', 'refinance'] } },
+  { key: 'appraisal', label: 'דוח שמאי' },
   { key: 'insurance', label: 'ביטוח חיים וביטוח מבנה' }
 ];
 const DOC_KEYS = new Set(DOCUMENTS.map(d => d.key));
+
+function normalizeProfile(p) {
+  const x = p && typeof p === 'object' ? p : {};
+  return { employment: EMPLOYMENT[x.employment] ? x.employment : DEFAULT_PROFILE.employment, deal: DEALS[x.deal] ? x.deal : DEFAULT_PROFILE.deal };
+}
+
+function docApplies(d, profile) {
+  const f = d.for || {};
+  return (!f.employment || f.employment.includes(profile.employment)) && (!f.deal || f.deal.includes(profile.deal));
+}
 
 function validateClient(input) {
   if (!input || typeof input !== 'object') throw new Error('תיק לא תקין');
@@ -87,6 +112,9 @@ function validateClient(input) {
     notes: str(input.notes, 2000, 'ההערות')
   };
   out.lostReason = out.status === 'lost' ? str(input.lostReason, 300, 'סיבת הסגירה') : '';
+  // הטופס שולח employment / deal שטוחים; רשומה שמורה מחזיקה profile
+  const p = input.profile && typeof input.profile === 'object' ? input.profile : {};
+  out.profile = normalizeProfile({ employment: input.employment ?? p.employment, deal: input.deal ?? p.deal });
   if (feeType === 'percent') out.feePercent = Math.round(feeValue * 1000) / 1000;
   else out.feeFixedAg = toAg(feeValue);
   return out;
@@ -101,6 +129,8 @@ function clientStored(c) {
   if (!c || typeof c !== 'object') return c;
   const out = { ...c };
   out.status = normalizeStage(c.status) || DEFAULT_STAGE;
+  out.profile = normalizeProfile(c.profile);
+  delete out.employment; delete out.deal;
   if (!isAg(out.requestedAmountAg)) out.requestedAmountAg = agOf(c.requestedAmount);
   if (!isAg(out.propertyValueAg)) out.propertyValueAg = agOf(c.propertyValue || 0);
   out.feeType = out.feeType === 'fixed' ? 'fixed' : 'percent';
@@ -118,9 +148,11 @@ function clientStored(c) {
 // צורה שמורה ← שקלים לתצוגה (השדות שהמסך והייבוא מכירים)
 function clientView(c) {
   const s = clientStored(c);
-  const { requestedAmountAg, propertyValueAg, feePercent, feeFixedAg, ...rest } = s;
+  const { requestedAmountAg, propertyValueAg, feePercent, feeFixedAg, approvals, ...rest } = s;
   return {
     ...rest,
+    employment: s.profile.employment,
+    deal: s.profile.deal,
     requestedAmount: fromAg(requestedAmountAg),
     propertyValue: fromAg(propertyValueAg),
     feeValue: s.feeType === 'fixed' ? fromAg(feeFixedAg) : feePercent
@@ -145,16 +177,122 @@ function advisoryFee(client, vatRate) {
   return { net: fromAg(netAg), vat: fromAg(vatAg), total: fromAg(netAg + vatAg), netAg, vatAg, totalAg: netAg + vatAg, vatRate: rate };
 }
 
+// מצב מסמך: received (docs — כמו בגרסה הקודמת) / na (docsNa) / missing. נספרים רק מסמכים שחלים על הפרופיל
 function docsProgress(client) {
+  const profile = normalizeProfile(client.profile);
   const done = new Set((Array.isArray(client.docs) ? client.docs : []).filter(k => DOC_KEYS.has(k)));
-  return { done: done.size, total: DOCUMENTS.length, items: DOCUMENTS.map(d => ({ ...d, done: done.has(d.key) })) };
+  const na = new Set((Array.isArray(client.docsNa) ? client.docsNa : []).filter(k => DOC_KEYS.has(k) && !done.has(k)));
+  const items = DOCUMENTS.filter(d => docApplies(d, profile) || done.has(d.key))
+    .map(({ for: _f, ...d }) => ({ ...d, done: done.has(d.key), na: na.has(d.key), state: done.has(d.key) ? 'received' : na.has(d.key) ? 'na' : 'missing' }));
+  const relevant = items.filter(d => !d.na);
+  return { done: relevant.filter(d => d.done).length, total: relevant.length, missing: relevant.filter(d => !d.done).map(d => d.label), profile, items };
+}
+
+const DOC_STATES = new Set(['received', 'na', 'missing']);
+
+// קביעת מצב מסמך. בלי state — החלפה בין התקבל / חסר (התנהגות הכפתור הישן)
+function setDocState(client, key, state) {
+  if (!DOC_KEYS.has(key)) throw new Error('מסמך לא מוכר');
+  const docs = new Set(Array.isArray(client.docs) ? client.docs : []);
+  const na = new Set(Array.isArray(client.docsNa) ? client.docsNa : []);
+  const next = state === undefined || state === null || state === '' ? (docs.has(key) ? 'missing' : 'received') : state;
+  if (!DOC_STATES.has(next)) throw new Error('מצב מסמך לא מוכר');
+  docs.delete(key); na.delete(key);
+  if (next === 'received') docs.add(key);
+  if (next === 'na') na.add(key);
+  const order = DOCUMENTS.map(d => d.key);
+  return { docs: order.filter(k => docs.has(k)), docsNa: order.filter(k => na.has(k)) };
 }
 
 function toggleDoc(client, key) {
-  if (!DOC_KEYS.has(key)) throw new Error('מסמך לא מוכר');
-  const docs = new Set(Array.isArray(client.docs) ? client.docs : []);
-  if (docs.has(key)) docs.delete(key); else docs.add(key);
-  return DOCUMENTS.map(d => d.key).filter(k => docs.has(k));
+  return setDocState(client, key).docs;
+}
+
+// נוסח ללקוח עם רשימת המסמכים החסרים — להעתקה בלבד; התוכנה לא שולחת דבר
+function missingDocsMessage(client, officeName) {
+  const p = docsProgress(client);
+  if (!p.missing.length) return '';
+  const lines = [`שלום ${client.name || ''},`.trim(), 'להמשך הטיפול בתיק המשכנתא חסרים המסמכים הבאים:', ...p.missing.map((m, i) => `${i + 1}. ${m}`), '', 'תודה רבה,'];
+  if (officeName) lines.push(String(officeName));
+  return lines.join('\n');
+}
+
+// ---------- אישורים עקרוניים מהבנקים ----------
+// נשמרים בתיק (approvals) בצורת הקלט של מעבדת התמהיל: חלקים מהסכום (%), ריבית/מרווח באחוזים, שנים.
+// ההשוואה עצמה נעשית במנוע המעבדה (compareApprovals) — אין חישוב שני.
+const MAX_APPROVALS = 10;
+const APPROVAL_TRACK_TYPES = new Set(['PRIME', 'FIXED_UNLINKED', 'FIXED_LINKED', 'VARIABLE_UNLINKED', 'VARIABLE_LINKED', 'ELIGIBILITY', 'BRIDGE']);
+const REPAYMENT_KEYS = new Set(['SPITZER', 'EQUAL_PRINCIPAL', 'BULLET']);
+
+const optNum = (v, label, min, max) => {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < min || n > max) throw new Error(`${label} אינו תקין`);
+  return n;
+};
+
+function validateApprovalTrack(t, i, lender) {
+  const where = `${lender} — מסלול ${i + 1}`;
+  if (!t || typeof t !== 'object' || !APPROVAL_TRACK_TYPES.has(t.type)) throw new Error(`${where}: סוג מסלול לא מוכר`);
+  const share = optNum(t.share, `${where}: החלק מהסכום`, 0.01, 100);
+  if (share === undefined) throw new Error(`${where}: חסר החלק מהסכום (%)`);
+  const years = optNum(t.years, `${where}: התקופה`, 1, 50);
+  if (years === undefined) throw new Error(`${where}: חסרה תקופה בשנים`);
+  const out = { type: t.type, repayment: REPAYMENT_KEYS.has(t.repayment) ? t.repayment : 'SPITZER', share, years };
+  const ratePct = optNum(t.ratePct, `${where}: הריבית`, -5, 30);
+  const spreadPct = optNum(t.spreadPct, `${where}: המרווח`, -10, 20);
+  const resetMonths = optNum(t.resetMonths, `${where}: תדירות השינוי`, 1, 600);
+  const graceMonths = optNum(t.graceMonths, `${where}: חודשי הגרייס`, 0, 600);
+  if (ratePct !== undefined) out.ratePct = ratePct;
+  if (spreadPct !== undefined) out.spreadPct = spreadPct;
+  if (resetMonths !== undefined) out.resetMonths = Math.round(resetMonths);
+  if (graceMonths) { out.graceMonths = Math.round(graceMonths); out.graceType = t.graceType === 'FULL' ? 'FULL' : 'PARTIAL'; }
+  if (t.anchorKey) out.anchorKey = str(t.anchorKey, 40, 'העוגן');
+  return out;
+}
+
+function validateApproval(input, i = 0) {
+  if (!input || typeof input !== 'object') throw new Error('אישור לא תקין');
+  const lender = str(input.lender, 100, 'שם הבנק');
+  if (!lender) throw new Error(`אישור ${i + 1}: שם הבנק חובה`);
+  const validUntil = input.validUntil ? String(input.validUntil) : '';
+  if (validUntil && !isDate(validUntil)) throw new Error(`${lender}: תאריך התוקף אינו תקין`);
+  const receivedAt = input.receivedAt ? String(input.receivedAt) : '';
+  if (receivedAt && !isDate(receivedAt)) throw new Error(`${lender}: תאריך הקבלה אינו תקין`);
+  const fees = optNum(input.fees, `${lender}: העמלות`, 0, 1e7);
+  const maxAmount = optNum(input.maxAmount, `${lender}: הסכום המאושר`, 1, 1e10);
+  const raw = Array.isArray(input.tracks) ? input.tracks : [];
+  if (!raw.length) throw new Error(`${lender}: יש להזין לפחות מסלול אחד`);
+  if (raw.length > 12) throw new Error(`${lender}: עד 12 מסלולים`);
+  const tracks = raw.map((t, k) => validateApprovalTrack(t, k, lender));
+  const totalShare = Math.round(tracks.reduce((s, t) => s + t.share * 100, 0));
+  if (totalShare !== 10000) throw new Error(`${lender}: חלקי המסלולים חייבים להסתכם ב-100% (עכשיו ${totalShare / 100}%)`);
+  const id = /^[A-Za-z0-9-]{1,60}$/.test(String(input.id || '')) ? String(input.id) : null;
+  return { id, lender, receivedAt, validUntil, feesAg: fees === undefined ? 0 : toAg(fees), maxAmountAg: maxAmount === undefined ? null : toAg(maxAmount),
+    tracks, notes: str(input.notes, 500, 'ההערות') };
+}
+
+// אישור שמור ← שקלים לתצוגה ולמעבדה
+function approvalView(a) {
+  const { feesAg, maxAmountAg, ...rest } = a;
+  return { ...rest, fees: fromAg(feesAg || 0), maxAmount: maxAmountAg == null ? '' : fromAg(maxAmountAg) };
+}
+
+// קלט ל-mlab calcApprovals: הסכום של התיק, וכל אישור כהצעה
+function approvalsForLab(client) {
+  const c = clientStored(client);
+  return {
+    amount: fromAg(c.requestedAmountAg),
+    offers: (Array.isArray(c.approvals) ? c.approvals : []).map(a => {
+      const v = approvalView(a);
+      return { id: v.id, lender: v.lender, validUntil: v.validUntil, fees: v.fees, maxAmount: v.maxAmount, tracks: v.tracks };
+    })
+  };
+}
+
+function approvalsSummary(client, asOf) {
+  const list = Array.isArray(client.approvals) ? client.approvals : [];
+  return list.map(a => ({ ...approvalView(a), expired: !!(a.validUntil && a.validUntil < asOf), chosen: client.chosenApprovalId === a.id }));
 }
 
 // סכום מסלול באגורות — מצורה שמורה (amountAg) או מטופס / רשומה ישנה (amount בשקלים)
@@ -379,6 +517,8 @@ function pipelineBoard(clients, { nowMs = Date.now(), settings, advisorName = ()
 module.exports = {
   TRACKS, TRACK_KEYS, CLIENT_STATUSES, STAGE_KEYS, CLOSED_STAGES, DEFAULT_STAGE, DOCUMENTS, DEFAULT_SETTINGS,
   normalizeStage, normalizeSettings, canSee, resolveAdvisor, withStage, daysInStage, pipelineBoard,
+  EMPLOYMENT, DEALS, normalizeProfile, setDocState, missingDocsMessage,
+  MAX_APPROVALS, validateApproval, approvalView, approvalsForLab, approvalsSummary,
   validateClient, clientStored, clientView, offerStored, ltv, advisoryFee, docsProgress, toggleDoc,
   validateTrack, tracksFromForm, validateOffer, trackSchedule, offerSchedule, offerSummary,
   yearlySchedule, compareOffers, scheduleTable

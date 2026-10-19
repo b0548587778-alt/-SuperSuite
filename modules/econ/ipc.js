@@ -1454,7 +1454,20 @@ function registerIpcHandlers() {
     await auditEvent(event, 'madv.client.delete', { id });
     return true;
   });
-  handle('madv:toggleDoc', async (event, id, key) => mortgageAdvisorService.toggleDoc(id, key, madvActor(event)));
+  handle('madv:toggleDoc', async (event, id, key, docState) => mortgageAdvisorService.toggleDoc(id, key, madvActor(event), docState));
+  handle('madv:getMissingDocsMessage', async (event, id) => mortgageAdvisorService.getMissingDocsMessage(id, madvActor(event)));
+  // אישורים עקרוניים: נשמרים בתיק, ומושווים במנוע של מעבדת התמהיל (אותה תחזית, אותו חישוב)
+  handle('madv:saveApprovals', async (event, id, list) => {
+    const r = await mortgageAdvisorService.saveApprovals(id, list, madvActor(event));
+    await auditEvent(event, 'madv.approvals.save', { id, count: r.length });
+    return r;
+  });
+  handle('madv:chooseApproval', async (event, id, approvalId) => {
+    const r = await mortgageAdvisorService.chooseApproval(id, approvalId, madvActor(event));
+    await auditEvent(event, 'madv.approvals.choose', { id, approvalId: approvalId || null });
+    return r;
+  });
+  handle('madv:calcApprovals', async (event, id) => mortgageLabService.calcApprovals(await mortgageAdvisorService.approvalsInput(id, madvActor(event))));
   handle('madv:addOffer', async (event, input) => {
     const o = await mortgageAdvisorService.addOffer(input, madvActor(event));
     await auditEvent(event, 'madv.offer.add', { id: o.id, clientId: o.clientId });
@@ -1477,7 +1490,7 @@ function registerIpcHandlers() {
   });
 
   // מעבדת תמהיל: מנוע התמהיל המלא, סלים אחידים, כושר החזר, מחזור, אישורים, עמלת פירעון ואופטימייזר
-  handle('mlab:getOverview', async () => mortgageLabService.getOverview());
+  handle('mlab:getOverview', async (event) => mortgageLabService.getOverview(madvActor(event)));
   handle('mlab:calcMix', async (event, input) => mortgageLabService.calcMix(input || {}));
   handle('mlab:calcBaskets', async (event, input) => mortgageLabService.calcBaskets(input || {}));
   handle('mlab:calcAffordability', async (event, input) => mortgageLabService.calcAffordability(input || {}));
@@ -1507,7 +1520,7 @@ function registerIpcHandlers() {
     return true;
   });
   handle('mlab:saveScenario', async (event, input) => {
-    const sc = await mortgageLabService.saveScenario(input || {});
+    const sc = await mortgageLabService.saveScenario(input || {}, madvActor(event));
     await auditEvent(event, 'mlab.scenario.save', { id: sc.id, clientId: sc.clientId });
     return sc;
   });
