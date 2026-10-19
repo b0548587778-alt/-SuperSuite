@@ -468,7 +468,19 @@ function secureStore(mod) {
   }
   return secureStores[mod];
 }
-const fromModuleView = (e, mod) => SecureStore.MODULES.includes(mod) && views[mod] && !views[mod].webContents.isDestroyed() && e.sender.id === views[mod].webContents.id;
+const fromView = (e, mod) => !!(views[mod] && !views[mod].webContents.isDestroyed() && e.sender.id === views[mod].webContents.id);
+const fromModuleView = (e, mod) => SecureStore.MODULES.includes(mod) && fromView(e, mod);
+
+/* תשלומי האימונים למסך הגבייה (PLAN.md 9.11): המערכת הכלכלית מקבלת את נתוני האימונים לקריאה בלבד, ורק
+   מתצוגת המודול הכלכלי (הערוצים עצמם — ב-handle() של ipc.js: כניסה, הרשאה ורישיון החשבוניות). מודול האימונים
+   לא שולח ולא מקבל דבר; בלי רישיון לאימונים, או כשהמחסן שלו לא מוצפן/נעול — אין נתונים */
+function trainerDataForEcon(senderId) {
+  if (!fromView({ sender: { id: senderId } }, 'econ')) throw new Error('תשלומי האימונים זמינים רק מתוך המערכת הכלכלית');
+  if (!LG.moduleAllowed(licenseNow(), 'trainer')) throw new Error('מודול האימונים אינו כלול ברישיון');
+  const s = secureStore('trainer');
+  if (s.state !== 'encrypted') throw new Error('נתוני האימונים אינם זמינים (המחסן המוצפן של המודול לא נפתח)');
+  return s.snapshot();
+}
 function wireSecureStore() {
   session.defaultSession.registerPreloadScript({ type: 'frame', filePath: path.join(__dirname, 'shell', 'secure-ls-preload.js') });
   ipcMain.on('secure-store:load', (e, mod) => {
@@ -705,7 +717,7 @@ app.whenReady().then(async () => {
     econ = require('./modules/econ/ipc');
     if (econ.setErrorLogger) econ.setErrorLogger((scope, e) => logger.error(scope, e));
     // בשבת וביום טוב (מצב שבת) — אין תשובות אוטומטיות בהודעות
-    try { await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused, dbOptions: dbAtRestOptions() }); }
+    try { await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused, dbOptions: dbAtRestOptions(), trainerData: trainerDataForEcon }); }
     catch (err) {
       if (!err || err.code !== 'db-key-missing') throw err;
       // אין קוד שחזור: בלי האפשרות הזו התוכנה לא עולה, ואי אפשר גם לשחזר מגיבוי בסיסמה
@@ -715,7 +727,7 @@ app.whenReady().then(async () => {
       if (c.response !== 0) { app.quit(); return; }
       const aside = require('./modules/econ/core/database').setAsideLockedDatabase(app.getPath('userData'));
       logger.error('db-at-rest', new Error('locked database set aside: ' + path.basename(aside)));
-      await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused, dbOptions: dbAtRestOptions() });
+      await econ.initEcon(app.getPath('userData'), { isRestTime: syncPaused, dbOptions: dbAtRestOptions(), trainerData: trainerDataForEcon });
     }
     // ההמרה נדחתה (הגיבוי שלפניה נכשל) — המצב נקבע במסד עצמו
     const dbNow = econ.getDb && econ.getDb();

@@ -197,6 +197,27 @@ class AccountingService {
     return stored;
   }
 
+  // תשלום מנוי ממודול האימונים (core/trainerPayments.js → invoiceInput) ← חשבונית מס/קבלה, פעם אחת לכל תשלום.
+  // הבדיקה שאין כבר חשבונית לאותו תשלום — באותה טעינה של המסד שבה נשמרת החדשה
+  async createTrainerReceipt({ customer, date, grossAgorot, description, method, reference, trainerPayment }) {
+    if (!Number.isSafeInteger(grossAgorot) || grossAgorot <= 0) throw new Error('סכום החשבונית אינו תקין');
+    const key = trainerPayment && String(trainerPayment.key || '');
+    if (!key) throw new Error('חסר שיוך לתשלום במודול האימונים');
+    const data = await this._load();
+    const prev = data.invoices.find(i => i.trainerPayment && i.trainerPayment.key === key && i.status !== 'cancelled');
+    if (prev) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${prev.number})`);
+    const rate = this._vatRate(data);
+    const unitPrice = A.netFromGross(grossAgorot, rate);
+    const stored = this._createInvoiceIn(data, { customer, date, grossAgorot, items: [{ description, quantity: 1, unitPrice, kind: 'service' }] });
+    if (Math.round(stored.total * 100) !== grossAgorot) throw new Error('סכום החשבונית אינו תואם לסכום ששולם');
+    this._payIn(data, stored, { date: stored.date, ...SD.validatePayment({ method, reference }), issueReceipt: false });
+    stored.kind = 'tax-invoice-receipt';
+    stored.trainerPayment = { key, clientId: String(trainerPayment.clientId || '').slice(0, 64),
+      membershipId: String(trainerPayment.membershipId || '').slice(0, 64), paymentId: String(trainerPayment.paymentId || '').slice(0, 64) };
+    await this.db.save(data);
+    return stored;
+  }
+
   // גביית חשבונית: חובה בנק, זכות לקוחות — על היתרה אחרי זיכויים. מופקת קבלה (סוג 400) עם מספר משלה
   async recordPayment(invoiceId, { date, method, reference } = {}) {
     const data = await this._load();

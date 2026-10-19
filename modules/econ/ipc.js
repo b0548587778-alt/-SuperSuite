@@ -29,6 +29,7 @@ const MB = require('./core/dashboard');
 const { IDLE_MIN_RANGE } = require('./services/authService');
 const path = require('path');
 const LG = require('../../shell/licensing/gate');
+const TP = require('./core/trainerPayments');
 const GS = require('../../shell/google-signin');
 const LS = require('../../shell/licensing/store');
 const ROOT_KEYS = require('../../shell/licensing/root-keys');
@@ -81,6 +82,8 @@ function withActivation(s) {
   return { ...s, status: 'locked', activation: act, reasons: [{ kind: 'locked', reason: ACT.message(act), source: 'activation', step: first && first.id }, ...(s.reasons || [])] };
 }
 let clockNow = () => Date.now();
+// מקור תשלומי האימונים (main.js): (senderId) ← נתוני מחסן האימונים. בלי מקור (אנדרואיד, בדיקות) — לא זמין
+let trainerSource = null;
 // כניסה/קישור עם Google שאומתו מול Google — תנאי ההפעלה מתעדכן, והמערכת נפתחת מיד אם זה היה התנאי החסר
 function markGoogleActivation() {
   if (!licenseStore) return;
@@ -131,8 +134,9 @@ let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
 async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, relayUrl = DEFAULT_RELAY_URL, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
-  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions } = {}) {
+  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, trainerData } = {}) {
   restTime = isRestTime;
+  trainerSource = typeof trainerData === 'function' ? trainerData : null;
   clockNow = clock || (() => Date.now());
   googleDeps = { signIn: googleSignIn || GS.signIn, fetchImpl: fetchImpl || globalThis.fetch,
     openBrowser: openExternal || ((url) => { const sh = require('electron').shell; if (!sh || typeof sh.openExternal !== 'function') throw new Error('כניסה עם Google אינה זמינה במכשיר הזה'); return sh.openExternal(url); }) };
@@ -1102,6 +1106,29 @@ function registerIpcHandlers() {
     const r = await collectService.importReport(String(csvText || ''), mapping || {});
     await auditEvent(event, 'collect.import', { recorded: r.recorded.length, failed: r.failed.length, unmatched: r.unmatched.length });
     return r;
+  });
+  // תשלומי מנויים ממודול האימונים (PLAN.md 9.11) ← חשבונית מס/קבלה. main.js מאמת שהבקשה מתצוגת המודול הכלכלי,
+  // שמודול האימונים ברישיון ושהמחסן שלו פתוח; הסכום, התאריך והשם נקראים שוב מהמחסן — לא מהממשק
+  const trainerItems = (event) => {
+    if (!trainerSource) throw new Error('תשלומי האימונים אינם זמינים במכשיר הזה');
+    return trainerSource(event.sender.id);
+  };
+  handle('collect:getTrainerPayments', async (event) => {
+    assertCollectDomain('invoice');
+    if (!trainerSource) return { available: false, reason: 'תשלומי האימונים אינם זמינים במכשיר הזה', payments: [] };
+    const payments = TP.readPayments(trainerItems(event));
+    const { invoices } = await accountingService._load();
+    return { available: true, payments: TP.withReceipts(payments, invoices) };
+  });
+  // אישור מפורש של המשתמש (confirmed) — אחרת לא מופקת חשבונית
+  handle('collect:issueTrainerReceipt', async (event, key, opts) => {
+    assertCollectDomain('invoice');
+    if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
+    const p = TP.readPayments(trainerItems(event)).find(x => x.key === String(key || ''));
+    if (!p) throw new Error('התשלום לא נמצא במודול האימונים (ייתכן שנמחק)');
+    const inv = await accountingService.createTrainerReceipt(TP.invoiceInput(p));
+    await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'trainer', amountAg: p.amountAg });
+    return { id: inv.id, number: inv.number, total: inv.total, customer: inv.customer };
   });
 
   handle('gemach:getOverview', async (event, asOf) => gemachService.getOverview(asOf));

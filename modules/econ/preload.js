@@ -353,6 +353,8 @@ contextBridge.exposeInMainWorld('systemAPI', {
   collectMarkPaid: (id, input) => ipcRenderer.invoke('collect:markPaid', id, input),
   collectPreviewImport: (csvText) => ipcRenderer.invoke('collect:previewImport', csvText),
   collectImportReport: (csvText, mapping) => ipcRenderer.invoke('collect:importReport', csvText, mapping),
+  collectTrainerPayments: () => ipcRenderer.invoke('collect:getTrainerPayments'),
+  collectIssueTrainerReceipt: (key, opts) => ipcRenderer.invoke('collect:issueTrainerReceipt', key, opts),
   chatOverview: (as, filter) => ipcRenderer.invoke('chat:overview', as, filter),
   chatEdit: (input, as) => ipcRenderer.invoke('chat:edit', input, as),
   chatDeleteForAll: (mid, as) => ipcRenderer.invoke('chat:deleteForAll', mid, as),
