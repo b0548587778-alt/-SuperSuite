@@ -95,6 +95,8 @@ test('בחירה בדיאלוג: נשמרת, "המסכים שלי" מוצג, ו�
   s.$('obStart').onclick();
   assert.equal(s.$('obDlg').open, true);
   assert.match(s.$('obChoices').innerHTML, /עמותה/);
+  assert.match(s.$('obChoices').innerHTML, /class="ob-icon"/, 'כרטיס עם אייקון');
+  assert.match(s.$('obCount').textContent, /עדיין לא נבחר/);
   s.choose([]);
   assert.match(s.$('obErr').textContent, /לפחות אפשרות אחת/);
   s.choose(['npo']);
@@ -127,4 +129,5 @@ test('צעד: לחיצה פותחת את המסך או את הפעולה; "בו�
   // המסך של העמותה נפתח, ולכן מסך הבית לא צויר מחדש ברקע — הוא מתעדכן בחזרה הביתה
   s.$('hm').onclick();
   assert.match(s.$('obProgress').textContent, /^2 מתוך 5$/);
+  assert.equal(s.$('obMeter').style.width, '40%', 'מד ההתקדמות');
 });

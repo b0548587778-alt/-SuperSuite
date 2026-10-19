@@ -20,15 +20,16 @@ function errMsg(error) {
   return known[raw] || raw;
 }
 
-function openDialog(build) {
+// opts.screen — מסך מלא (כניסה / מנהל ראשון): בלי סגירה ב-Escape, המשתמש חייב להשלים
+function openDialog(build, opts = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
-    overlay.className = 'modal';
+    overlay.className = opts.screen ? 'modal auth-screen' : 'modal';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     const card = document.createElement('div');
     card.className = 'modal-card';
-    card.style.maxWidth = '420px';
+    if (opts.screen) card.classList.add('auth-card'); else card.style.maxWidth = '420px';
     overlay.appendChild(card);
     document.body.appendChild(overlay);
 
@@ -40,7 +41,7 @@ function openDialog(build) {
       overlay.remove();
       resolve(value);
     };
-    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); finish(null); } };
+    const onKey = (e) => { if (e.key === 'Escape' && !opts.screen) { e.preventDefault(); finish(null); } };
     document.addEventListener('keydown', onKey, true);
     build(card, finish);
   });
@@ -71,9 +72,36 @@ function askConfirm(message) {
   });
 }
 
+// ראש מסך הכניסה (PLAN.md 7.2): הלוגו, שם התוכנה וברכה לפי השעה. הלוגו כ-SVG בתוך העמוד — בלי קובץ חיצוני
+const AUTH_LOGO = '<svg viewBox="0 0 512 512" width="52" height="52" aria-hidden="true"><defs>' +
+  '<linearGradient id="authG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--ss-gold-bright)"/><stop offset=".55" style="stop-color:var(--ss-gold-bright)"/><stop offset="1" style="stop-color:var(--ss-gold)"/></linearGradient>' +
+  '<linearGradient id="authS" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--ss-navy-3)"/><stop offset="1" style="stop-color:var(--ss-navy-1)"/></linearGradient></defs>' +
+  '<rect x="24" y="24" width="464" height="464" rx="112" fill="url(#authG)"/>' +
+  '<path d="M256 92 L296 216 L420 256 L296 296 L256 420 L216 296 L92 256 L216 216 Z" fill="url(#authS)"/></svg>';
+function authGreeting(now = new Date()) {
+  const h = now.getHours();
+  if (h >= 5 && h < 12) return 'בוקר טוב';
+  if (h >= 12 && h < 17) return 'צהריים טובים';
+  if (h >= 17 && h < 22) return 'ערב טוב';
+  return 'לילה טוב';
+}
+function authHeader(card, intro) {
+  const head = document.createElement('div');
+  head.className = 'auth-head';
+  head.innerHTML = AUTH_LOGO + '<b>SuperSuite</b>';
+  const hello = document.createElement('div');
+  hello.className = 'auth-hello';
+  hello.textContent = authGreeting() + (intro ? ' — ' + intro : '');
+  head.appendChild(hello);
+  card.appendChild(head);
+}
+
 // opts.altText — כפתור נוסף (למשל "כניסה עם Google"); לחיצה עליו מחזירה { alt: true }
+// opts.screen — מסך כניסה מלא: { intro, note } — בלי "ביטול" (אין לאן לחזור בלי משתמש)
+// שדה עם same: '<name>' — חייב להיות זהה לשדה אחר (אימות סיסמה)
 function askFields(title, fields, submitText, initial = {}, opts = {}) {
   return openDialog((card, finish) => {
+    if (opts.screen) authHeader(card, opts.screen.intro);
     const h = document.createElement('h2');
     h.textContent = title;
     const form = document.createElement('form');
@@ -86,11 +114,23 @@ function askFields(title, fields, submitText, initial = {}, opts = {}) {
       const input = document.createElement('input');
       input.type = f.type || 'text';
       input.name = f.name;
-      input.autocomplete = f.type === 'password' ? 'current-password' : 'username';
+      input.autocomplete = f.type === 'password' ? (f.newPassword ? 'new-password' : 'current-password') : 'username';
       input.value = initial[f.name] || '';
       label.appendChild(input);
+      if (f.hint) {
+        const hint = document.createElement('small');
+        hint.className = 'field-hint';
+        hint.textContent = f.hint;
+        label.appendChild(hint);
+      }
       form.appendChild(label);
       inputs[f.name] = input;
+    }
+    if (opts.screen && opts.screen.note) {
+      const note = document.createElement('div');
+      note.className = 'auth-note';
+      note.textContent = opts.screen.note;
+      form.appendChild(note);
     }
     const err = document.createElement('div');
     err.style.color = 'var(--ss-danger)';
@@ -105,11 +145,11 @@ function askFields(title, fields, submitText, initial = {}, opts = {}) {
     ok.type = 'submit';
     ok.className = 'primary';
     ok.textContent = submitText;
-    actions.append(cancel, ok);
+    if (opts.screen) actions.append(ok); else actions.append(cancel, ok);
     if (opts.altText) {
       const alt = document.createElement('button');
       alt.type = 'button';
-      alt.className = 'secondary';
+      alt.className = opts.screen ? 'secondary auth-alt' : 'secondary';
       alt.textContent = opts.altText;
       alt.addEventListener('click', () => finish({ alt: true }));
       actions.prepend(alt);
@@ -129,21 +169,30 @@ function askFields(title, fields, submitText, initial = {}, opts = {}) {
           inputs[f.name].focus();
           return;
         }
+        if (f.same && v !== values[f.same]) {
+          err.textContent = f.label + ' — אינה זהה';
+          inputs[f.name].focus();
+          return;
+        }
         values[f.name] = v;
       }
       finish(values);
     });
-    const first = Object.values(inputs)[0];
+    const first = Object.values(inputs).find(i => !i.value) || Object.values(inputs)[0];
     if (first) first.focus();
-  });
+  }, { screen: !!opts.screen });
 }
 
 // Setup admin
 async function setupAdmin() {
   const values = await askFields('יצירת מנהל ראשון', [
     { name: 'username', label: 'שם משתמש' },
-    { name: 'password', label: 'סיסמה (לפחות 12 תווים)', type: 'password' }
-  ], 'צור מנהל');
+    { name: 'password', label: 'סיסמה', type: 'password', newPassword: true, hint: 'לפחות 12 תווים. משפט קצר שקל לזכור — למשל שלוש מילים ומספר' },
+    { name: 'password2', label: 'הסיסמה שוב', type: 'password', newPassword: true, same: 'password' }
+  ], 'צור מנהל והתחל', {}, { screen: {
+    intro: 'ברוכים הבאים',
+    note: 'זה המנהל של התוכנה: הוא יכול להוסיף משתמשים ולקבוע מה כל אחד רואה. את הסיסמה אי אפשר לשחזר — רשמו אותה ושמרו במקום בטוח.'
+  } });
   if (!values) return;
   try {
     state.user = await window.systemAPI.setupAdmin(values.username, values.password);
@@ -161,7 +210,7 @@ async function loginUser() {
   const values = await askFields('התחברות למערכת', [
     { name: 'username', label: 'שם משתמש' },
     { name: 'password', label: 'סיסמה', type: 'password' }
-  ], 'התחבר', { username: lastLoginUser }, google ? { altText: 'כניסה עם Google' } : {});
+  ], 'התחבר', { username: lastLoginUser }, { screen: { intro: 'נא להתחבר כדי להמשיך' }, ...(google ? { altText: 'כניסה עם Google' } : {}) });
   if (!values) return;
   if (values.alt) {
     showToast('המשיכו את הכניסה בדפדפן שנפתח…');
