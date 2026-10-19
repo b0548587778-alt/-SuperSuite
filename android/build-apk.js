@@ -187,16 +187,23 @@ function ensureKeystore(t) {
 }
 
 /* ---------- APK ---------- */
+function copyResDir(from, to) {
+  if (!fs.existsSync(from)) throw new Error('חסרה תיקיית משאבים: ' + path.relative(ROOT, from));
+  for (const dir of fs.readdirSync(from)) {
+    fs.mkdirSync(path.join(to, dir), { recursive: true });
+    for (const f of fs.readdirSync(path.join(from, dir))) fs.copyFileSync(path.join(from, dir, f), path.join(to, dir, f));
+  }
+}
+
 function buildApk(t, version) {
   const work = path.join(OUT, 'work');
   rmrf(work);
   fs.mkdirSync(work, { recursive: true });
   const env = { ...process.env, JAVA_HOME: path.dirname(path.dirname(t.java)), PATH: path.dirname(t.java) + path.delimiter + process.env.PATH };
 
-  // משאבים: אייקון בלבד
-  const res = path.join(work, 'res', 'mipmap-xxxhdpi');
-  fs.mkdirSync(res, { recursive: true });
-  fs.copyFileSync(path.join(ROOT, 'build', 'icon.png'), path.join(res, 'ic_launcher.png'));
+  // משאבים: אייקון לכל צפיפות ולוגו הפתיחה (build/android — tools/make-icon.js), וערכת מסך הפתיחה (android/app/res)
+  copyResDir(path.join(ROOT, 'build', 'android'), path.join(work, 'res'));
+  copyResDir(path.join(AND, 'app', 'res'), path.join(work, 'res'));
   const resZip = path.join(work, 'res.zip');
   run(t.aapt2, ['compile', '--dir', path.join(work, 'res'), '-o', resZip]);
 

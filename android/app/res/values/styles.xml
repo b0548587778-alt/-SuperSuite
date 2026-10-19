@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- מסך פתיחה (PLAN.md 7.2): רקע נייבי עם הלוגו עד שהמעטפת נטענת, במקום מסך לבן. צבעי shell/design-tokens.css -->
+<resources>
+    <color name="ss_navy">#0f1a30</color>
+    <style name="SuperSuite.Launch" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/launch_bg</item>
+        <item name="android:statusBarColor">@color/ss_navy</item>
+        <item name="android:navigationBarColor">@color/ss_navy</item>
+    </style>
+</resources>

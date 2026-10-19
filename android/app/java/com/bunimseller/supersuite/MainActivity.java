@@ -73,7 +73,8 @@ public class MainActivity extends Activity {
 
         assets = new AssetServer(getAssets());
         web = new WebView(this);
-        web.setBackgroundColor(Color.parseColor("#f4f6fb"));
+        // שקוף עד שהעמוד נטען — רואים את מסך הפתיחה (רקע החלון), לא הבזק לבן
+        web.setBackgroundColor(Color.TRANSPARENT);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -101,6 +102,8 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                // העמוד נטען: רקע רגיל במקום מסך הפתיחה (גם לחלקים שקופים בעמוד)
+                view.setBackgroundColor(Color.parseColor("#f4f6fb"));
                 // האסימון נמסר רק למסגרת הראשית, ורק כשהיא המעטפת שלנו
                 Uri u = Uri.parse(url);
                 if (AssetServer.isOurs(u) && (AssetServer.origin("shell")).equals("https://" + u.getHost())) {

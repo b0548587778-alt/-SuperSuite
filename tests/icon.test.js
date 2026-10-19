@@ -38,3 +38,31 @@ test('מקור האייקון קיים ונכלל בבנייה', () => {
   assert.ok(pkg.build.files.includes('build/icon.png'));
   assert.equal(pkg.build.win.icon, 'build/icon.ico');
 });
+
+test('אנדרואיד: אייקון לכל צפיפות מסך ולוגו למסך הפתיחה', () => {
+  const { ANDROID_ICONS, ANDROID_SPLASH } = require('../tools/make-icon');
+  for (const [dpi, size] of Object.entries(ANDROID_ICONS)) {
+    const b = fs.readFileSync(path.join(ROOT, 'build', 'android', 'mipmap-' + dpi, 'ic_launcher.png'));
+    assert.ok(b.subarray(0, 8).equals(PNG_SIG));
+    assert.deepEqual(pngSize(b), { w: size, h: size }, dpi);
+  }
+  const s = fs.readFileSync(path.join(ROOT, 'build', 'android', 'drawable-xxxhdpi', 'splash_logo.png'));
+  assert.deepEqual(pngSize(s), { w: ANDROID_SPLASH, h: ANDROID_SPLASH });
+});
+
+test('אנדרואיד: מסך פתיחה נייבי במקום לבן, והבנייה מעתיקה את המשאבים', () => {
+  const manifest = fs.readFileSync(path.join(ROOT, 'android', 'app', 'AndroidManifest.xml'), 'utf8');
+  assert.match(manifest, /android:theme="@style\/SuperSuite\.Launch"/);
+  const styles = fs.readFileSync(path.join(ROOT, 'android', 'app', 'res', 'values', 'styles.xml'), 'utf8');
+  assert.match(styles, /windowBackground">@drawable\/launch_bg/);
+  const tokens = fs.readFileSync(path.join(ROOT, 'shell', 'design-tokens.css'), 'utf8');
+  const navy = styles.match(/name="ss_navy">(#[0-9a-f]{6})/i)[1];
+  assert.match(tokens, new RegExp('--ss-navy-1: ' + navy + ';', 'i'), 'אותו נייבי כמו בשפת העיצוב');
+  assert.match(fs.readFileSync(path.join(ROOT, 'android', 'app', 'res', 'drawable', 'launch_bg.xml'), 'utf8'), /@drawable\/splash_logo/);
+  const build = fs.readFileSync(path.join(ROOT, 'android', 'build-apk.js'), 'utf8');
+  assert.match(build, /copyResDir\(path\.join\(ROOT, 'build', 'android'\)/);
+  assert.match(build, /copyResDir\(path\.join\(AND, 'app', 'res'\)/);
+  const main = fs.readFileSync(path.join(ROOT, 'android', 'app', 'java', 'com', 'bunimseller', 'supersuite', 'MainActivity.java'), 'utf8');
+  assert.match(main, /web\.setBackgroundColor\(Color\.TRANSPARENT\)/, 'מסך הפתיחה נראה עד שהעמוד נטען');
+  assert.match(main, /onPageFinished[\s\S]*view\.setBackgroundColor\(Color\.parseColor/, 'ואחרי הטעינה — רקע רגיל');
+});
