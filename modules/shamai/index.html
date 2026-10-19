@@ -172,6 +172,10 @@
               <div class="hc-icon">◆</div><div class="hc-name">זהב/כסף</div>
               <div class="hc-desc">ערך התכה לפי טוהר</div>
             </button>
+            <button class="hub-card" data-sub="purchase">
+              <div class="hc-icon">⚖</div><div class="hc-name">קניית זהב מלקוח</div>
+              <div class="hc-desc">שטר קנייה ורישום למלאי</div>
+            </button>
             <button class="hub-card" data-sub="diamond">
               <div class="hc-icon">✦</div><div class="hc-name">יהלום</div>
               <div class="hc-desc">4Cs + טבעי/מעבדה</div>
@@ -293,6 +297,43 @@
           <div class="result-box" id="g-result"></div>
 
           <button class="btn-secondary" id="g-save" hidden>+ שמור כהזדמנות</button>
+        </div>
+
+        <div class="sub-view" data-sub="purchase" hidden>
+          <div class="sub-header">
+            <button class="back-btn" data-back="appraisal-hub">‹ חזרה</button>
+            <h2>קניית זהב וכסף מלקוח</h2>
+          </div>
+
+          <div class="field-hint">החישוב לפי מחירי הייחוס השמורים — כדאי לעדכן אותם לפני הקנייה (כפתור המחירים בכותרת).</div>
+
+          <h3 class="pu-title">פרטי המוכר</h3>
+          <div class="field-row">
+            <div class="field"><label for="pu-name">שם מלא</label><input type="text" id="pu-name" autocomplete="off" /></div>
+            <div class="field"><label for="pu-id">מספר זהות</label><input type="text" id="pu-id" inputmode="numeric" maxlength="9" autocomplete="off" /></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="pu-phone">טלפון</label><input type="tel" id="pu-phone" autocomplete="off" /></div>
+            <div class="field"><label for="pu-address">כתובת</label><input type="text" id="pu-address" autocomplete="off" /></div>
+          </div>
+
+          <h3 class="pu-title">הפריטים</h3>
+          <div id="pu-lines" class="pu-lines"></div>
+          <button class="btn-secondary" id="pu-add">+ פריט נוסף</button>
+
+          <div class="field-row">
+            <div class="field"><label for="pu-commission">עמלה (%)</label><input type="text" id="pu-commission" inputmode="decimal" value="0" /></div>
+            <div class="field"><label for="pu-pay">אמצעי תשלום</label>
+              <select id="pu-pay"><option value="cash">מזומן</option><option value="transfer">העברה בנקאית</option><option value="cheque">המחאה</option></select>
+            </div>
+          </div>
+          <div class="field"><label for="pu-notes">הערות</label><input type="text" id="pu-notes" maxlength="300" autocomplete="off" /></div>
+
+          <div class="result-box" id="pu-result"></div>
+          <button class="btn-primary" id="pu-save">הפקת שטר קנייה ורישום ביומן</button>
+
+          <h3 class="pu-title">שטרי קנייה אחרונים</h3>
+          <div id="pu-list" class="pu-list"></div>
         </div>
 
         <div class="sub-view" data-sub="diamond" hidden>
@@ -1541,6 +1582,7 @@
   <script src="src/appraise-luxury.js"></script>
   <script src="src/widgets.js"></script>
   <script src="src/report.js"></script>
+  <script src="src/purchase.js"></script>
   <script src="src/opp-extras.js"></script>
   <script src="src/contacts.js"></script>
   <script src="src/inventory.js"></script>

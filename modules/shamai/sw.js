@@ -9,6 +9,7 @@ const STATIC_ASSETS = [
   './src/core.js',
   './src/calc.js',
   './src/prices.js',
+  './src/purchase.js',
   './src/dashboard.js',
   './src/appraise-metals.js',
   './src/appraise-gems.js',

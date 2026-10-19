@@ -38,10 +38,10 @@ test('פיצול: אין const/let/class כפולים ברמה העליונה ב
   }
 });
 
-test('מיקוד: זהב, יהלומים, שעונים, יודאיקה, מטבעות וספרים ראשונים; השאר תחת "תחומים נוספים"', () => {
+test('מיקוד: זהב, קניית זהב מלקוח, יהלומים, שעונים, יודאיקה, מטבעות וספרים ראשונים; השאר תחת "תחומים נוספים"', () => {
   const main = html.slice(html.indexOf('id="hub-main"'), html.indexOf('id="hub-more"'));
   const subs = [...main.matchAll(/data-sub="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(subs, ['gold', 'diamond', 'watch', 'antique', 'coin', 'book']);
+  assert.deepEqual(subs, ['gold', 'purchase', 'diamond', 'watch', 'antique', 'coin', 'book']);
   const more = html.slice(html.indexOf('id="hub-more"'), html.indexOf('</details>', html.indexOf('id="hub-more"')));
   for (const k of ['realestate', 'vehicle', 'phone', 'scrap', 'wine']) assert.match(more, new RegExp(`data-sub="${k}"`));
 });
