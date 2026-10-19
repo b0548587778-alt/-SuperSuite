@@ -352,13 +352,13 @@ async function runBackup() {
   const r = await askPassphrase({ title: 'גיבוי מוצפן', text: 'בחר מה לגבות והזן סיסמה. בלי הסיסמה לא ניתן לשחזר את הקובץ.', scopes: true });
   if (r === null) return;
   try { await window.shellAPI.backupAll(r.pass, r.scope); }
-  catch (e) { alert(e.message || 'שגיאה בגיבוי'); }
+  catch (e) { await ssDialog.alert(e.message || 'שגיאה בגיבוי', { title: 'הגיבוי לא הצליח' }); }
 }
 async function runRestore() {
   const r = await askPassphrase({ title: 'שחזור מגיבוי', text: 'אם הגיבוי מוצפן, הזן את סיסמת הגיבוי. גיבוי אוטומטי מהמחשב הזה — השאר ריק; ממחשב אחר — הזן את קוד השחזור (🔑).', optional: true });
   if (r === null) return;
   try { await window.shellAPI.restoreAll(r.pass); }
-  catch (e) { alert(e.message || 'שגיאה בשחזור'); }
+  catch (e) { await ssDialog.alert(e.message || 'שגיאה בשחזור', { title: 'השחזור לא הצליח' }); }
 }
 function showGuide() {
   const g = $('guide');
@@ -412,22 +412,22 @@ function updateWhere() {
   const it = key && key !== 'home' ? BY_KEY.get(key) : null;
   $('navWhere').textContent = key === 'home' ? 'מסך הבית' : it ? it.name : '';
 }
-$('qt').onclick = () => {
-  if (confirm('לצאת מהמערכת ולסגור את החלון?')) window.shellAPI.quit();
+$('qt').onclick = async () => {
+  if (await ssDialog.confirm('לצאת מהמערכת ולסגור את החלון?', { okText: 'יציאה' })) window.shellAPI.quit();
 };
 
 $('tg').onclick = async () => {
   try {
     const t = await window.shellAPI.pickBackupTarget();
     if (t) { $('tgInfo').textContent = 'גיבוי אוטומטי ליעד: ' + t; obMarkDone('backup-target'); }
-  } catch (e) { alert(e.message || 'נדרשת כניסה למערכת כדי להגדיר יעד גיבוי'); }
+  } catch (e) { await ssDialog.alert(e.message || 'נדרשת כניסה למערכת כדי להגדיר יעד גיבוי'); }
 };
 // קוד שחזור: בלעדיו גיבוי אוטומטי נפתח רק במחשב שבו נוצר
 async function showRecoveryCode() {
   const dlg = $('rkDlg');
   let code;
   try { code = await window.shellAPI.getRecoveryCode(); }
-  catch (e) { alert(e.message || 'נדרשת כניסה למערכת עם הרשאת גיבוי'); return; }
+  catch (e) { await ssDialog.alert(e.message || 'נדרשת כניסה למערכת עם הרשאת גיבוי'); return; }
   $('rkCode').textContent = code;
   $('rkErr').textContent = '';
   const close = () => { dlg.oncancel = null; closeDialog(dlg); };
@@ -491,8 +491,8 @@ async function showPlainBackups() {
       name.dir = 'ltr';
       li.appendChild(name);
       if (r.canEncrypt) li.appendChild(actionBtn('הצפן', () => window.shellAPI.plainBackupEncrypt(f.name)));
-      li.appendChild(actionBtn('מחק', () => {
-        if (!confirm(`למחוק את ${f.name}?\nהקובץ יימחק לצמיתות.`)) return null;
+      li.appendChild(actionBtn('מחק', async () => {
+        if (!(await ssDialog.confirm(`למחוק את ${f.name}?\nהקובץ יימחק לצמיתות.`, { danger: true, okText: 'מחיקה' }))) return null;
         return window.shellAPI.plainBackupDelete(f.name);
       }));
       list.appendChild(li);

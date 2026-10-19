@@ -117,6 +117,7 @@
   --ss-shadow-sm: 0 1px 2px rgba(20, 33, 61, .05);
   --ss-shadow: 0 1px 2px rgba(20, 33, 61, .05), 0 8px 24px rgba(20, 33, 61, .06);
   --ss-shadow-lg: 0 12px 40px rgba(20, 33, 61, .18);
+  --ss-overlay: rgba(11, 20, 38, .55);       /* רקע מאחורי חלון הודעה (ss-dialog.js, dialog במעטפת) */
   --ss-focus: 0 0 0 3px rgba(36, 71, 158, .14);
   --ss-focus-ring: var(--ss-primary);        /* מסגרת מיקוד במקלדת (7.3) — על רקע בהיר */
   --ss-focus-ring-dark: var(--ss-gold-bright); /* על רקע כהה (הסרגל, המצב הכהה) */

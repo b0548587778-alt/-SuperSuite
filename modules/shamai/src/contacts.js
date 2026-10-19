@@ -114,8 +114,8 @@ function renderContactsView() {
 
 state.templates = Storage.load('templates') || [];
 
-function saveAsTemplate(opp) {
-  const name = prompt('שם התבנית (לדוגמה: "ש"ס וילנא 1890"):');
+async function saveAsTemplate(opp) {
+  const name = await ssDialog.prompt('שם התבנית (לדוגמה: "ש"ס וילנא 1890"):');
   if (!name) return;
   const template = {
     id: uid(),
@@ -150,8 +150,8 @@ function applyTemplate(templateId) {
   toast('✓ תבנית הוטענה', 'success');
 }
 
-function deleteTemplate(templateId) {
-  if (!confirm('למחוק את התבנית?')) return;
+async function deleteTemplate(templateId) {
+  if (!(await ssDialog.confirm('למחוק את התבנית?', { danger: true }))) return;
   state.templates = state.templates.filter(x => x.id !== templateId);
   Storage.save('templates', state.templates);
   renderTemplatesList();

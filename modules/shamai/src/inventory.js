@@ -177,10 +177,10 @@ function playAudioNote(audioData) {
   audio.play().catch(e => toast('שגיאה בהשמעה: ' + e.message, 'error'));
 }
 
-function deleteAudioNote(oppId, noteId) {
+async function deleteAudioNote(oppId, noteId) {
   const opp = state.opportunities.find(o => o.id === oppId);
   if (!opp || !opp.audioNotes) return;
-  if (!confirm('למחוק את ההקלטה?')) return;
+  if (!(await ssDialog.confirm('למחוק את ההקלטה?', { danger: true }))) return;
   opp.audioNotes = opp.audioNotes.filter(n => n.id !== noteId);
   Storage.save('opportunities', state.opportunities);
   renderLedger();
@@ -370,7 +370,7 @@ window.oppAction = async function(id, action, ...args) {
     return;
   }
   if (action === 'remind') {
-    const days = parseInt(prompt('בכמה ימים להזכיר?', '7'));
+    const days = parseInt(await ssDialog.prompt('בכמה ימים להזכיר?', '7', { type: 'number' }));
     if (!isNaN(days) && days > 0) setReminderForOpp(id, days);
     return;
   }

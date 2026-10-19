@@ -234,7 +234,7 @@ async function importPriceFile(file) {
     const date = parsed.date || $('#pp-date')?.value || localToday();
     const names = Object.keys(parsed.values).map(k => PRICE_FIELDS.find(f => f.k === k).name).join(', ');
     const extra = parsed.unknown.length ? `\nשורות שלא זוהו ידולגו: ${parsed.unknown.slice(0, 5).join(', ')}` : '';
-    if (!confirm(`לעדכן ${names} לפי הקובץ, בתאריך ${shortDay(date)}${parsed.date ? '' : ' (אין תאריך בקובץ)'}?${extra}`)) return;
+    if (!(await ssDialog.confirm(`לעדכן ${names} לפי הקובץ, בתאריך ${shortDay(date)}${parsed.date ? '' : ' (אין תאריך בקובץ)'}?${extra}`))) return;
     const { prices, changed } = applyPriceUpdate(state.prices, parsed.values, { date, source: 'file', note: parsed.note || file.name });
     storePrices(prices, changed, 'נטען מהקובץ');
   } catch (e) {

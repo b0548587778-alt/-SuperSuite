@@ -200,7 +200,7 @@ $('b64e').onclick=t(u8);$('b64d').onclick=t(un);o.onclick=()=>copy(o.textContent
   document.querySelectorAll('input[name="mR"]').forEach(r=>{if(Number(r.value)===store.get('maaserRate',10))r.checked=true;r.onchange=()=>{store.set('maaserRate',rate());mDraw()}});
   $('mD').value=today();
   $('mAdd').onclick=()=>{try{M.push(C.newMaaserEntry({kind:$('mK').value,amount:$('mA').value,date:$('mD').value,note:$('mN').value}));store.set('maaser',M);$('mA').value='';$('mN').value='';mDraw()}catch(e){toast(e.message)}};
-  $('mList').onclick=e=>{const id=e.target.dataset.mx;if(!id||!confirm('למחוק את הרשומה?'))return;M=M.filter(x=>x.id!==id);store.set('maaser',M);mDraw()};
+  $('mList').onclick=async e=>{const id=e.target.dataset.mx;if(!id||!(await ssDialog.confirm('למחוק את הרשומה?',{danger:true})))return;M=M.filter(x=>x.id!==id);store.set('maaser',M);mDraw()};
   mDraw();
 
   // הצמדה למדד

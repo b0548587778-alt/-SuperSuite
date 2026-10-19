@@ -489,15 +489,17 @@ function exportCSV() {
 
 function importJSON(file) {
   const reader = new FileReader();
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.opportunities || !Array.isArray(data.opportunities)) throw new Error('פורמט לא תקין');
-      const merge = confirm(`לייבא ${data.opportunities.length} פריטים?\nאישור = להוסיף לקיים\nביטול = להחליף את הקיים`);
-      if (merge) {
+      const mode = await ssDialog.choose(`לייבא ${data.opportunities.length} פריטים?`, [
+        { label: 'להוסיף לקיים', value: 'merge' }, { label: 'להחליף את הקיים', value: 'replace', kind: 'danger' }]);
+      if (!mode) return;
+      if (mode === 'merge') {
         state.opportunities = [...data.opportunities, ...state.opportunities];
       } else {
-        if (!confirm('להחליף את כל הנתונים הקיימים?')) return;
+        if (!(await ssDialog.confirm('להחליף את כל הנתונים הקיימים?', { danger: true }))) return;
         state.opportunities = data.opportunities;
       }
       Storage.save('opportunities', state.opportunities);

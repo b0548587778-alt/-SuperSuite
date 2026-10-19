@@ -18,7 +18,7 @@
 html,body{margin:0;height:100%;overflow:hidden}
 /* המעטפת: סרגל צד ברוחב 264px (זהה ל-SIDEBAR ב-main.js) + במה.
    כשמודול פעיל, Electron מצייר אותו מעל הבמה; כשאין — הבמה מציגה את מסך הבית. */
-body{font-family:"Segoe UI",Heebo,Arial,sans-serif;display:flex;flex-direction:row;height:100%;
+body{font-family:var(--ss-font);display:flex;flex-direction:row;height:100%;
      background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
 .side{width:264px;flex:0 0 264px;display:flex;flex-direction:column;height:100%;user-select:none;color:var(--ink);
       background:linear-gradient(180deg,var(--navy-2) 0%,var(--navy-1) 55%,var(--navy-0) 100%);
@@ -85,7 +85,7 @@ nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:rgba(2
 .hero::after{content:"";position:absolute;inset:0;pointer-events:none;
       background:radial-gradient(520px 260px at 8% 120%,rgba(212,167,58,.28),transparent 70%),
                  radial-gradient(380px 200px at 95% -30%,rgba(255,255,255,.10),transparent 70%)}
-.bsd{position:absolute;top:12px;left:18px;font-size:12px;color:rgba(255,255,255,.7);font-family:"David",serif}
+.bsd{position:absolute;top:12px;left:18px;font-size:12px;color:rgba(255,255,255,.7);font-family:var(--ss-font-title)}
 .hero h1{margin:0;font-family:var(--ss-font-title);font-weight:700;font-size:34px;letter-spacing:.3px;position:relative;z-index:1}
 .hero .dates{margin-top:6px;color:var(--ss-border-strong);font-size:14px;position:relative;z-index:1}
 .hero .dates b{color:var(--gold);font-weight:600}
@@ -151,7 +151,7 @@ button.link:hover{text-decoration:underline}
 .foot{color:var(--muted);font-size:12px;margin-top:8px}
 
 /* ---- תאריך עברי בסרגל ---- */
-.brand .hd{margin-inline-start:auto;font-size:11px;color:var(--gold);font-family:"David",serif;white-space:nowrap}
+.brand .hd{margin-inline-start:auto;font-size:11px;color:var(--gold);font-family:var(--ss-font-title);white-space:nowrap}
 
 /* ---- כרטיס "היום": מועדים, זמנים ושבת ---- */
 .day{position:relative;display:flex;gap:14px;flex-wrap:wrap;margin:-44px 0 26px;padding:16px 18px;border-radius:16px;z-index:2;
@@ -191,7 +191,7 @@ dialog .lbl{display:block;font-size:12.5px;color:var(--muted);margin-bottom:4px}
 body.shabbat #shabbat{display:flex;position:fixed;inset:0;z-index:50;align-items:center;justify-content:center;flex-direction:column;text-align:center;
      color:var(--ss-gold-soft);background:radial-gradient(900px 500px at 50% 30%,var(--ss-navy-3) 0%,var(--ss-navy-1) 60%,var(--ss-navy-0) 100%)}
 #shabbat .cnd{font-size:54px;letter-spacing:22px;margin-bottom:12px;filter:drop-shadow(0 0 18px rgba(212,167,58,.55))}
-#shabbat h1{margin:0;font-family:"David","Frank Ruhl Libre",serif;font-size:54px;font-weight:700;color:var(--ss-warning-line)}
+#shabbat h1{margin:0;font-family:var(--ss-font-title);font-size:54px;font-weight:700;color:var(--ss-warning-line)}
 #shabbat p{margin:10px 0 0;font-size:17px;color:var(--ss-border-strong)}
 #shabbat small{margin-top:34px;font-size:12.5px;color:var(--ss-ink-3);max-width:420px;line-height:1.6}
 
@@ -209,7 +209,7 @@ dialog p.rk-hint{font-size:12.5px;margin-bottom:8px}
 #tgWarn{display:block;margin-top:4px;padding:0;border:0;background:none;color:var(--ss-danger);font:inherit;font-size:12px;cursor:pointer;text-decoration:underline;text-align:start}
 #tgWarn[hidden]{display:none}
 dialog::backdrop{background:rgba(11,20,38,.55);backdrop-filter:blur(3px)}
-dialog h3{margin:0 0 6px;font-size:18px;font-family:"David","Frank Ruhl Libre",serif;color:var(--navy-2)}
+dialog h3{margin:0 0 6px;font-size:18px;font-family:var(--ss-font-title);color:var(--navy-2)}
 dialog p{margin:0 0 14px;color:var(--muted);font-size:13.5px;line-height:1.55}
 dialog input,dialog select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--ss-surface-input);color:inherit;font:inherit;margin-bottom:10px;outline:none}
 dialog input:focus,dialog select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(44,85,184,.15)}
@@ -470,6 +470,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   <p id="shEnd"></p>
   <small>מצב שבת פעיל: התוכנה אינה מבצעת פעולות אוטומטיות. ניתן לכבות אותו בהגדרות הלוח (⚙ במסך הבית).</small>
 </div>
+<script src="ss-dialog.js"></script>
 <script src="hebcal.js"></script>
 <script src="catalog.js"></script>
 <script src="onboarding.js"></script>

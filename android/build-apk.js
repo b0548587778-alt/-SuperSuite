@@ -127,6 +127,7 @@ function buildWeb() {
     // שפת העיצוב המשותפת (PLAN.md 7.1) — במחשב main.js מגיש אותה לכל מודול; כאן עותק בשורש של כל מודול
     fs.copyFileSync(path.join(ROOT, 'shell', 'design-tokens.css'), path.join(dst, 'design-tokens.css'));
     fs.copyFileSync(path.join(ROOT, 'shell', 'screen-guard.js'), path.join(dst, 'screen-guard.js'));
+    fs.copyFileSync(path.join(ROOT, 'shell', 'ss-dialog.js'), path.join(dst, 'ss-dialog.js'));
     const entry = path.join(dst, ENTRY_HTML[mod]);
     fs.writeFileSync(entry, injectIntoHead(fs.readFileSync(entry, 'utf8'), tags, entry));
   }

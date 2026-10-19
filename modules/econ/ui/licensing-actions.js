@@ -352,7 +352,7 @@ function attachLicensingHandlers() {
     if (r && r.ok) showToast(`גרסה ${r.version} נבדקה ומוכנה להתקנה`);
   });
   on('updInstallBtn', async () => {
-    if (!confirm('התוכנה תיסגר ותיפתח ההתקנה של הגרסה החדשה. מומלץ לגבות לפני כן. להמשיך?')) return;
+    if (!(await askConfirm('התוכנה תיסגר ותיפתח ההתקנה של הגרסה החדשה. מומלץ לגבות לפני כן. להמשיך?'))) return;
     await window.systemAPI.updateInstall();
   });
   on('ownerReleaseBtn', async () => {
@@ -366,7 +366,7 @@ function attachLicensingHandlers() {
     if (r && r.ok) showToast(`גרסה ${r.version} נחתמה. התעודה נשמרה: ${r.path}`);
   });
   each('data-owner-publish', async (b) => {
-    if (!confirm(`לשלוח את גרסה ${b.dataset.ownerPublish} לכל המערכות?`)) return;
+    if (!(await askConfirm(`לשלוח את גרסה ${b.dataset.ownerPublish} לכל המערכות?`))) return;
     const r = await window.systemAPI.ownerReleasePublish(b.dataset.ownerPublish, b.dataset.platform);
     showToast(`העדכון נשלח ל-${r.sent} מערכות`);
   });

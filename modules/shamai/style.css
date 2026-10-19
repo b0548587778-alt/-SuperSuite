@@ -32,7 +32,7 @@
 html, body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Heebo', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--ss-font);
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -92,7 +92,7 @@ textarea { min-height: 70px; resize: vertical; }
 }
 .brand { display: flex; flex-direction: column; }
 .brand .logo {
-  font-family: 'Frank Ruhl Libre', serif;
+  font-family: var(--ss-font-title);
   font-weight: 900;
   font-size: 30px;
   color: var(--gold);
@@ -216,7 +216,7 @@ textarea { min-height: 70px; resize: vertical; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 .section-title {
-  font-family: 'Frank Ruhl Libre', serif;
+  font-family: var(--ss-font-title);
   font-size: 20px;
   font-weight: 700;
   margin: 24px 0 12px;
@@ -235,7 +235,7 @@ textarea { min-height: 70px; resize: vertical; }
   margin-bottom: 16px;
 }
 .hero-greet {
-  font-family: 'Frank Ruhl Libre', serif;
+  font-family: var(--ss-font-title);
   font-size: 22px;
   font-weight: 700;
   color: var(--gold);
@@ -373,7 +373,7 @@ textarea { min-height: 70px; resize: vertical; }
 /* SUB-HUB GRID */
 .sub-hub { animation: fadeIn 0.2s; }
 .hub-title {
-  font-family: 'Frank Ruhl Libre', serif;
+  font-family: var(--ss-font-title);
   font-size: 22px;
   font-weight: 700;
   margin-bottom: 16px;
@@ -415,7 +415,7 @@ textarea { min-height: 70px; resize: vertical; }
   margin-bottom: 16px;
 }
 .sub-header h2 {
-  font-family: 'Frank Ruhl Libre', serif;
+  font-family: var(--ss-font-title);
   font-size: 22px;
   font-weight: 700;
   margin: 0;
@@ -438,7 +438,7 @@ textarea { min-height: 70px; resize: vertical; }
   margin-bottom: 14px;
 }
 .page-header h2 {
-  font-family: 'Frank Ruhl Libre', serif;
+  font-family: var(--ss-font-title);
   font-size: 24px;
   font-weight: 700;
 }
@@ -1542,7 +1542,7 @@ select {
   margin-bottom: 4px;
 }
 .jw-value {
-  font-family: 'Frank Ruhl Libre', serif;
+  font-family: var(--ss-font-title);
   font-size: 16px;
   font-weight: 700;
   color: var(--text);
@@ -2085,7 +2085,7 @@ select {
   margin-bottom: 12px;
 }
 .ocr-header h3 {
-  font-family: 'Frank Ruhl Libre', serif;
+  font-family: var(--ss-font-title);
   font-size: 20px;
   font-weight: 700;
   color: var(--gold);
@@ -2257,7 +2257,7 @@ select {
   flex-shrink: 0;
 }
 .auth-header h3 {
-  font-family: 'Frank Ruhl Libre', serif;
+  font-family: var(--ss-font-title);
   font-size: 18px;
   font-weight: 700;
   color: var(--gold);

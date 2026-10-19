@@ -228,7 +228,7 @@ async function oppAction(id, action) {
   if (!opp) return;
 
   if (action === 'delete') {
-    if (!confirm(`למחוק "${opp.name}"?`)) return;
+    if (!(await ssDialog.confirm(`למחוק "${opp.name}"?`, { danger: true }))) return;
     state.opportunities = state.opportunities.filter(o => o.id !== id);
     await ImageDB.delete(`opp_${id}`);
     Storage.save('opportunities', state.opportunities);
@@ -238,7 +238,7 @@ async function oppAction(id, action) {
   }
 
   if (action === 'bought') {
-    const actualPrice = prompt(`כמה שילמת בפועל? (מבוקש: ₪${fmt0(opp.asking)})`, String(opp.asking || ''));
+    const actualPrice = await ssDialog.prompt(`כמה שילמת בפועל? (מבוקש: ₪${fmt0(opp.asking)})`, String(opp.asking || ''));
     if (actualPrice === null) return;
     const price = parseFloat(actualPrice);
     if (!price || price <= 0) { toast('מחיר לא תקין', 'error'); return; }
@@ -252,7 +252,7 @@ async function oppAction(id, action) {
   }
 
   if (action === 'sold') {
-    const salePrice = prompt(`באיזה מחיר מכרת? (קנית ב-₪${fmt0(opp.purchasePrice)})`, '');
+    const salePrice = await ssDialog.prompt(`באיזה מחיר מכרת? (קנית ב-₪${fmt0(opp.purchasePrice)})`, '');
     if (salePrice === null) return;
     const price = parseFloat(salePrice);
     if (!price || price <= 0) { toast('מחיר לא תקין', 'error'); return; }

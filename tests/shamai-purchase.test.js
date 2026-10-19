@@ -108,11 +108,11 @@ test('אזהרות: מחיר ישן או לא מעודכן, ומזומן מעל 
   assert.deepEqual(j(run(`purchaseWarnings(r, 'transfer', ${JSON.stringify(PRICES)}, '2026-10-19')`)), []);
 });
 
-test('ממשק: הפקה רק אחרי אישור, מספור עולה, שמירה ביומן ובשטרות, וביטול לא צורך מספר', () => {
+test('ממשק: הפקה רק אחרי אישור, מספור עולה, שמירה ביומן ובשטרות, וביטול לא צורך מספר', async () => {
   const { run, el } = load();
   run(`state.prices = ${JSON.stringify(PRICES)}; state.opportunities = [];
     localToday = () => '2026-10-19';
-    var answers = [false, true]; var asked = []; confirm = (m) => { asked.push(m); return answers.shift(); };
+    var answers = [false, true]; var asked = []; ssDialog = { confirm: async (m) => { asked.push(m); return answers.shift(); } };
     var printed = []; openPrintPreview = (h) => printed.push(h);
     var toasts = []; toast = (m, t) => toasts.push(t + ':' + m);
     renderPurchaseView();`);
@@ -124,14 +124,14 @@ test('ממשק: הפקה רק אחרי אישור, מספור עולה, שמיר
   run('recalcPurchase()');
   assert.match(el('#pu-result').innerHTML, /לתשלום למוכר/);
   // ביטול — לא נשמר ולא נצרך מספר
-  run('savePurchase()');
+  await run('savePurchase()');
   assert.equal(run(`Storage.load('purchaseSeq', 0)`), 0);
   assert.equal(run('state.opportunities.length'), 0);
   assert.match(run('asked[0]'), /יוסף אברהמי על סך ₪1,485\.00/);
   // אישור — נשמר, ממוספר, נרשם ביומן ונפתחת הדפסה
   el('#pu-name').value = 'יוסף אברהמי';
   el('#pu-id').value = '123456782';
-  run('savePurchase()');
+  await run('savePurchase()');
   assert.equal(run(`Storage.load('purchaseSeq', 0)`), 1);
   assert.equal(run(`Storage.load('purchases', [])[0].netAg`), 148500);
   assert.equal(run(`JSON.parse(localStorage.getItem('shamai_v2_opportunities'))[0].status`), 'bought');
@@ -141,7 +141,7 @@ test('ממשק: הפקה רק אחרי אישור, מספור עולה, שמיר
   el('#pu-name').value = 'דוד';
   el('#pu-id').value = '111';
   run(`state.purchase.lines[0].grams = '2';`);
-  run('savePurchase()');
+  await run('savePurchase()');
   assert.equal(run('asked.length'), 2);
   assert.ok(run('toasts').some(t => /^error:מספר הזהות/.test(t)));
 });

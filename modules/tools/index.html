@@ -7,11 +7,12 @@
 <title>ארגז כלים</title>
 <link rel="stylesheet" href="/design-tokens.css">
 <script src="/screen-guard.js"></script>
+<script src="/ss-dialog.js"></script>
 <style>
 :root{--bg:var(--ss-bg);--card:var(--ss-surface);--ink:var(--ss-text);--mut:var(--ss-muted);--line:var(--ss-border);--acc:var(--ss-primary);--acc2:var(--ss-primary-soft);--navy:var(--ss-navy-2);--gold:var(--ss-gold)}
 *{box-sizing:border-box}
-body{margin:0;font-family:"Segoe UI",Heebo,Arial,sans-serif;background:var(--bg);color:var(--ink);padding:24px 28px 40px;-webkit-font-smoothing:antialiased}
-h1{margin:0 0 4px;font-size:28px;font-family:"David","Frank Ruhl Libre",serif;color:var(--navy)}
+body{margin:0;font-family:var(--ss-font);background:var(--bg);color:var(--ink);padding:24px 28px 40px;-webkit-font-smoothing:antialiased}
+h1{margin:0 0 4px;font-size:28px;font-family:var(--ss-font-title);color:var(--navy)}
 .sub{color:var(--mut);margin:0 0 18px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 1px 2px rgba(20,33,61,.05),0 8px 24px rgba(20,33,61,.06);transition:box-shadow .15s,border-color .15s}

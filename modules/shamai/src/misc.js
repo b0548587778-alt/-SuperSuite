@@ -310,13 +310,13 @@ async function scanBackupQR() {
   }
 }
 
-function restoreFromCode(code) {
+async function restoreFromCode(code) {
   try {
     const decompressed = LZString.decompressFromEncodedURIComponent(code);
     if (!decompressed) throw new Error('פענוח נכשל');
     const data = JSON.parse(decompressed);
     if (!data.opps || !Array.isArray(data.opps)) throw new Error('פורמט לא תקין');
-    if (!confirm(`לטעון ${data.opps.length} פריטים? פעולה זו תחליף את הנתונים הנוכחיים.`)) return;
+    if (!(await ssDialog.confirm(`לטעון ${data.opps.length} פריטים? פעולה זו תחליף את הנתונים הנוכחיים.`, { danger: true }))) return;
     state.opportunities = data.opps;
     if (data.prices) state.prices = { ...state.prices, ...data.prices };
     Storage.save('opportunities', state.opportunities);

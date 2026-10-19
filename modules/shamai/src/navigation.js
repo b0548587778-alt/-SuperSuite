@@ -420,8 +420,8 @@ function bindEvents() {
   $('#btn-export-all')?.addEventListener('click', exportJSON);
   $('#btn-import-all')?.addEventListener('click', () => $('#file-import-all').click());
   $('#file-import-all')?.addEventListener('change', importJSON);
-  $('#btn-clear-all')?.addEventListener('click', () => {
-    if (confirm('למחוק את כל הנתונים? פעולה זו אינה הפיכה.')) {
+  $('#btn-clear-all')?.addEventListener('click', async () => {
+    if (await ssDialog.confirm('למחוק את כל הנתונים? פעולה זו אינה הפיכה.', { danger: true, okText: 'מחיקה' })) {
       localStorage.clear();
       location.reload();
     }

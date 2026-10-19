@@ -71,7 +71,7 @@
     cb.onchange = async () => {
       cb.disabled = true;
       try {
-        if (cb.checked && !confirm('הפעלת הסנכרון: המחשב יתחיל לקבל חיבורים מהרשת (רק ממכשירים שתצמדו).\nWindows עשוי לבקש אישור של חומת האש.\n\nלהפעיל?')) { cb.checked = false; return; }
+        if (cb.checked && !(await ssDialog.confirm('הפעלת הסנכרון: המחשב יתחיל לקבל חיבורים מהרשת (רק ממכשירים שתצמדו).\nWindows עשוי לבקש אישור של חומת האש.\n\nלהפעיל?', { okText: 'הפעלה' }))) { cb.checked = false; return; }
         await api.setEnabled(cb.checked);
       } catch (err) { showError(err); } finally { cb.disabled = false; refresh(); }
     };
@@ -231,7 +231,7 @@
           }),
           btn('כתובת…', '', async () => { addr.hidden = !addr.hidden; if (!addr.hidden) addrIn.focus(); }),
           btn('ביטול מכשיר', 'danger', async () => {
-            if (!confirm(`לבטל את «${p.name}»?\nהמכשיר ינותק מיד ולא יוכל להתחבר עוד. כדי לחבר אותו שוב יהיה צורך בצימוד חדש.`)) return;
+            if (!(await ssDialog.confirm(`לבטל את «${p.name}»?\nהמכשיר ינותק מיד ולא יוכל להתחבר עוד. כדי לחבר אותו שוב יהיה צורך בצימוד חדש.`, { danger: true, okText: 'ביטול המכשיר', cancelText: 'חזרה' }))) return;
             await api.revoke(p.id);
             refresh();
           }),

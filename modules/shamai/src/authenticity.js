@@ -310,15 +310,15 @@ function renderAuthChecker() {
     });
   });
 
-  $('#btn-auth-reset')?.addEventListener('click', () => {
-    if (confirm('לאפס את כל הבדיקות?')) {
+  $('#btn-auth-reset')?.addEventListener('click', async () => {
+    if (await ssDialog.confirm('לאפס את כל הבדיקות?', { danger: true })) {
       authResults = {};
       renderAuthChecker();
     }
   });
 
-  $('#btn-auth-save')?.addEventListener('click', () => {
-    const name = prompt('שם הפריט שנבדק:');
+  $('#btn-auth-save')?.addEventListener('click', async () => {
+    const name = await ssDialog.prompt('שם הפריט שנבדק:');
     if (!name) return;
     const opp = {
       id: uid(),

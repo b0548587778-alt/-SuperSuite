@@ -272,7 +272,7 @@ function recalcPurchase() {
   }
 }
 
-function savePurchase() {
+async function savePurchase() {
   const f = readPurchaseForm();
   try {
     if (Number.isNaN(f.commissionBp)) throw new Error('העמלה צריכה להיות בין 0% ל-50%');
@@ -280,7 +280,7 @@ function savePurchase() {
     const preview = createPurchase(f, { no: 0, prices: state.prices });
     const warn = purchaseWarnings(preview, preview.payMethod, state.prices);
     const msg = `להפיק שטר קנייה ל${preview.seller.name} על סך ${agToIls(preview.netAg)}?` + (warn.length ? `\n\nלתשומת לב:\n${warn.join('\n')}` : '');
-    if (!confirm(msg)) return;
+    if (!(await ssDialog.confirm(msg, { okText: 'הפקה' }))) return;
     // המספור נקבע רק אחרי האישור, ולא חוזר אחורה
     const no = (Number(Storage.load('purchaseSeq', 0)) || 0) + 1;
     const p = { ...preview, no };

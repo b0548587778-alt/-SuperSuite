@@ -13,7 +13,7 @@
     --radius: 8px;
     --shadow: 0 2px 4px rgba(0,0,0,0.1);
     --spacing: 1rem;
-    --font-sans: 'Heebo', system-ui, sans-serif;
+    --font-sans: var(--ss-font);
     --font-mono: 'JetBrains Mono', monospace;
 }
 
@@ -728,15 +728,15 @@ button.secondary:disabled {
 
 /* ---------- עיצוב "מלכותי" למסכי הנהלת החשבונות ---------- */
 .royal { --gold: var(--ss-gold); --gold-soft: var(--ss-gold-soft); --navy: var(--ss-navy-2); }
-.royal h3 { font-family: "David", "Times New Roman", serif; color: var(--navy); font-size: 1.25rem; letter-spacing: .2px; }
-.royal h4 { font-family: "David", "Times New Roman", serif; color: var(--ss-warning-ink); }
+.royal h3 { font-family: var(--ss-font-title); color: var(--navy); font-size: 1.25rem; letter-spacing: .2px; }
+.royal h4 { font-family: var(--ss-font-title); color: var(--ss-warning-ink); }
 .royal .card { border: 1px solid var(--ss-warning-line); background: linear-gradient(180deg, var(--ss-surface-input) 0%, var(--ss-surface) 60%); box-shadow: 0 1px 0 var(--ss-gold-soft), 0 6px 18px rgba(19,38,74,.06); border-radius: 12px; }
 .royal .card:hover { border-color: var(--gold); }
 .royal .acct-row.acct-total { border-bottom: 1px solid var(--ss-warning-line); }
 .royal .acct-row.acct-big { color: var(--navy); }
 .royal .acct-row.acct-big.pos { color: var(--ss-success-ink); }
 .royal .acct-row.acct-big.neg { color: var(--ss-danger-ink); }
-.royal .acct-table thead th { background: var(--navy); color: var(--ss-gold-soft); font-family: "David", serif; }
+.royal .acct-table thead th { background: var(--navy); color: var(--ss-gold-soft); font-family: var(--ss-font-title); }
 .royal .acct-table tfoot th { border-top: 2px solid var(--gold); }
 .royal .acct-table tbody tr:nth-child(even) td { background: var(--ss-bg); }
 .royal .ok { color: var(--ss-success-ink); }
@@ -751,7 +751,7 @@ button.secondary:disabled {
 /* ---------- לוח בקרה מרכזי ---------- */
 .hub { margin-bottom: 18px; }
 .hub-head { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
-.hub-head h2 { margin:0; font-family:"David","Times New Roman",serif; color:var(--navy,var(--ss-navy-2)); font-size:1.6rem; }
+.hub-head h2 { margin:0; font-family: var(--ss-font-title); color:var(--navy,var(--ss-navy-2)); font-size:1.6rem; }
 .hub-head small { color: var(--secondary); }
 .hub-badge { padding:6px 12px; border-radius:999px; font-size:.85rem; background:var(--ss-success-soft); color:var(--ss-success-ink); border:1px solid var(--ss-success-line); }
 .hub-badge.bad { background:var(--ss-bg); color:var(--ss-danger-ink); border-color:var(--ss-danger-line); }
@@ -783,7 +783,7 @@ button.secondary:disabled {
 
 /* ---------- מודולים נוספים בלוח הבקרה ---------- */
 .modules { margin: 6px 0 18px; }
-.modules-title { font-family:"David","Times New Roman",serif; color:var(--navy,var(--ss-navy-2)); margin:0 0 10px; }
+.modules-title { font-family: var(--ss-font-title); color:var(--navy,var(--ss-navy-2)); margin:0 0 10px; }
 .modules-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; }
 .module-card { display:flex; flex-direction:column; align-items:flex-start; gap:4px; padding:16px; border-radius:12px; border:1px solid var(--ss-warning-line); background:linear-gradient(180deg,var(--ss-surface-input),var(--ss-surface)); font:inherit; cursor:pointer; text-align:right; box-shadow:0 6px 18px rgba(19,38,74,.06); }
 .module-card:hover { border-color:var(--ss-gold); }
@@ -841,7 +841,7 @@ button.small { padding: .25rem .6rem; font-size: .85rem; }
     --navy: var(--ss-navy-2);
     --gold: var(--ss-gold);
     --gold-soft: var(--ss-gold-soft);
-    --font-sans: "Segoe UI", "Heebo", "Arial", system-ui, sans-serif;
+    --font-sans: var(--ss-font);
 }
 
 body { background: var(--light); color: var(--dark); -webkit-font-smoothing: antialiased; }
@@ -858,7 +858,7 @@ header {
     position: sticky; top: 0; z-index: 5;
 }
 header h1 {
-    font-family: "David", "Frank Ruhl Libre", "Times New Roman", serif;
+    font-family: var(--ss-font-title);
     font-size: 1.65rem; color: var(--navy); letter-spacing: .2px; line-height: 1.2;
 }
 header p { color: var(--secondary); font-size: .9rem; }
@@ -902,7 +902,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .modal { background: rgba(15,26,48,.55); backdrop-filter: blur(3px); }
 .modal-card { border-radius: 16px; box-shadow: 0 24px 64px rgba(15,26,48,.35); border: 1px solid var(--border); }
-.modal-card h2 { font-family: "David", "Frank Ruhl Libre", serif; color: var(--navy); padding-top: 1.25rem; }
+.modal-card h2 { font-family: var(--ss-font-title); color: var(--navy); padding-top: 1.25rem; }
 #modalForm .field input, #modalForm .field select, #modalForm .field textarea,
 .modal-form input, .modal-form select, .modal-form textarea,
 .form-group input, .form-group select, .form-group textarea {
