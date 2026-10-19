@@ -808,6 +808,15 @@ function registerIpcHandlers() {
     if (result.ok) await auditEvent(event, 'acct.export.ledger', { rows: rows.length });
     return result;
   });
+  // כרטסת לקוח להדפסה (PDF) — מאותם נתונים, ובלוגו ובפרטי העסק
+  handle('acct:exportCustomerLedgerPdf', async (event, customer, range) => {
+    const l = await accountingService.getCustomerLedger(bizStr(customer), { from: bizDay(range && range.from), to: bizDay(range && range.to) });
+    const { business } = await accountingService.getSettings();
+    const safe = l.customer.replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'לקוח';
+    const r = await saveHtmlAsPdf(X.renderCustomerLedgerHtml(l, business), `כרטסת-${safe}.pdf`);
+    if (r.ok) await auditEvent(event, 'acct.export.ledger.pdf', { rows: l.rows.length });
+    return r;
+  });
   handle('acct:setVatRate', async (event, rate) => accountingService.setVatRate(rate));
   handle('acct:getSettings', async () => accountingService.getSettings());
   handle('acct:getProducts', async () => accountingService.getProducts());
@@ -1079,6 +1088,14 @@ function registerIpcHandlers() {
     if (r.ok) await auditEvent(event, 'npo.statement.pdf', { year: st.year, receipts: st.receipts.length });
     return r;
   });
+  // תיק תורם לשנה: הסיכום השנתי וכל הקבלות שהופקו במערכת — בקובץ אחד
+  handle('npo:exportDonorFilePdf', async (event, donorKey, year) => {
+    const { statement: st, donations } = await npoService.getDonorFile(donorKey, year);
+    const safe = String(st.donor.name).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'תורם';
+    const r = await saveHtmlAsPdf(X.renderDonorFileHtml(st, donations), `תיק-תורם-${st.year}-${safe}.pdf`);
+    if (r.ok) await auditEvent(event, 'npo.donorfile.pdf', { year: st.year, receipts: st.receipts.length });
+    return r;
+  });
   handle('npo:exportReceiptPdf', async (event, id) => {
     const d = await npoService.getDonation(id);
     if (d.receipt && d.receipt.external) throw new Error('הקבלה לתרומה זו הופקה בערוץ התרומה עצמו — יש להפיק אותה משם');
@@ -1166,6 +1183,15 @@ function registerIpcHandlers() {
 
   handle('gemach:getOverview', async (event, asOf) => gemachService.getOverview(asOf));
   handle('gemach:getLoan', async (event, id) => gemachService.getLoan(id));
+  // דף חשבון ללווה (PDF): לוח הסילוקין, מה ששולם ומה שנותר; חשבון הבנק ממוסך בלבד
+  handle('gemach:exportLoanStatementPdf', async (event, id) => {
+    const { loan, fundName } = await gemachService.getLoanStatement(id);
+    const asOf = localDay(Date.now());
+    const safe = String(loan.borrowerName).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'לווה';
+    const r = await saveHtmlAsPdf(X.renderLoanStatementHtml(loan, { fundName, asOf }), `דף-חשבון-${safe}-${asOf}.pdf`);
+    if (r.ok) await auditEvent(event, 'gemach.statement.pdf', { id: loan.id });
+    return r;
+  });
   handle('gemach:saveSettings', async (event, input) => {
     const saved = await gemachService.saveSettings(input || {});
     await auditEvent(event, 'gemach.settings.save', { fundName: saved.fundName });

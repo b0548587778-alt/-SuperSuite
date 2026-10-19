@@ -229,7 +229,8 @@ function donorSummary(donations, year) {
 
 // סיכום שנתי לתורם (לצירוף לבקשת החזר מס): כל הקבלות הפעילות של התורם בשנה, הסכום הכולל והחלק לפי סעיף 46.
 // donorKey כמו ב-donorSummary: 'id:<ת.ז>' או 'name:<שם>'. קבלות מבוטלות אינן נכללות.
-function donorAnnualStatement(donations, settings, donorKey, year) {
+// התרומות הפעילות של תורם בשנה, לפי סדר הקבלות (משותף לסיכום השנתי ולתיק התורם)
+function donorYearDonations(donations, donorKey, year) {
   const key = String(donorKey || '');
   const y = Number(year);
   if (!Number.isInteger(y) || y < 2000 || y > 2100) throw new Error('שנה לא תקינה');
@@ -237,6 +238,12 @@ function donorAnnualStatement(donations, settings, donorKey, year) {
     : key.startsWith('name:') && !d.donorId && d.donorName.trim().toLowerCase() === key.slice(5);
   const rows = live(donations).filter(d => inYear(d.date, y) && match(d)).sort((a, b) => a.date.localeCompare(b.date) || byReceipt(a, b));
   if (!rows.length) throw new Error('לא נמצאו תרומות לתורם בשנה זו');
+  return rows;
+}
+
+function donorAnnualStatement(donations, settings, donorKey, year) {
+  const y = Number(year);
+  const rows = donorYearDonations(donations, donorKey, y);
   const last = rows[rows.length - 1];
   const totalAg = rows.reduce((t, d) => t + toAg(d.amount), 0);
   const sec46Ag = rows.filter(d => d.receipt && d.receipt.sec46).reduce((t, d) => t + toAg(d.amount), 0);
@@ -411,5 +418,5 @@ module.exports = {
   GENERAL_FUND, VAT_STATUSES, METHODS, GRANT_STATUSES, TAX_STATUSES, DONOR_TYPES, REPORT_IDS, donorType, reportId, DEFAULT_SETTINGS, MAX_DONATIONS, MAX_GRANTS,
   parseDocuments, matchingRequired, grantAlerts, taxStatus, recordTaxReport, taxSummary,
   normalizeSettings, allFunds, applySettings, sec46Eligible, validateDonation, issueReceipt,
-  validateGrant, donorSummary, receiptNo, byReceipt, receiptLabel, donorAnnualStatement, fundSummary, annualReport, exportTable
+  validateGrant, donorSummary, receiptNo, byReceipt, receiptLabel, donorYearDonations, donorAnnualStatement, fundSummary, annualReport, exportTable
 };

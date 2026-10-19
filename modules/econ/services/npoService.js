@@ -380,6 +380,12 @@ class NpoService {
     return N.donorAnnualStatement(npo.donations, npo.settings, donorKey, year);
   }
 
+  // תיק תורם: הסיכום השנתי ותרומות השנה המלאות (לצירוף הקבלות לאותו קובץ)
+  async getDonorFile(donorKey, year) {
+    const { npo } = await this._load();
+    return { statement: N.donorAnnualStatement(npo.donations, npo.settings, donorKey, year), donations: N.donorYearDonations(npo.donations, donorKey, year) };
+  }
+
   async getDonation(donationId) {
     const { npo } = await this._load();
     const d = npo.donations.find(x => x.id === donationId);

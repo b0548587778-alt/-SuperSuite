@@ -300,8 +300,9 @@ function renderGemach(o) {
                   <small class="muted">${esc(GEMACH_LOAN_STATUS[l.status] || l.status)}${l.lateCount ? ` · ${l.lateCount} תשלומים בפיגור` : ''}</small>
                 </span>
                 <span>${money(l.outstanding)} / ${money(l.amount)}
-                  ${l.bankMasked ? `<small class="muted">🏦 ${esc(l.bankMasked)}</small>` : ''}${l.masavStopped ? ` <small class="bad">מס"ב נעצר: ${esc(l.masavStopped)}</small>` : ''}
+                  ${l.bankMasked ? `<small class="muted">🏦 <bdi dir="ltr">${esc(l.bankMasked)}</bdi></small>` : ''}${l.masavStopped ? ` <small class="bad">מס"ב נעצר: ${esc(l.masavStopped)}</small>` : ''}
                   ${l.status === 'active' ? `<button class="icon-btn" data-gemach-bank="${esc(l.id)}" title="חשבון לחיוב במס&quot;ב">🏦</button>` : ''}
+                  <button class="icon-btn" data-gemach-statement="${esc(l.id)}" title="דף חשבון ללווה (PDF)" aria-label="דף חשבון ללווה">📄</button>
                   ${l.status === 'active' && !l.totalPaid ? `<button class="icon-btn danger" data-gemach-cancel="${esc(l.id)}" title="ביטול הלוואה">✖</button>` : ''}
                 </span>
               </summary>
@@ -368,6 +369,11 @@ function attachGemachHandlers() {
     if (!(await askConfirm('לבטל את ההלוואה?'))) return;
     try { await window.systemAPI.cancelGemachLoan(btn.dataset.gemachCancel); showToast('ההלוואה בוטלה'); await switchView('gemach'); }
     catch (error) { showError('שגיאה בביטול: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-gemach-statement]').forEach(btn => btn.addEventListener('click', async (e) => {
+    e.preventDefault(); // הכפתור בתוך <summary> — לא לפתוח/לסגור את הפרטים
+    try { const r = await window.systemAPI.exportGemachLoanStatementPdf(btn.dataset.gemachStatement); if (r && r.ok) showToast('דף החשבון נשמר כ-PDF'); }
+    catch (error) { showError('שגיאה בהפקת דף החשבון: ' + errMsg(error)); }
   }));
   document.querySelectorAll('[data-gemach-export]').forEach(btn => btn.addEventListener('click', async () => {
     try { const r = await window.systemAPI.exportGemachCsv(btn.dataset.gemachExport); if (r && r.ok) showToast('הקובץ נשמר'); }

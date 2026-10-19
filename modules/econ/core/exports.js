@@ -174,16 +174,7 @@ function donationReportBlock(d) {
 const METHOD_LABELS = { cash: 'מזומן', check: 'המחאה', transfer: 'העברה בנקאית', card: 'כרטיס אשראי', standing: 'הוראת קבע' };
 
 // קבלה על תרומה (עמותה) כ-HTML להדפסה / PDF. הפרטים נלקחים מהקבלה עצמה (מוקפאים ביום ההפקה).
-function renderDonationReceiptHtml(d) {
-  const r = d.receipt || {};
-  const o = r.org || {};
-  const cancelled = d.status === 'cancelled';
-  return `<!doctype html>
-<html lang="he" dir="rtl">
-<head>
-<meta charset="utf-8">
-<title>קבלה על תרומה ${esc(r.number)}</title>
-<style>
+const RECEIPT_CSS = `
   @page { size: A4; margin: 16mm; }
   body { font-family: "Segoe UI", Arial, sans-serif; color: #1e293b; margin: 0; font-size: 13px; }
   header { display: flex; justify-content: space-between; border-bottom: 3px solid #0f766e; padding-bottom: 12px; }
@@ -197,10 +188,13 @@ function renderDonationReceiptHtml(d) {
   .reported { margin-top: 12px; padding: 10px 14px; border: 2px solid #1e293b; border-radius: 6px; font-weight: 800; font-size: 14px; }
   .void { color: #b91c1c; font-size: 20px; font-weight: 800; text-align: center; border: 3px solid #b91c1c; padding: 8px; margin-top: 12px; }
   .notice { margin-top: 26px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
-</style>
-</head>
-<body>
-<header>
+`;
+
+function donationReceiptBody(d) {
+  const r = d.receipt || {};
+  const o = r.org || {};
+  const cancelled = d.status === 'cancelled';
+  return `<header>
   <div class="org">
     <h2>${esc(o.name)}</h2>
     ${o.regNumber ? `<div>ע"ר ${esc(o.regNumber)}</div>` : ''}
@@ -225,21 +219,15 @@ ${cancelled ? '<div class="void">מבוטלת</div>' : ''}
 ${r.sec46 ? `<div class="s46">התרומה מוכרת לזיכוי ממס לפי סעיף 46 לפקודת מס הכנסה · אישור מס' ${esc(r.sec46Number)}${r.sec46ValidUntil ? ` · בתוקף עד ${esc(r.sec46ValidUntil)}` : ''}</div>` : ''}
 ${donationReportBlock(d)}
 <div class="notice">מסמך זה הופק במערכת SuperSuite. האחריות לתוקף אישור סעיף 46 ולדיווח לרשויות חלה על העמותה.</div>
-</body>
-</html>`;
+`;
+}
+
+function renderDonationReceiptHtml(d) {
+  return htmlDoc(`קבלה על תרומה ${esc((d.receipt || {}).number)}`, RECEIPT_CSS, donationReceiptBody(d));
 }
 
 // סיכום שנתי לתורם: טבלת כל הקבלות בשנה, סה"כ והחלק המזכה לפי סעיף 46 (קלט: npo.donorAnnualStatement)
-function renderDonorStatementHtml(st) {
-  const o = st.org || {};
-  const dn = st.donor || {};
-  const rows = (st.receipts || []).map(r => `<tr><td>${esc(r.number)}</td><td>${esc(r.date)}</td><td>${esc(METHOD_LABELS[r.method] || r.method)}</td><td>${esc(r.fundName)}</td><td>${r.sec46 ? '✓' : '—'}</td><td class="n">${money(r.amount)}</td></tr>`).join('');
-  return `<!doctype html>
-<html lang="he" dir="rtl">
-<head>
-<meta charset="utf-8">
-<title>סיכום תרומות לשנת ${esc(st.year)}</title>
-<style>
+const STATEMENT_CSS = `
   @page { size: A4; margin: 16mm; }
   body { font-family: "Segoe UI", Arial, sans-serif; color: #14213d; margin: 0; font-size: 13px; }
   header { display: flex; justify-content: space-between; border-bottom: 3px solid #13264a; padding-bottom: 12px; }
@@ -255,10 +243,13 @@ function renderDonorStatementHtml(st) {
   tfoot td { font-weight: 800; border-top: 2px solid #b8860b; background: #fff !important; }
   .s46 { margin-top: 16px; padding: 10px 14px; border: 2px solid #b8860b; border-radius: 6px; background: #fffaf0; }
   .notice { margin-top: 26px; font-size: 11px; color: #5d6b85; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
-</style>
-</head>
-<body>
-<header>
+`;
+
+function donorStatementBody(st) {
+  const o = st.org || {};
+  const dn = st.donor || {};
+  const rows = (st.receipts || []).map(r => `<tr><td>${esc(r.number)}</td><td>${esc(r.date)}</td><td>${esc(METHOD_LABELS[r.method] || r.method)}</td><td>${esc(r.fundName)}</td><td>${r.sec46 ? '✓' : '—'}</td><td class="n">${money(r.amount)}</td></tr>`).join('');
+  return `<header>
   <div class="org">
     <h2>${esc(o.name)}</h2>
     ${o.regNumber ? `<div>ע"ר ${esc(o.regNumber)}</div>` : ''}
@@ -279,8 +270,183 @@ function renderDonorStatementHtml(st) {
 </table>
 ${st.sec46Total > 0 ? `<div class="s46">מתוכן <strong>${money(st.sec46Total)}</strong> מוכרים לזיכוי ממס לפי סעיף 46 לפקודת מס הכנסה${o.sec46Number ? ` · אישור מס' ${esc(o.sec46Number)}` : ''}${o.sec46ValidUntil ? ` · בתוקף עד ${esc(o.sec46ValidUntil)}` : ''}.</div>` : ''}
 <div class="notice">סיכום זה מרכז קבלות שכבר הופקו ואינו מחליף אותן. האחריות לתוקף אישור סעיף 46 ולדיווח לרשויות חלה על העמותה. הופק במערכת SuperSuite.</div>
-</body>
+`;
+}
+
+function renderDonorStatementHtml(st) {
+  return htmlDoc(`סיכום תרומות לשנת ${esc(st.year)}`, STATEMENT_CSS, donorStatementBody(st));
+}
+
+// שלד מסמך HTML מוכן להדפסה / PDF
+function htmlDoc(title, css, body) {
+  return `<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>${title}</title>
+<style>${css}</style>
+</head>
+<body>
+${body}</body>
 </html>`;
+}
+
+// עיגון CSS של מסמך בודד תחת מחלקה, כדי לחבר כמה מסמכים לקובץ אחד בלי שהעיצובים יתנגשו.
+// @page מושמט (הקובץ המשולב מגדיר אותו פעם אחת), body הופך למחלקה עצמה
+function scopeCss(css, scope) {
+  return css.split('\n').filter(line => !/^\s*@page\b/.test(line)).map(line => {
+    const m = line.match(/^(\s*)([^@{\s][^{]*)\{(.*)$/);
+    if (!m) return line;
+    const sels = m[2].split(',').map(x => x.trim()).filter(Boolean)
+      .map(x => (x === 'body' ? scope : x.startsWith('body ') ? scope + x.slice(4) : `${scope} ${x}`));
+    return `${m[1]}${sels.join(', ')} {${m[3]}`;
+  }).join('\n');
+}
+
+// תיק תורם לשנה: הסיכום השנתי ואחריו כל קבלה שהופקה במערכת, כל אחת בעמוד משלה.
+// קבלה שהופקה בערוץ התרומה עצמו (חיצונית) מופיעה בטבלת הסיכום בלבד
+function renderDonorFileHtml(st, donations) {
+  const own = (donations || []).filter(d => d.receipt && !d.receipt.external && Number.isInteger(d.receipt.number));
+  const external = (donations || []).length - own.length;
+  const css = `
+  @page { size: A4; margin: 16mm; }
+  body { margin: 0; }
+  .page { break-before: page; }
+${scopeCss(STATEMENT_CSS, '.st')}
+${scopeCss(RECEIPT_CSS, '.rc')}
+  .st .attached { margin-top: 12px; }
+`;
+  const attached = own.length
+    ? `<div class="attached">מצורפות ${own.length} קבלות, כל אחת בעמוד נפרד.${external ? ` ${external} קבלות שהופקו בערוץ התרומה עצמו אינן מצורפות.` : ''}</div>`
+    : external ? '<div class="attached">הקבלות לשנה זו הופקו בערוץ התרומה עצמו ואינן מצורפות.</div>' : '';
+  const body = `<section class="st">
+${donorStatementBody(st).replace('<div class="notice">', attached + '<div class="notice">')}
+</section>
+${own.map(d => `<section class="rc page">
+${donationReceiptBody(d)}</section>
+`).join('')}`;
+  return htmlDoc(`תיק תורם לשנת ${esc(st.year)} · ${esc((st.donor || {}).name)}`, css, body);
+}
+
+const SCHEDULE_STATE = { paid: 'נפרע', partial: 'חלקי', late: 'בפיגור', pending: 'ממתין' };
+
+// דף חשבון ללווה בגמ"ח: פרטי ההלוואה, לוח הסילוקין עם מה ששולם ומה שנותר, ויתרה לפירעון.
+// קלט: הלוואה כפי שמחזיר gemachService.getLoan (חשבון הבנק ממוסך בלבד) ושם הגמ"ח. סכומים באגורות
+function renderLoanStatementHtml(loan, { fundName = '', asOf = '' } = {}) {
+  const schedule = loan.schedule || [];
+  const live = loan.status === 'active';
+  const stateOf = (s) => (s.paidAg >= s.amountAg ? 'paid' : live && asOf && s.dueDate < asOf ? 'late' : s.paidAg > 0 ? 'partial' : 'pending');
+  const dueAg = schedule.reduce((t, s) => t + s.amountAg, 0);
+  const paidAg = schedule.reduce((t, s) => t + s.paidAg, 0);
+  const lateAg = schedule.filter(s => stateOf(s) === 'late').reduce((t, s) => t + s.amountAg - s.paidAg, 0);
+  const ag = (a) => money(a / 100);
+  const rows = schedule.map(s => {
+    const st = stateOf(s);
+    return `<tr class="${st}"><td>${esc(s.seq)}</td><td>${esc(s.dueDate)}</td><td class="n">${ag(s.amountAg)}</td><td class="n">${s.paidAg ? ag(s.paidAg) : '—'}</td><td>${esc(s.paidDate || '')}</td><td class="n">${ag(s.amountAg - s.paidAg)}</td><td>${SCHEDULE_STATE[st]}</td></tr>`;
+  }).join('');
+  const guarantors = (loan.guarantors || []).map(g => esc(g.name)).filter(Boolean).join(', ');
+  const css = `
+  @page { size: A4; margin: 16mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1e293b; margin: 0; font-size: 13px; }
+  header { display: flex; justify-content: space-between; border-bottom: 3px solid #7c2d12; padding-bottom: 12px; }
+  h1 { margin: 0; font-size: 22px; color: #7c2d12; }
+  h2 { margin: 0 0 4px; font-size: 16px; }
+  .meta { text-align: left; }
+  .box { margin: 16px 0; padding: 10px 14px; background: #f8fafc; border-radius: 6px; line-height: 1.8; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th { background: #7c2d12; color: #fff; padding: 7px 6px; text-align: right; font-weight: 600; }
+  td { padding: 6px; border-bottom: 1px solid #e2e8f0; }
+  .n { text-align: left; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.paid td { color: #64748b; }
+  tr.late td { color: #b91c1c; font-weight: 600; }
+  .totals { margin-top: 16px; margin-inline-start: auto; width: 60%; }
+  .totals div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #e2e8f0; }
+  .totals .grand { font-size: 16px; font-weight: 800; border-bottom: 2px solid #7c2d12; }
+  .void { color: #b91c1c; font-size: 18px; font-weight: 800; text-align: center; border: 3px solid #b91c1c; padding: 8px; margin-top: 12px; }
+  .notice { margin-top: 26px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
+`;
+  const body = `<header>
+  <div>
+    <h2>${esc(fundName || 'גמ"ח')}</h2>
+  </div>
+  <div class="meta">
+    <h1>דף חשבון הלוואה</h1>
+    ${asOf ? `<div><strong>נכון לתאריך:</strong> ${esc(asOf)}</div>` : ''}
+  </div>
+</header>
+${loan.status === 'cancelled' ? '<div class="void">ההלוואה בוטלה</div>' : ''}
+<div class="box">
+  <div><strong>לכבוד:</strong> ${esc(loan.borrowerName)}${loan.borrowerId ? ` · ת.ז ${esc(loan.borrowerId)}` : ''}</div>
+  ${loan.borrowerAddress ? `<div>${esc(loan.borrowerAddress)}</div>` : ''}
+  <div><strong>סכום ההלוואה:</strong> ${money(loan.amount)} · <strong>ניתנה ב:</strong> ${esc(loan.issueDate)} · <strong>תשלומים:</strong> ${esc(loan.installments)}</div>
+  ${loan.purpose ? `<div><strong>מטרה:</strong> ${esc(loan.purpose)}</div>` : ''}
+  ${guarantors ? `<div><strong>ערבים:</strong> ${guarantors}</div>` : ''}
+  ${loan.bankMasked ? `<div><strong>חשבון לחיוב:</strong> <bdi dir="ltr">${esc(loan.bankMasked)}</bdi></div>` : ''}
+</div>
+<table>
+  <thead><tr><th>#</th><th>מועד</th><th class="n">סכום</th><th class="n">שולם</th><th>תאריך תשלום</th><th class="n">נותר</th><th>מצב</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="totals">
+  <div><span>סה"כ ההלוואה</span><span>${ag(dueAg)}</span></div>
+  <div><span>שולם עד כה</span><span>${ag(paidAg)}</span></div>
+  ${lateAg ? `<div><span>מתוכו בפיגור</span><span>${ag(lateAg)}</span></div>` : ''}
+  <div class="grand"><span>יתרה לפירעון</span><span>${ag(dueAg - paidAg)}</span></div>
+</div>
+<div class="notice">הלוואה ללא ריבית. דף זה מסכם את מצב ההלוואה ביום ההפקה לפי רישומי הגמ"ח. הופק במערכת SuperSuite.</div>
+`;
+  return htmlDoc(`דף חשבון הלוואה · ${esc(loan.borrowerName)}`, css, body);
+}
+
+// כרטסת לקוח להדפסה (קלט: bizReports.customerLedger, סכומים באגורות)
+function renderCustomerLedgerHtml(l, business = {}) {
+  const b = { name: '', taxId: '', address: '', phone: '', ...business };
+  const color = brandColor(b);
+  const ag = (a) => money(a / 100);
+  const range = l.from || l.to ? `${l.from ? `מ-${esc(l.from)}` : ''}${l.from && l.to ? ' ' : ''}${l.to ? `עד ${esc(l.to)}` : ''}` : 'כל התקופה';
+  const rows = (l.rows || []).map(r => `<tr><td>${esc(r.date)}</td><td>${esc(r.ref)}</td><td>${esc(r.label)}</td><td class="n">${r.debitAg ? ag(r.debitAg) : ''}</td><td class="n">${r.creditAg ? ag(r.creditAg) : ''}</td><td class="n">${ag(r.balanceAg)}</td></tr>`).join('');
+  const css = `
+  @page { size: A4; margin: 16mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1e293b; margin: 0; font-size: 13px; }
+  header { display: flex; justify-content: space-between; border-bottom: 3px solid ${color}; padding-bottom: 12px; }
+  h1 { margin: 0; font-size: 22px; color: ${color}; }
+  h2 { margin: 0 0 4px; font-size: 16px; }
+  .logo { max-height: 70px; max-width: 180px; display: block; margin-bottom: 6px; }
+  .meta { text-align: left; }
+  .box { margin: 16px 0; padding: 10px 14px; background: #f8fafc; border-radius: 6px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th { background: ${color}; color: #fff; padding: 7px 6px; text-align: right; font-weight: 600; }
+  td { padding: 6px; border-bottom: 1px solid #e2e8f0; }
+  tr.open td { font-style: italic; color: #475569; }
+  .n { text-align: left; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tfoot td { font-weight: 800; border-top: 2px solid ${color}; }
+  .grand { margin-top: 14px; font-size: 16px; font-weight: 800; }
+  .notice { margin-top: 26px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
+`;
+  const closing = l.closingAg > 0 ? `יתרה לתשלום: ${ag(l.closingAg)}` : l.closingAg < 0 ? `יתרת זכות ללקוח: ${ag(-l.closingAg)}` : 'החשבון מאוזן';
+  const body = `<header>
+  <div>
+    ${logoOk(b.logo) ? `<img class="logo" src="${b.logo}" alt="">` : ''}
+    <h2>${esc(b.name)}</h2>
+    ${b.taxId ? `<div>ע.מ / ח.פ: ${esc(b.taxId)}</div>` : ''}
+    ${b.address ? `<div>${esc(b.address)}</div>` : ''}
+    ${b.phone ? `<div>טלפון: ${esc(b.phone)}</div>` : ''}
+  </div>
+  <div class="meta">
+    <h1>כרטסת לקוח</h1>
+    <div><strong>תקופה:</strong> ${range}</div>
+  </div>
+</header>
+<div class="box"><strong>לכבוד:</strong> ${esc(l.customer)}</div>
+<table>
+  <thead><tr><th>תאריך</th><th>מסמך</th><th>פרטים</th><th class="n">חובה</th><th class="n">זכות</th><th class="n">יתרה</th></tr></thead>
+  <tbody>${l.from ? `<tr class="open"><td>${esc(l.from)}</td><td></td><td>יתרת פתיחה</td><td></td><td></td><td class="n">${ag(l.openingAg)}</td></tr>` : ''}${rows}</tbody>
+  <tfoot><tr><td colspan="3">סה"כ בתקופה</td><td class="n">${ag(l.debitAg)}</td><td class="n">${ag(l.creditAg)}</td><td class="n">${ag(l.closingAg)}</td></tr></tfoot>
+</table>
+<div class="grand">${closing}</div>
+<div class="notice">הכרטסת מרכזת חשבוניות, זיכויים וגבייה לפי רישומי העסק ואינה מחליפה את המסמכים עצמם. הופק במערכת SuperSuite.</div>
+`;
+  return htmlDoc(`כרטסת לקוח · ${esc(l.customer)}`, css, body);
 }
 
 // CSV עם BOM כדי ש-Excel יציג עברית נכון
@@ -336,4 +502,4 @@ function renderUniformReportHtml(r) {
 </html>`;
 }
 
-module.exports = { renderInvoiceHtml, renderReceiptHtml, renderDonationReceiptHtml, renderDonorStatementHtml, renderUniformReportHtml, toCsv, esc, money };
+module.exports = { renderInvoiceHtml, renderReceiptHtml, renderDonationReceiptHtml, renderDonorStatementHtml, renderDonorFileHtml, renderLoanStatementHtml, renderCustomerLedgerHtml, scopeCss, renderUniformReportHtml, toCsv, esc, money };

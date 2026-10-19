@@ -463,7 +463,7 @@ function renderNpo(o) {
         </div>
         <div class="card">
           <h3>תורמים (${donors.length})</h3>
-          ${donors.slice(0, 15).map(d => `<div class="acct-row"><span>${esc(d.name)} <small class="muted">${d.count} תרומות · אחרונה ${esc(d.lastDate)}</small></span><span>${money(d.total)} <button class="icon-btn" data-npo-statement="${esc(d.key)}" title="סיכום שנתי לתורם (PDF) — לבקשת החזר מס">📄</button></span></div>`).join('') || '<div class="acct-row muted">אין תורמים עדיין</div>'}
+          ${donors.slice(0, 15).map(d => `<div class="acct-row"><span>${esc(d.name)} <small class="muted">${d.count} תרומות · אחרונה ${esc(d.lastDate)}</small></span><span>${money(d.total)} <button class="icon-btn" data-npo-statement="${esc(d.key)}" title="סיכום שנתי לתורם (PDF) — לבקשת החזר מס" aria-label="סיכום שנתי לתורם">📄</button> <button class="icon-btn" data-npo-donor-file="${esc(d.key)}" title="תיק תורם (PDF) — הסיכום השנתי וכל הקבלות בקובץ אחד" aria-label="תיק תורם">🗂️</button></span></div>`).join('') || '<div class="acct-row muted">אין תורמים עדיין</div>'}
         </div>
       </div>
     </div>`;
@@ -614,6 +614,12 @@ function attachNpoHandlers() {
       const r = await window.systemAPI.exportNpoDonorStatementPdf(btn.dataset.npoStatement, npoYear());
       if (r && r.ok) showToast('הסיכום השנתי נשמר כ-PDF');
     } catch (error) { showError('שגיאה בהפקת הסיכום: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-npo-donor-file]').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      const r = await window.systemAPI.exportNpoDonorFilePdf(btn.dataset.npoDonorFile, npoYear());
+      if (r && r.ok) showToast('תיק התורם נשמר כ-PDF');
+    } catch (error) { showError('שגיאה בהפקת תיק התורם: ' + errMsg(error)); }
   }));
   document.querySelectorAll('[data-npo-export]').forEach(btn => btn.addEventListener('click', async () => {
     try { const r = await window.systemAPI.exportNpoCsv(btn.dataset.npoExport, npoYear()); if (r && r.ok) showToast('הקובץ נשמר'); }

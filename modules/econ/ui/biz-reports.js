@@ -105,6 +105,7 @@ function renderBizCustomers(d) {
               <label class="field-inline">מ- <input type="date" id="bizFrom" value="${esc(d.ui.from || '')}"></label>
               <label class="field-inline">עד <input type="date" id="bizTo" value="${esc(d.ui.to || '')}"></label>
               <button class="secondary" id="bizLedgerCsv">ייצוא ל-Excel</button>
+              <button class="secondary" id="bizLedgerPdf">כרטסת להדפסה (PDF)</button>
             </div>
           </div>
           <div class="acct-scroll"><table class="acct-table">
@@ -218,6 +219,15 @@ function attachBizHandlers() {
     try {
       const r = await window.systemAPI.exportCustomerLedger(l.customer, { from: ui.from, to: ui.to });
       if (r && r.ok) showToast('הכרטסת נשמרה');
+    } catch (error) { showError(errMsg(error)); }
+  });
+  const pdf = document.getElementById('bizLedgerPdf');
+  if (pdf) pdf.addEventListener('click', async () => {
+    const l = state.data.bizReports && state.data.bizReports.ledger;
+    if (!l) return;
+    try {
+      const r = await window.systemAPI.exportCustomerLedgerPdf(l.customer, { from: ui.from, to: ui.to });
+      if (r && r.ok) showToast('הכרטסת נשמרה כ-PDF');
     } catch (error) { showError(errMsg(error)); }
   });
   const prev = document.getElementById('bizYearPrev'), next = document.getElementById('bizYearNext');

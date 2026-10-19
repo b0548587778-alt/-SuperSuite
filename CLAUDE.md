@@ -114,7 +114,7 @@ python -m unittest test_encryption -v
 | `core/database.js` | SQLite דרך `node:sqlite`. טבלת `collections` (key-value) + טבלאות auth/roles/audit. |
 | `core/accounting.js` | לוגיקת הנה"ח כפולה |
 | `core/backupCrypto.js` | הצפנת גיבוי AES-256-GCM |
-| `core/exports.js` | ייצוא CSV/Excel |
+| `core/exports.js` | ייצוא CSV/Excel ומסמכי HTML להדפסה / PDF (חשבונית, קבלות, סיכום שנתי לתורם, תיק תורם, דף חשבון ללווה, כרטסת לקוח). מסמך שמשולב בקובץ אחר נבנה מ-CSS וגוף נפרדים (`htmlDoc`), והעיצוב שלו מעוגן תחת מחלקה (`scopeCss`) |
 | `core/dataPorts.js` | ייבוא/ייצוא כללי (CSV + vCard) לכל סוגי הנתונים, ולידציה וכפילויות |
 | `services/*.js` | שירותים עסקיים — כל אחד מאותחל דרך `initializeAsync(db)` |
 | `core/npo.js` + `services/npoService.js` | עמותה: קבלות סעיף 46, קרנות, תמיכות, דוח שנתי. ערוצי `npo:*`. **נפרד מהיומן העסקי**. **"תרומות ישראל" — נתיב ידני** (הוראת ביצוע 11/2025, דרך 2; PLAN.md 9.14א): מעקב סטטוס ומספר רישום שמוקלד. `donorType` (anonymous / foreign; ברירת מחדל — לא נשמר = תושב ישראל) ← `reportId`: 999999999 / 888888888 בדיווח ובייצוא `tax`, **ולא נשמר כ-`donorId`** (אחרת כל התרומות בעילום שם מתאחדות לתורם אחד). על הקבלה — "פרטי התרומה דווחו לרשות המסים" ומספר האישור, **רק אחרי שנרשם דיווח** ורק בסעיף 46 (`donationReportBlock` ב-`exports.js`) |

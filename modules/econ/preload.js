@@ -158,6 +158,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   getAdvancesReport: (year) => ipcRenderer.invoke('acct:getAdvancesReport', year),
   getBizDashboard: () => ipcRenderer.invoke('acct:getBizDashboard'),
   exportCustomerLedger: (customer, range) => ipcRenderer.invoke('acct:exportCustomerLedger', customer, range),
+  exportCustomerLedgerPdf: (customer, range) => ipcRenderer.invoke('acct:exportCustomerLedgerPdf', customer, range),
   previewBankFile: (csvText) => ipcRenderer.invoke('acct:previewBankFile', csvText),
   importBankFile: (csvText, mapping) => ipcRenderer.invoke('acct:importBankFile', csvText, mapping),
   matchBankLine: (lineId, target) => ipcRenderer.invoke('acct:matchBankLine', lineId, target),
@@ -188,6 +189,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   toggleNpoGrantDocument: (id, index) => ipcRenderer.invoke('npo:toggleGrantDocument', id, index),
   recordNpoTaxReport: (id, input) => ipcRenderer.invoke('npo:recordTaxReport', id, input),
   exportNpoDonorStatementPdf: (donorKey, year) => ipcRenderer.invoke('npo:exportDonorStatementPdf', donorKey, year),
+  exportNpoDonorFilePdf: (donorKey, year) => ipcRenderer.invoke('npo:exportDonorFilePdf', donorKey, year),
   saveNpoCampaign: (id, input) => ipcRenderer.invoke('npo:saveCampaign', id, input),
   deleteNpoCampaign: (id) => ipcRenderer.invoke('npo:deleteCampaign', id),
   getNpoMemorials: (today, days) => ipcRenderer.invoke('npo:getMemorials', today, days),
@@ -214,6 +216,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   // גמ"ח
   getGemachOverview: (asOf) => ipcRenderer.invoke('gemach:getOverview', asOf),
   getGemachLoan: (id) => ipcRenderer.invoke('gemach:getLoan', id),
+  exportGemachLoanStatementPdf: (id) => ipcRenderer.invoke('gemach:exportLoanStatementPdf', id),
   saveGemachSettings: (input) => ipcRenderer.invoke('gemach:saveSettings', input),
   addGemachLoan: (input) => ipcRenderer.invoke('gemach:addLoan', input),
   recordGemachPayment: (loanId, seq, input) => ipcRenderer.invoke('gemach:recordPayment', loanId, seq, input),

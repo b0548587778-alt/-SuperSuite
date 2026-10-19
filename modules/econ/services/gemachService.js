@@ -55,6 +55,13 @@ class GemachService {
     return { ...rest, bankMasked: MSV.maskAccount(bankAccount) };
   }
 
+  // דף חשבון ללווה: ההלוואה (חשבון הבנק ממוסך בלבד) ושם הגמ"ח
+  async getLoanStatement(loanId) {
+    const loan = await this.getLoan(loanId);
+    const { gemach } = await this._load();
+    return { loan, fundName: G.normalizeSettings(gemach.settings).fundName };
+  }
+
   async saveSettings(input = {}) {
     const data = await this._load();
     data.gemach.settings = G.normalizeSettings({ ...data.gemach.settings, ...input });
