@@ -66,6 +66,35 @@ test('קורא מסך: לכל כפתור אייקון במסכים הקבועי�
   }
 });
 
+// שדה בלי שם: אין aria-label, אין <label for>, ואינו עטוף ב-<label>. hidden / file / כפתורים — מדולגים
+function unlabeledFields(html) {
+  const forIds = new Set([...html.matchAll(/<label[^>]*\bfor="([^"]+)"/g)].map((m) => m[1]));
+  const out = [];
+  for (const m of html.matchAll(/<(input|select|textarea)\b([^>]*)>/g)) {
+    const a = m[2];
+    if (/type="(hidden|button|submit|file)"/.test(a) || /\shidden(\s|$|=|\/)/.test(a)) continue;
+    if (/aria-label(ledby)?="[^"]+"/.test(a)) continue;
+    const id = (a.match(/\bid="([^"]+)"/) || [])[1];
+    if (id && forIds.has(id)) continue;
+    const before = html.slice(0, m.index);
+    if (before.lastIndexOf('<label') > before.lastIndexOf('</label>')) continue;
+    out.push(id || a.trim().slice(0, 50));
+  }
+  return out;
+}
+
+test('קורא מסך: לכל שדה בשמאות ובארגז הכלים יש שם, ואין מאפיין שבור (גרש כפול באמצע הערך)', () => {
+  for (const f of ['modules/shamai/index.html', 'modules/tools/index.html']) {
+    const html = read(f);
+    assert.deepEqual(unlabeledFields(html), [], f);
+    assert.doesNotMatch(html, /aria-label="[^"]*"[^\s>/]/, f);
+    // כל label for מצביע על שדה שקיים
+    for (const [, id] of html.matchAll(/<label[^>]*\bfor="([^"]+)"/g)) assert.match(html, new RegExp(`id="${id}"`), `${f}: for="${id}"`);
+  }
+  // הבדיקה עצמה תופסת שדה בלי שם
+  assert.deepEqual(unlabeledFields('<div><span>שם</span><input id="x"></div><label>א<input id="y"></label><label for="z">ב</label><input id="z">'), ['x']);
+});
+
 test('קורא מסך: לכל דיאלוג יש כותרת, וההודעות מוקראות', () => {
   const shell = read('shell/shell.html');
   for (const [, attrs] of shell.matchAll(/<dialog\b([^>]*)>/g)) assert.match(attrs, /aria-label(ledby)?=/, '<dialog' + attrs + '>');

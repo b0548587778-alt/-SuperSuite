@@ -64,67 +64,67 @@ label.c input{width:auto}
 <div class="keys" id="cKeys"></div><div class="hist" id="cHist"></div></div></section>
 
 <section class="card"><h2>ממיר יחידות</h2><p class="d">אורך, משקל, נפח, מהירות, טמפרטורה ונפח נתונים.</p>
-<select id="uType"></select>
-<div class="row"><input id="uVal" type="number" value="1"><select id="uFrom"></select><select id="uTo"></select></div>
+<select aria-label="סוג יחידה" id="uType"></select>
+<div class="row"><input aria-label="ערך להמרה" id="uVal" type="number" value="1"><select aria-label="מיחידה" id="uFrom"></select><select aria-label="ליחידה" id="uTo"></select></div>
 <div class="out" id="uOut"></div></section>
 
 <section class="card"><h2>מחולל סיסמאות</h2><p class="d">הסיסמה נוצרת במכשיר שלך ואינה נשלחת לשום מקום.</p>
-<div class="row"><span class="fix">אורך: <b id="pLenV">16</b></span><input id="pLen" type="range" min="6" max="64" value="16"></div>
+<div class="row"><span class="fix">אורך: <b id="pLenV">16</b></span><input aria-label="אורך הסיסמה" id="pLen" type="range" min="6" max="64" value="16"></div>
 <div class="row"><label class="c"><input type="checkbox" id="pLo" checked>אותיות קטנות</label><label class="c"><input type="checkbox" id="pUp" checked>אותיות גדולות</label><label class="c"><input type="checkbox" id="pNu" checked>ספרות</label><label class="c"><input type="checkbox" id="pSy" checked>סימנים</label></div>
 <div class="out" id="pOut"></div>
 <div class="row"><button class="p" id="pGen">צור סיסמה</button><button id="pCopy">העתק</button></div></section>
 
 <section class="card"><h2>פתקים</h2><p class="d">נשמר אוטומטית בזמן הכתיבה.</p>
-<textarea id="notes" style="min-height:190px" placeholder="כתוב כאן..."></textarea></section>
+<textarea aria-label="פתקים" id="notes" style="min-height:190px" placeholder="כתוב כאן..."></textarea></section>
 
 <section class="card"><h2>רשימת משימות</h2>
-<div class="row"><input id="tIn" placeholder="משימה חדשה"><button class="p fix" id="tAdd">הוסף</button></div>
+<div class="row"><input aria-label="משימה חדשה" id="tIn" placeholder="משימה חדשה"><button class="p fix" id="tAdd">הוסף</button></div>
 <div id="tList"></div></section>
 
 <section class="card"><h2>סטופר וטיימר</h2><p class="d">הצליל בסיום הטיימר מופעל לאחר לחיצה על התחלה.</p>
 <div class="big" id="swD">00:00.0</div>
 <div class="row"><button class="p" id="swS">התחלה</button><button id="swL">הקפה</button><button id="swR">איפוס</button></div>
 <div class="hist" id="swLaps"></div><hr style="border:0;border-top:1px solid var(--line)">
-<div class="row"><input id="tmM" type="number" min="0" value="5"><span class="fix">דקות</span><input id="tmS" type="number" min="0" max="59" value="0"><span class="fix">שניות</span></div>
+<div class="row"><input aria-label="דקות" id="tmM" type="number" min="0" value="5"><span class="fix">דקות</span><input aria-label="שניות" id="tmS" type="number" min="0" max="59" value="0"><span class="fix">שניות</span></div>
 <div class="big" id="tmD">05:00</div>
 <div class="row"><button class="p" id="tmGo">התחלה</button><button id="tmRst">איפוס</button></div></section>
 
 <section class="card"><h2>כלי טקסט</h2><p class="d">ספירה וסידור של טקסט.</p>
-<textarea id="txt"></textarea>
+<textarea aria-label="טקסט" id="txt"></textarea>
 <div class="stat" style="margin-top:8px"><div><b id="sW">0</b><span>מילים</span></div><div><b id="sC">0</b><span>תווים</span></div><div><b id="sN">0</b><span>בלי רווחים</span></div><div><b id="sL">0</b><span>שורות</span></div></div>
 <div class="row"><button id="txU">אותיות גדולות</button><button id="txLo">אותיות קטנות</button><button id="txSp">נקה רווחים</button><button id="txSo">מיין שורות</button><button id="txDu">הסר כפילויות</button></div></section>
 
 <section class="card"><h2>כלי צבעים</h2><p class="d">בחר צבע או הקלד קוד הקס, וקבל אותו בכל הפורמטים.</p>
-<div class="row"><input type="color" id="colP" value="#2b5fd9" style="height:44px;flex:0 0 70px"><input id="colH" value="#2b5fd9" style="direction:ltr"></div>
+<div class="row"><input type="color" aria-label="בחירת צבע" id="colP" value="#2b5fd9" style="height:44px;flex:0 0 70px"><input aria-label="קוד צבע" id="colH" value="#2b5fd9" style="direction:ltr"></div>
 <div class="sw" id="colS"></div><div class="out" id="colO"></div></section>
 
 <!-- נוספים -->
 <section class="card"><h2>מע״מ</h2><p class="d">הוספה והסרה של מע״מ. אפשר לשנות את האחוז.</p>
-<div class="row"><input id="vA" type="number" placeholder="סכום" value="1000"><input id="vR" type="number" value="18" class="fix" style="width:80px"><span class="fix">%</span></div>
+<div class="row"><input aria-label="סכום" id="vA" type="number" placeholder="סכום" value="1000"><input aria-label="אחוז מע״מ" id="vR" type="number" value="18" class="fix" style="width:80px"><span class="fix">%</span></div>
 <div class="out" id="vO"></div></section>
 
 <section class="card"><h2>תאריך עברי</h2><p class="d">המרה בין תאריך לועזי לעברי.</p>
-<div class="row"><input type="date" id="hD"></div><div class="out" id="hO" style="direction:rtl;text-align:right"></div></section>
+<div class="row"><input type="date" aria-label="תאריך לועזי" id="hD"></div><div class="out" id="hO" style="direction:rtl;text-align:right"></div></section>
 
 <section class="card"><h2>מחשבון הלוואה</h2><p class="d">החזר חודשי בשיטת שפיצר.</p>
-<div class="row"><input id="lA" type="number" value="500000" placeholder="סכום"><input id="lR" type="number" value="4.5" step="0.1" placeholder="ריבית שנתית %"><input id="lY" type="number" value="20" placeholder="שנים"></div>
+<div class="row"><input aria-label="סכום ההלוואה" id="lA" type="number" value="500000" placeholder="סכום"><input aria-label="ריבית שנתית (%)" id="lR" type="number" value="4.5" step="0.1" placeholder="ריבית שנתית %"><input aria-label="שנים" id="lY" type="number" value="20" placeholder="שנים"></div>
 <div class="out" id="lO" style="direction:rtl;text-align:right"></div></section>
 
 <section class="card"><h2>JSON ו-Base64</h2><p class="d">עיצוב JSON וקידוד.</p>
-<textarea id="jIn" style="direction:ltr"></textarea>
+<textarea aria-label="טקסט JSON או Base64" id="jIn" style="direction:ltr"></textarea>
 <div class="row"><button id="jFmt">עצב JSON</button><button id="jMin">כווץ</button><button id="b64e">Base64 קידוד</button><button id="b64d">פענוח</button></div>
 <div class="out" id="jOut" style="white-space:pre-wrap;max-height:160px;overflow:auto"></div></section>
 
 <section class="card"><h2>אחוזים</h2><p class="d">שלושה חישובים נפוצים.</p>
-<div class="row"><span class="fix">כמה זה</span><input id="p1a" type="number" value="15"><span class="fix">% מתוך</span><input id="p1b" type="number" value="200"></div>
+<div class="row"><span class="fix">כמה זה</span><input aria-label="אחוז" id="p1a" type="number" value="15"><span class="fix">% מתוך</span><input aria-label="מתוך סכום" id="p1b" type="number" value="200"></div>
 <div class="out" id="p1o"></div>
-<div class="row"><input id="p2a" type="number" value="30"><span class="fix">מתוך</span><input id="p2b" type="number" value="120"><span class="fix">הם</span></div>
+<div class="row"><input aria-label="חלק" id="p2a" type="number" value="30"><span class="fix">מתוך</span><input aria-label="מתוך סכום" id="p2b" type="number" value="120"><span class="fix">הם</span></div>
 <div class="out" id="p2o"></div>
-<div class="row"><span class="fix">שינוי מ-</span><input id="p3a" type="number" value="80"><span class="fix">ל-</span><input id="p3b" type="number" value="100"></div>
+<div class="row"><span class="fix">שינוי מ-</span><input aria-label="ערך התחלתי" id="p3a" type="number" value="80"><span class="fix">ל-</span><input aria-label="ערך חדש" id="p3b" type="number" value="100"></div>
 <div class="out" id="p3o"></div></section>
 
 <section class="card"><h2>רשימת קניות שבועית</h2><p class="d">שורה לכל פריט: <b>שם, כמות, קטגוריה</b>. הרשימה מתארגנת לפי קטגוריות.</p>
-<textarea id="sl" rows="6" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">חלב, 2, מוצרי חלב
+<textarea aria-label="רשימת קניות" id="sl" rows="6" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">חלב, 2, מוצרי חלב
 לחם, 1, מאפים
 עגבניות, 6, ירקות
 תפוחים, 1.5, פירות</textarea>
@@ -132,25 +132,25 @@ label.c input{width:auto}
 <div class="out" id="slOut" style="white-space:pre-wrap;max-height:220px;overflow:auto"></div></section>
 
 <section class="card"><h2>עלות חשמל של מכשיר</h2><p class="d">כמה עולה להפעיל מכשיר לאורך תקופה.</p>
-<div class="row"><span class="fix">הספק (וואט)</span><input id="pw" type="number" value="2000"><span class="fix">שעות ביום</span><input id="ph" type="number" value="3"></div>
-<div class="row"><span class="fix">מחיר לקוט"ש (₪)</span><input id="pk" type="number" value="0.6" step="0.01"><span class="fix">ימים</span><input id="pd" type="number" value="30"></div>
+<div class="row"><span class="fix">הספק (וואט)</span><input aria-label="הספק (וואט)" id="pw" type="number" value="2000"><span class="fix">שעות ביום</span><input aria-label="שעות ביום" id="ph" type="number" value="3"></div>
+<div class="row"><span class="fix">מחיר לקוט"ש (₪)</span><input aria-label="מחיר לקוט״ש (₪)" id="pk" type="number" value="0.6" step="0.01"><span class="fix">ימים</span><input aria-label="ימים" id="pd" type="number" value="30"></div>
 <div class="out" id="pwOut"></div></section>
 
 <section class="card"><h2>הפרש בין תאריכים</h2><p class="d">כמה ימים, שבועות וחודשים בין שני תאריכים, ותאריך אחרי X ימים.</p>
-<div class="row"><span class="fix">מ-</span><input id="dA" type="date"><span class="fix">עד</span><input id="dB" type="date"></div>
+<div class="row"><span class="fix">מ-</span><input aria-label="מתאריך" id="dA" type="date"><span class="fix">עד</span><input aria-label="עד תאריך" id="dB" type="date"></div>
 <div class="out" id="dOut"></div>
-<div class="row"><span class="fix">הוסף</span><input id="dN" type="number" value="30"><span class="fix">ימים לתאריך</span><input id="dX" type="date"></div>
+<div class="row"><span class="fix">הוסף</span><input aria-label="מספר ימים להוספה" id="dN" type="number" value="30"><span class="fix">ימים לתאריך</span><input aria-label="תאריך התחלה" id="dX" type="date"></div>
 <div class="out" id="dAdd"></div></section>
 
 <section class="card"><h2>ריבית דריבית</h2><p class="d">חיסכון עם ריבית שנתית והפקדה חודשית קבועה. ההערכה להמחשה בלבד.</p>
-<div class="row"><span class="fix">סכום התחלתי</span><input id="ciP" type="number" value="10000"><span class="fix">הפקדה חודשית</span><input id="ciM" type="number" value="500"></div>
-<div class="row"><span class="fix">ריבית שנתית (%)</span><input id="ciR" type="number" value="4" step="0.1"><span class="fix">שנים</span><input id="ciY" type="number" value="10"></div>
+<div class="row"><span class="fix">סכום התחלתי</span><input aria-label="סכום התחלתי" id="ciP" type="number" value="10000"><span class="fix">הפקדה חודשית</span><input aria-label="הפקדה חודשית" id="ciM" type="number" value="500"></div>
+<div class="row"><span class="fix">ריבית שנתית (%)</span><input aria-label="ריבית שנתית (%)" id="ciR" type="number" value="4" step="0.1"><span class="fix">שנים</span><input aria-label="שנים" id="ciY" type="number" value="10"></div>
 <div class="out" id="ciOut"></div></section>
 
 <!-- כלים לקהל היעד (PLAN.md 9.12) -->
 <section class="card" id="salaryCard"><h2>שכר ברוטו–נטו</h2><p class="d">הערכה חודשית: מס הכנסה, ביטוח לאומי, בריאות ופנסיה. בלי זיכוי בגין הפקדה לפנסיה, שווי והחזרי מס.</p>
-<div class="row"><span class="fix">ברוטו (₪)</span><input id="sgG" inputmode="decimal" value="12000"><span class="fix">נקודות זיכוי</span><input id="sgC" type="number" step="0.25" min="0" value="2.25"></div>
-<div class="row"><span class="fix">פנסיה לעובד (%)</span><input id="sgP" type="number" step="0.5" min="0" max="10" value="6"></div>
+<div class="row"><span class="fix">ברוטו (₪)</span><input aria-label="ברוטו (₪)" id="sgG" inputmode="decimal" value="12000"><span class="fix">נקודות זיכוי</span><input aria-label="נקודות זיכוי" id="sgC" type="number" step="0.25" min="0" value="2.25"></div>
+<div class="row"><span class="fix">פנסיה לעובד (%)</span><input aria-label="פנסיה לעובד (%)" id="sgP" type="number" step="0.5" min="0" max="10" value="6"></div>
 <div class="out" id="sgO" style="direction:rtl;text-align:right"></div>
 <div class="warn" id="sgW"></div>
 <div class="row"><button id="sgFile">טעינת טבלת מדרגות מקובץ…</button><button id="sgReset" class="fix">חזרה לטבלה המובנית</button><input type="file" id="sgIn" accept=".json,application/json" hidden></div></section>
@@ -163,8 +163,8 @@ label.c input{width:auto}
 <div id="mList" class="hist" style="direction:rtl;text-align:right;max-height:160px"></div></section>
 
 <section class="card"><h2>הצמדה למדד</h2><p class="d">סכום צמוד לפי מדד בסיס ומדד חדש (מקלידים את המדדים מהפרסום הרשמי).</p>
-<div class="row"><span class="fix">סכום (₪)</span><input id="ixA" inputmode="decimal" value="100000"></div>
-<div class="row"><span class="fix">מדד בסיס</span><input id="ixB" type="number" step="0.01" value="100"><span class="fix">מדד חדש</span><input id="ixC" type="number" step="0.01" value="103.5"></div>
+<div class="row"><span class="fix">סכום (₪)</span><input aria-label="סכום (₪)" id="ixA" inputmode="decimal" value="100000"></div>
+<div class="row"><span class="fix">מדד בסיס</span><input aria-label="מדד בסיס" id="ixB" type="number" step="0.01" value="100"><span class="fix">מדד חדש</span><input aria-label="מדד חדש" id="ixC" type="number" step="0.01" value="103.5"></div>
 <div class="row"><label class="c"><input type="checkbox" id="ixF">בלי ירידה מתחת לסכום המקורי</label></div>
 <div class="out" id="ixO" style="direction:rtl;text-align:right"></div></section>
 
@@ -172,15 +172,15 @@ label.c input{width:auto}
 <textarea id="gmT" style="min-height:70px" aria-label="טקסט לחישוב">בראשית ברא</textarea>
 <div class="row"><label class="c"><input type="checkbox" id="gmF">אותיות סופיות 500–900</label></div>
 <div class="out" id="gmO" style="direction:rtl;text-align:right"></div>
-<div class="row"><span class="fix">מספר</span><input id="gmN" type="number" min="1" max="9999" value="5786"></div>
+<div class="row"><span class="fix">מספר</span><input aria-label="מספר" id="gmN" type="number" min="1" max="9999" value="5786"></div>
 <div class="out" id="gmH" style="direction:rtl;text-align:right"></div></section>
 
 <section class="card"><h2>דמי הבראה ופיצויים</h2><p class="d">הערכה לעובד במגזר הפרטי. שווי יום ההבראה משתנה — יש לבדוק את הערך העדכני.</p>
-<div class="row"><span class="fix">ותק (שנים)</span><input id="hvY" type="number" step="0.5" min="0" value="4"><span class="fix">היקף משרה (%)</span><input id="hvP" type="number" min="1" max="100" value="100"></div>
-<div class="row"><span class="fix">שווי יום הבראה (₪)</span><input id="hvR" inputmode="decimal" value="418"></div>
+<div class="row"><span class="fix">ותק (שנים)</span><input aria-label="ותק (שנים)" id="hvY" type="number" step="0.5" min="0" value="4"><span class="fix">היקף משרה (%)</span><input aria-label="היקף משרה (%)" id="hvP" type="number" min="1" max="100" value="100"></div>
+<div class="row"><span class="fix">שווי יום הבראה (₪)</span><input aria-label="שווי יום הבראה (₪)" id="hvR" inputmode="decimal" value="418"></div>
 <div class="out" id="hvO" style="direction:rtl;text-align:right"></div><hr style="border:0;border-top:1px solid var(--line)">
-<div class="row"><span class="fix">שכר אחרון (₪)</span><input id="svS" inputmode="decimal" value="10000"></div>
-<div class="row"><span class="fix">מ-</span><input id="svA" type="date" value="2020-01-01"><span class="fix">עד</span><input id="svB" type="date"></div>
+<div class="row"><span class="fix">שכר אחרון (₪)</span><input aria-label="שכר אחרון (₪)" id="svS" inputmode="decimal" value="10000"></div>
+<div class="row"><span class="fix">מ-</span><input aria-label="תחילת העבודה" id="svA" type="date" value="2020-01-01"><span class="fix">עד</span><input aria-label="סיום העבודה" id="svB" type="date"></div>
 <div class="out" id="svO" style="direction:rtl;text-align:right"></div></section>
 
 </div>
