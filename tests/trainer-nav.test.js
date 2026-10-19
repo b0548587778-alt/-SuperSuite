@@ -102,7 +102,7 @@ test('preload האימונים: בקשת ניווט לפני שהסרגל קיי
 });
 
 test('מודול האימונים: שורת לשוניות גלילה אופקית לא מציגה פס גלילה אנכי (פיקסל של -mb-px)', () => {
-  const css = fs.readFileSync(path.join(TRAINER, 'suite-theme.css'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'modules-src', 'trainer', 'src', 'theme.css'), 'utf8');
   assert.match(css, /\.overflow-x-auto\s*\{\s*overflow-y:\s*hidden;?\s*\}/);
   // הסתרת הגלילה האנכית בטוחה רק כשאין לאלמנט גובה קבוע שדורש גלילה כזו
   for (const m of bundleSource().matchAll(/className:"([^"]*overflow-x-auto[^"]*)"/g)) {

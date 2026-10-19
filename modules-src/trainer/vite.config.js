@@ -49,8 +49,8 @@ export default defineConfig({
       }
     })
   ],
-  // הבנייה יוצאת ל-dist; tools/build-trainer.js מעתיק ל-modules/trainer ושומר את קבצי השילוב
-  // (preload.js, suite-theme.css) — ראו README-SUPERSUITE.md
+  // הבנייה יוצאת ל-dist; tools/build-trainer.js מעתיק ל-modules/trainer ושומר את קובץ השילוב
+  // (preload.js) — ראו README-SUPERSUITE.md
   build: {
     outDir: 'dist',
     emptyOutDir: true

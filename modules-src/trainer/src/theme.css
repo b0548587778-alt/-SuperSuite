@@ -1,10 +1,3 @@
-@import url("/design-tokens.css"); /* שפת העיצוב המשותפת (PLAN.md 7.1) — חייב להיות ראשון בקובץ */
-@import url("/ui-kit.css");        /* ספריית הרכיבים המשותפת — כפתורים, שדות וכרטיסים */
-/* ערכת הצבעים של SuperSuite למודול האימונים.
-   המודול הוא חבילה מהודרת (Tailwind) עם צבעים כהים קבועים; הקובץ נטען אחריה ב-index.html
-   וממפה את מחלקות הצבע לפלטת התוכנה (רקע בהיר, כחול-נייבי וזהב), בלי לגעת בקוד המהודר.
-   מחלקה חדשה שתופיע בבנייה עתידית ולא ממופה כאן — תוצג בצבע המקורי. */
-
 body { background: var(--ss-bg); color: var(--ss-text); }
 
 /* ---- משטחים ---- */
@@ -109,8 +102,6 @@ button.bg-indigo-500:hover, button.bg-indigo-600:hover { background-color: var(-
 button.rounded-lg.bg-slate-800.border, button.rounded-lg.bg-transparent.border { background-color: var(--ss-surface); border-color: var(--ss-border-strong); color: var(--ss-text); }
 button.rounded-lg.bg-slate-800.border:hover, button.rounded-lg.bg-transparent.border:hover { background-color: var(--ss-surface-2); }
 /* סכנה */
-button.rounded-lg.bg-red-900/40 { background-color: var(--ss-danger); border-color: var(--ss-danger); color: var(--ss-surface); }
-button.rounded-lg.bg-red-900/40:hover { background-color: var(--ss-danger); filter: brightness(.92); }
 /* הצלחה */
 button.rounded-lg.bg-emerald-500 { background-color: var(--ss-success); border: 1px solid var(--ss-success); color: var(--ss-surface); }
 button.rounded-lg.bg-emerald-500:hover { background-color: var(--ss-success); filter: brightness(.92); }

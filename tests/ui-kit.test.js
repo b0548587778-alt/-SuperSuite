@@ -29,8 +29,11 @@ test('ui-kit: כל מסך טוען את הספרייה אחרי שפת העיצ�
     assert.ok(kit > 0, p + ': לא טוען את ui-kit.css');
     assert.ok(html.indexOf('design-tokens.css') < kit, p + ': ui-kit.css לפני design-tokens.css');
   }
-  const theme = read('modules/trainer/suite-theme.css');
-  assert.ok(theme.indexOf('@import url("/design-tokens.css")') < theme.indexOf('@import url("/ui-kit.css")'), 'אימונים: ui-kit לא נטען');
+  for (const p of ['modules-src/trainer/index.html', 'modules/trainer/index.html']) {
+    const html = read(p);
+    const kit = html.indexOf('href="/ui-kit.css"');
+    assert.ok(kit > 0 && html.indexOf('href="/design-tokens.css"') < kit, p + ': ui-kit לא נטען אחרי שפת העיצוב');
+  }
 });
 
 test('ui-kit: מוגש מהמעטפת לכל מודול ומועתק לאנדרואיד', () => {
@@ -46,7 +49,7 @@ test('ui-kit: כל מודול ממפה את הכפתורים, השדות והכ�
     'modules/shamai/style.css': ['--ss-ctl-h', '--ss-ctl-radius', '--ss-focus'],
     'modules/tools/index.html': ['--ss-ctl-h', '--ss-ctl-radius', '--ss-focus', '--ss-radius-lg'],
     'shell/shell.html': ['--ss-ctl-h', '--ss-ctl-radius', '--ss-focus'],
-    'modules/trainer/suite-theme.css': ['--ss-ctl-h', '--ss-ctl-radius', '--ss-focus', '--ss-radius-lg'],
+    'modules-src/trainer/src/theme.css': ['--ss-ctl-h', '--ss-ctl-radius', '--ss-focus', '--ss-radius-lg'],
   };
   for (const [p, vars] of Object.entries(maps)) {
     const src = read(p);

@@ -20,13 +20,12 @@ npm test
 - **אין פנייה לרשת:** הוסרה טעינת Google Fonts (`index.html`, `App.jsx`), שירות ה-QR החיצוני (`qrCodeUrl` ב-`src/lib/sharing.js` — שלח את פרטי המתאמן לשרת זר, ולא היה בשימוש), והמטמון לגופני Google ב-`vite.config.js`.
 - **מדיניות אבטחה (CSP)** ב-`index.html`, כמו בכל מסך בתוכנה.
 - **גופנים מקומיים** — משתני `--font-display` / `--font-body` ב-`index.html`.
-- **ערכת הצבעים של SuperSuite** — `modules/trainer/suite-theme.css`, נטענת אחרי ה-CSS המהודר. `tools/build-trainer.js` מוודא את הסדר.
+- **ערכת הצבעים של SuperSuite** — `src/theme.css`, מיובאת ב-`main.jsx` אחרי Tailwind ונבנית לתוך החבילה (PLAN.md 6.4). היא ממפה את מחלקות Tailwind הכהות שבקומפוננטות למשתני `--ss-*` של שפת העיצוב. שפת העיצוב וספריית הרכיבים (`/design-tokens.css`, `/ui-kit.css`) מוגשות מהמעטפת ונטענות ב-`index.html` **לפני** החבילה. `tools/build-trainer.js` מוודא את הסדר. **מחלקת צבע חדשה בקומפוננטה** — להוסיף מיפוי ב-`src/theme.css` (`tests/ui-consistency.test.js` מפרט מה חסר).
 - **צבע ערכה בהיר** (`theme-color`) במקום הכהה.
 
-## קבצי שילוב (לא חלק מהבנייה)
-נמצאים ב-`modules/trainer` ונשמרים בכל בנייה:
+## קובץ שילוב (לא חלק מהבנייה)
+נמצא ב-`modules/trainer` ונשמר בכל בנייה:
 - `preload.js` — ניווט מהסרגל האחיד ודיווח המסך הפעיל (`tests/trainer-nav.test.js`).
-- `suite-theme.css` — מיפוי הצבעים (`tests/ui-consistency.test.js`).
 
 **שינוי טקסט בסרגל הפנימי של המודול** — לעדכן את `TRAINER_LABELS` ב-`shell/catalog.js`, אחרת `tests/trainer-nav.test.js` ייכשל.
 

@@ -156,20 +156,28 @@ test('שמאות: ערכה בהירה כברירת מחדל, ברוחב שולח
 });
 
 // ---------- אימונים ----------
+// ערכת הצבעים בקוד המקור (PLAN.md 6.4) — נבנית לתוך החבילה
+const TRAINER_THEME = 'modules-src/trainer/src/theme.css';
 
-test('אימונים: ערכת הצבעים של התוכנה נטענת אחרי ה-CSS המהודר', () => {
+test('אימונים: ערכת הצבעים בתוך החבילה, ושפת העיצוב נטענת לפניה (PLAN.md 6.4)', () => {
   const html = read('modules/trainer/index.html');
   const bundle = html.match(/href="\/assets\/(index-[^"]+\.css)"/);
   assert.ok(bundle, 'קובץ ה-CSS המהודר מקושר');
-  const at = html.indexOf('/suite-theme.css');
-  assert.ok(at > html.indexOf(bundle[0]), 'ערכת הצבעים אחרי ה-CSS המהודר (כדי לגבור עליו)');
-  assert.ok(fs.existsSync(path.join(ROOT, 'modules/trainer/suite-theme.css')));
+  for (const href of ['/design-tokens.css', '/ui-kit.css']) {
+    const at = html.indexOf(`href="${href}"`);
+    assert.ok(at > 0 && at < html.indexOf(bundle[0]), href + ' לפני ה-CSS של החבילה (המיפוי בחבילה גובר עליו)');
+  }
+  assert.doesNotMatch(html, /suite-theme\.css/);
+  assert.ok(!fs.existsSync(path.join(ROOT, 'modules/trainer/suite-theme.css')), 'הקובץ הישן הוסר');
+  // המיפוי נבנה לתוך החבילה, אחרי Tailwind
+  const css = read('modules/trainer/assets/' + bundle[1]);
+  assert.ok(css.lastIndexOf('.bg-slate-950{background-color:var(--ss-bg)}') > css.indexOf('.bg-slate-950{'), 'המיפוי אחרי מחלקת Tailwind המקורית');
 });
 
 test('אימונים: כל מחלקת צבע כהה בחבילה המהודרת ממופה בערכת הצבעים', () => {
   const html = read('modules/trainer/index.html');
   const bundleCss = read('modules/trainer/assets/' + html.match(/href="\/assets\/(index-[^"]+\.css)"/)[1]);
-  const theme = read('modules/trainer/suite-theme.css');
+  const theme = read(TRAINER_THEME);
   // המחלקות שקובעות את המראה הכהה: רקע/גבול כהים (slate 600–950), טקסט בהיר (slate 100–600) ואינדיגו.
   // גוונים שכבר מתאימים לרקע בהיר (גבול slate-200, טקסט slate-900 — בתצוגת ההדפסה) אינם נדרשים.
   const classes = [...new Set(bundleCss.match(/\.(?:hover\\:|focus\\:)?(?:(?:bg|border)-slate-(?:[6-9]00|950)|text-slate-[1-6]00|(?:bg|border|text)-indigo-[0-9]{2,3})(?:\\\/[0-9]+)?/g) || [])];
@@ -219,7 +227,7 @@ test('שמאות: אנליטיקה ריקה מסתירה את כותרות הא�
 });
 
 test('אימונים: פס הגלילה ותיבת המידע בגרפים בצבעים בהירים', () => {
-  const theme = read('modules/trainer/suite-theme.css');
+  const theme = read(TRAINER_THEME);
   // מאז 7.1 — דרך משתני שפת העיצוב (רקע בהיר / משטח לבן)
   assert.match(theme, /::-webkit-scrollbar-track \{ background: var\(--ss-bg\); \}/);
   assert.match(theme, /\.recharts-default-tooltip \{ background: var\(--ss-surface\) !important;/);
@@ -238,7 +246,7 @@ test('ברכת השעה זהה במעטפת ובמודול השמאות בכל �
 // ---------- שפת עיצוב אחת (PLAN.md 7.1) ----------
 const TOKENS = read('shell/design-tokens.css');
 const TOKEN_NAMES = new Set([...TOKENS.matchAll(/(--ss-[a-z0-9-]+)\s*:/g)].map(m => m[1]));
-const STYLED = ['shell/shell.html', 'modules/econ/styles.css', 'modules/tools/index.html', 'modules/trainer/suite-theme.css', 'modules/shamai/style.css'];
+const STYLED = ['shell/shell.html', 'modules/econ/styles.css', 'modules/tools/index.html', TRAINER_THEME, 'modules/shamai/style.css'];
 const ECON_UI = () => fs.readdirSync(path.join(ROOT, 'modules/econ/ui')).map(f => 'modules/econ/ui/' + f);
 // חריגים מתועדים: בורר צבע (input type=color חייב hex), theme-color של הדפדפן, צבע מסמכים שהמשתמש מקליד,
 // צבעי תוויות בהודעות (נשמרים בנתונים), ודיו החתימה על הקנבס
@@ -271,7 +279,7 @@ test('שפת עיצוב: הקובץ נטען לפני כל סגנון אחר ב�
   first(read('modules/tools/index.html'), 'href="/design-tokens.css"');
   const shamai = read('modules/shamai/index.html');
   assert.ok(shamai.indexOf('href="/design-tokens.css"') > 0 && shamai.indexOf('href="/design-tokens.css"') < shamai.indexOf('href="style.css"'));
-  assert.match(read('modules/trainer/suite-theme.css'), /^@import url\("\/design-tokens\.css"\);/);
+  first(read('modules-src/trainer/index.html'), 'href="/design-tokens.css"');
   assert.match(read('shell/shell.html'), /style-src 'self' 'unsafe-inline'/);
   assert.match(read('main.js'), /if \(rel === '\/design-tokens\.css'\) return net\.fetch\(pathToFileURL\(path\.join\(__dirname, 'shell', 'design-tokens\.css'\)\)/);
   const apk = read('android/build-apk.js');
