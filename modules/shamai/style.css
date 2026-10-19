@@ -2415,3 +2415,30 @@ select {
 
 /* נגישות (7.3): במצב הכהה — מסגרת מיקוד זהובה (הכחולה כמעט לא נראית על שחור). data-theme תמיד נקבע בעלייה (contacts.js) */
 [data-theme="dark"] :focus-visible { outline-color: var(--ss-focus-ring-dark) !important; }
+
+/* ═══════ מחירים: תאריך לכל מחיר ותזכורת (PLAN.md 9.9) ═══════ */
+.mini-stat.price-age { font-size: 11px; font-weight: 700; min-width: 0; cursor: pointer; font-family: inherit; }
+.mini-stat.price-age.ok { color: var(--green); }
+.mini-stat.price-age.warn { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-bg); }
+.mini-stat.price-age.bad { color: var(--red); border-color: var(--red); background: var(--red-bg); }
+.lpb-update.warn { color: var(--yellow); font-weight: 700; }
+.lpb-update.bad { color: var(--red); font-weight: 700; }
+.reminder.warn { border-right-color: var(--yellow); cursor: pointer; }
+.reminder.bad { border-right-color: var(--red); cursor: pointer; }
+.pp-hint { font-weight: 400; font-size: 11px; color: var(--text-faint); margin-inline-start: 6px; }
+.pp-list { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.pp-row { display: grid; grid-template-columns: 80px 1fr; gap: 2px 10px; align-items: baseline; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); border-right: 3px solid var(--border); }
+.pp-row.ok { border-right-color: var(--green); }
+.pp-row.warn { border-right-color: var(--yellow); }
+.pp-row.bad { border-right-color: var(--red); }
+.pp-name { font-weight: 700; font-size: 13px; }
+.pp-val { font-weight: 700; font-size: 13px; direction: ltr; text-align: right; }
+.pp-val small { font-weight: 400; color: var(--text-faint); direction: rtl; }
+.pp-age { grid-column: 1 / -1; font-size: 11px; color: var(--text-dim); }
+.pp-row.warn .pp-age { color: var(--yellow); }
+.pp-row.bad .pp-age { color: var(--red); }
+#pp-form label small { color: var(--text-faint); font-size: 10px; }
+.pp-meta { border-top: 1px dotted var(--border); padding-top: 10px; }
+.pp-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.pp-actions > button { flex: 1 1 160px; }
+.pp-help { font-size: 11px; color: var(--text-faint); margin-top: 8px; line-height: 1.5; }

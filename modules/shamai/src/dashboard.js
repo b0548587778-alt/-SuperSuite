@@ -7,7 +7,7 @@
 
 function renderHeader() {
   const html = `
-    <button class="mini-stat" id="btn-refresh" title="רענן" aria-label="רענן מחירים">
+    <button class="mini-stat" id="btn-refresh" title="עדכון מחירים" aria-label="עדכון מחירים">
       <div class="mini-label">↻</div>
     </button>
     <div class="mini-stat">
@@ -20,22 +20,14 @@ function renderHeader() {
     </div>
   `;
   $('#hdr-stats').innerHTML = html;
-  $('#btn-refresh').addEventListener('click', () => fetchAllPrices(false));
+  $('#btn-refresh').addEventListener('click', openPricePanel);
 
-  // Footer status
+  // מצב המחירים: התאריך, ותזכורת כשהמחיר ישן (PLAN.md 9.9)
+  const st = priceStatusText(state.prices);
+  $('#hdr-stats').insertAdjacentHTML('beforeend', `<button class="mini-stat price-age ${st.cls}" id="btn-price-age" title="עדכון מחירים">${escapeHtml(st.text)}</button>`);
+  $('#btn-price-age').addEventListener('click', openPricePanel);
   const ftr = $('#footer-status');
-  if (state.prices.lastUpdate) {
-    const ago = daysSince(state.prices.lastUpdate);
-    const updatedStr = new Date(state.prices.lastUpdate).toLocaleString('he-IL', {
-      hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric',
-    });
-    let src = state.prices.source === 'live' ? 'חי' :
-              (state.prices.source && state.prices.source.startsWith('live-partial')) ? 'חלקי' :
-              state.prices.source === 'manual' ? 'ידני' : 'ברירת מחדל';
-    ftr.innerHTML = `מקור: ${src} · עדכון: ${updatedStr}`;
-  } else {
-    ftr.innerHTML = 'הערכות מבוססות על נסחאות תעשייה. אינן תחליף לאבחון מקצועי.';
-  }
+  ftr.textContent = st.cls === 'ok' ? `${st.text} · הערכות לפי נסחאות מקובלות, לא תחליף לבדיקה מקצועית` : `⚠ ${st.text} — עדכנו את המחירים לפני שמאות`;
 }
 
 function renderDashboard() {
@@ -139,6 +131,9 @@ function renderDashboard() {
 function renderReminders() {
   const reminders = [];
   const now = Date.now();
+  // מחיר הזהב / הכסף / הדולר ישן — ראשון ברשימה
+  const pr = priceReminder(state.prices);
+  if (pr) reminders.push({ title: escapeHtml(pr.title), sub: escapeHtml(pr.sub), cls: pr.cls, prices: true });
 
   // Items watched > 30 days
   state.opportunities.filter(o => o.status === 'watching').forEach(o => {
@@ -167,10 +162,11 @@ function renderReminders() {
     list.innerHTML = '<div class="reminders-empty">אין תזכורות פעילות</div>';
   } else {
     list.innerHTML = reminders.slice(0, 5).map(r => `
-      <div class="reminder">
+      <div class="reminder${r.cls ? ' ' + r.cls : ''}"${r.prices ? ' data-open-prices' : ''}>
         <div class="reminder-title">${r.title}</div>
         <div class="reminder-sub">${r.sub}</div>
       </div>
     `).join('');
+    list.querySelector('[data-open-prices]')?.addEventListener('click', openPricePanel);
   }
 }

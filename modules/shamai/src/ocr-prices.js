@@ -234,41 +234,16 @@ function showOCRResult(rawText, parsed, imageData) {
 //  AUTO-REFRESH PRICES every 5 minutes
 // ─────────────────────────────────────────────────────────────────────────────
 
-let priceRefreshInterval = null;
-
-function startAutoRefresh() {
-  if (priceRefreshInterval) return;
-  priceRefreshInterval = setInterval(() => {
-    if (document.visibilityState === 'visible') {
-      fetchAllPrices(true); // silent refresh
-    }
-  }, 5 * 60 * 1000); // 5 minutes
-}
-
-// Refresh when user comes back to tab
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    const lastUpdate = state.prices.lastUpdate ? new Date(state.prices.lastUpdate) : null;
-    const ageMin = lastUpdate ? (Date.now() - lastUpdate.getTime()) / 60000 : 999;
-    if (ageMin > 5) {
-      fetchAllPrices(true);
-    }
-  }
-});
+// אין רענון מחירים אוטומטי: התוכנה אופליין (CLAUDE.md, כלל 6). המחירים מתעדכנים בהקלדה או מקובץ — src/prices.js
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  LIVE PRICE BANNER on every appraisal page
 // ─────────────────────────────────────────────────────────────────────────────
 
 function getLivePriceBanner(category) {
-  const lastUpdate = state.prices.lastUpdate ? new Date(state.prices.lastUpdate) : null;
-  const ageMin = lastUpdate ? Math.round((Date.now() - lastUpdate.getTime()) / 60000) : null;
-  // אין עדכון אוטומטי (אופליין) — בלי תאריך עדכון אלה ערכי ייחוס קבועים
-  const updateText = ageMin === null ? 'ערכי ייחוס · עדכון ידני' :
-                     ageMin === 0 ? 'עודכן עכשיו' :
-                     ageMin === 1 ? 'עודכן לפני דקה' :
-                     ageMin < 60 ? `עודכן לפני ${ageMin} דקות` :
-                     `עודכן לפני ${Math.round(ageMin/60)} שעות`;
+  // אין עדכון אוטומטי (אופליין) — התאריך של המחיר והתזכורת כשהוא ישן (src/prices.js)
+  const st = priceStatusText(state.prices);
+  const updateText = escapeHtml(st.text);
 
   let priceCells = '';
   switch (category) {
@@ -340,8 +315,8 @@ function getLivePriceBanner(category) {
     <div class="live-price-banner">
       <div class="lpb-header">
         <span class="lpb-title">📊 מחירי ייחוס</span>
-        <span class="lpb-update">${updateText}</span>
-        <button class="lpb-refresh" onclick="fetchAllPrices()">↻</button>
+        <span class="lpb-update ${st.cls}">${updateText}</span>
+        <button class="lpb-refresh" data-open-prices title="עדכון מחירים" aria-label="עדכון מחירים">↻</button>
       </div>
       <div class="lpb-grid">${priceCells}</div>
     </div>
@@ -373,26 +348,14 @@ window.switchSubView = function(view, sub) {
   }
 };
 
-// Auto-refresh banners every 30 sec to update "ago" timer
+// רענון הבאנר — היום יכול להתחלף בזמן שהמסך פתוח
 setInterval(() => {
   if (document.querySelector('.sub-view[data-sub]:not([hidden])')) {
     injectLivePriceBanners();
   }
 }, 30000);
 
-// Start the auto-refresh loop
-(function initAutoRefresh() {
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(initAutoRefresh, 1500));
-    return;
-  }
-  setTimeout(() => {
-    startAutoRefresh();
-    // Initial refresh if data is stale
-    const lastUpdate = state.prices.lastUpdate ? new Date(state.prices.lastUpdate) : null;
-    const ageMin = lastUpdate ? (Date.now() - lastUpdate.getTime()) / 60000 : 999;
-    if (ageMin > 5) {
-      fetchAllPrices(true);
-    }
-  }, 1500);
-})();
+// כפתור ↻ בבאנר (נבנה מחדש בכל פעם) — פותח את לוח עדכון המחירים
+document.addEventListener('click', (ev) => {
+  if (ev.target.closest && ev.target.closest('.live-price-banner [data-open-prices]')) openPricePanel();
+});

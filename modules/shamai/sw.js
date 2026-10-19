@@ -1,4 +1,4 @@
-const VERSION = 'shamai-v3.0.0';
+const VERSION = 'shamai-v3.1.0';
 const STATIC_CACHE = `static-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
 
@@ -8,6 +8,7 @@ const STATIC_ASSETS = [
   './style.css',
   './src/core.js',
   './src/calc.js',
+  './src/prices.js',
   './src/dashboard.js',
   './src/appraise-metals.js',
   './src/appraise-gems.js',
