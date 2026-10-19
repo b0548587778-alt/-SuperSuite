@@ -18,9 +18,11 @@ class MortgageAdvisorService {
   async _load() {
     const data = await this.db.load();
     const ma = data.mortgageAdvisor && typeof data.mortgageAdvisor === 'object' ? data.mortgageAdvisor : {};
+    // רשומות ישנות בשקלים מומרות לאגורות כאן, ונשמרות כך בשמירה הבאה
     data.mortgageAdvisor = {
-      clients: Array.isArray(ma.clients) ? ma.clients : [],
-      offers: Array.isArray(ma.offers) ? ma.offers : []
+      ...ma,
+      clients: (Array.isArray(ma.clients) ? ma.clients : []).map(M.clientStored),
+      offers: (Array.isArray(ma.offers) ? ma.offers : []).map(M.offerStored)
     };
     return data;
   }
@@ -38,7 +40,7 @@ class MortgageAdvisorService {
       clients: clients.map(c => {
         const own = offers.filter(o => o.clientId === c.id);
         return {
-          ...c,
+          ...M.clientView(c),
           ltv: M.ltv(c),
           fee: M.advisoryFee(c, vat),
           docs: M.docsProgress(c),
@@ -57,17 +59,18 @@ class MortgageAdvisorService {
     const client = { id: crypto.randomUUID(), ...M.validateClient(input), docs: [], createdAt: new Date().toISOString() };
     data.mortgageAdvisor.clients.push(client);
     await this.db.save(data);
-    return client;
+    return M.clientView(client);
   }
 
+  // הקלט מהמסך בשקלים, ולכן ממזגים אותו עם התצוגה של הרשומה (לא עם הצורה השמורה)
   async updateClient(clientId, input) {
     const data = await this._load();
     const i = data.mortgageAdvisor.clients.findIndex(c => c.id === clientId);
     if (i < 0) throw new Error('התיק לא נמצא');
     const cur = data.mortgageAdvisor.clients[i];
-    data.mortgageAdvisor.clients[i] = { ...cur, ...M.validateClient({ ...cur, ...input }), updatedAt: new Date().toISOString() };
+    data.mortgageAdvisor.clients[i] = M.clientStored({ ...cur, ...M.validateClient({ ...M.clientView(cur), ...input }), updatedAt: new Date().toISOString() });
     await this.db.save(data);
-    return data.mortgageAdvisor.clients[i];
+    return M.clientView(data.mortgageAdvisor.clients[i]);
   }
 
   // מחיקת תיק מוחקת גם את ההצעות שלו — אחרת נשארות הצעות יתומות שאינן מוצגות בשום מקום

@@ -1,5 +1,7 @@
 // ייעוץ משכנתאות: תיקי לקוחות, מסלולים ולוח סילוקין, השוואת הצעות בנקים, עמלת ייעוץ ורשימת מסמכים.
 // פונקציות טהורות. הלוח מחושב בשלמי אגורות: כל תשלום, ריבית והצמדה מעוגלים לאגורה בכל חודש.
+// שמירה: סכומים בשלמי אגורות (שדות *Ag). clientView מחזיר שקלים לתצוגה ולייבוא/ייצוא,
+// ו-clientStored / offerStored ממירים כל צורה (גם רשומה ישנה בשקלים) לצורה השמורה.
 // הנחת עבודה מוצהרת: ריבית במסלול משתנה/פריים נשארת קבועה לאורך התקופה, והמדד הוא הנחה שהיועץ מזין.
 
 const toAg = (n) => Math.round(Number(n) * 100);
@@ -52,33 +54,71 @@ function validateClient(input) {
   const feeType = input.feeType === 'fixed' ? 'fixed' : 'percent';
   const feeValue = Number(input.feeValue || 0);
   if (!Number.isFinite(feeValue) || feeValue < 0 || (feeType === 'percent' ? feeValue > 10 : feeValue > 1e7)) throw new Error('עמלת הייעוץ אינה תקינה');
-  return {
+  const out = {
     name,
     phone: str(input.phone, 30, 'הטלפון'),
     bank: str(input.bank, 100, 'שם הבנק'),
-    requestedAmount: fromAg(toAg(requestedAmount)),
-    propertyValue: fromAg(toAg(propertyValue)),
+    requestedAmountAg: toAg(requestedAmount),
+    propertyValueAg: toAg(propertyValue),
     status: CLIENT_STATUSES[input.status] ? input.status : 'preparing',
     feeType,
-    feeValue: feeType === 'percent' ? Math.round(feeValue * 1000) / 1000 : fromAg(toAg(feeValue)),
     notes: str(input.notes, 2000, 'ההערות')
+  };
+  if (feeType === 'percent') out.feePercent = Math.round(feeValue * 1000) / 1000;
+  else out.feeFixedAg = toAg(feeValue);
+  return out;
+}
+
+const SHEKEL_CLIENT_FIELDS = ['requestedAmount', 'propertyValue', 'feeValue'];
+const isAg = (v) => Number.isInteger(v);
+const agOf = (v) => { const n = Number(v); return Number.isFinite(n) ? toAg(n) : 0; };
+
+// רשומה שמורה (או ישנה בשקלים) ← צורה שמורה באגורות. לא זורקת: ערך פגום ברשומה ישנה ← 0
+function clientStored(c) {
+  if (!c || typeof c !== 'object') return c;
+  const out = { ...c };
+  if (!isAg(out.requestedAmountAg)) out.requestedAmountAg = agOf(c.requestedAmount);
+  if (!isAg(out.propertyValueAg)) out.propertyValueAg = agOf(c.propertyValue || 0);
+  out.feeType = out.feeType === 'fixed' ? 'fixed' : 'percent';
+  if (out.feeType === 'percent') {
+    if (!Number.isFinite(out.feePercent)) out.feePercent = Number.isFinite(Number(c.feeValue)) ? Math.round(Number(c.feeValue) * 1000) / 1000 : 0;
+    delete out.feeFixedAg;
+  } else {
+    if (!isAg(out.feeFixedAg)) out.feeFixedAg = agOf(c.feeValue || 0);
+    delete out.feePercent;
+  }
+  for (const k of SHEKEL_CLIENT_FIELDS) delete out[k];
+  return out;
+}
+
+// צורה שמורה ← שקלים לתצוגה (השדות שהמסך והייבוא מכירים)
+function clientView(c) {
+  const s = clientStored(c);
+  const { requestedAmountAg, propertyValueAg, feePercent, feeFixedAg, ...rest } = s;
+  return {
+    ...rest,
+    requestedAmount: fromAg(requestedAmountAg),
+    propertyValue: fromAg(propertyValueAg),
+    feeValue: s.feeType === 'fixed' ? fromAg(feeFixedAg) : feePercent
   };
 }
 
 // אחוז מימון (LTV) — אחוז עם שתי ספרות
 function ltv(client) {
-  if (!client.propertyValue) return null;
-  return Math.round((toAg(client.requestedAmount) * 10000) / toAg(client.propertyValue)) / 100;
+  const c = clientStored(client);
+  if (!c.propertyValueAg) return null;
+  return Math.round((c.requestedAmountAg * 10000) / c.propertyValueAg) / 100;
 }
 
 // עמלת ייעוץ: אחוז מהסכום המבוקש או סכום קבוע, ועליה מע"מ לפי שיעור המע"מ בהגדרות העסק
 function advisoryFee(client, vatRate) {
   const rate = Number.isFinite(Number(vatRate)) && vatRate >= 0 && vatRate < 1 ? Number(vatRate) : 0.18;
-  const netAg = client.feeType === 'fixed'
-    ? toAg(client.feeValue)
-    : Math.round(toAg(client.requestedAmount) * Number(client.feeValue || 0) / 100);
+  const c = clientStored(client);
+  const netAg = c.feeType === 'fixed'
+    ? c.feeFixedAg
+    : Math.round(c.requestedAmountAg * Number(c.feePercent || 0) / 100);
   const vatAg = Math.round(netAg * rate);
-  return { net: fromAg(netAg), vat: fromAg(vatAg), total: fromAg(netAg + vatAg), vatRate: rate };
+  return { net: fromAg(netAg), vat: fromAg(vatAg), total: fromAg(netAg + vatAg), netAg, vatAg, totalAg: netAg + vatAg, vatRate: rate };
 }
 
 function docsProgress(client) {
@@ -93,14 +133,17 @@ function toggleDoc(client, key) {
   return DOCUMENTS.map(d => d.key).filter(k => docs.has(k));
 }
 
+// סכום מסלול באגורות — מצורה שמורה (amountAg) או מטופס / רשומה ישנה (amount בשקלים)
+const trackAg = (t) => (isAg(t.amountAg) ? t.amountAg : agOf(t.amount));
+
 function validateTrack(t) {
   const meta = TRACKS[t.type];
   if (!meta) throw new Error('סוג מסלול לא מוכר');
-  const amount = Number(t.amount), rate = Number(t.rate), years = Number(t.years);
+  const amount = isAg(t.amountAg) ? t.amountAg / 100 : Number(t.amount), rate = Number(t.rate), years = Number(t.years);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new Error(`סכום במסלול ${meta.label} אינו תקין`);
   if (!Number.isFinite(rate) || rate < 0 || rate > 30) throw new Error(`ריבית במסלול ${meta.label} אינה תקינה`);
   if (!Number.isInteger(years) || years < 1 || years > 35) throw new Error(`תקופה במסלול ${meta.label} חייבת להיות 1–35 שנים`);
-  return { type: t.type, amount: fromAg(toAg(amount)), rate: Math.round(rate * 1000) / 1000, years };
+  return { type: t.type, amountAg: toAg(amount), rate: Math.round(rate * 1000) / 1000, years };
 }
 
 // הצעה מתקבלת מהטופס כשדות שטוחים: <type>_amount / _rate / _years. מסלול בלי סכום — לא נכלל.
@@ -130,6 +173,12 @@ function validateOffer(input, clients) {
   return { clientId: client.id, bank, date, tracks, cpi: Math.round(cpi * 100) / 100, notes: str(input.notes, 1000, 'ההערות') };
 }
 
+// הצעה שמורה (או ישנה בשקלים) ← מסלולים באגורות
+function offerStored(o) {
+  if (!o || typeof o !== 'object' || !Array.isArray(o.tracks)) return o;
+  return { ...o, tracks: o.tracks.map(t => { const { amount, ...rest } = t; return { ...rest, amountAg: trackAg(t) }; }) };
+}
+
 // לוח סילוקין חודשי למסלול (שפיצר). במסלול צמוד: הקרן מוצמדת למדד בכל חודש ולפני חישוב התשלום,
 // והתשלום מחושב מחדש על היתרה המוצמדת — כך שהתשלום עולה עם המדד.
 function trackSchedule(track, cpiAnnualPct = 0) {
@@ -137,7 +186,7 @@ function trackSchedule(track, cpiAnnualPct = 0) {
   const n = track.years * 12;
   const r = Number(track.rate) / 100 / 12;
   const monthlyIndex = meta.indexed ? Math.pow(1 + Number(cpiAnnualPct) / 100, 1 / 12) - 1 : 0;
-  let balance = toAg(track.amount);
+  let balance = trackAg(track);
   const rows = [];
   for (let m = 1; m <= n; m++) {
     const indexation = Math.round(balance * monthlyIndex);
@@ -175,7 +224,7 @@ function offerSchedule(offer) {
 
 function offerSummary(offer) {
   const rows = offerSchedule(offer);
-  const principalAg = offer.tracks.reduce((t, x) => t + toAg(x.amount), 0);
+  const principalAg = offer.tracks.reduce((t, x) => t + trackAg(x), 0);
   const paidAg = rows.reduce((t, r) => t + r.paymentAg, 0);
   return {
     principal: fromAg(principalAg),
@@ -186,7 +235,7 @@ function offerSummary(offer) {
     totalInterest: fromAg(rows.reduce((t, r) => t + r.interestAg, 0)),
     totalIndexation: fromAg(rows.reduce((t, r) => t + r.indexationAg, 0)),
     costOfCredit: fromAg(paidAg - principalAg),
-    tracks: offer.tracks.map(t => ({ ...t, label: TRACKS[t.type].label }))
+    tracks: offer.tracks.map(t => { const { amountAg, ...rest } = t; return { ...rest, amount: fromAg(trackAg(t)), label: TRACKS[t.type].label }; })
   };
 }
 
@@ -224,7 +273,7 @@ function scheduleTable(offer, clientName) {
 
 module.exports = {
   TRACKS, TRACK_KEYS, CLIENT_STATUSES, DOCUMENTS,
-  validateClient, ltv, advisoryFee, docsProgress, toggleDoc,
+  validateClient, clientStored, clientView, offerStored, ltv, advisoryFee, docsProgress, toggleDoc,
   validateTrack, tracksFromForm, validateOffer, trackSchedule, offerSchedule, offerSummary,
   yearlySchedule, compareOffers, scheduleTable
 };

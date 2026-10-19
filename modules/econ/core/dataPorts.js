@@ -132,7 +132,11 @@ const KINDS = {
     dupKey: (r) => `${r.category}|${r.description}|${r.amount}`
   },
   mortgageClients: {
-    label: 'תיקי לקוחות משכנתא', store: listIn('mortgageAdvisor', 'clients'),
+    // נשמר באגורות; הייצוא והבדיקה לכפילויות רואים שקלים (clientView), והשמירה ממירה חזרה (clientStored)
+    label: 'תיקי לקוחות משכנתא', store: {
+      get: (data) => listIn('mortgageAdvisor', 'clients').get(data).map(M.clientView),
+      set: (data, list) => listIn('mortgageAdvisor', 'clients').set(data, list.map(M.clientStored))
+    },
     columns: [
       ['name', 'שם'], ['phone', 'טלפון'], ['bank', 'בנק'], ['requestedAmount', 'סכום מבוקש'], ['propertyValue', 'שווי נכס'],
       ['status', 'סטטוס', null, M.CLIENT_STATUSES], ['feeType', 'סוג עמלה', null, { percent: 'אחוז', fixed: 'קבוע' }], ['feeValue', 'עמלה'], ['notes', 'הערות']

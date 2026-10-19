@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const E = require('../core/mixEngine');
 const R = require('../core/mortgageRules');
+const MA = require('../core/mortgageAdvisor');
 
 const MAX_SCENARIOS = 5000;
 const RETENTION_DAYS = 180;
@@ -136,7 +137,8 @@ class MortgageLabService {
 
   _clients(data) {
     const ma = data.mortgageAdvisor && Array.isArray(data.mortgageAdvisor.clients) ? data.mortgageAdvisor.clients : [];
-    return ma.map(c => ({ id: c.id, name: c.name, requestedAmount: c.requestedAmount, propertyValue: c.propertyValue, status: c.status }));
+    // התיקים נשמרים באגורות — clientView מחזיר את הסכומים בשקלים, כמו שהמעבדה מצפה
+    return ma.map(MA.clientView).map(c => ({ id: c.id, name: c.name, requestedAmount: c.requestedAmount, propertyValue: c.propertyValue, status: c.status }));
   }
 
   async getOverview() {

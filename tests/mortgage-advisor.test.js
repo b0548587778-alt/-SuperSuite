@@ -55,7 +55,7 @@ test('השוואת הצעות: ממוין לפי עלות כוללת, מסמן �
 
 test('עמלת ייעוץ: אחוז או סכום קבוע, ומע"מ לפי שיעור העסק — באגורות', () => {
   const pct = M.advisoryFee({ feeType: 'percent', feeValue: 0.5, requestedAmount: 1234567 }, 0.18);
-  assert.deepEqual(pct, { net: 6172.84, vat: 1111.11, total: 7283.95, vatRate: 0.18 });
+  assert.deepEqual(pct, { net: 6172.84, vat: 1111.11, total: 7283.95, netAg: 617284, vatAg: 111111, totalAg: 728395, vatRate: 0.18 });
   const fixed = M.advisoryFee({ feeType: 'fixed', feeValue: 4500, requestedAmount: 1 }, 0.17);
   assert.equal(fixed.total, 5265);
   assert.equal(M.ltv({ requestedAmount: 750000, propertyValue: 1000000 }), 75);
