@@ -14,7 +14,7 @@ function renderPeople(o) {
     <div class="acct-header">
       <div>
         <h3>חיפוש אנשים</h3>
-        <small class="muted">כל מי שמופיע בעמותה, בהוראות הקבע, בהנצחות, בגמ"ח או בחסד — בכרטיס אחד. השיוך נעשה לפי ת.ז; רשומה בלי ת.ז משויכת לפי שם ומסומנת. לעריכה — במסך של כל תחום.</small>
+        <small class="muted">כל מי שמופיע בעמותה, בהוראות הקבע, בהנצחות, בגמ"ח, בחסד או באימונים — בכרטיס אחד. השיוך נעשה לפי ת.ז; רשומה בלי ת.ז משויכת לפי שם ומסומנת. לעריכה — במסך של כל תחום.</small>
       </div>
       <form id="peopleSearch" class="acct-actions" autocomplete="off">
         <input type="search" id="peopleQ" value="${esc(q)}" placeholder="חיפוש לפי שם, ת.ז או טלפון" style="min-width:260px">
@@ -30,7 +30,7 @@ function renderPeople(o) {
           <td>${esc(p.idNumber)}</td><td><small>${esc(p.phones.join(', '))}</small></td>
           <td><small>${esc(p.roleLabels.join(' · '))}</small></td>
           <td>${p.donationsCount ? money(p.donationsTotal) : '—'}</td>
-          <td>${p.activeLoansOutstanding ? money(p.activeLoansOutstanding) : ''}${p.activeGuarantees ? ` <small class="muted">ערב ל-${Number(p.activeGuarantees)}</small>` : ''}${p.late ? ' <small class="bad">· פיגור</small>' : ''}${p.itemsOut ? ` <small class="muted">· ${Number(p.itemsOut)} חפצים בהשאלה</small>` : ''}</td>
+          <td>${p.activeLoansOutstanding ? money(p.activeLoansOutstanding) : ''}${p.activeGuarantees ? ` <small class="muted">ערב ל-${Number(p.activeGuarantees)}</small>` : ''}${p.late ? ' <small class="bad">· פיגור</small>' : ''}${p.itemsOut ? ` <small class="muted">· ${Number(p.itemsOut)} חפצים בהשאלה</small>` : ''}${p.trainee ? ` <small class="muted">· ${p.traineeActive ? 'מתאמן פעיל' : 'מתאמן'}</small>` : ''}</td>
           <td><button class="icon-btn" data-person="${esc(p.key)}" title="כרטיס">👤</button></td>
         </tr>`).join('')}</tbody></table></div>`}
     </div>
@@ -52,6 +52,7 @@ function personCardHtml(c) {
       ${sec('גמ"ח חפצים', c.lendings || [], l => `<div class="acct-row"><span>${esc(l.item)} · ${esc(l.date)}${byName(l)}</span><span>${l.returned ? '<small class="muted">הוחזר</small>' : l.overdue ? `<small class="bad">באיחור (עד ${esc(l.dueDate)})</small>` : `<small>בהשאלה${l.dueDate ? ' עד ' + esc(l.dueDate) : ''}</small>`}</span></div>`)}
       ${sec('חסד — נתמכים', c.beneficiary, b => `<div class="acct-row"><span>משפחת ${esc(b.family)}${b.confidential ? ' <small class="bad">· חסוי</small>' : ''}${b.active ? '' : ' · לא פעיל'}${byName(b)}</span><span></span></div>`)}
       ${sec('חסד — מתנדב', c.volunteer, v => `<div class="acct-row"><span>${esc(v.area || '—')}${v.active ? '' : ' · לא פעיל'}${byName(v)}</span><span></span></div>`)}
+      ${sec('אימונים — מנויים', (c.trainee || []).flatMap(t => (t.memberships.length ? t.memberships : [{ name: 'בלי מנוי', start: t.since, end: '', active: false, cancelled: false, dueAg: 0, byName: t.byName }]).map(m => ({ ...m, byName: t.byName }))), m => `<div class="acct-row ${m.cancelled ? 'muted' : ''}"><span>${esc(m.name)}${m.start ? ' · ' + esc(m.start) : ''}${m.end ? ' – ' + esc(m.end) : ''}${m.cancelled ? ' · בוטל' : m.active ? ' <small>· פעיל</small>' : ''}${byName(m)}</span><span>${m.dueAg ? `<small class="bad">חוב ${money(m.dueAg / 100)}</small>` : ''}</span></div>`)}
     </div>
     <div class="modal-actions"><button type="button" class="primary">סגירה</button></div>`;
 }

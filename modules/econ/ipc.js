@@ -1294,9 +1294,18 @@ function registerIpcHandlers() {
   });
   // מאגר אנשים — קריאה בלבד. נזקק חסוי נכלל רק למי שמורשה לראות חסויים (כמו במסך החסד)
   // רק התחומים הפתוחים ברישיון — כרטיס אדם לא חושף תחום סגור (סקירת אבטחה 10.2026, ממצא 6)
-  handle('people:search', async (event, query) => peopleService.search(query, canSeeConfidential(event), LG.peopleSources(licenseState())));
+  // המתאמנים (PLAN.md 6.4): רק כשמודול האימונים ברישיון ונתוניו פתוחים (trainerSource בודק ב-main.js). בלי — המאגר בלעדיהם, בלי שגיאה
+  const peopleTrainerClients = (event, sources) => {
+    if (!trainerSource || (sources && !sources.includes('trainer'))) return [];
+    try { return TP.readClients(trainerSource(event.sender.id), localDay(Date.now())); } catch { return []; }
+  };
+  handle('people:search', async (event, query) => {
+    const sources = LG.peopleSources(licenseState());
+    return peopleService.search(query, canSeeConfidential(event), sources, peopleTrainerClients(event, sources));
+  });
   handle('people:getCard', async (event, key) => {
-    const c = await peopleService.getCard(key, canSeeConfidential(event), LG.peopleSources(licenseState()));
+    const sources = LG.peopleSources(licenseState());
+    const c = await peopleService.getCard(key, canSeeConfidential(event), sources, peopleTrainerClients(event, sources));
     if (c.beneficiary.some(b => b.confidential)) await auditEvent(event, 'chesed.confidential.view', { via: 'people', key });
     return c;
   });

@@ -49,6 +49,31 @@ function readPayments(items) {
   return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.key < b.key ? -1 : 1));
 }
 
+// מתאמנים למאגר האנשים (PLAN.md 6.4): שם, טלפון ומנויים — קריאה בלבד, בלי מידע רפואי או מדידות
+function readClients(items, today) {
+  if (!items || typeof items !== 'object') return [];
+  const index = parse(items, 'clients:index');
+  const ids = Array.isArray(index) ? index.filter(id => typeof id === 'string' && ID.test(id)) : [];
+  const out = [];
+  for (const clientId of new Set(ids)) {
+    const client = parse(items, `client:${clientId}`);
+    if (!client || typeof client !== 'object') continue;
+    const name = clip(client.name, 120);
+    if (!name) continue;
+    const ms = parse(items, `memberships:${clientId}`);
+    const memberships = (Array.isArray(ms) ? ms : []).filter(m => m && typeof m === 'object' && ID.test(String(m.id || ''))).map(m => {
+      const paidAg = (Array.isArray(m.payments) ? m.payments : []).reduce((s, p) => s + (Number.isSafeInteger(p && p.amountAg) && p.amountAg > 0 && p.amountAg <= MAX_AG ? p.amountAg : 0), 0);
+      const priceAg = Number.isSafeInteger(m.priceAg) && m.priceAg >= 0 && m.priceAg <= MAX_AG ? m.priceAg : 0;
+      const start = isDate(m.start) ? m.start : '';
+      const end = isDate(m.end) ? m.end : '';
+      const active = !m.cancelledAt && (!start || !today || start <= today) && (!end || !today || end >= today);
+      return { id: m.id, name: clip(m.name, 120) || 'מנוי', start, end, cancelled: !!m.cancelledAt, active, priceAg, paidAg, dueAg: Math.max(0, priceAg - paidAg) };
+    });
+    out.push({ clientId, name, phone: clip(client.phone, 30), since: isDate(String(client.createdAt || '').slice(0, 10)) ? String(client.createdAt).slice(0, 10) : '', memberships });
+  }
+  return out;
+}
+
 // חשבונית שהופקה לתשלום (ולא בוטלה) — לפי המפתח שנשמר בה
 function receiptFor(invoices, key) {
   return (invoices || []).find(i => i.trainerPayment && i.trainerPayment.key === key && i.status !== 'cancelled') || null;
@@ -72,4 +97,4 @@ function invoiceInput(p) {
   };
 }
 
-module.exports = { METHODS, METHOD_LABELS, keyOf, readPayments, receiptFor, withReceipts, invoiceInput };
+module.exports = { METHODS, METHOD_LABELS, keyOf, readPayments, readClients, receiptFor, withReceipts, invoiceInput };

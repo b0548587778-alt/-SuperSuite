@@ -32,7 +32,7 @@ const STATUS_TEXT = {
 };
 
 // מאגר האנשים נבנה מתחומים אחרים — הוא פתוח רק אם לפחות אחד מהם פתוח, ומציג רק את הפתוחים
-const PEOPLE_SOURCES = { npo: 'econ.npo', gemach: 'econ.gemach', chesed: 'econ.chesed' };
+const PEOPLE_SOURCES = { npo: 'econ.npo', gemach: 'econ.gemach', chesed: 'econ.chesed', trainer: 'trainer' };
 
 // התחומים שמותר לבנות מהם את מאגר האנשים. null = בלי רישוי (הכול)
 function peopleSources(state) {
