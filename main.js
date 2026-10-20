@@ -351,7 +351,21 @@ const backupSettingsFile = () => path.join(app.getPath('userData'), 'backup-sett
 // תיקיית הגיבוי האוטומטי: היעד שנבחר (USB), ואם לא נבחר — תיקיית המסמכים
 const backupDir = () => loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
 function loadJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } }
-function saveJson(f, obj) { try { fs.writeFileSync(f, JSON.stringify(obj)); } catch {} }
+// קובץ זמני ← דיסק (fsync) ← החלפה: ניתוק חשמל באמצע לא משאיר קובץ שבור (ש-loadJson היה קורא כ-{},
+// ויעד הגיבוי ל-USB היה חוזר בשקט לתיקיית המסמכים). כשל — הקובץ הקודם נשאר, השגיאה ביומן, ומוחזר false
+function saveJson(f, obj) {
+  const tmp = f + '.tmp';
+  try {
+    const fd = fs.openSync(tmp, 'w');
+    try { fs.writeFileSync(fd, JSON.stringify(obj)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, f);
+    return true;
+  } catch (e) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* אין מה לנקות */ }
+    logger.error('settings-save', e);
+    return false;
+  }
+}
 function loadState() { return loadJson(stateFile()); }
 function saveState() {
   try {
@@ -432,10 +446,18 @@ function waitLoaded(wc) {
   return new Promise(r => { wc.once('did-finish-load', r); wc.once('did-fail-load', r); });
 }
 // scope: 'all' או שם מודול בודד ('econ' | 'shamai' | 'trainer' | 'tools')
+// כשל בקריאת הכספים = כשל של הגיבוי כולו (code: 'econ-read-failed'): קודם נכתב גיבוי בלי הכספים, הסטטוס
+// הראה "הצליח", והסבב האוטומטי מחק בגללו את הגיבוי התקין הישן ביותר. עכשיו לא נכתב דבר ולא נמחק דבר
 async function collectBackup(scope = 'all') {
   const out = { suite: 'SuperSuite', version: 2, scope, createdAt: new Date().toISOString(), econ: null, localStorage: {} };
   if (scope === 'all' || scope === 'econ') {
-    try { out.econ = await econ.getDb().backup(); } catch (e) { out.econError = String(e.message || e); }
+    try { out.econ = await econ.getDb().backup(); }
+    catch (e) {
+      logger.error('backup-econ-read', e);
+      const err = new Error('לא ניתן היה לקרוא את הנתונים הכספיים, ולכן הגיבוי לא נשמר. נסו שוב בעוד רגע; אם התקלה חוזרת — שמרו דוח תקלה (F1) ופנו לתמיכה.');
+      err.code = 'econ-read-failed';
+      throw err;
+    }
   }
   const DUMP = 'JSON.stringify(Object.fromEntries(Object.entries(localStorage)))';
   for (const id of LS_MODS) {
@@ -600,13 +622,15 @@ function wireSecureStore() {
    נעול ← "נסו שוב". פגום ← שחזור מהגיבוי האוטומטי האחרון למסד חדש; הפגום מועבר הצידה, לא נמחק.
    מחזיר true אם המערכת הכלכלית עלתה, false ליציאה. */
 const econInitOptions = () => ({ isRestTime: syncPaused, dbOptions: dbAtRestOptions(), trainerData: trainerDataForEcon });
+const openAutoBackup = (file) => JSON.parse(BK.decryptBackup(fs.readFileSync(file, 'utf8'), autoBackupKey(false)));
 async function recoverDatabase(firstErr) {
   let err = firstErr;
   for (let round = 0; round < 20; round++) {
     const kind = DbRecovery.classifyDbError(err);
     logger.error('db-open', err);
     const backupDir = loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
-    const backup = kind === 'corrupt' ? DbRecovery.latestAutoBackup(backupDir) : null;
+    // הגיבוי החדש ביותר שבאמת מכיל את הכספים: גיבויים מלפני תיקון collectBackup עשויים להיות בלעדיהם
+    const backup = kind === 'corrupt' ? DbRecovery.latestUsableAutoBackup(backupDir, openAutoBackup) : null;
     const d = DbRecovery.dialogFor(kind, backup);
     const r = await dialog.showMessageBox({ type: 'error', buttons: d.buttons.map(b => b.label), defaultId: 0, cancelId: d.buttons.length - 1,
       noLink: true, message: d.message, detail: d.detail });
@@ -617,7 +641,7 @@ async function recoverDatabase(firstErr) {
     try {
       if (choice === 'restore') {
         // פענוח לפני שנוגעים במסד: גיבוי שלא נפתח — המסד הפגום נשאר במקומו
-        const data = JSON.parse(BK.decryptBackup(fs.readFileSync(backup.file, 'utf8'), autoBackupKey(false)));
+        const data = backup.data || openAutoBackup(backup.file);
         if (!data || data.suite !== 'SuperSuite' || !data.econ) throw new Error('קובץ הגיבוי האוטומטי אינו מכיל נתונים כלכליים');
         const aside = DbRecovery.setAsideDamaged(app.getPath('userData'));
         logger.error('db-open', new Error('damaged database set aside: ' + path.basename(aside)));
@@ -1095,7 +1119,10 @@ app.whenReady().then(async () => {
     shellGuard(e, 'data.backup');
     const r = await dialog.showOpenDialog(win, { title: 'בחירת יעד לגיבוי אוטומטי (למשל כונן USB)', properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return '';
-    saveJson(backupSettingsFile(), { ...loadJson(backupSettingsFile()), targetDir: r.filePaths[0] });
+    // יעד שלא נשמר לא מוצג כאילו נבחר — אחרת הגיבוי ממשיך בשקט ליעד הקודם
+    if (!saveJson(backupSettingsFile(), { ...loadJson(backupSettingsFile()), targetDir: r.filePaths[0] })) {
+      throw new Error('בחירת יעד הגיבוי לא נשמרה (שגיאת כתיבה בתיקיית הנתונים). נסו שוב.');
+    }
     return r.filePaths[0];
   });
 
