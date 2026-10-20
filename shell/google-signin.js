@@ -30,29 +30,48 @@ function validateConfig(cfg) {
 
 // ---------- אימות אסימון הזהות ----------
 let certCache = { at: 0, keys: [] };
+const KEYS_UNAVAILABLE = 'google-keys-unavailable';
+function keysError() {
+  const e = new Error('לא ניתן לקבל את מפתחות האימות של Google (ייתכן שהכתובת חסומה בסינון)');
+  e.code = KEYS_UNAVAILABLE;
+  return e;
+}
 async function googleKeys(fetchImpl, now, force = false) {
   if (!force && certCache.keys.length && now - certCache.at < 60 * 60 * 1000) return certCache.keys;
-  const r = await fetchImpl(CERTS_URL);
-  if (!r.ok) throw new Error('לא ניתן לקבל את מפתחות האימות של Google');
-  const j = await r.json();
+  let r, j;
+  try { r = await fetchImpl(CERTS_URL); } catch { throw keysError(); }
+  if (!r.ok) throw keysError();
+  try { j = await r.json(); } catch { throw keysError(); }
   certCache = { at: now, keys: Array.isArray(j.keys) ? j.keys : [] };
   return certCache.keys;
 }
 
-// מחזיר את התוכן המאומת, או זורק שגיאה בעברית
-async function verifyIdToken(idToken, { clientId, nonce, fetchImpl = globalThis.fetch, now = Date.now(), keys } = {}) {
+// מחזיר את התוכן המאומת, או זורק שגיאה בעברית.
+// directFromGoogle — האסימון התקבל עכשיו ישירות מ-TOKEN_URL בחיבור HTTPS מאומת. אם מפתחות החתימה לא זמינים
+// (למשל חסומים בסינון), חיבור ה-TLS מספיק במקום בדיקת החתימה (OpenID Connect Core 3.1.3.7, וכך גם בתיעוד של Google).
+// כל שאר הבדיקות (מנפיק, קהל, תוקף, nonce) נשארות. מפתחות שהתקבלו — החתימה נבדקת תמיד.
+async function verifyIdToken(idToken, { clientId, nonce, fetchImpl = globalThis.fetch, now = Date.now(), keys, directFromGoogle = false } = {}) {
   const parts = String(idToken || '').split('.');
   if (parts.length !== 3) throw new Error('תשובת Google אינה תקינה');
   let header, payload;
   try { header = JSON.parse(unb64u(parts[0]).toString('utf8')); payload = JSON.parse(unb64u(parts[1]).toString('utf8')); }
   catch { throw new Error('תשובת Google אינה תקינה'); }
   if (header.alg !== 'RS256' || typeof header.kid !== 'string') throw new Error('תשובת Google אינה חתומה כנדרש');
-  let list = keys || await googleKeys(fetchImpl, now);
-  let jwk = list.find(k => k.kid === header.kid);
-  if (!jwk && !keys) { list = await googleKeys(fetchImpl, now, true); jwk = list.find(k => k.kid === header.kid); } // מפתח שהתחלף
-  if (!jwk || jwk.kty !== 'RSA') throw new Error('מפתח החתימה של Google לא נמצא');
-  const ok = crypto.verify('RSA-SHA256', Buffer.from(parts[0] + '.' + parts[1]), crypto.createPublicKey({ key: { kty: 'RSA', n: jwk.n, e: jwk.e }, format: 'jwk' }), unb64u(parts[2]));
-  if (!ok) throw new Error('חתימת Google אינה תקינה');
+  let jwk = null;
+  let checkSignature = true;
+  try {
+    let list = keys || await googleKeys(fetchImpl, now);
+    jwk = list.find(k => k.kid === header.kid);
+    if (!jwk && !keys) { list = await googleKeys(fetchImpl, now, true); jwk = list.find(k => k.kid === header.kid); } // מפתח שהתחלף
+  } catch (e) {
+    if (!(directFromGoogle && e.code === KEYS_UNAVAILABLE)) throw e;
+    checkSignature = false;
+  }
+  if (checkSignature) {
+    if (!jwk || jwk.kty !== 'RSA') throw new Error('מפתח החתימה של Google לא נמצא');
+    const ok = crypto.verify('RSA-SHA256', Buffer.from(parts[0] + '.' + parts[1]), crypto.createPublicKey({ key: { kty: 'RSA', n: jwk.n, e: jwk.e }, format: 'jwk' }), unb64u(parts[2]));
+    if (!ok) throw new Error('חתימת Google אינה תקינה');
+  }
   const t = Math.floor(now / 1000);
   if (!ISSUERS.has(payload.iss)) throw new Error('המנפיק אינו Google');
   const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
@@ -113,7 +132,7 @@ async function signIn(cfg, { openBrowser, fetchImpl = globalThis.fetch, loginHin
     catch { throw new Error('אין חיבור ל-Google. בלי אינטרנט — כניסה בסיסמה'); }
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.id_token) throw new Error('Google דחתה את הכניסה' + (j.error_description ? ': ' + String(j.error_description).slice(0, 120) : ''));
-    return await verifyIdToken(j.id_token, { clientId, nonce, fetchImpl, now: now() });
+    return await verifyIdToken(j.id_token, { clientId, nonce, fetchImpl, now: now(), directFromGoogle: true });
   } finally {
     clearTimeout(timer);
     server.close();
