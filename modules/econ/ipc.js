@@ -2,7 +2,7 @@
 const { ipcMain, dialog, BrowserWindow, safeStorage } = require('electron');
 const fs = require('fs');
 const X = require('./core/exports');
-const { initializeDatabase } = require('./core/database');
+const { initializeDatabase, defaults: DB_DEFAULTS } = require('./core/database');
 const { AuthService: authService } = require('./services/authService');
 const { FinancialService: financialService } = require('./services/financialService');
 const { MarketIntelService: marketIntelService } = require('./services/marketIntelService');
@@ -401,6 +401,18 @@ async function saveHtmlAsPdf(html, defaultPath) {
   } finally {
     win.destroy();
   }
+}
+
+/* שחזור ממסך המערכת הכלכלית: קובץ גיבוי של התוכנה כולה (suite) — רק החלק הכלכלי שבו; קובץ ישן של המערכת הכלכלית — כמו שהוא.
+   בלי זה, קובץ של התוכנה כולה "שוחזר" כמסד ריק ומחק את כל הנתונים הכלכליים; וקובץ שאינו גיבוי כלכלי — כנ"ל */
+function econFromBackup(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('קובץ הגיבוי אינו תקין');
+  if (data.suite === 'SuperSuite') {
+    if (data.econ && typeof data.econ === 'object' && !Array.isArray(data.econ)) return data.econ;
+    throw new Error('בקובץ הגיבוי הזה אין נתונים כלכליים. גיבוי של מודול אחר משחזרים מהמסך הראשי של התוכנה');
+  }
+  if (!Object.keys(DB_DEFAULTS).some(k => k !== 'version' && Object.hasOwn(data, k))) throw new Error('הקובץ אינו גיבוי של המערכת הכלכלית');
+  return data;
 }
 
 async function saveCsv({ headers, rows, name }) {
@@ -1165,12 +1177,20 @@ function registerIpcHandlers() {
   // ---------- גבייה מלקוחות של הארגון (core/collect.js) ----------
   // התשלום נרשם בתחום אחר (חשבוניות / עמותה / גמ"ח) — ולכן נבדק גם הרישיון של אותו תחום, לא רק של הערוץ
   const COLLECT_DOMAIN = { invoice: 'acct:x', donation: 'npo:x', gemach: 'gemach:x' };
-  const assertCollectDomain = (kind) => {
+  const assertCollectDomain = (kind, perm = 'data.edit') => {
     const ch = COLLECT_DOMAIN[kind];
-    const denied = ch && LG.checkChannel(licenseState(), ch, 'data.edit');
+    const denied = ch && LG.checkChannel(licenseState(), ch, perm);
     if (denied) throw new Error(denied);
   };
-  handle('collect:getOverview', async () => collectService.getOverview());
+  // דרישה קיימת: הרישיון של התחום שלה (הודעה ללקוח, ביטול, סימון "שולם")
+  const assertCollectRequest = async (id, perm) => {
+    const { payments } = await collectService._load();
+    const req = payments.requests.find(x => x.id === id);
+    if (req) assertCollectDomain(req.kind, perm);
+  };
+  // מסך הגבייה מציג רק דרישות של תחומים פתוחים — אחרת הוא חושף חשבוניות / תרומות / הלוואות של תחום שלא ברישיון
+  const collectVisible = (kind) => { const ch = COLLECT_DOMAIN[kind]; return !ch || !LG.checkChannel(licenseState(), ch, 'data.view'); };
+  handle('collect:getOverview', async () => collectService.getOverview(collectVisible));
   handle('collect:saveSettings', async (event, input) => {
     const s = await collectService.saveSettings(input || {});
     await auditEvent(event, 'collect.settings', { provider: s.provider, link: !!s.linkTemplate });
@@ -1185,23 +1205,23 @@ function registerIpcHandlers() {
     return r;
   });
   handle('collect:getMessage', async (event, id) => {
+    await assertCollectRequest(String(id || ''), 'data.view');
     const { npo } = await npoService._load();
     return collectService.getMessage(String(id || ''), npo.settings.orgName);
   });
   handle('collect:cancelRequest', async (event, id) => {
+    await assertCollectRequest(String(id || ''), 'data.delete');
     const r = await collectService.cancelRequest(String(id || ''));
     await auditEvent(event, 'collect.cancel', { ref: r.ref });
     return r;
   });
   handle('collect:markPaid', async (event, id, input) => {
-    const { payments } = await collectService._load();
-    const req = payments.requests.find(x => x.id === id);
-    if (req) assertCollectDomain(req.kind);
+    await assertCollectRequest(id, 'data.edit');
     const r = await collectService.markPaid(String(id || ''), input || {});
     await auditEvent(event, 'collect.paid', { ref: r.ref, source: 'manual', txId: r.payment.txId });
     return r;
   });
-  handle('collect:previewImport', async (event, csvText) => collectService.previewImport(String(csvText || '')));
+  handle('collect:previewImport', async (event, csvText) => collectService.previewImport(String(csvText || ''), collectVisible));
   handle('collect:importReport', async (event, csvText, mapping) => {
     // תחום שאינו ברישיון — לא קולטים (אחרת הייבוא היה רושם בו תשלומים)
     const { payments } = await collectService._load();
@@ -2410,14 +2430,19 @@ function registerIpcHandlers() {
   });
 
   // ---------- ייבוא וייצוא לכל סוגי הנתונים ----------
-  handle('ports:listKinds', async () => DP.listKinds());
+  // סוג של תחום שנפתח ברישיון בנפרד (מחירון ← הנה"ח, תיקי משכנתא ← ייעוץ, תמיכות ← עמותה) נבדק כמו הערוצים של התחום עצמו
+  const portDenied = (kind, perm) => { const d = DP.kindDomain(kind); return d ? LG.checkChannel(licenseState(), d + ':x', perm) : null; };
+  const assertPortKind = (kind, perm) => { const denied = portDenied(kind, perm); if (denied) throw new Error(denied); };
+  handle('ports:listKinds', async () => DP.listKinds((domain) => !LG.checkChannel(licenseState(), domain + ':x', 'data.view')));
   handle('ports:export', async (event, kind) => {
+    assertPortKind(kind, 'data.export');
     const r = await saveCsv(DP.exportTable(kind, await db.load()));
     if (r.ok) await auditEvent(event, 'ports.export', { kind, rows: r.rows });
     return r;
   });
-  handle('ports:exportTemplate', async (event, kind) => saveCsv(DP.templateTable(kind)));
+  handle('ports:exportTemplate', async (event, kind) => { assertPortKind(kind, 'data.export'); return saveCsv(DP.templateTable(kind)); });
   handle('ports:import', async (event, kind, csvText) => {
+    assertPortKind(kind, 'data.edit');
     if (typeof csvText !== 'string' || csvText.length > 20 * 1024 * 1024) throw new Error('קובץ הייבוא אינו תקין או גדול מדי (עד 20MB)');
     const data = await db.load();
     const r = DP.parseImport(kind, csvText, data);
@@ -2451,15 +2476,18 @@ function registerIpcHandlers() {
   });
   handle('data:restoreEncrypted', async (event, text, passphrase) => {
     if (!BK.isEncryptedBackup(text)) throw new Error('הקובץ אינו גיבוי מוצפן של המערכת');
-    const data = JSON.parse(BK.decryptBackup(text, passphrase));
-    await db.restore(data);
+    const plain = BK.decryptBackup(text, passphrase);
+    let data;
+    try { data = JSON.parse(plain); } catch { throw new Error('קובץ הגיבוי פגום'); }
+    await db.restore(econFromBackup(data));
     await auditEvent(event, 'data.restore', { encrypted: true });
     return true;
   });
-  // ערוץ גיבוי גלוי הוסר: גיבוי לא מוצפן לא יוצא מהמערכת
+  // ערוץ גיבוי גלוי הוסר: גיבוי לא מוצפן לא יוצא מהמערכת. השחזור מקובץ JSON ישן נשאר (המסך הראשי מקבל רק קובץ של התוכנה כולה)
   handle('data:restore', async (event, backupData) => {
+    await db.restore(econFromBackup(backupData));
     await auditEvent(event, 'data.restore', { encrypted: false });
-    return await db.restore(backupData);
+    return true;
   });
 }
 // קבלת הודעות אוטומטית (כדי שהודעות פתיחה והיעדרות יישלחו גם כשאיש לא לוחץ "קבלת הודעות").

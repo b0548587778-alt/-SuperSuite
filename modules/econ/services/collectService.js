@@ -20,11 +20,14 @@ class CollectService {
     return data;
   }
 
-  async getOverview() {
+  // visible(kind) — האם התחום של הדרישה פתוח ברישיון (ה-IPC מעביר); הסיכום מחושב רק מהדרישות שמוצגות
+  async getOverview(visible = () => true) {
     const { payments } = await this._load();
-    const requests = [...payments.requests].sort((a, b) => b.number - a.number)
+    const mine = payments.requests.filter(r => visible(r.kind));
+    const requests = [...mine].sort((a, b) => b.number - a.number)
       .map(r => ({ ...r, amount: P.fromAg(r.amountAg), statusLabel: P.STATUSES[r.status], kindLabel: P.KINDS[r.kind] }));
-    return { settings: payments.settings, requests, summary: P.summary(payments.requests), providers: P.PROVIDERS, kinds: P.KINDS };
+    const kinds = Object.fromEntries(Object.entries(P.KINDS).filter(([k]) => visible(k)));
+    return { settings: payments.settings, requests, summary: P.summary(mine), providers: P.PROVIDERS, kinds };
   }
 
   async saveSettings(input) {
@@ -145,10 +148,11 @@ class CollectService {
     return r;
   }
 
-  async previewImport(csvText) {
+  // התצוגה המקדימה מציגה התאמות רק לדרישות של תחומים פתוחים (visible — כמו ב-getOverview)
+  async previewImport(csvText, visible = () => true) {
     const { payments } = await this._load();
     const p = P.previewImport(csvText, payments.settings);
-    return { ...p, match: this._safeMatch(csvText, p.mapping, payments.requests) };
+    return { ...p, match: this._safeMatch(csvText, p.mapping, payments.requests.filter(r => visible(r.kind))) };
   }
   _safeMatch(csvText, mapping, requests) {
     try { return P.matchReport(csvText, mapping, requests); } catch (e) { return { error: e.message }; }
