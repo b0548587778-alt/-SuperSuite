@@ -126,7 +126,7 @@ test('IPC: קישור, כניסה עם Google, מדיניות והרשאות', a
     assert.equal(cfg.clientId, CLIENT_ID);
     if (release) await new Promise(r => { release = r; });
     return identity;
-  } });
+  }, googleClient: { clientId: '', clientSecret: '' } });   // בלי מזהה מובנה — לא תלוי בתוכן shell/google-client.js
 
   // לפני הפעלה — אין כניסה עם Google
   assert.deepEqual((await handlers['auth:status'](ev(1))).google, { enabled: false });
