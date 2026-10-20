@@ -674,6 +674,52 @@ async function offerPlainFile(file, text) {
   } catch (e) { dialog.showErrorBox('שגיאה', e.message || 'הפעולה נכשלה'); }
 }
 
+// ערכי מודול מקובץ גיבוי (קלט חיצוני): רק מחרוזות בגודל סביר. null — אין מה לשחזר במודול הזה
+function restoreItems(data, id, trainerItems) {
+  const items = id === 'trainer' ? trainerItems : data.localStorage && data.localStorage[id];
+  if (!items || typeof items !== 'object' || Array.isArray(items)) return null;
+  const clean = {};
+  for (const [k, val] of Object.entries(items)) {
+    if (typeof k !== 'string' || k.length > 256) continue;
+    if (typeof val !== 'string' || val.length > LS_VALUE_MAX) continue;
+    clean[k] = val;
+  }
+  return Object.keys(clean).length ? clean : null;
+}
+// המצב הנוכחי של מה שעומד להתחלף — אם אי אפשר לקרוא אותו, לא משחזרים
+async function snapshotFor(withEcon, mods) {
+  const out = { econ: null, localStorage: {} };
+  if (withEcon) out.econ = await econ.getDb().backup();
+  for (const id of mods) {
+    if (SecureStore.MODULES.includes(id)) {
+      const s = secureStore(id);
+      if (s.state === 'locked') throw new Error('המחסן של המודול נעול');
+      if (s.state === 'encrypted') { out.localStorage[id] = s.snapshot(); continue; }
+    }
+    const v = ensureView(id);
+    await waitLoaded(v.webContents);
+    out.localStorage[id] = JSON.parse(await v.webContents.executeJavaScript('JSON.stringify(Object.fromEntries(Object.entries(localStorage)))'));
+  }
+  return out;
+}
+// כתיבת הנתונים: הכספים ואז כל מודול. כל כשל נזרק (גם ערך שהמחסן דחה)
+async function applyRestore(econData, modItems) {
+  if (econData) await econ.getDb().restore(econData);
+  for (const [id, clean] of modItems) {
+    // מודול עם מחסן מוצפן: כותבים ישירות למחסן (ולא דרך העמוד), כדי שהטעינה מחדש תראה את הנתונים מיד
+    if (SecureStore.MODULES.includes(id) && secureStore(id).state === 'encrypted') {
+      const s = secureStore(id);
+      s.clear();
+      for (const [k, val] of Object.entries(clean)) if (!s.set(k, val)) throw new Error('הנתונים של המודול גדולים מדי למחסן');
+      s.flush();
+      continue;
+    }
+    const v = ensureView(id);
+    await waitLoaded(v.webContents);
+    await v.webContents.executeJavaScript(`(()=>{const d=${JSON.stringify(clean)};localStorage.clear();for(const k in d)localStorage.setItem(k,d[k]);})()`);
+  }
+}
+
 async function restoreAll(passphrase) {
   const r = await dialog.showOpenDialog(win, { title: 'בחירת קובץ גיבוי', properties: ['openFile'], filters: [{ name: 'גיבוי SuperSuite', extensions: ['ssbk', 'json'] }] });
   if (r.canceled || !r.filePaths[0]) return { ok: false };
@@ -698,31 +744,21 @@ async function restoreAll(passphrase) {
   const scopeText = data.legacy ? '(גיבוי ישן של ניהול האימונים)' : data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
   const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: 'מומלץ לבצע גיבוי לפני כן.' });
   if (c.response !== 0) return { ok: false };
-  try { if (data.econ) await econ.getDb().restore(data.econ); } catch (e) { dialog.showErrorBox('שגיאה בשחזור המערכת הכלכלית', String(e.message || e)); }
-  for (const id of LS_MODS) {
-    const items = id === 'trainer' ? trainerItems : data.localStorage && data.localStorage[id];
-    if (!items) continue;
-    // קובץ הגיבוי הוא קלט חיצוני: מוודאים שכל ערך הוא מחרוזת בגודל סביר
-    // לפני שכותבים אותו ל-localStorage של המודול. ערך לא-מחרוזתי או ענק נפסל בשקט.
-    if (typeof items !== 'object' || Array.isArray(items)) continue;
-    const clean = {};
-    for (const [k, val] of Object.entries(items)) {
-      if (typeof k !== 'string' || k.length > 256) continue;
-      if (typeof val !== 'string' || val.length > LS_VALUE_MAX) continue;
-      clean[k] = val;
-    }
-    if (!Object.keys(clean).length) continue;
-    // מודול עם מחסן מוצפן: כותבים ישירות למחסן (ולא דרך העמוד), כדי שהטעינה מחדש תראה את הנתונים מיד
-    if (SecureStore.MODULES.includes(id) && secureStore(id).state === 'encrypted') {
-      const s = secureStore(id);
-      s.clear();
-      for (const [k, val] of Object.entries(clean)) s.set(k, val);
-      s.flush();
-      continue;
-    }
-    const v = ensureView(id);
-    await waitLoaded(v.webContents);
-    await v.webContents.executeJavaScript(`(()=>{const d=${JSON.stringify(clean)};localStorage.clear();for(const k in d)localStorage.setItem(k,d[k]);})()`);
+  // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע (למשל הכספים שוחזרו ומודול אחר נכשל) מחזיר הכול למצב שלפני
+  const mods = LS_MODS.filter(id => restoreItems(data, id, trainerItems));
+  let before;
+  try { before = await snapshotFor(!!data.econ, mods); }
+  catch (e) { dialog.showErrorBox('שגיאה', 'לא ניתן לשמור את המצב הנוכחי לפני השחזור, ולכן לא שוחזר דבר. ' + (e.message || '')); return { ok: false }; }
+  try {
+    await applyRestore(data.econ, mods.map(id => [id, restoreItems(data, id, trainerItems)]));
+  } catch (e) {
+    let back = '';
+    try { await applyRestore(before.econ, mods.map(id => [id, before.localStorage[id] || {}])); back = 'הנתונים הוחזרו למצב שלפני השחזור.'; }
+    catch (e2) { logger.error('restore-rollback', e2); back = 'גם ההחזרה למצב הקודם נכשלה — שחזרו מגיבוי אחר, ופנו לתמיכה עם דוח תקלה.'; }
+    logger.error('restore', e);
+    for (const id of Object.keys(views)) views[id].webContents.reload();
+    dialog.showErrorBox('השחזור נכשל', String(e.message || e) + ' ' + back);
+    return { ok: false };
   }
   for (const id of Object.keys(views)) views[id].webContents.reload();
   dialog.showMessageBox(win, { type: 'info', message: 'השחזור הושלם' });

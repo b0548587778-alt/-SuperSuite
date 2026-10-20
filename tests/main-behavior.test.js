@@ -33,7 +33,9 @@ class WebContentsViewStub {
     this.opts = opts;
     this.sent = [];
     created.views.push(this);
-    this.webContents = chainable({ id: this.id, isDestroyed: () => false, isLoading: () => false, send: (...a) => this.sent.push(a) });
+    this.webContents = chainable({ id: this.id, isDestroyed: () => false, isLoading: () => false, send: (...a) => this.sent.push(a),
+      // בדיקות השחזור קובעות מה קוד שרץ בעמוד מחזיר או זורק
+      executeJavaScript: async (code) => (global.__ssExec ? global.__ssExec(code, this) : chainable()) });
   }
   setVisible(v) { this.visible = v; }
   setBounds() {}
@@ -79,7 +81,7 @@ const electronStub = {
   dialog: {
     showSaveDialog: async () => dialogPlan.save,
     showOpenDialog: async () => dialogPlan.open,
-    showMessageBox: async (_w, o) => { dialogLog.push(['box', o && o.message]); return { response: 1 }; },
+    showMessageBox: async (_w, o) => { dialogLog.push(['box', o && o.message]); return { response: dialogPlan.boxResponse === undefined ? 1 : dialogPlan.boxResponse }; },
     showErrorBox(t, m) { dialogLog.push(['error', m]); },
   },
   protocol: chainable(),
@@ -425,4 +427,42 @@ test('גיבויים גלויים: ערוצים חסומים לתצוגת מוד
   } finally {
     if (before === null) fs.rmSync(settings, { force: true }); else fs.writeFileSync(settings, before);
   }
+});
+
+// שחזור מלא שנכשל באמצע: הכספים כבר שוחזרו ומודול אחר נכשל ← הכול חוזר למצב שלפני, בלי "השחזור הושלם"
+test('שחזור: כשל באמצע מחזיר את הכספים למצב שלפני השחזור', async () => {
+  await boot();
+  const econView = created.views[0];
+  const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
+  await handlers['auth:login'](viewSender(econView), 'restore_viewer', 'viewer-pass-long-1');
+  AuthService.getSession(econView.id).permissions = ['data.view', 'data.restore'];
+  const db = require(path.join(ROOT, 'modules/econ/ipc')).getDb();
+  const current = await db.backup();
+  current.organization = { ...(current.organization || {}), name: 'גמ"ח אהבת חסד — לפני' };
+  await db.restore(current);
+
+  const incoming = await db.backup();
+  incoming.organization = { ...incoming.organization, name: 'גמ"ח אהבת חסד — מהגיבוי' };
+  const file = path.join(userData, 'partial.json');
+  fs.writeFileSync(file, JSON.stringify({ suite: 'SuperSuite', version: 2, scope: 'all', econ: incoming, localStorage: { tools: { 'tools:last': 'מחשבון' } } }));
+
+  let writes = 0;
+  global.__ssExec = async (code) => {
+    if (code.includes('localStorage.clear()')) { writes++; if (writes === 1) throw new Error('המודול לא נטען'); return undefined; }
+    return JSON.stringify({ 'tools:last': 'ישן' });
+  };
+  dialogPlan.open = { canceled: false, filePaths: [file] };
+  dialogPlan.boxResponse = 0;
+  dialogLog.length = 0;
+  try {
+    assert.deepEqual(await handlers['shell:restore-all'](shellSender(), ''), { ok: false });
+  } finally {
+    delete global.__ssExec; delete dialogPlan.boxResponse;
+    dialogPlan.open = { canceled: true, filePaths: [] };
+  }
+  assert.equal((await db.backup()).organization.name, 'גמ"ח אהבת חסד — לפני', 'הכספים לא הוחזרו');
+  assert.equal(writes, 2, 'המודול לא הוחזר לנתונים הישנים');
+  const err = dialogLog.find(d => d[0] === 'error');
+  assert.ok(err && /המודול לא נטען.*הוחזרו למצב שלפני/.test(err[1]), JSON.stringify(dialogLog));
+  assert.ok(!dialogLog.some(d => d[1] === 'השחזור הושלם'));
 });

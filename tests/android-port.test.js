@@ -210,3 +210,44 @@ test('בניית קבצי ה-web לאנדרואיד: הזרקה למודולים
   // אין קוד צד-שרת של הכלכלי בתוך ה-iframe
   assert.ok(!fs.existsSync(path.join(B.WWW, 'econ', 'core')));
 });
+
+// שחזור מלא באנדרואיד שנכשל באמצע (מודול לא שמר) ← הכספים והמודולים חוזרים למצב שלפני
+test('main-android: שחזור שנכשל באמצע מוחזר למצב שלפני', async () => {
+  const { econ, host, ext, handlers } = await boot();
+  const restores = [];
+  const frames = {
+    _f: new Set(), exists: id => frames._f.has(id), ensure: id => frames._f.add(id), setVisible() {},
+    whenReady: () => Promise.resolve(), send() {}, reloadAll() {},
+    request: async (id, type, data) => {
+      if (type === 'ls-dump') return { k: 'ישן-' + id };
+      restores.push([id, data]);
+      return restores.length === 2 ? { error: 'אין מקום' } : true; // המודול השני נכשל בפעם הראשונה
+    },
+    moduleSenderIds: () => [...frames._f].map(id => ({ econ: 2, shamai: 3, trainer: 4, tools: 5 })[id])
+  };
+  const alerts = [];
+  let openText = null;
+  host.require('main-android', ext).start({
+    ipcMain: ext.electron.ipcMain, econ, frames, SHELL_ID: 1, emitShell() {},
+    bridgeAsync: async (m) => (m === 'openText' ? { text: openText } : { ok: true }),
+    senderOf: id => ({ econ: 2, shamai: 3, trainer: 4, tools: 5 })[id],
+    ui: (() => { let o = {}; return { load: () => o, save: v => { o = v; } }; })(),
+    alert: (m) => alerts.push(m), confirm: () => true, exit() {}
+  });
+  const call = async (s, ch, ...a) => handlers.get(ch)({ sender: { id: s } }, ...a);
+  frames.ensure('econ');
+  await call(2, 'auth:setup', 'admin', 'סיסמה-חזקה-123');
+  await call(2, 'auth:login', 'admin', 'סיסמה-חזקה-123');
+  const db = econ.getDb();
+  const cur = await db.backup();
+  cur.organization = { ...(cur.organization || {}), name: 'קופת צדקה — לפני' };
+  await db.restore(cur);
+  const incoming = { ...cur, organization: { ...cur.organization, name: 'קופת צדקה — מהגיבוי' } };
+  openText = BKnode.encryptBackup(JSON.stringify({ suite: 'SuperSuite', version: 2, scope: 'all', econ: incoming,
+    localStorage: { shamai: { a: 'חדש' }, tools: { b: 'חדש' } } }), 'backup-pass-1');
+
+  assert.deepStrictEqual(await call(1, 'shell:restore-all', 'backup-pass-1'), { ok: false });
+  assert.strictEqual((await db.backup()).organization.name, 'קופת צדקה — לפני');
+  assert.match(alerts.at(-1), /השחזור נכשל.*אין מקום.*הוחזרו למצב שלפני/);
+  assert.deepStrictEqual(restores.slice(2), [['shamai', { k: 'ישן-shamai' }], ['tools', { k: 'ישן-tools' }]]);
+});

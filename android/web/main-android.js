@@ -142,6 +142,26 @@ function start(ctx) {
     ctx.alert('הגיבוי נשמר ומוצפן\n' + (r.name || ''));
     return { ok: true };
   }
+  // ערכי מודול מקובץ גיבוי (קלט חיצוני): רק מחרוזות בגודל סביר. null — אין מה לשחזר
+  function restoreItems(data, id, trainerItems) {
+    const items = id === 'trainer' ? trainerItems : data.localStorage && data.localStorage[id];
+    if (!items || typeof items !== 'object' || Array.isArray(items)) return null;
+    const clean = {};
+    for (const [k, val] of Object.entries(items)) {
+      if (typeof k !== 'string' || k.length > 256) continue;
+      if (typeof val !== 'string' || val.length > LS_VALUE_MAX) continue;
+      clean[k] = val;
+    }
+    return Object.keys(clean).length ? clean : null;
+  }
+  async function applyRestore(econData, modItems) {
+    if (econData) await econ.getDb().restore(econData);
+    for (const [id, clean] of modItems) {
+      frames.ensure(id, ENTRY[id]);
+      const r = await frames.request(id, 'ls-restore', clean);
+      if (r !== true) throw new Error('המודול לא שמר את הנתונים' + (r && r.error ? ' (' + r.error + ')' : ''));
+    }
+  }
   async function restoreAll(passphrase) {
     const f = await bridgeAsync('openText');
     if (!f || typeof f.text !== 'string') return { ok: false };
@@ -166,19 +186,22 @@ function start(ctx) {
     }
     const scopeText = data.legacy ? '(גיבוי ישן של ניהול האימונים)' : data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
     if (!ctx.confirm('השחזור יחליף את הנתונים הקיימים ' + scopeText + '\nמומלץ לבצע גיבוי לפני כן. להמשיך?')) return { ok: false };
-    try { if (data.econ) await econ.getDb().restore(data.econ); } catch (e) { ctx.alert('שגיאה בשחזור המערכת הכלכלית: ' + String(e.message || e)); }
-    for (const id of LS_MODS) {
-      const items = id === 'trainer' ? trainerItems : data.localStorage && data.localStorage[id];
-      if (!items || typeof items !== 'object' || Array.isArray(items)) continue;
-      const clean = {};
-      for (const [k, val] of Object.entries(items)) {
-        if (typeof k !== 'string' || k.length > 256) continue;
-        if (typeof val !== 'string' || val.length > LS_VALUE_MAX) continue;
-        clean[k] = val;
-      }
-      if (!Object.keys(clean).length) continue;
-      frames.ensure(id, ENTRY[id]);
-      await frames.request(id, 'ls-restore', clean);
+    // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע מחזיר הכול למצב שלפני (כמו main.js)
+    const mods = LS_MODS.filter(id => restoreItems(data, id, trainerItems));
+    let before;
+    try {
+      before = { econ: data.econ ? await econ.getDb().backup() : null, localStorage: {} };
+      for (const id of mods) { frames.ensure(id, ENTRY[id]); before.localStorage[id] = await frames.request(id, 'ls-dump'); }
+    } catch (e) { ctx.alert('שגיאה: לא ניתן לשמור את המצב הנוכחי לפני השחזור, ולכן לא שוחזר דבר.'); return { ok: false }; }
+    try {
+      await applyRestore(data.econ, mods.map(id => [id, restoreItems(data, id, trainerItems)]));
+    } catch (e) {
+      let back = 'הנתונים הוחזרו למצב שלפני השחזור.';
+      try { await applyRestore(before.econ, mods.map(id => [id, before.localStorage[id] || {}])); }
+      catch { back = 'גם ההחזרה למצב הקודם נכשלה — שחזרו מגיבוי אחר.'; }
+      frames.reloadAll();
+      ctx.alert('השחזור נכשל: ' + String(e.message || e) + ' ' + back);
+      return { ok: false };
     }
     frames.reloadAll();
     ctx.alert('השחזור הושלם');

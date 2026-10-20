@@ -42,10 +42,15 @@
     send(m) { for (const cb of listeners.get(m.channel) || []) { try { cb({}, ...m.args); } catch (e) { console.error(e); } } },
     // גיבוי/שחזור: המעטפת קוראת וכותבת את ה-localStorage של המודול (כמו executeJavaScript בשולחן העבודה)
     'ls-dump'(m) { post({ ss: 'ls', id: m.id, data: Object.fromEntries(Object.entries(localStorage)) }); },
+    // כשל (למשל אין מקום) חוזר כשגיאה מיד — ולא נתקע עד שתם הזמן
     'ls-restore'(m) {
-      localStorage.clear();
-      for (const k of Object.keys(m.data)) localStorage.setItem(k, m.data[k]);
-      post({ ss: 'ls', id: m.id, data: true });
+      try {
+        localStorage.clear();
+        for (const k of Object.keys(m.data)) localStorage.setItem(k, m.data[k]);
+        post({ ss: 'ls', id: m.id, data: true });
+      } catch (e) {
+        post({ ss: 'ls', id: m.id, data: { error: String((e && e.message) || e) } });
+      }
     },
     reload() { location.reload(); }
   };

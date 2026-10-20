@@ -94,10 +94,13 @@ for (const [name, file] of [['main.js', ['main.js']], ['אנדרואיד', ['and
     const iLegacy = body.indexOf('TrainerCheck.legacyTrainerBackup');
     const iSuite = body.indexOf("data.suite !== 'SuperSuite'");
     const iConfirm = Math.max(body.indexOf('showMessageBox'), body.indexOf('ctx.confirm'));
-    const iEcon = body.indexOf('getDb().restore');
+    // הכתיבה (כספים ומודולים) — רק דרך applyRestore, אחרי הבדיקה והאישור
+    const iEcon = body.indexOf('await applyRestore(');
     assert.ok(iLegacy > 0 && iLegacy < iSuite, 'קובץ ישן מומר לפני בדיקת ה-suite');
-    assert.ok(iCheck > 0 && iCheck < iConfirm && iCheck < iEcon, 'הבדיקה לפני האישור ולפני שחזור הכספים');
-    assert.match(body, /id === 'trainer' \? trainerItems/);
+    assert.ok(iCheck > 0 && iCheck < iConfirm && iConfirm < iEcon, 'הבדיקה לפני האישור ולפני שחזור הכספים');
+    assert.ok(!/getDb\(\)\.restore/.test(body.slice(0, iConfirm)), 'שחזור כספים לפני האישור');
+    assert.match(body, /restoreItems\(data, id, trainerItems\)/);
+    assert.match(src, /id === 'trainer' \? trainerItems/);
   });
 }
 
