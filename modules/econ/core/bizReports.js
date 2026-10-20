@@ -76,7 +76,7 @@ function customerLedger(data, customer, { from, to } = {}) {
   const rows = [];
   for (const inv of data.invoices || []) {
     if (inv.customer !== name) continue;
-    rows.push({ date: inv.date, kind: 'invoice', ref: inv.number, label: inv.kind === 'tax-invoice-receipt' ? 'חשבונית מס/קבלה' : 'חשבונית מס', debitAg: A.toAg(inv.total), creditAg: 0 });
+    rows.push({ date: inv.date, kind: 'invoice', ref: inv.number, label: inv.vatExempt ? 'חשבונית עסקה' : inv.kind === 'tax-invoice-receipt' ? 'חשבונית מס/קבלה' : 'חשבונית מס', debitAg: A.toAg(inv.total), creditAg: 0 });
     if (inv.status === 'cancelled') rows.push({ date: inv.cancelledAt || inv.date, kind: 'cancel', ref: inv.number, label: 'ביטול חשבונית', debitAg: 0, creditAg: A.toAg(inv.total) });
     if (inv.status === 'paid' && inv.paidAt) {
       const paid = A.toAg(inv.total) - creditedOf(data, inv);

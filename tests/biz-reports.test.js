@@ -90,6 +90,16 @@ test('שירות: כרטסת לקוח — חשבונית, זיכוי, גבייה
   assert.ok(b.id);
 });
 
+test('כרטסת לקוח: חשבונית פטורה — "חשבונית עסקה", גם בנתונים ישנים שסומנו חשבונית מס/קבלה (כמו בהדפסה)', () => {
+  const data = { invoices: [
+    { id: '1', number: 1, customer: 'ישיבת אור', date: '2026-03-01', total: 100, status: 'open', vatExempt: true },
+    { id: '2', number: 2, customer: 'ישיבת אור', date: '2026-03-02', total: 100, status: 'open', vatExempt: true, kind: 'tax-invoice-receipt' },
+    { id: '3', number: 3, customer: 'ישיבת אור', date: '2026-03-03', total: 118, status: 'open', kind: 'tax-invoice-receipt' },
+    { id: '4', number: 4, customer: 'ישיבת אור', date: '2026-03-04', total: 118, status: 'open' },
+  ] };
+  assert.deepEqual(BZ.customerLedger(data, 'ישיבת אור').rows.map(r => r.label), ['חשבונית עסקה', 'חשבונית עסקה', 'חשבונית מס/קבלה', 'חשבונית מס']);
+});
+
 test('מקדמות ומע"מ: מחזור בלי מע"מ פחות זיכויים וביטולים, מקדמה מעוגלת לאגורה, מצב תקופה', async () => {
   const { svc } = await freshService();
   await svc.saveBizSettings({ paymentTermsDays: 30, period: 'bimonthly', advanceRatePct: '2.5' });

@@ -144,9 +144,14 @@ export const STATE_LABEL = {
 
 const usable = (m, today) => ['active', 'ending'].includes(membershipStatus(m, today).state);
 
-// המנוי שממנו מנכים אימון: הוותיק מבין הפעילים
+// המנוי שממנו מנכים אימון: מבין הפעילים — זה שתוקפו מסתיים ראשון (בלי תוקף — אחרון),
+// כדי שמנוי שעומד לפוג לא יפוג עם אימונים ששולמו; בתוקף זהה — הוותיק
+const byEndThenStart = (a, b) => {
+  if (a.end !== b.end) return !a.end ? 1 : !b.end ? -1 : a.end < b.end ? -1 : 1;
+  return a.start < b.start ? -1 : a.start > b.start ? 1 : 0;
+};
 export function activeMembership(list, today) {
-  return [...(list || [])].filter((m) => usable(m, today)).sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0))[0] || null;
+  return [...(list || [])].filter((m) => usable(m, today)).sort(byEndThenStart)[0] || null;
 }
 
 // ניצול אימון. ref — מזהה הפגישה ביומן (או null לניצול ידני); אותו ref לא נוצל פעמיים

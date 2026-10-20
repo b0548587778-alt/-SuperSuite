@@ -89,15 +89,28 @@ test('ממצא 4: ביום שישי "אימונים ביום ראשון"; בשא
   assert.equal(St.reminders({ ...base, today: '2026-10-22' }).filter(r => r.kind === 'tomorrow').length, 0);
 });
 
-// ─── ממצא 5: סדר הניכוי — מדיניות מתועדת בקוד, לא שונתה ───
-test('ממצא 5: הניכוי נשאר מהמנוי הוותיק (מדיניות שמוצהרת בהערה בקוד) — לא שונה בתיקון הזה', () => {
-  const fs = require('fs');
-  const src = fs.readFileSync(path.join(SRC, 'lib', 'studio.js'), 'utf8');
-  assert.match(src, /המנוי שממנו מנכים אימון: הוותיק מבין הפעילים/);
+// ─── ממצא 5: סדר הניכוי — קודם המנוי שתוקפו מסתיים ראשון ───
+test('ממצא 5: כרטיסייה בלי תוקף ומנוי חודשי — הניכוי מהחודשי, ושום אימון ששולם לא פג', () => {
   const punch = { id: 'p10', name: 'כרטיסייה 10', kind: 'punch', sessions: 10, validDays: null, priceAg: 0 };
   const monthly = { id: 'm8', name: 'חודשי 8', kind: 'punch', sessions: 8, validDays: 30, priceAg: 0 };
-  const list = [St.newMembership(punch, '2026-09-01'), St.newMembership(monthly, '2026-10-01')];
-  assert.equal(St.activeMembership(list, '2026-10-05').name, 'כרטיסייה 10');
+  let list = [St.newMembership(punch, '2026-09-01'), St.newMembership(monthly, '2026-10-01')];
+  list[0] = { ...list[0], uses: Array.from({ length: 5 }, (_, i) => ({ id: 'old' + i, date: '2026-09-1' + i, ref: null })) };
+  assert.equal(St.activeMembership(list, '2026-10-05').name, 'חודשי 8');
+  for (let i = 0; i < 8; i++) list = St.recordUse(list, { date: '2026-10-0' + (i + 1), ref: 's' + i }, '2026-10-0' + (i + 1)).list;
+  const [p, m] = list.map((x) => St.membershipStatus(x, '2026-10-31'));
+  assert.deepEqual([m.used, m.left], [8, 0], 'החודשי נוצל עד הסוף לפני שפג');
+  assert.deepEqual([p.used, p.left], [5, 5], 'הכרטיסייה (בלי תוקף) נשמרה');
+});
+
+test('ממצא 5: שני מנויים באותו תוקף (או בלי תוקף) — עדיין הוותיק ראשון', () => {
+  const plan = { id: 'p', name: 'כרטיסייה', kind: 'punch', sessions: 10, validDays: null, priceAg: 0 };
+  const a = { ...St.newMembership(plan, '2026-09-01'), name: 'ישן' };
+  const b = { ...St.newMembership(plan, '2026-10-01'), name: 'חדש' };
+  assert.equal(St.activeMembership([b, a], '2026-10-05').name, 'ישן');
+  const month = { id: 'm', name: 'חודשי', kind: 'period', sessions: null, validDays: 30, priceAg: 0 };
+  const x = { ...St.newMembership(month, '2026-10-01'), name: 'מוקדם' };
+  const y = { ...St.newMembership(month, '2026-10-03'), name: 'מאוחר' };
+  assert.equal(St.activeMembership([y, x], '2026-10-05').name, 'מוקדם', 'תוקף קרוב יותר — ראשון');
 });
 
 // ─── ממצא 7: לוח הבקרה סופר גם נוכחות ביומן ───
