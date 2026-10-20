@@ -345,8 +345,8 @@ function finalizeProblems(cs, today) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CSV_COLUMNS = {
-  date: ['תאריך', 'תאריך עסקה', 'יום מכירה', 'תאריך מכירה', 'date', 'sale date'],
-  price: ['מחיר', 'מחיר עסקה', 'שווי', 'שווי מכירה', 'שווי מוצהר', 'סכום', 'price', 'value'],
+  date: ['תאריך', 'תאריך עסקה', 'יום מכירה', 'תאריך מכירה', 'מועד עסקה', 'date', 'sale date'],
+  price: ['מחיר', 'מחיר עסקה', 'מחיר מוצהר', 'מחיר מכירה', 'שווי', 'שווי עסקה', 'שווי מכירה', 'שווי מוצהר', 'סכום', 'סכום עסקה', 'price', 'value'],
   area: ['שטח', 'שטח במ"ר', 'שטח במר', 'מ"ר', 'שטח בנוי', 'area', 'sqm', 'size'],
   address: ['כתובת', 'רחוב', 'address', 'street'],
   city: ['עיר', 'ישוב', 'יישוב', 'city'],
@@ -377,7 +377,9 @@ function splitCsvLine(line, sep) {
   return out;
 }
 
-const normHead = (h) => String(h || '').replace(/^﻿/, '').replace(/[״"׳'`]/g, '"').replace(/\s+/g, ' ').trim().toLowerCase();
+const normHead = (h) => String(h || '').replace(/^﻿/, '').replace(/[״"׳'`]/g, '"')
+  // יחידה בסוגריים או בסוף הכותרת: "מחיר (₪)", "שטח (מ"ר)", "מחיר בש"ח"
+  .replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s*(₪|בש"ח|ש"ח|nis|ils)\s*$/i, '').replace(/\s+/g, ' ').trim().toLowerCase();
 const normDate = (v) => {
   const s = String(v || '').trim();
   if (isDay(s)) return s;
@@ -484,8 +486,8 @@ function renderReportHtml(cs, settings = {}, today) {
     return `<tr class="${c.included ? '' : 'excluded'}"><td>${i + 1}</td><td>${esc([c.address, c.city].filter(Boolean).join(', '))}${gushText(c) ? `<br><small>${esc(gushText(c))}</small>` : ''}</td>
       <td>${day(c.date)}</td><td class="n">${money(c.priceAg)}</td><td class="n">${esc(String(c.area))}</td>
       <td>${c.rooms ?? '—'}</td><td>${c.floor ?? '—'}</td><td class="n">${money(x.perSqmAg)}</td>
-      <td>${c.adjustments.map(a => `${esc(ADJ_FACTORS[a.factor])} ${pct(a.bp)}${a.note ? ` (${esc(a.note)})` : ''}`).join('<br>') || '—'}</td>
-      <td class="n">${pct(x.netBp)}</td><td class="n">${money(x.adjustedPerSqmAg)}</td><td>${esc(c.source)}</td></tr>`;
+      <td>${c.adjustments.map(a => `${esc(ADJ_FACTORS[a.factor])} <bdi dir="ltr">${pct(a.bp)}</bdi>${a.note ? ` (${esc(a.note)})` : ''}`).join('<br>') || '—'}</td>
+      <td class="n"><bdi dir="ltr">${pct(x.netBp)}</bdi></td><td class="n">${money(x.adjustedPerSqmAg)}</td><td>${esc(c.source)}</td></tr>`;
   }).join('');
   const sales = r.sales;
   const salesHtml = sales.ok ? `

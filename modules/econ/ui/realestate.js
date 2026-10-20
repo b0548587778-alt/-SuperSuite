@@ -139,8 +139,8 @@ function reCompsHtml(f, lists, rows, final) {
   const adj = f.comparables.map((c, i) => {
     const r = res(i);
     return `<tr class="${c.included ? '' : 'muted'}"><td>${i + 1}</td><td>${r ? reMoney(r.perSqmAg) : '—'}</td>
-      ${RE_ADJ_COLS.map(k => `<td><input type="text" data-re="comparables.${i}.adj.${k}.pct" value="${esc(c.adj[k] ? c.adj[k].pct : '')}" aria-label="התאמת ${esc(lists.factors[k])} באחוזים — עסקה ${i + 1}" inputmode="decimal"${ro}></td>`).join('')}
-      <td>${r ? reBp(r.netBp) : '—'}</td><td>${r ? (r.grossBp / 100) + '%' : '—'}</td><td><b>${r ? reMoney(r.adjustedPerSqmAg) : '—'}</b></td></tr>`;
+      ${RE_ADJ_COLS.map(k => `<td><input type="text" data-re="comparables.${i}.adj.${k}.pct" value="${esc(c.adj[k] ? c.adj[k].pct : '')}" aria-label="התאמת ${esc(lists.factors[k])} באחוזים — עסקה ${i + 1}" inputmode="decimal" dir="ltr"${ro}></td>`).join('')}
+      <td>${r ? `<bdi dir="ltr">${reBp(r.netBp)}</bdi>` : '—'}</td><td>${r ? (r.grossBp / 100) + '%' : '—'}</td><td><b>${r ? reMoney(r.adjustedPerSqmAg) : '—'}</b></td></tr>`;
   }).join('');
   return `
     <div class="acct-header"><h3>עסקאות השוואה (${f.comparables.length})</h3>

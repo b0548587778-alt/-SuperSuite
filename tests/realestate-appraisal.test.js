@@ -176,3 +176,23 @@ test('דוח: מבנה מקצועי, escape, טיוטה מסומנת, בלי צ�
   assert.doesNotMatch(html, /https?:\/\/|<script/i);
   assert.match(html, /<html lang="he" dir="rtl">/);
 });
+
+// נמצא בבדיקה בתוכנה (20.10.2026): כותרת "מחיר מוצהר" לא זוהתה, ו"−3%" בדוח מימין לשמאל הוצג "3%-"
+test('CSV: כותרות נפוצות נוספות — מחיר מוצהר, יחידה בסוגריים או בסוף', () => {
+  const r = R.parseComparablesCsv('\ufeffיום מכירה,כתובת,גוש/חלקה,מחיר מוצהר,שטח במ"ר,קומה\n03/08/2026,"רחוב השומר 9, בני ברק",6125-30-4,"2,180,000",102,קומה 3\n31/02/2026,רחוב עזרא 3,,1500000,80,1\n');
+  assert.equal(r.rows.length, 1);
+  assert.equal(r.rows[0].priceAg, 218000000);
+  assert.equal(r.rows[0].floor, 3);
+  assert.deepEqual([r.rows[0].block, r.rows[0].parcel, r.rows[0].subParcel], ['6125', '30', '4']);
+  assert.match(r.errors[0], /שורה 3: תאריך/);
+  assert.equal(R.parseComparablesCsv('תאריך,מחיר (₪),שטח (מ"ר)\n2026-01-05,1000000,50').rows.length, 1);
+  assert.equal(R.parseComparablesCsv('תאריך,מחיר בש"ח,שטח\n2026-01-05,1000000,50').rows.length, 1);
+});
+
+test('דוח: אחוז עם סימן עטוף בכיוון שמאל לימין', () => {
+  const cs = { ...base(), id: 'x', no: 4, rev: 0, status: 'draft' };
+  cs.comparables[0].adjustments = [{ factor: 'floor', bp: -300, note: '' }];
+  const html = R.renderReportHtml(cs, {}, TODAY);
+  assert.match(html, /קומה <bdi dir="ltr">‎?-3%<\/bdi>/);
+  assert.match(html, /<td class="n"><bdi dir="ltr">/, 'גם עמודת הנטו');
+});
