@@ -256,7 +256,7 @@ function renderGoogleCard(st) {
         ${cfg ? `
           <h4>הגדרות המערכת (מנהל)</h4>
           <div class="acct-row"><span>מצב</span><span>${cfg.enabled ? 'פעיל' : 'כבוי'}</span></div>
-          ${cfg.clientId ? `<div class="acct-row"><span>מזהה לקוח</span><span><small><bdi dir="ltr">${esc(cfg.clientId)}</bdi></small></span></div>` : ''}
+          <div class="acct-row"><span>מזהה</span><span>${cfg.clientId ? `<small><bdi dir="ltr">${esc(cfg.clientId)}</bdi></small>` : (cfg.builtIn ? 'המזהה המובנה של התוכנה' : 'לא הוגדר')}</span></div>
           <button class="secondary" id="googleSettingsBtn">הגדרת כניסה עם Google</button>` : ''}
       </div>`;
 }
@@ -297,12 +297,14 @@ function askGoogleSettings(cfg) {
       return i;
     };
     const enabled = check('הפעלת כניסה עם Google', c.enabled);
-    const clientId = text('מזהה לקוח (Client ID)', c.clientId);
+    const clientId = text(c.builtIn ? 'מזהה לקוח משלכם (ריק = המזהה המובנה)' : 'מזהה לקוח (Client ID)', c.clientId);
     const secret = text(c.hasSecret ? 'סוד לקוח (ריק = ללא שינוי)' : 'סוד לקוח (Client secret)', '', 'password');
     const online = check('ההודעות — רק אחרי כניסה עם Google', c.onlineRequiresGoogle);
     const note = document.createElement('p');
     note.className = 'muted';
-    note.textContent = 'יוצרים ב-Google Cloud Console מזהה לקוח מסוג "Desktop app". הכניסה בסיסמה נשארת לכל המשתמשים.';
+    note.textContent = c.builtIn
+      ? 'אין צורך להגדיר כלום: התוכנה כוללת מזהה מובנה. מזהה משלכם (מסוג "Desktop app" ב-Google Cloud Console) — רק לארגון שרוצה בכך. הכניסה בסיסמה נשארת לכל המשתמשים.'
+      : 'יוצרים ב-Google Cloud Console מזהה לקוח מסוג "Desktop app". הכניסה בסיסמה נשארת לכל המשתמשים.';
     const err = document.createElement('div');
     err.style.color = 'var(--ss-danger)';
     err.style.fontSize = '0.9rem';
@@ -322,7 +324,7 @@ function askGoogleSettings(cfg) {
     cancel.addEventListener('click', () => finish(null));
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (enabled.checked && !clientId.value.trim()) { err.textContent = 'יש להזין מזהה לקוח'; clientId.focus(); return; }
+      if (enabled.checked && !clientId.value.trim() && !c.builtIn) { err.textContent = 'יש להזין מזהה לקוח'; clientId.focus(); return; }
       finish({ enabled: enabled.checked, clientId: clientId.value.trim(), clientSecret: secret.value.trim(), onlineRequiresGoogle: online.checked });
     });
     enabled.focus();

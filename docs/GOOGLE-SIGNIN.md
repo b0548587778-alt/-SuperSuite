@@ -11,7 +11,22 @@
    PKCE (S256) ו-`state` מונעים גניבת קוד והתחזות.
 4. **לא נשמר שום אסימון.** נשמרת רק הזהות הקבועה של החשבון (`sub`) והדוא"ל, בטבלה `auth_google_links`, מקושרות למשתמש מקומי.
 
-## הגדרה (פעם אחת, מנהל)
+## מזהה מובנה (פעם אחת, הבעלים — הלקוח לא מגדיר כלום)
+
+כשבקובץ `shell/google-client.js` יש מזהה, הוא נארז בתוכנה, וכניסה עם Google פעילה בכל התקנה **בלי שום הגדרה**.
+הלקוח רק נכנס בסיסמה פעם אחת ← הגדרות ← "קישור חשבון Google". כל עוד הקובץ ריק, ההתנהגות היא כמו קודם (כבוי עד שמנהל מגדיר מזהה).
+
+1. ב-[Google Cloud Console](https://console.cloud.google.com/) יוצרים פרויקט בשם התוכנה.
+2. **מסך ההסכמה** (OAuth consent screen): סוג External, שם התוכנה, דוא"ל לתמיכה, וההרשאות `openid`, `email`, `profile` **בלבד**.
+   אחר כך "Publish app". עם ההרשאות האלה אין צורך בבדיקה של Google. בלי פרסום, רק 100 "משתמשי בדיקה" יכולים להיכנס.
+3. Credentials ← Create credentials ← **OAuth client ID** ← סוג **Desktop app**.
+4. מעתיקים את ה-Client ID ואת ה-Client secret ל-`shell/google-client.js` (`clientId`, `clientSecret`), ובונים גרסה.
+   ה-secret של Desktop app אינו סוד אמיתי (כך מגדירה Google). ההגנה היא PKCE.
+
+**מה גובר:** הגדרות שהמנהל שמר בתוכנה גוברות על המזהה המובנה. כיבוי נשאר כבוי, מזהה של הארגון מחליף את המובנה, ומזהה ריק בהגדרות = המובנה.
+המסך לא מציג את המזהה המובנה ולא שום סוד (`googleSettingsView` ב-`ipc.js`). מזהה מובנה פגום נרשם ביומן ומתעלמים ממנו. באנדרואיד אין כניסה עם Google.
+
+## הגדרה ידנית (ארגון שרוצה מזהה משלו)
 
 1. ב-[Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → Create credentials → **OAuth client ID**.
 2. סוג היישום: **Desktop app**. (במסך ההסכמה: שם התוכנה, ההרשאות `openid`, `email`, `profile` בלבד.)
