@@ -30,4 +30,4 @@ npm test
 **שינוי טקסט בסרגל הפנימי של המודול** — לעדכן את `TRAINER_LABELS` ב-`shell/catalog.js`, אחרת `tests/trainer-nav.test.js` ייכשל.
 
 ## זכויות
-ב-README המקורי של TrainerPro כתוב רק "חופשי לשימוש אישי ומקצועי". לפני מכירה יש לברר ולתעד את הזכויות (PLAN.md 5.2).
+TrainerPro נכתב על ידי בעל SuperSuite, בעזרת Claude בצ'אט הרגיל (claude.ai), ונכנס לפרויקט כ-`TrainerPro-source.zip` (18.10.2026). לא נלקח קוד ממקור אחר. הספריות החיצוניות (React, Recharts ועוד) — ברישיונות שלהן, ב-`THIRD-PARTY-NOTICES.txt`. המשפט "חופשי לשימוש" שהיה ב-README המקורי הוחלף ב"כל הזכויות שמורות" (PLAN.md 5.2).
