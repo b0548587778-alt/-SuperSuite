@@ -219,7 +219,7 @@ function rltyDealsHtml(o) {
   return `
     ${t && t.total ? `<div class="card"><div class="acct-row"><span>עמלות בעסקאות פעילות וסגורות</span><span>${money(t.total)}</span></div>
       <div class="acct-row"><span>התקבל</span><span>${money(t.paid)}</span></div><div class="acct-row acct-total"><span>יתרה לגבייה</span><span>${money(t.balance)}</span></div></div>` : ''}
-    ${up.length ? `<div class="card"><h3>מועדים קרובים</h3><ul>${up.map(u => `<li${u.overdue ? ' class="warn"' : ''}>${esc(u.date)} — ${esc(u.label)}${u.mortgage ? ' <span class="ss-badge ss-badge-warn">תלוי במשכנתא</span>' : ''}${u.overdue ? ' (עבר)' : ''}</li>`).join('')}</ul></div>` : ''}
+    ${up.length ? `<div class="card"><h3>מועדים קרובים</h3><ul>${up.map(u => `<li${u.overdue ? ' class="warn"' : ''}>${esc(u.date)} — ${esc(u.label)}${u.mortgage ? ' <span class="ss-badge ss-badge-warning">תלוי במשכנתא</span>' : ''}${u.overdue ? ' (עבר)' : ''}</li>`).join('')}</ul></div>` : ''}
     <div class="ss-board">${board.map(col => `
       <div class="ss-board-col${col.closed ? ' is-closed' : ''}">
         <h4><span>${esc(col.label)}</span><span>${col.cards.length}</span></h4>
@@ -256,7 +256,7 @@ function rltyCommissionHtml(o) {
     <div class="acct-actions"><button id="rltyFeeSave">שמירת העמלות</button></div>
     ${c.sides.length ? `<div class="acct-scroll"><table class="acct-table"><thead><tr><th>צד</th><th>עמלה</th><th>סה"כ</th><th>שולם</th><th>יתרה</th><th>מצב</th></tr></thead>
       <tbody>${c.sides.map(s => `<tr><td>${esc(s.label)}</td><td>${esc(s.feeText)}</td><td>${money(s.total)}</td><td>${money(s.paid)}</td><td>${money(s.balance)}</td>
-        <td><span class="ss-badge${s.state === 'paid' ? '' : ' ss-badge-warn'}">${esc(states[s.state] || s.state)}</span></td></tr>`).join('')}</tbody></table></div>
+        <td><span class="ss-badge${s.state === 'paid' ? '' : ' ss-badge-warning'}">${esc(states[s.state] || s.state)}</span></td></tr>`).join('')}</tbody></table></div>
       <h4>תשלומים</h4>
       ${(d.commissionPayments || []).map(p => `<div class="acct-row"><span>${esc(p.date)} · ${esc(sides[p.side] || '')} · ${esc(methods[p.method] || '')}${p.note ? ' · ' + esc(p.note) : ''}</span><span>${money(p.amount)}
         ${p.invoiceNumber ? `<small>חשבונית ${esc(p.invoiceNumber)}</small>` : `${o.canInvoice ? `<button class="icon-btn" data-rlty-invoice="${esc(p.id)}" title="הפקת חשבונית מס/קבלה">🧾</button>` : ''}
@@ -273,7 +273,7 @@ function rltyOrdersHtml(o) {
     <div class="acct-header">
       <div><h4>${esc(r.clientName)}${r.transactionLabel ? ` · ${esc(r.transactionLabel)}` : ''}</h4><small>${esc(r.date)}${r.feeText ? ' · ' + esc(r.feeText) : ''}${r.exclusive ? ' · בלעדיות' : ''}${r.signedDate ? ` · נחתם ${esc(r.signedDate)}` : ''}</small></div>
       <div class="acct-actions">
-        <span class="ss-badge${r.check.complete ? '' : ' ss-badge-warn'}">${r.check.complete ? 'כל השדות מולאו' : `חסרים ${r.check.missing.length}`}</span>
+        <span class="ss-badge${r.check.complete ? '' : ' ss-badge-warning'}">${r.check.complete ? 'כל השדות מולאו' : `חסרים ${r.check.missing.length}`}</span>
         <button class="icon-btn" data-rlty-order-pdf="${esc(r.id)}" title="טופס להחתמה (PDF)">📄</button>
         <button class="icon-btn" data-rlty-edit="orders" data-id="${esc(r.id)}" title="עריכה">✏</button>
         <button class="icon-btn danger" data-rlty-del="orders" data-id="${esc(r.id)}" title="מחיקת הזמנה">🗑</button>
@@ -456,7 +456,7 @@ function rltyInvestHtml(o) {
       ${tables.length ? `<div class="acct-scroll"><table class="acct-table"><thead><tr><th>שנה</th><th>סוג</th><th>מדרגות</th><th>מצב</th><th></th></tr></thead>
         <tbody>${tables.map(t => `<tr><td>${t.year}</td><td>${esc(t.kindLabel)}</td>
           <td><small>${t.brackets.map(b => `${b.upTo === null ? 'מעל ' + money(b.from) : 'עד ' + money(b.upTo)}: ${b.ratePct}%`).join(' · ')}</small>${t.source ? `<br><small class="muted">${esc(t.source)}</small>` : ''}</td>
-          <td><span class="ss-badge${t.verified ? '' : ' ss-badge-warn'}">${esc(t.statusLabel)}</span>${t.verifyNote ? `<br><small>${esc(t.verifyNote)}</small>` : ''}</td>
+          <td><span class="ss-badge${t.verified ? '' : ' ss-badge-warning'}">${esc(t.statusLabel)}</span>${t.verifyNote ? `<br><small>${esc(t.verifyNote)}</small>` : ''}</td>
           <td><button class="icon-btn" data-rlty-tax-edit="${esc(t.id)}" title="עריכה">✏</button>
             ${o.isManager ? (t.verified ? `<button class="icon-btn" data-rlty-tax-unverify="${esc(t.id)}" title="ביטול האימות">↺</button>` : `<button class="icon-btn" data-rlty-tax-verify="${esc(t.id)}" title="סימון כמאומת">✓</button>`) : ''}
             <button class="icon-btn danger" data-rlty-tax-del="${esc(t.id)}" title="מחיקת טבלה">🗑</button></td></tr>`).join('')}</tbody></table></div>`

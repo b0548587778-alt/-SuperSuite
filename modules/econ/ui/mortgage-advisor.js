@@ -101,7 +101,7 @@ function madvBoardHtml(board) {
       <div class="card">
         <div class="acct-header">
           <h3>צנרת התיקים (${board.openCount} פתוחים)</h3>
-          ${board.stuckCount ? `<span class="ss-badge ss-badge-warn">⚠ ${board.stuckCount} תיקים תקועים יותר מ-${board.stuckDays} ימים</span>` : ''}
+          ${board.stuckCount ? `<span class="ss-badge ss-badge-warning">⚠ ${board.stuckCount} תיקים תקועים יותר מ-${board.stuckDays} ימים</span>` : ''}
         </div>
         <div class="ss-board">${board.columns.map(col => `
           <div class="ss-board-col${col.closed ? ' is-closed' : ''}">
@@ -126,7 +126,7 @@ function madvApprovalsHtml(c) {
             <thead><tr><th>בנק</th><th>התקבל</th><th>בתוקף עד</th><th>עמלות</th><th>סכום מאושר</th><th>נבחר</th></tr></thead>
             <tbody>${list.map(a => `<tr>
               <td>${esc(a.lender)}</td><td>${esc(a.receivedAt || '')}</td>
-              <td>${esc(a.validUntil || '—')}${a.expired ? ' <span class="ss-badge ss-badge-warn">פג תוקף</span>' : ''}</td>
+              <td>${esc(a.validUntil || '—')}${a.expired ? ' <span class="ss-badge ss-badge-warning">פג תוקף</span>' : ''}</td>
               <td>${money(a.fees)}</td><td>${a.maxAmount === '' ? '—' : money(a.maxAmount)}</td>
               <td><button class="icon-btn" data-madv-choose="${esc(c.id)}" data-appr="${a.chosen ? '' : esc(a.id)}" title="${a.chosen ? 'ביטול הבחירה' : 'בחירת האישור הזה'}">${a.chosen ? '★' : '☆'}</button></td>
             </tr>`).join('')}</tbody>
@@ -195,7 +195,7 @@ function madvFeePaymentsHtml(c, o) {
   const methods = (o && o.feeMethods) || {};
   const pays = Array.isArray(c.feePayments) ? c.feePayments : [];
   return `
-              <div class="acct-row"><span>מצב</span><span class="ss-badge${st.state === 'partial' || st.state === 'open' ? ' ss-badge-warn' : ''}">${esc(states[st.state] || st.state)}</span></div>
+              <div class="acct-row"><span>מצב</span><span class="ss-badge${st.state === 'partial' || st.state === 'open' ? ' ss-badge-warning' : ''}">${esc(states[st.state] || st.state)}</span></div>
               <div class="acct-row"><span>שולם</span><span>${money(st.paid)}</span></div>
               <div class="acct-row"><span>יתרה</span><span>${money(st.balance)}</span></div>
               ${st.deposit ? `<div class="acct-row"><span>מקדמה</span><span>${money(st.deposit)}${st.depositDueAg ? ' — טרם התקבלה במלואה' : ' ✓'}</span></div>` : ''}
