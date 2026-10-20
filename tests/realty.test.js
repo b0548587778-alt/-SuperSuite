@@ -156,9 +156,9 @@ test('פרטיות: מיפוי מאגר, מזעור לקוח לא פעיל בל�
   assert.ok(open.sections[0].fields.every(f => !/^[a-z]+[A-Z]/.test(f.label)), 'לכל שדה תווית בעברית');
 });
 
-test('רישוי: ערוצי rlty נעולים בלי econ.realty ופתוחים איתו', () => {
+test('רישוי: ערוצי rlty נעולים בלי econ.realestate ופתוחים איתו', () => {
   const without = { mode: 'licensed', status: 'active', features: ['econ', 'econ.mortgage-advisor'] };
-  const withIt = { ...without, features: [...without.features, 'econ.realty'] };
+  const withIt = { ...without, features: [...without.features, 'econ.realestate'] };
   assert.ok(LG.checkChannel(without, 'rlty:getOverview', 'data.view'));
   assert.equal(LG.checkChannel(withIt, 'rlty:createDeal', 'data.edit'), null);
 });

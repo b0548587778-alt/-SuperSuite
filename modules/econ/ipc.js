@@ -1551,7 +1551,7 @@ function registerIpcHandlers() {
     if (r.ok) await auditEvent(event, 'madv.report.pdf', { id });
     return r;
   });
-  // ---------- נדל"ן ותיווך (rlty ← econ.realty) ----------
+  // ---------- נדל"ן ותיווך (rlty ← econ.realestate) ----------
   const rltyUser = (event) => { const s = authService.getSession(event.sender.id); return s && s.id; };
   handle('rlty:getOverview', async (event) => ({
     ...(await realtyService.getOverview(localDay(Date.now()))),

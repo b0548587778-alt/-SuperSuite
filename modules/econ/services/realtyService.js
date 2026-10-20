@@ -1,6 +1,6 @@
 // Realty Service - נדל"ן ותיווך: נכסים, לקוחות, התאמה ועסקאות.
 // נשמר באוסף realty במסד המרכזי — ולכן נכנס אוטומטית לגיבוי המוצפן ולהצפנת המסד.
-// הרישוי: תחילית הערוצים rlty ← econ.realty (shell/licensing/gate.js).
+// הרישוי: תחילית הערוצים rlty ← econ.realestate (shell/licensing/gate.js) — רישיון "נדל"ן" אחד עם שמאות המקרקעין.
 const crypto = require('crypto');
 const R = require('../core/realty');
 const B = require('../core/brokerage');

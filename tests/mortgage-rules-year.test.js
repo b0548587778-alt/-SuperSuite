@@ -28,12 +28,13 @@ test('מסך הכללים מציג את התווית עם השנה', () => {
   assert.match(src, /r\.statusLabel/);
 });
 
-test('רישוי: ערוצי rlty: דורשים את התחום econ.realty, והוא קיים בהצעה ובמסך הרישוי', () => {
+test('רישוי: ערוצי rlty: דורשים את רישיון "נדל"ן" (econ.realestate), והוא קיים בהצעה ובמסך הרישוי', () => {
   const state = { mode: 'licensed', status: 'active', features: ['econ', 'econ.mortgage-advisor'] };
   assert.match(gate.checkChannel(state, 'rlty:getOverview', 'data.view') || '', /אינו כלול ברישיון/);
-  assert.equal(gate.checkChannel({ ...state, features: ['econ', 'econ.realty'] }, 'rlty:getOverview', 'data.view'), null);
+  assert.equal(gate.checkChannel({ ...state, features: ['econ', 'econ.realestate'] }, 'rlty:getOverview', 'data.view'), null);
   const offer = fs.readFileSync(path.join(__dirname, '..', 'shell', 'licensing', 'offer.js'), 'utf8');
-  assert.match(offer, /'econ\.realty'/);
+  assert.match(offer, /'econ\.mortgage-lab', 'econ\.realestate'/);
+  assert.doesNotMatch(offer, /econ\.realty/, 'רישיון נדל"ן אחד — בלי תחום נפרד לתיווך');
   const ui = fs.readFileSync(path.join(__dirname, '..', 'modules', 'econ', 'ui', 'licensing.js'), 'utf8');
-  assert.match(ui, /\['econ\.realty', 'נדל"ן ותיווך'\]/);
+  assert.match(ui, /\['econ\.realestate', 'נדל"ן \(שמאות מקרקעין, תיווך ויזמים\)'\]/);
 });
