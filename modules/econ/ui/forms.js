@@ -273,9 +273,10 @@ async function handleUser() {
 // Handle backup — גיבוי מוצפן בלבד: ההצפנה במסגרת הראשית, והקובץ שנשמר הוא SSBK1: בלבד
 async function handleBackup() {
   try {
-    const f = await askFields('גיבוי מוצפן', [{ name: 'pass', label: 'סיסמת גיבוי (לפחות 8 תווים)', type: 'password' }], 'צור גיבוי');
+    // 12 תווים — כמו BK.MIN_PASSPHRASE בשרת (גיבוי חדש בלבד; בשחזור מתקבלת גם סיסמה קצרה של גיבוי ישן)
+    const f = await askFields('גיבוי מוצפן', [{ name: 'pass', label: 'סיסמת גיבוי (לפחות 12 תווים)', type: 'password' }], 'צור גיבוי');
     if (!f) return;
-    if (f.pass.length < 8) { showError('סיסמת הגיבוי חייבת להכיל לפחות 8 תווים'); return; }
+    if (f.pass.length < 12) { showError('סיסמת הגיבוי חייבת להכיל לפחות 12 תווים'); return; }
     showToast('יוצר גיבוי מוצפן...');
     const text = await window.systemAPI.backupEncrypted(f.pass);
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');

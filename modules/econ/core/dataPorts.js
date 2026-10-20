@@ -66,7 +66,9 @@ const INTEL = {
 const FREQ = { monthly: 'חודשי', yearly: 'שנתי', weekly: 'שבועי', daily: 'יומי' };
 const KIND = { income: 'הכנסה', expense: 'הוצאה' };
 
-// כל סוג: תווית, מיקום, עמודות (מפתח, כותרת בעברית, מנתח לייבוא), ומפתח כפילות (דילוג בייבוא)
+// כל סוג: תווית, מיקום, עמודות (מפתח, כותרת בעברית, מנתח לייבוא), ומפתח כפילות (דילוג בייבוא).
+// domain — תחילית הערוצים של תחום שנפתח ברישיון בנפרד (gate.js → ECON_SUB_FEATURES); ה-IPC בודק אותו בייבוא ובייצוא.
+// סוג חדש שנשמר באוסף של תחום כזה — חייב domain, אחרת הייבוא/הייצוא עוקף את הרישיון (tests/licensing-ports.test.js)
 const KINDS = {
   contacts: {
     label: 'אנשי קשר', store: listIn('contacts'),
@@ -133,7 +135,7 @@ const KINDS = {
   },
   mortgageClients: {
     // נשמר באגורות; הייצוא והבדיקה לכפילויות רואים שקלים (clientView), והשמירה ממירה חזרה (clientStored)
-    label: 'תיקי לקוחות משכנתא', store: {
+    label: 'תיקי לקוחות משכנתא', domain: 'madv', store: {
       get: (data) => listIn('mortgageAdvisor', 'clients').get(data).map(M.clientView),
       set: (data, list) => listIn('mortgageAdvisor', 'clients').set(data, list.map(M.clientStored))
     },
@@ -158,7 +160,7 @@ const KINDS = {
     extra: () => ({ docs: [] })
   },
   npoGrants: {
-    label: 'תמיכות ומענקים (עמותה)', store: listIn('npo', 'grants'),
+    label: 'תמיכות ומענקים (עמותה)', domain: 'npo', store: listIn('npo', 'grants'),
     columns: [
       ['source', 'גורם מממן'], ['program', 'תוכנית'], ['year', 'שנה'], ['status', 'סטטוס', null, N.GRANT_STATUSES],
       ['approved', 'אושר'], ['received', 'התקבל'], ['reference', 'מס\' תיק'], ['notes', 'הערות']
@@ -167,7 +169,7 @@ const KINDS = {
     dupKey: (r) => `${r.source}|${r.program}|${r.year}`
   },
   products: {
-    label: 'מחירון', store: listIn('products'),
+    label: 'מחירון', domain: 'acct', store: listIn('products'),
     columns: [['name', 'name'], ['kind', 'kind'], ['cost', 'cost'], ['markupPct', 'markupPct'], ['vatExempt', 'vatExempt']],
     validate: (raw) => PR.validateProduct({ ...raw, vatExempt: /^(1|yes|true|כן)$/i.test(String(raw.vatExempt || '')) }),
     dupKey: (r) => r.name.trim().toLowerCase()
@@ -175,7 +177,8 @@ const KINDS = {
 };
 
 const kindDef = (kind) => {
-  const k = KINDS[kind];
+  // רק סוג שהוגדר כאן (לא 'constructor' / '__proto__' מהממשק)
+  const k = typeof kind === 'string' && Object.hasOwn(KINDS, kind) ? KINDS[kind] : null;
   if (!k) throw new Error('סוג נתונים לא נתמך לייבוא/ייצוא');
   return k;
 };
@@ -307,9 +310,13 @@ function templateTable(kind) {
   return { name: `תבנית-${k.label}`, headers: k.columns.map(c => c[1]), rows: [] };
 }
 
-const listKinds = () => Object.entries(KINDS).map(([id, k]) => ({ id, label: k.label, columns: k.columns.map(c => c[1]) }));
+// allowDomain(domain) — האם התחום פתוח ברישיון; סוג בלי domain שייך למערכת הבסיסית
+const listKinds = (allowDomain = () => true) => Object.entries(KINDS)
+  .filter(([, k]) => !k.domain || allowDomain(k.domain))
+  .map(([id, k]) => ({ id, label: k.label, columns: k.columns.map(c => c[1]) }));
+const kindDomain = (kind) => (typeof kind === 'string' && Object.hasOwn(KINDS, kind) && KINDS[kind].domain) || null;
 
 module.exports = {
-  KINDS, MAX_IMPORT_ROWS, listKinds, exportTable, parseImport, applyImport, templateTable,
+  KINDS, MAX_IMPORT_ROWS, listKinds, kindDomain, exportTable, parseImport, applyImport, templateTable,
   vcardToRows, importContactsVcard, contactsToVcard
 };
