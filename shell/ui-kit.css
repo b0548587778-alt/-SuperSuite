@@ -76,3 +76,39 @@
 .ss-badge-warning { background: var(--ss-warning-soft); color: var(--ss-warning-ink); }
 .ss-badge-danger  { background: var(--ss-danger-soft);  color: var(--ss-danger-ink); }
 .ss-badge-info    { background: var(--ss-info-soft);    color: var(--ss-info-ink); }
+
+/* ---------- מבנה מסך: טופס, שורות ערך, רשימה, צילומים (שמאות מקרקעין ותיק השמאות) ---------- */
+.ss-stack { display: grid; gap: var(--ss-sp-4); }
+.ss-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--ss-sp-4); align-items: start; }
+.ss-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--ss-sp-3) var(--ss-sp-4); align-items: end; }
+.ss-form-grid > h3, .ss-form-grid > h4, .ss-form-grid > .ss-wide { grid-column: 1 / -1; }
+.ss-field { display: flex; flex-direction: column; min-width: 0; }
+.ss-check { display: inline-flex; align-items: center; gap: var(--ss-sp-2); font: 400 var(--ss-fs-md) var(--ss-font); color: var(--ss-text); cursor: pointer; }
+.ss-check input { width: auto; min-height: 0; }
+.ss-checks { display: flex; flex-wrap: wrap; gap: var(--ss-sp-2) var(--ss-sp-4); }
+.ss-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.ss-fieldset[disabled] { opacity: .75; }
+.ss-section-title { margin: var(--ss-sp-4) 0 var(--ss-sp-2); font: 700 var(--ss-fs-lg) / 1.3 var(--ss-font-title); color: var(--ss-navy-2); }
+.ss-card > .ss-section-title:first-child, .ss-card > h3:first-child, .ss-card > h4:first-child { margin-top: 0; }
+.ss-hint { margin: var(--ss-sp-1) 0 var(--ss-sp-3); color: var(--ss-muted); font-size: var(--ss-fs-sm); }
+.ss-muted { color: var(--ss-muted); }
+.ss-text-danger { color: var(--ss-danger-ink); }
+.ss-toolbar { display: flex; flex-wrap: wrap; gap: var(--ss-sp-2); align-items: center; margin: var(--ss-sp-3) 0; }
+.ss-toolbar > .ss-input[type="search"] { flex: 1 1 220px; width: auto; }
+.ss-toolbar > .ss-push { margin-inline-start: auto; }
+.ss-card-warning { border-inline-start: 4px solid var(--ss-warning); }
+.ss-card-info { border-inline-start: 4px solid var(--ss-primary); }
+.ss-card-accent { border-inline-start: 3px solid var(--ss-gold); }
+.ss-row { display: flex; justify-content: space-between; gap: var(--ss-sp-3); padding: 6px 0; border-bottom: 1px dashed var(--ss-border); font-size: var(--ss-fs-md); }
+.ss-row-total { font-weight: 700; border-bottom-style: solid; }
+.ss-row-big { font: 700 var(--ss-fs-lg) / 1.3 var(--ss-font); color: var(--ss-navy-2); border-bottom: 0; margin-top: var(--ss-sp-2); }
+.ss-scroll { overflow-x: auto; }
+.ss-table-edit td .ss-input { min-width: 5rem; min-height: 32px; padding: 4px 8px; }
+.ss-list { display: grid; gap: var(--ss-sp-2); }
+.ss-list-row { display: flex; flex-wrap: wrap; gap: var(--ss-sp-3); align-items: center; padding: var(--ss-sp-2) var(--ss-sp-3); border: 1px solid var(--ss-border); border-radius: var(--ss-radius); background: var(--ss-surface); }
+.ss-list-row > .ss-grow { flex: 1 1 200px; min-width: 0; }
+.ss-actions { display: flex; flex-wrap: wrap; gap: var(--ss-sp-1); margin-inline-start: auto; }
+.ss-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--ss-sp-3); }
+.ss-photo { margin: 0; display: flex; flex-direction: column; gap: var(--ss-sp-1); align-items: center; }
+.ss-photo img { display: block; width: 100%; height: 130px; object-fit: cover; border: 1px solid var(--ss-border); border-radius: var(--ss-radius); }
+.ss-photo figcaption { font-size: var(--ss-fs-sm); color: var(--ss-text-2); }

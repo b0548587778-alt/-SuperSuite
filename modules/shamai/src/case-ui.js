@@ -60,31 +60,31 @@ function renderCasesView() {
   const clients = caseClients(all);
   const filterClient = CASE_UI.clientKey ? clients.find(x => x.key === CASE_UI.clientKey) : null;
   root.innerHTML = `
-    <div class="field-hint">תיק לכל שמאות: לקוח, מטרה, בסיס שווי, פריטים עם מתכות ואבנים, תמונות ודוח מקצועי בעברית או בעברית ובאנגלית. המחירים והשערים — מהמחירים השמורים (הקלדה או קובץ).</div>
-    <div class="cs-toolbar">
-      <button class="btn-primary" id="cs-new">+ תיק חדש</button>
-      <input type="search" id="cs-search" aria-label="חיפוש תיק" placeholder="חיפוש לפי לקוח, מספר זהות, מספר תיק או פריט" value="${caseVal(CASE_UI.search)}" />
+    <div class="ss-hint">תיק לכל שמאות: לקוח, מטרה, בסיס שווי, פריטים עם מתכות ואבנים, תמונות ודוח מקצועי בעברית או בעברית ובאנגלית. המחירים והשערים — מהמחירים השמורים (הקלדה או קובץ).</div>
+    <div class="ss-toolbar">
+      <button class="ss-btn-primary" id="cs-new">+ תיק חדש</button>
+      <input class="ss-input" type="search" id="cs-search" aria-label="חיפוש תיק" placeholder="חיפוש לפי לקוח, מספר זהות, מספר תיק או פריט" value="${caseVal(CASE_UI.search)}" />
     </div>
-    ${filterClient ? `<div class="cs-filter">תיקים של <strong>${escapeHtml(filterClient.name)}</strong>
-      <button class="btn-ghost" id="cs-new-for">+ תיק חדש ללקוח</button><button class="btn-ghost" id="cs-clear">✕ כל התיקים</button></div>` : ''}
-    <div class="cs-list">${list.length ? list.map(c => {
+    ${filterClient ? `<div class="ss-card ss-card-info ss-toolbar">תיקים של <strong>${escapeHtml(filterClient.name)}</strong>
+      <button class="ss-btn-ghost ss-btn-sm" id="cs-new-for">+ תיק חדש ללקוח</button><button class="ss-btn-ghost ss-btn-sm" id="cs-clear">✕ כל התיקים</button></div>` : ''}
+    <div class="ss-list">${list.length ? list.map(c => {
       const total = c.status === 'final' && c.frozen ? c.frozen.totalAg : caseTotals(c, state.prices).totalAg;
-      return `<div class="cs-row">
-        <span class="cs-no">תיק ${escapeHtml(caseReportNo(c))}</span>
-        <span>${escapeHtml(c.client.name || 'ללא שם')}<small> · ${escapeHtml(CASE_PURPOSES[c.purpose]?.he || '')} · ${shortDay(c.effectiveDate)}</small></span>
-        <span class="cs-status ${c.status === 'final' ? 'final' : ''}">${escapeHtml(caseStatusName(c))}</span>
+      return `<div class="ss-list-row">
+        <strong>תיק ${escapeHtml(caseReportNo(c))}</strong>
+        <span class="ss-grow">${escapeHtml(c.client.name || 'ללא שם')}<small class="ss-muted"> · ${escapeHtml(CASE_PURPOSES[c.purpose]?.he || '')} · ${shortDay(c.effectiveDate)}</small></span>
+        <span class="ss-badge ${c.status === 'final' ? 'ss-badge-success' : 'ss-badge-warning'}">${escapeHtml(caseStatusName(c))}</span>
         <strong>${caseMoney(total)}</strong>
-        <span class="cs-acts">
-          <button class="btn-ghost" data-open="${caseVal(c.id)}">פתיחה</button>
-          <button class="btn-ghost" data-report="${caseVal(c.id)}" aria-label="דוח לתיק ${caseVal(caseReportNo(c))}">🖨 דוח</button>
-          <button class="btn-ghost" data-del="${caseVal(c.id)}" aria-label="מחיקת תיק ${caseVal(caseReportNo(c))}">🗑</button>
+        <span class="ss-actions">
+          <button class="ss-btn-ghost ss-btn-sm" data-open="${caseVal(c.id)}">פתיחה</button>
+          <button class="ss-btn-ghost ss-btn-sm" data-report="${caseVal(c.id)}" aria-label="דוח לתיק ${caseVal(caseReportNo(c))}">🖨 דוח</button>
+          <button class="ss-btn-ghost ss-btn-sm" data-del="${caseVal(c.id)}" aria-label="מחיקת תיק ${caseVal(caseReportNo(c))}">🗑</button>
         </span>
       </div>`;
-    }).join('') : '<div class="field-hint">אין תיקים להצגה</div>'}</div>
-    ${clients.length && !filterClient ? `<h3 class="pu-title">לקוחות</h3><div class="cs-list">${clients.slice(0, 50).map(cl => `<div class="cs-row cs-client">
-      <span>${escapeHtml(cl.name)}${cl.idNumber ? `<small> · ${escapeHtml(cl.idNumber)}</small>` : ''}</span>
+    }).join('') : '<div class="ss-hint">אין תיקים להצגה</div>'}</div>
+    ${clients.length && !filterClient ? `<h3 class="ss-section-title">לקוחות</h3><div class="ss-list">${clients.slice(0, 50).map(cl => `<div class="ss-list-row">
+      <span class="ss-grow">${escapeHtml(cl.name)}${cl.idNumber ? `<small class="ss-muted"> · ${escapeHtml(cl.idNumber)}</small>` : ''}</span>
       <span>${cl.count === 1 ? 'תיק אחד' : cl.count + ' תיקים'}</span><span>דוחות סופיים: <strong>${caseMoney(cl.finalAg)}</strong></span>
-      <button class="btn-ghost" data-client="${caseVal(cl.key)}">היסטוריה</button></div>`).join('')}</div>` : ''}`;
+      <button class="ss-btn-ghost ss-btn-sm" data-client="${caseVal(cl.key)}">היסטוריה</button></div>`).join('')}</div>` : ''}`;
   $('#cs-new').onclick = () => openNewCase(null);
   $('#cs-search').oninput = debounce((e) => { CASE_UI.search = e.target.value; renderCasesView(); $('#cs-search')?.focus(); }, 300);
   $('#cs-clear') && ($('#cs-clear').onclick = () => { CASE_UI.clientKey = null; renderCasesView(); });
@@ -131,89 +131,89 @@ function showCaseReport(c) {
 
 const caseField = (label, path, value, attrs = '') => {
   const id = 'cs-f-' + path.replace(/\./g, '-');
-  return `<div class="field"><label for="${id}">${escapeHtml(label)}</label><input id="${id}" data-path="${path}" value="${caseVal(value)}" ${attrs} /></div>`;
+  return `<div class="ss-field"><label class="ss-label" for="${id}">${escapeHtml(label)}</label><input class="ss-input" id="${id}" data-path="${path}" value="${caseVal(value)}" ${attrs} /></div>`;
 };
 const caseSelect = (label, path, obj, cur, labelFn) => {
   const id = 'cs-f-' + path.replace(/\./g, '-');
-  return `<div class="field"><label for="${id}">${escapeHtml(label)}</label><select id="${id}" data-path="${path}">${caseOpts(obj, cur, labelFn)}</select></div>`;
+  return `<div class="ss-field"><label class="ss-label" for="${id}">${escapeHtml(label)}</label><select class="ss-input" id="${id}" data-path="${path}">${caseOpts(obj, cur, labelFn)}</select></div>`;
 };
 
 function caseMetalRow(m, i, j) {
   const p = `items.${i}.metals.${j}`;
   const purities = (CASE_METALS[m.metal] || CASE_METALS.gold).purities;
-  return `<div class="cs-line">
-    <select data-path="${p}.metal" data-rerender="1" aria-label="מתכת">${caseOpts(CASE_METALS, m.metal)}</select>
-    <select data-path="${p}.purityPpt" data-num="1" aria-label="טוהר">${purities.map(v => `<option value="${v}"${Number(m.purityPpt) === v ? ' selected' : ''}>${v}</option>`).join('')}</select>
-    <input data-path="${p}.grams" inputmode="decimal" placeholder="גרם" aria-label="משקל בגרמים" value="${caseVal(m.grams)}" />
-    <button class="btn-ghost" data-rm="${p}" aria-label="הסרת מתכת ${j + 1}">✕</button>
+  return `<div class="ss-form-grid">
+    <select class="ss-input" data-path="${p}.metal" data-rerender="1" aria-label="מתכת">${caseOpts(CASE_METALS, m.metal)}</select>
+    <select class="ss-input" data-path="${p}.purityPpt" data-num="1" aria-label="טוהר">${purities.map(v => `<option value="${v}"${Number(m.purityPpt) === v ? ' selected' : ''}>${v}</option>`).join('')}</select>
+    <input class="ss-input" data-path="${p}.grams" inputmode="decimal" placeholder="גרם" aria-label="משקל בגרמים" value="${caseVal(m.grams)}" />
+    <button class="ss-btn-ghost ss-btn-sm" data-rm="${p}" aria-label="הסרת מתכת ${j + 1}">✕</button>
   </div>`;
 }
 
 function caseStoneRow(s, i, j) {
   const p = `items.${i}.stones.${j}`;
-  const inp = (f, label, extra = '') => `<input data-path="${p}.${f}" aria-label="${label}" placeholder="${label}" value="${caseVal(s[f])}" ${extra} />`;
-  return `<div class="cs-stone">
-    <div class="cs-line">
-      <select data-path="${p}.type" aria-label="סוג אבן">${caseOpts(CASE_STONES, s.type)}</select>
+  const inp = (f, label, extra = '') => `<input class="ss-input" data-path="${p}.${f}" aria-label="${label}" placeholder="${label}" value="${caseVal(s[f])}" ${extra} />`;
+  return `<div class="ss-card ss-card-accent ss-stack">
+    <div class="ss-form-grid">
+      <select class="ss-input" data-path="${p}.type" aria-label="סוג אבן">${caseOpts(CASE_STONES, s.type)}</select>
       ${inp('name', 'שם (לאבן אחרת)')}
       ${inp('count', 'כמות', 'inputmode="numeric"')}
       ${inp('carat', 'קראט (לכל אבן)', 'inputmode="decimal"')}
-      <button class="btn-ghost" data-rm="${p}" aria-label="הסרת אבן ${j + 1}">✕</button>
+      <button class="ss-btn-ghost ss-btn-sm" data-rm="${p}" aria-label="הסרת אבן ${j + 1}">✕</button>
     </div>
-    <div class="cs-line">
-      <select data-path="${p}.pricing" aria-label="אופן התמחור"><option value="perCarat"${s.pricing !== 'perPiece' ? ' selected' : ''}>מחיר לקראט</option><option value="perPiece"${s.pricing === 'perPiece' ? ' selected' : ''}>מחיר ליחידה</option></select>
+    <div class="ss-form-grid">
+      <select class="ss-input" data-path="${p}.pricing" aria-label="אופן התמחור"><option value="perCarat"${s.pricing !== 'perPiece' ? ' selected' : ''}>מחיר לקראט</option><option value="perPiece"${s.pricing === 'perPiece' ? ' selected' : ''}>מחיר ליחידה</option></select>
       ${inp('price', 'מחיר', 'inputmode="decimal"')}
-      <select data-path="${p}.currency" aria-label="מטבע המחיר">${caseOpts(CASE_CURRENCIES, s.currency, v => v.sym + ' ' + v.he)}</select>
-      <select data-path="${p}.origin" aria-label="מקור האבן">${caseOpts(CASE_STONE_ORIGINS, s.origin)}</select>
+      <select class="ss-input" data-path="${p}.currency" aria-label="מטבע המחיר">${caseOpts(CASE_CURRENCIES, s.currency, v => v.sym + ' ' + v.he)}</select>
+      <select class="ss-input" data-path="${p}.origin" aria-label="מקור האבן">${caseOpts(CASE_STONE_ORIGINS, s.origin)}</select>
     </div>
-    <div class="cs-line">
-      <select data-path="${p}.idMethod" data-rerender="1" aria-label="שיטת הזיהוי">${caseOpts(CASE_ID_METHODS, s.idMethod)}</select>
+    <div class="ss-form-grid">
+      <select class="ss-input" data-path="${p}.idMethod" data-rerender="1" aria-label="שיטת הזיהוי">${caseOpts(CASE_ID_METHODS, s.idMethod)}</select>
       ${s.idMethod === 'lab' ? inp('lab', 'מעבדה (GIA, IGI...)') + inp('certNo', 'מספר תעודה') : ''}
       ${inp('treatment', 'טיפול (חימום, מילוי...)')}
     </div>
-    <div class="cs-line">${inp('shape', 'צורה')}${inp('color', 'צבע')}${inp('clarity', 'ניקיון')}</div>
+    <div class="ss-form-grid">${inp('shape', 'צורה')}${inp('color', 'צבע')}${inp('clarity', 'ניקיון')}</div>
   </div>`;
 }
 
 function caseItemCard(it, i, v, err) {
   const p = `items.${i}`;
-  return `<div class="cs-item">
-    <div class="cs-item-head"><strong>פריט ${i + 1}</strong>
-      <span class="cs-item-val">${v ? caseMoney(v.valueAg) : `<span class="pu-warn">${escapeHtml(err || '')}</span>`}</span>
-      <button class="btn-ghost" data-rm="${p}" aria-label="הסרת פריט ${i + 1}">✕ הסרה</button></div>
-    <div class="field-row">
+  return `<div class="ss-card ss-stack">
+    <div class="ss-toolbar"><strong>פריט ${i + 1}</strong>
+      <strong data-item-val>${v ? caseMoney(v.valueAg) : `<span class="ss-text-danger">${escapeHtml(err || '')}</span>`}</strong>
+      <button class="ss-btn-ghost ss-btn-sm ss-push" data-rm="${p}" aria-label="הסרת פריט ${i + 1}">✕ הסרה</button></div>
+    <div class="ss-form-grid">
       ${caseSelect('סוג', p + '.category', CASE_CATEGORIES, it.category)}
       ${caseField('תיאור', p + '.desc', it.desc, 'maxlength="200"')}
     </div>
-    <div class="field-row">
+    <div class="ss-form-grid">
       ${caseField('תיאור באנגלית (לדוח דו-לשוני)', p + '.descEn', it.descEn, 'maxlength="200" dir="ltr"')}
       ${caseField('חותמות וסימנים', p + '.marks', it.marks, 'maxlength="120"')}
     </div>
-    <div class="field-row">
+    <div class="ss-form-grid">
       ${caseField('מידות', p + '.dimensions', it.dimensions, 'maxlength="120"')}
       ${caseField('מצב', p + '.condition', it.condition, 'maxlength="120"')}
     </div>
-    <h4 class="cs-sub">מתכות</h4>
+    <h4 class="ss-section-title">מתכות</h4>
     ${(it.metals || []).map((m, j) => caseMetalRow(m, i, j)).join('')}
-    <button class="btn-ghost" data-add-metal="${i}">+ מתכת</button>
-    <h4 class="cs-sub">אבנים</h4>
+    <button class="ss-btn-ghost ss-btn-sm" data-add-metal="${i}">+ מתכת</button>
+    <h4 class="ss-section-title">אבנים</h4>
     ${(it.stones || []).map((s, j) => caseStoneRow(s, i, j)).join('')}
-    <button class="btn-ghost" data-add-stone="${i}">+ אבן</button>
-    <div class="field-row">
+    <button class="ss-btn-ghost ss-btn-sm" data-add-stone="${i}">+ אבן</button>
+    <div class="ss-form-grid">
       ${caseField('עבודה וייצור (₪)', p + '.labour', it.labour, 'inputmode="decimal"')}
       ${caseField('רכיב אחר (₪)', p + '.other', it.other, 'inputmode="decimal"')}
     </div>
     ${caseField('תיאור הרכיב האחר (למשל: מנגנון השעון)', p + '.otherLabel', it.otherLabel, 'maxlength="80"')}
-    <div class="field-row">
+    <div class="ss-form-grid">
       ${caseField('שווי שנקבע ידנית (₪, רשות)', p + '.override', it.override, 'inputmode="decimal"')}
       ${caseField('נימוק לשווי שנקבע', p + '.overrideReason', it.overrideReason, 'maxlength="300"')}
     </div>
-    <h4 class="cs-sub">תמונות (עד ${CASE_MAX_PHOTOS})</h4>
-    <div class="cs-photos">${(it.photos || []).map((id, k) => {
+    <h4 class="ss-section-title">תמונות (עד ${CASE_MAX_PHOTOS})</h4>
+    <div class="ss-photos">${(it.photos || []).map((id, k) => {
       const src = loadCasePhoto(id);
-      return src ? `<div class="cs-photo"><img src="${src}" alt="תמונה ${k + 1} של פריט ${i + 1}" /><button class="btn-ghost" data-rm-photo="${i}.${k}" aria-label="הסרת תמונה ${k + 1}">✕</button></div>` : '';
+      return src ? `<figure class="ss-photo"><img src="${src}" alt="תמונה ${k + 1} של פריט ${i + 1}" /><button class="ss-btn-ghost ss-btn-sm" data-rm-photo="${i}.${k}" aria-label="הסרת תמונה ${k + 1}">✕</button></figure>` : '';
     }).join('')}
-      ${(it.photos || []).length < CASE_MAX_PHOTOS ? `<button class="btn-ghost" data-add-photo="${i}">📷 הוספת תמונה</button>` : ''}
+      ${(it.photos || []).length < CASE_MAX_PHOTOS ? `<button class="ss-btn-ghost ss-btn-sm" data-add-photo="${i}">📷 הוספת תמונה</button>` : ''}
     </div>
   </div>`;
 }
@@ -226,44 +226,44 @@ function renderCaseEditor() {
   const t = final ? { items: c.frozen.items, errors: [], totalAg: c.frozen.totalAg } : caseTotals(c, state.prices);
   let errAt = 0;
   root.innerHTML = `
-    <div class="cs-toolbar">
-      <button class="btn-ghost" id="cs-back">‹ לרשימת התיקים</button>
+    <div class="ss-toolbar">
+      <button class="ss-btn-ghost" id="cs-back">‹ לרשימת התיקים</button>
       <strong>תיק ${escapeHtml(caseReportNo(c))} · ${escapeHtml(caseStatusName(c))}</strong>
-      <span class="cs-saved" id="cs-saved"></span>
+      <span class="ss-push ss-muted" id="cs-saved"></span>
     </div>
-    ${final ? `<div class="field-hint">התיק נעול: דוח סופי הופק ב-${shortDay(c.reportDate)}. כדי לשנות — "גרסה מתוקנת" (מספר הדוח יקבל סיומת, והגרסה הקודמת נשמרת בהיסטוריה).</div>` : ''}
-    ${(c.history || []).length ? `<div class="field-hint">גרסאות קודמות: ${c.history.map(h => `${escapeHtml(String(c.no) + (h.rev ? '-' + h.rev : ''))} (${shortDay(h.reportDate)}, ${caseMoney(h.totalAg)})`).join(' · ')}</div>` : ''}
-    <fieldset class="cs-form" ${final ? 'disabled' : ''}>
-      <legend class="pu-title">הלקוח</legend>
-      <div class="field-row">${caseField('שם מלא', 'client.name', c.client.name, 'maxlength="80"')}${caseField('מספר זהות (רשות)', 'client.idNumber', c.client.idNumber, 'inputmode="numeric" maxlength="9"')}</div>
-      <div class="field-row">${caseField('טלפון', 'client.phone', c.client.phone, 'maxlength="30"')}${caseField('דוא"ל', 'client.email', c.client.email, 'maxlength="80" dir="ltr"')}</div>
+    ${final ? `<div class="ss-hint">התיק נעול: דוח סופי הופק ב-${shortDay(c.reportDate)}. כדי לשנות — "גרסה מתוקנת" (מספר הדוח יקבל סיומת, והגרסה הקודמת נשמרת בהיסטוריה).</div>` : ''}
+    ${(c.history || []).length ? `<div class="ss-hint">גרסאות קודמות: ${c.history.map(h => `${escapeHtml(String(c.no) + (h.rev ? '-' + h.rev : ''))} (${shortDay(h.reportDate)}, ${caseMoney(h.totalAg)})`).join(' · ')}</div>` : ''}
+    <fieldset class="ss-fieldset ss-stack" ${final ? 'disabled' : ''}>
+      <legend class="ss-section-title">הלקוח</legend>
+      <div class="ss-form-grid">${caseField('שם מלא', 'client.name', c.client.name, 'maxlength="80"')}${caseField('מספר זהות (רשות)', 'client.idNumber', c.client.idNumber, 'inputmode="numeric" maxlength="9"')}</div>
+      <div class="ss-form-grid">${caseField('טלפון', 'client.phone', c.client.phone, 'maxlength="30"')}${caseField('דוא"ל', 'client.email', c.client.email, 'maxlength="80" dir="ltr"')}</div>
       ${caseField('כתובת', 'client.address', c.client.address, 'maxlength="120"')}
 
-      <h3 class="pu-title">פרטי השמאות</h3>
-      <div class="field-row">${caseSelect('מטרת השמאות', 'purpose', CASE_PURPOSES, c.purpose)}${caseSelect('בסיס השווי', 'basis', CASE_BASES, c.basis)}</div>
+      <h3 class="ss-section-title">פרטי השמאות</h3>
+      <div class="ss-form-grid">${caseSelect('מטרת השמאות', 'purpose', CASE_PURPOSES, c.purpose)}${caseSelect('בסיס השווי', 'basis', CASE_BASES, c.basis)}</div>
       ${c.purpose === 'other' ? caseField('פירוט המטרה', 'purposeOther', c.purposeOther, 'maxlength="120"') : ''}
-      ${CASE_PURPOSES[c.purpose] && CASE_PURPOSES[c.purpose].basis !== c.basis ? `<div class="field-hint">למטרה "${escapeHtml(CASE_PURPOSES[c.purpose].he)}" מקובל בדרך כלל ${escapeHtml(CASE_BASES[CASE_PURPOSES[c.purpose].basis].he)}.</div>` : ''}
-      <div class="field-hint">${escapeHtml(CASE_BASES[c.basis]?.defHe || '')}</div>
-      <div class="field-row">${caseField('תאריך הבדיקה', 'inspectionDate', c.inspectionDate, `type="date" max="${localToday()}"`)}${caseField('המועד הקובע', 'effectiveDate', c.effectiveDate, `type="date" max="${localToday()}"`)}</div>
-      <div class="field-row">${caseSelect('מטבע הדוח', 'currency', CASE_CURRENCIES, c.currency, v => v.sym + ' ' + v.he)}
-        <div class="field"><label for="cs-f-lang">שפת הדוח</label><select id="cs-f-lang" data-path="lang"><option value="he"${c.lang !== 'he-en' ? ' selected' : ''}>עברית</option><option value="he-en"${c.lang === 'he-en' ? ' selected' : ''}>עברית ואנגלית</option></select></div></div>
+      ${CASE_PURPOSES[c.purpose] && CASE_PURPOSES[c.purpose].basis !== c.basis ? `<div class="ss-hint">למטרה "${escapeHtml(CASE_PURPOSES[c.purpose].he)}" מקובל בדרך כלל ${escapeHtml(CASE_BASES[CASE_PURPOSES[c.purpose].basis].he)}.</div>` : ''}
+      <div class="ss-hint">${escapeHtml(CASE_BASES[c.basis]?.defHe || '')}</div>
+      <div class="ss-form-grid">${caseField('תאריך הבדיקה', 'inspectionDate', c.inspectionDate, `type="date" max="${localToday()}"`)}${caseField('המועד הקובע', 'effectiveDate', c.effectiveDate, `type="date" max="${localToday()}"`)}</div>
+      <div class="ss-form-grid">${caseSelect('מטבע הדוח', 'currency', CASE_CURRENCIES, c.currency, v => v.sym + ' ' + v.he)}
+        <div class="ss-field"><label class="ss-label" for="cs-f-lang">שפת הדוח</label><select class="ss-input" id="cs-f-lang" data-path="lang"><option value="he"${c.lang !== 'he-en' ? ' selected' : ''}>עברית</option><option value="he-en"${c.lang === 'he-en' ? ' selected' : ''}>עברית ואנגלית</option></select></div></div>
 
-      <h3 class="pu-title">היקף העבודה</h3>
-      <div class="cs-tests">${Object.entries(CASE_TESTS).map(([k, v]) => `<label><input type="checkbox" data-test="${k}"${(c.tests || []).includes(k) ? ' checked' : ''} /> ${escapeHtml(v.he)}</label>`).join('')}</div>
-      <div class="field"><label for="cs-f-scopeNote">הערות להיקף העבודה</label><textarea id="cs-f-scopeNote" data-path="scopeNote" rows="2" maxlength="1000">${caseVal(c.scopeNote)}</textarea></div>
+      <h3 class="ss-section-title">היקף העבודה</h3>
+      <div class="ss-checks">${Object.entries(CASE_TESTS).map(([k, v]) => `<label class="ss-check"><input type="checkbox" data-test="${k}"${(c.tests || []).includes(k) ? ' checked' : ''} /> ${escapeHtml(v.he)}</label>`).join('')}</div>
+      <div class="ss-field"><label class="ss-label" for="cs-f-scopeNote">הערות להיקף העבודה</label><textarea class="ss-input" id="cs-f-scopeNote" data-path="scopeNote" rows="2" maxlength="1000">${caseVal(c.scopeNote)}</textarea></div>
 
-      <h3 class="pu-title">הפריטים</h3>
+      <h3 class="ss-section-title">הפריטים</h3>
       ${(c.items || []).map((it, i) => caseItemCard(it, i, t.items[i], t.items[i] ? '' : t.errors[errAt++])).join('')}
-      <button class="btn-secondary" id="cs-add-item">+ פריט נוסף</button>
+      <button class="ss-btn-secondary" id="cs-add-item">+ פריט נוסף</button>
 
-      <h3 class="pu-title">הנחות ומגבלות</h3>
-      <div class="field"><label for="cs-f-assumptionsHe">בעברית</label><textarea id="cs-f-assumptionsHe" data-path="assumptionsHe" rows="5" maxlength="3000">${caseVal(c.assumptionsHe)}</textarea></div>
-      ${c.lang === 'he-en' ? `<div class="field"><label for="cs-f-assumptionsEn">באנגלית</label><textarea id="cs-f-assumptionsEn" data-path="assumptionsEn" rows="5" maxlength="3000" dir="ltr">${caseVal(c.assumptionsEn)}</textarea></div>` : ''}
+      <h3 class="ss-section-title">הנחות ומגבלות</h3>
+      <div class="ss-field"><label class="ss-label" for="cs-f-assumptionsHe">בעברית</label><textarea class="ss-input" id="cs-f-assumptionsHe" data-path="assumptionsHe" rows="5" maxlength="3000">${caseVal(c.assumptionsHe)}</textarea></div>
+      ${c.lang === 'he-en' ? `<div class="ss-field"><label class="ss-label" for="cs-f-assumptionsEn">באנגלית</label><textarea class="ss-input" id="cs-f-assumptionsEn" data-path="assumptionsEn" rows="5" maxlength="3000" dir="ltr">${caseVal(c.assumptionsEn)}</textarea></div>` : ''}
     </fieldset>
-    <div class="result-box" id="cs-summary">${caseSummaryHtml(c, t)}</div>
-    <div class="cs-toolbar">
-      <button class="btn-secondary" id="cs-preview">🖨 ${final ? 'הדוח' : 'תצוגת טיוטה'}</button>
-      ${final ? '<button class="btn-secondary" id="cs-reopen">✎ גרסה מתוקנת</button>' : '<button class="btn-primary" id="cs-finalize">נעילה והפקת דוח סופי</button>'}
+    <div class="ss-card" id="cs-summary">${caseSummaryHtml(c, t)}</div>
+    <div class="ss-toolbar">
+      <button class="ss-btn-secondary" id="cs-preview">🖨 ${final ? 'הדוח' : 'תצוגת טיוטה'}</button>
+      ${final ? '<button class="ss-btn-secondary" id="cs-reopen">✎ גרסה מתוקנת</button>' : '<button class="ss-btn-primary" id="cs-finalize">נעילה והפקת דוח סופי</button>'}
     </div>
     <input type="file" id="cs-photo-file" accept="image/png,image/jpeg,image/webp" hidden />`;
   attachCaseEditor(c);
@@ -271,9 +271,9 @@ function renderCaseEditor() {
 
 function caseSummaryHtml(c, t) {
   const rc = c.status === 'final' && c.frozen ? c.frozen.reportTotal : caseFromIlsAg(t.totalAg, c.currency, state.prices);
-  return `<div class="r-row big"><span class="r-label">סך השווי</span><strong>${caseMoney(t.totalAg)}</strong></div>
-    ${c.currency !== 'ILS' ? `<div class="r-row"><span class="r-label">במטבע הדוח</span><strong>${rc === null ? 'חסר שער' : caseMoney(rc, c.currency)}</strong></div>` : ''}
-    ${c.status !== 'final' ? priceWarningsFor(c).map(w => `<div class="pu-warn">⚠ ${escapeHtml(w)}</div>`).join('') : ''}`;
+  return `<div class="ss-row ss-row-big"><span>סך השווי</span><strong>${caseMoney(t.totalAg)}</strong></div>
+    ${c.currency !== 'ILS' ? `<div class="ss-row"><span>במטבע הדוח</span><strong>${rc === null ? 'חסר שער' : caseMoney(rc, c.currency)}</strong></div>` : ''}
+    ${c.status !== 'final' ? priceWarningsFor(c).map(w => `<div class="ss-text-danger">⚠ ${escapeHtml(w)}</div>`).join('') : ''}`;
 }
 
 // מחירים ישנים או שלא עודכנו מעולם — מאלה שהתיק משתמש בהם
@@ -304,8 +304,8 @@ function caseAutosave(c, rerender) {
   const sum = $('#cs-summary');
   if (sum) sum.innerHTML = caseSummaryHtml(c, t);
   let errAt = 0;
-  $$('#cs-root .cs-item-val').forEach((el, i) => {
-    el.innerHTML = t.items[i] ? caseMoney(t.items[i].valueAg) : `<span class="pu-warn">${escapeHtml(t.errors[errAt++] || '')}</span>`;
+  $$('#cs-root [data-item-val]').forEach((el, i) => {
+    el.innerHTML = t.items[i] ? caseMoney(t.items[i].valueAg) : `<span class="ss-text-danger">${escapeHtml(t.errors[errAt++] || '')}</span>`;
   });
 }
 

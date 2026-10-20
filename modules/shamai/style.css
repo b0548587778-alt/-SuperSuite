@@ -2455,38 +2455,15 @@ select {
 @media (max-width: 520px) { .pu-line { grid-template-columns: 1fr 1fr; } }
 
 /* תיק שמאות מקצועי (src/case-ui.js) */
-.cs-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
-.cs-toolbar input[type="search"] { flex: 1 1 220px; }
-.cs-toolbar > button { width: auto; }
-.cs-saved { font-size: 12px; color: var(--text-faint); margin-inline-start: auto; }
-.cs-filter { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); margin-bottom: 8px; }
-.cs-filter .btn-ghost { width: auto; padding: 4px 10px; }
-.cs-list { display: grid; gap: 6px; }
-.cs-row { display: grid; grid-template-columns: auto 1fr auto auto auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); }
-.cs-row.cs-client { grid-template-columns: 1fr auto auto auto; }
-.cs-row small { color: var(--text-dim); }
-.cs-row .btn-ghost { width: auto; padding: 4px 10px; }
-.cs-no { font-weight: 700; color: var(--gold); }
-.cs-status { font-size: 12px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border); color: var(--text-dim); }
-.cs-status.final { border-color: var(--green); color: var(--green); }
-.cs-acts { display: flex; gap: 4px; }
-.cs-form { border: 0; padding: 0; margin: 0; min-width: 0; }
-.cs-form[disabled] { opacity: .75; }
-.cs-tests { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 10px; font-size: 14px; }
-.cs-item { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--surface); }
-.cs-item-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
-.cs-item-head .btn-ghost { width: auto; padding: 4px 10px; margin-inline-start: auto; }
-.cs-item-val { font-weight: 700; color: var(--gold); }
-.cs-sub { font-size: 14px; margin: 12px 0 6px; color: var(--text-dim); }
-.cs-line { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; align-items: center; margin-bottom: 6px; }
-.cs-line .btn-ghost { width: auto; padding: 6px; }
-.cs-stone { border-right: 3px solid var(--gold); padding-right: 8px; margin-bottom: 10px; }
-.cs-item > .btn-ghost { width: auto; padding: 4px 10px; }
-.cs-photos { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.cs-photo { position: relative; }
-.cs-photo img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); display: block; }
-.cs-photo .btn-ghost { position: absolute; top: 2px; left: 2px; width: auto; min-height: 0; padding: 2px 6px; }
-@media (max-width: 520px) { .cs-row, .cs-row.cs-client { grid-template-columns: 1fr 1fr; } }
+/* תיק השמאות בנוי מרכיבי shell/ui-kit.css בלבד. בערכה הכהה — אותם רכיבים בצבעי הערכה הכהה (רק בתוך #cs-root) */
+[data-theme="dark"] #cs-root {
+  --ss-surface: var(--ss-dark-surface); --ss-surface-2: var(--ss-dark-surface-2); --ss-surface-input: var(--ss-dark-bg-2);
+  --ss-border: var(--ss-dark-border); --ss-border-strong: var(--ss-dark-border-strong);
+  --ss-text: var(--ss-dark-text); --ss-text-2: var(--ss-dark-muted); --ss-muted: var(--ss-dark-muted); --ss-faint: var(--ss-dark-faint);
+  --ss-navy-2: var(--ss-dark-gold-light); --ss-primary: var(--ss-dark-gold); --ss-primary-dark: var(--ss-dark-gold-dim); --ss-on-primary: var(--ss-dark-bg);
+  --ss-shadow: none; --ss-shadow-sm: none;
+}
+[data-theme="dark"] #cs-root .ss-btn-primary { color: var(--ss-dark-bg); }
 
 /* ===== ui-kit — מיפוי: המחלקות של השמאות ← ספריית הרכיבים (shell/ui-kit.css) ===== */
 /* בערכה הבהירה (ברירת המחדל) — אותו מראה כמו בשאר התוכנה. בערכה הכהה נשארים צבעי הזהב של המודול */

@@ -76,17 +76,17 @@ function reCollect() {
 function reInput(path, label, { type = 'text', wide = false, attrs = '' } = {}) {
   const v = rePath(reState().form, path);
   const ro = reState().current && reState().current.case.status === 'final' ? ' disabled' : '';
-  if (type === 'textarea') return `<label class="${wide ? 're-wide' : ''}">${esc(label)} <textarea data-re="${path}" rows="3"${ro}>${esc(v)}</textarea></label>`;
-  return `<label class="${wide ? 're-wide' : ''}">${esc(label)} <input type="${type}" data-re="${path}" value="${esc(v)}"${attrs}${ro}></label>`;
+  if (type === 'textarea') return `<label class="ss-field${wide ? ' ss-wide' : ''}"><span class="ss-label">${esc(label)}</span><textarea class="ss-input" data-re="${path}" rows="3"${ro}>${esc(v)}</textarea></label>`;
+  return `<label class="ss-field${wide ? ' ss-wide' : ''}"><span class="ss-label">${esc(label)}</span><input class="ss-input" type="${type}" data-re="${path}" value="${esc(v)}"${attrs}${ro}></label>`;
 }
 function reSelect(path, label, map) {
   const v = rePath(reState().form, path);
   const ro = reState().current && reState().current.case.status === 'final' ? ' disabled' : '';
-  return `<label>${esc(label)} <select data-re="${path}"${ro}>${Object.entries(map).map(([k, l]) => `<option value="${esc(k)}"${v === k ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
+  return `<label class="ss-field"><span class="ss-label">${esc(label)}</span><select class="ss-input" data-re="${path}"${ro}>${Object.entries(map).map(([k, l]) => `<option value="${esc(k)}"${v === k ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
 }
 function reCheck(path, label) {
   const ro = reState().current && reState().current.case.status === 'final' ? ' disabled' : '';
-  return `<label class="re-check"><input type="checkbox" data-re="${path}"${rePath(reState().form, path) ? ' checked' : ''}${ro}> ${esc(label)}</label>`;
+  return `<label class="ss-check"><input type="checkbox" data-re="${path}"${rePath(reState().form, path) ? ' checked' : ''}${ro}> ${esc(label)}</label>`;
 }
 
 // ----- רשימת התיקים -----
@@ -95,18 +95,18 @@ function reListHtml(o) {
   const q = re.filter.trim();
   const cases = (o.cases || []).filter(c => !q || [c.client, c.address, c.block, c.parcel, c.reportNo].join(' ').includes(q));
   const rows = cases.map(c => `<tr>
-      <td>${esc(c.reportNo)}</td><td>${esc(c.client) || '<span class="muted">—</span>'}</td><td>${esc(c.address) || '—'}</td>
+      <td>${esc(c.reportNo)}</td><td>${esc(c.client) || '<span class="ss-muted">—</span>'}</td><td>${esc(c.address) || '—'}</td>
       <td>${c.block ? `${esc(c.block)}/${esc(c.parcel)}` : '—'}</td><td>${esc(c.purpose || '')}</td>
-      <td>${c.status === 'final' ? '<span class="ss-badge">🔒 נעול</span>' : 'טיוטה'}</td>
-      <td>${reMoney(c.valueAg)}${c.warnings ? ` <small class="muted">⚠ ${c.warnings}</small>` : ''}</td>
-      <td><button class="secondary small" data-re-open="${esc(c.id)}">פתיחה</button></td>
+      <td>${c.status === 'final' ? '<span class="ss-badge ss-badge-success">🔒 נעול</span>' : '<span class="ss-badge">טיוטה</span>'}</td>
+      <td>${reMoney(c.valueAg)}${c.warnings ? ` <small class="ss-muted">⚠ ${c.warnings}</small>` : ''}</td>
+      <td><button class="ss-btn-secondary ss-btn-sm" data-re-open="${esc(c.id)}">פתיחה</button></td>
     </tr>`).join('');
   return `
-    <div class="acct-header"><span>שמאות מקרקעין לפי עסקאות השוואה שהשמאי מקליד או מייבא מקובץ — בלי חיבור לרשת. השווי והאחריות המקצועית — של השמאי.</span>
-      <span><button class="primary" id="reNew">＋ תיק שומה חדש</button> <button class="secondary" id="reSettingsBtn">פרטי השמאי</button></span></div>
-    <div class="card">
-      <label>חיפוש <input type="search" id="reFilter" value="${esc(re.filter)}" placeholder="מזמין, כתובת, גוש או מספר דוח"></label>
-      ${cases.length ? `<div class="acct-scroll"><table class="acct-table">
+    <div class="ss-page-head"><span>שמאות מקרקעין לפי עסקאות השוואה שהשמאי מקליד או מייבא מקובץ — בלי חיבור לרשת. השווי והאחריות המקצועית — של השמאי.</span>
+      <span class="ss-actions"><button class="ss-btn-primary" id="reNew">＋ תיק שומה חדש</button> <button class="ss-btn-secondary" id="reSettingsBtn">פרטי השמאי</button></span></div>
+    <div class="ss-card">
+      <label class="ss-field"><span class="ss-label">חיפוש</span><input class="ss-input" type="search" id="reFilter" value="${esc(re.filter)}" placeholder="מזמין, כתובת, גוש או מספר דוח"></label>
+      ${cases.length ? `<div class="ss-scroll"><table class="ss-table">
         <thead><tr><th>דוח</th><th>מזמין</th><th>נכס</th><th>גוש/חלקה</th><th>מטרה</th><th>מצב</th><th>שווי</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div>` : renderEmpty(q ? 'לא נמצאו תיקים — נסו חיפוש אחר' : 'אין עדיין תיקי שומה — פתחו תיק ראשון בכפתור "תיק שומה חדש"', '🏘')}
     </div>`;
@@ -114,84 +114,84 @@ function reListHtml(o) {
 
 function reSettingsHtml(o) {
   const s = o.settings || {};
-  const f = (k, l) => `<label>${esc(l)} <input type="text" data-re-set="${k}" value="${esc(s[k])}"></label>`;
+  const f = (k, l) => `<label class="ss-field"><span class="ss-label">${esc(l)}</span><input class="ss-input" type="text" data-re-set="${k}" value="${esc(s[k])}"></label>`;
   return `
-    <div class="acct-header"><span>פרטי השמאי מופיעים בכל דוח שומה.</span><button class="secondary" id="reBack">→ חזרה לרשימה</button></div>
-    <div class="card re-form">
+    <div class="ss-page-head"><span>פרטי השמאי מופיעים בכל דוח שומה.</span><button class="ss-btn-secondary" id="reBack">→ חזרה לרשימה</button></div>
+    <div class="ss-card ss-form-grid">
       ${f('name', 'שם השמאי')} ${f('license', 'מספר רישיון')} ${f('office', 'שם המשרד')} ${f('phone', 'טלפון')} ${f('email', 'דוא"ל')} ${f('address', 'כתובת המשרד')}
-      <h3>לדוח בעברית ובאנגלית</h3>
+      <h3 class="ss-section-title">לדוח בעברית ובאנגלית</h3>
       ${f('nameEn', 'שם השמאי באנגלית')} ${f('officeEn', 'שם המשרד באנגלית')} ${f('addressEn', 'כתובת המשרד באנגלית')}
-      <label class="re-wide">הצהרה באנגלית (ריק — נוסח ברירת המחדל) <textarea data-re-set="declarationEn" rows="3" dir="ltr">${esc(s.declarationEn)}</textarea></label>
-      <label class="re-wide">הצהרת השמאי (ריק — נוסח ברירת המחדל) <textarea data-re-set="declaration" rows="3">${esc(s.declaration)}</textarea></label>
-      <div class="re-wide"><button class="primary" id="reSaveSettings">שמירה</button></div>
+      <label class="ss-field ss-wide"><span class="ss-label">הצהרה באנגלית (ריק — נוסח ברירת המחדל)</span><textarea class="ss-input" data-re-set="declarationEn" rows="3" dir="ltr">${esc(s.declarationEn)}</textarea></label>
+      <label class="ss-field ss-wide"><span class="ss-label">הצהרת השמאי (ריק — נוסח ברירת המחדל)</span><textarea class="ss-input" data-re-set="declaration" rows="3">${esc(s.declaration)}</textarea></label>
+      <div class="ss-wide"><button class="ss-btn-primary" id="reSaveSettings">שמירה</button></div>
     </div>`;
 }
 
 // ----- עורך התיק -----
 function reCompsHtml(f, lists, rows, final) {
   const ro = final ? ' disabled' : '';
-  const cell = (i, k, label, type = 'text') => `<td><input type="${type}" data-re="comparables.${i}.${k}" value="${esc(f.comparables[i][k])}" aria-label="${esc(label)} — עסקה ${i + 1}"${ro}></td>`;
+  const cell = (i, k, label, type = 'text') => `<td><input class="ss-input" type="${type}" data-re="comparables.${i}.${k}" value="${esc(f.comparables[i][k])}" aria-label="${esc(label)} — עסקה ${i + 1}"${ro}></td>`;
   const res = (i) => rows.find(r => r.n === i + 1);
-  const basic = f.comparables.map((c, i) => `<tr class="${c.included ? '' : 'muted'}">
+  const basic = f.comparables.map((c, i) => `<tr class="${c.included ? '' : 'ss-muted'}">
       <td>${i + 1}</td>
       <td><input type="checkbox" data-re="comparables.${i}.included"${c.included ? ' checked' : ''} aria-label="בחישוב — עסקה ${i + 1}"${ro}></td>
       ${cell(i, 'date', 'תאריך', 'date')}${cell(i, 'address', 'כתובת')}${cell(i, 'block', 'גוש')}${cell(i, 'parcel', 'חלקה')}
       ${cell(i, 'price', 'מחיר ₪')}${cell(i, 'area', 'שטח מ"ר')}${cell(i, 'rooms', 'חדרים')}${cell(i, 'floor', 'קומה')}${cell(i, 'yearBuilt', 'שנת בנייה')}
       ${cell(i, 'source', 'מקור')}${cell(i, 'weight', 'משקל %')}
-      <td>${final ? '' : `<button class="secondary small" data-re-delcomp="${i}" title="הסרת העסקה">✕</button>`}</td>
+      <td>${final ? '' : `<button class="ss-btn-secondary ss-btn-sm" data-re-delcomp="${i}" title="הסרת העסקה">✕</button>`}</td>
     </tr>`).join('');
   const adj = f.comparables.map((c, i) => {
     const r = res(i);
-    return `<tr class="${c.included ? '' : 'muted'}"><td>${i + 1}</td><td>${r ? reMoney(r.perSqmAg) : '—'}</td>
-      ${RE_ADJ_COLS.map(k => `<td><input type="text" data-re="comparables.${i}.adj.${k}.pct" value="${esc(c.adj[k] ? c.adj[k].pct : '')}" aria-label="התאמת ${esc(lists.factors[k])} באחוזים — עסקה ${i + 1}" inputmode="decimal" dir="ltr"${ro}></td>`).join('')}
+    return `<tr class="${c.included ? '' : 'ss-muted'}"><td>${i + 1}</td><td>${r ? reMoney(r.perSqmAg) : '—'}</td>
+      ${RE_ADJ_COLS.map(k => `<td><input class="ss-input" type="text" data-re="comparables.${i}.adj.${k}.pct" value="${esc(c.adj[k] ? c.adj[k].pct : '')}" aria-label="התאמת ${esc(lists.factors[k])} באחוזים — עסקה ${i + 1}" inputmode="decimal" dir="ltr"${ro}></td>`).join('')}
       <td>${r ? `<bdi dir="ltr">${reBp(r.netBp)}</bdi>` : '—'}</td><td>${r ? (r.grossBp / 100) + '%' : '—'}</td><td><b>${r ? reMoney(r.adjustedPerSqmAg) : '—'}</b></td></tr>`;
   }).join('');
   return `
-    <div class="acct-header"><h3>עסקאות השוואה (${f.comparables.length})</h3>
-      ${final ? '' : '<span><button class="secondary" id="reAddComp">＋ עסקה</button> <button class="secondary" id="reImport">⬆ ייבוא מקובץ CSV</button></span>'}</div>
-    <p class="muted">מחיר בשקלים, שטח במ"ר. מקור — למשל מאגר העסקאות שממנו הועתקה העסקה. משקל — ריק בכל העסקאות = ממוצע פשוט.</p>
-    ${f.comparables.length ? `<div class="acct-scroll"><table class="acct-table re-comps">
+    <div class="ss-page-head"><h3 class="ss-section-title">עסקאות השוואה (${f.comparables.length})</h3>
+      ${final ? '' : '<span class="ss-actions"><button class="ss-btn-secondary" id="reAddComp">＋ עסקה</button> <button class="ss-btn-secondary" id="reImport">⬆ ייבוא מקובץ CSV</button></span>'}</div>
+    <p class="ss-hint">מחיר בשקלים, שטח במ"ר. מקור — למשל מאגר העסקאות שממנו הועתקה העסקה. משקל — ריק בכל העסקאות = ממוצע פשוט.</p>
+    ${f.comparables.length ? `<div class="ss-scroll"><table class="ss-table ss-table-edit">
       <thead><tr><th>#</th><th>בחישוב</th><th>תאריך</th><th>כתובת</th><th>גוש</th><th>חלקה</th><th>מחיר ₪</th><th>שטח</th><th>חדרים</th><th>קומה</th><th>שנת בנייה</th><th>מקור</th><th>משקל %</th><th></th></tr></thead>
       <tbody>${basic}</tbody></table></div>
-      <h4>טבלת התאמות (באחוזים, + מעלה את מחיר העסקה, − מוריד)</h4>
-      <div class="acct-scroll"><table class="acct-table re-adj">
+      <h4 class="ss-section-title">טבלת התאמות (באחוזים, + מעלה את מחיר העסקה, − מוריד)</h4>
+      <div class="ss-scroll"><table class="ss-table ss-table-edit">
       <thead><tr><th>#</th><th>מחיר למ"ר</th>${RE_ADJ_COLS.map(k => `<th>${esc(lists.factors[k])}</th>`).join('')}<th>נטו</th><th>גולמי</th><th>מותאם למ"ר</th></tr></thead>
       <tbody>${adj}</tbody></table></div>` : renderEmpty('אין עדיין עסקאות השוואה — הוסיפו עסקה או ייבאו קובץ', '🏘')}
     ${reState().importPreview ? reImportPreviewHtml(reState().importPreview) : ''}`;
 }
 
 function reImportPreviewHtml(p) {
-  return `<div class="card re-import">
-    <h4>תצוגה מקדימה של הייבוא</h4>
-    <div class="acct-row"><span>שורות שזוהו</span><span>${p.found}</span></div>
-    <div class="acct-row"><span>כפולות (כבר בתיק)</span><span>${p.duplicates}</span></div>
-    <div class="acct-row"><span>יתווספו</span><span><b>${p.added}</b>${p.skipped ? ` <small class="muted">(${p.skipped} מעבר למגבלה)</small>` : ''}</span></div>
-    ${p.errors.length ? `<details><summary>⚠ ${p.errors.length} שורות שלא נקלטו</summary>${p.errors.map(e => `<div class="acct-row muted">${esc(typeof e === 'string' ? e : (e.line ? `שורה ${e.line}: ` : '') + (e.error || ''))}</div>`).join('')}</details>` : ''}
-    ${p.preview.length ? `<div class="acct-scroll"><table class="acct-table"><thead><tr><th>תאריך</th><th>כתובת</th><th>מחיר</th><th>שטח</th></tr></thead>
+  return `<div class="ss-card ss-card-info">
+    <h4 class="ss-section-title">תצוגה מקדימה של הייבוא</h4>
+    <div class="ss-row"><span>שורות שזוהו</span><span>${p.found}</span></div>
+    <div class="ss-row"><span>כפולות (כבר בתיק)</span><span>${p.duplicates}</span></div>
+    <div class="ss-row"><span>יתווספו</span><span><b>${p.added}</b>${p.skipped ? ` <small class="ss-muted">(${p.skipped} מעבר למגבלה)</small>` : ''}</span></div>
+    ${p.errors.length ? `<details><summary>⚠ ${p.errors.length} שורות שלא נקלטו</summary>${p.errors.map(e => `<div class="ss-row ss-muted">${esc(typeof e === 'string' ? e : (e.line ? `שורה ${e.line}: ` : '') + (e.error || ''))}</div>`).join('')}</details>` : ''}
+    ${p.preview.length ? `<div class="ss-scroll"><table class="ss-table"><thead><tr><th>תאריך</th><th>כתובת</th><th>מחיר</th><th>שטח</th></tr></thead>
       <tbody>${p.preview.map(x => `<tr><td>${esc(x.date)}</td><td>${esc([x.address, x.city].filter(Boolean).join(', '))}</td><td>${reMoney(x.priceAg)}</td><td>${esc(x.area)}</td></tr>`).join('')}</tbody></table></div>` : ''}
-    <div><button class="primary" id="reImportApply"${p.added ? '' : ' disabled'}>הוספת ${p.added} עסקאות</button> <button class="secondary" id="reImportCancel">ביטול</button></div>
+    <div class="ss-toolbar"><button class="ss-btn-primary" id="reImportApply"${p.added ? '' : ' disabled'}>הוספת ${p.added} עסקאות</button> <button class="ss-btn-secondary" id="reImportCancel">ביטול</button></div>
   </div>`;
 }
 
 function reResultsHtml(r, lists) {
   if (!r) return '';
   const s = r.sales || {}, inc = r.income || {}, cost = r.cost || {}, fin = r.final || {};
-  const line = (l, v, cls = '') => `<div class="acct-row ${cls}"><span>${esc(l)}</span><span>${v}</span></div>`;
+  const line = (l, v, cls = '') => `<div class="ss-row ${cls}"><span>${esc(l)}</span><span>${v}</span></div>`;
   return `
-    <div class="acct-grid">
-      <div class="card"><h4>${esc(lists.approaches.sales)}</h4>
+    <div class="ss-grid">
+      <div class="ss-card"><h4 class="ss-section-title">${esc(lists.approaches.sales)}</h4>
         ${s.ok ? line('עסקאות בחישוב', s.stats.count) + line('טווח מותאם למ"ר', `${reMoney(s.stats.minAg)} – ${reMoney(s.stats.maxAg)}`) + line('חציון מותאם למ"ר', reMoney(s.stats.medianAg))
-          + line(s.stats.weighted ? 'ממוצע משוקלל למ"ר' : 'ממוצע למ"ר', reMoney(s.perSqmAg)) + line(`שווי (× ${s.area} מ"ר)`, reMoney(s.valueAg), 'acct-total') : '<div class="acct-row muted">אין תוצאה</div>'}</div>
-      <div class="card"><h4>${esc(lists.approaches.income)}</h4>
-        ${inc.ok ? line('הכנסה שנתית', reMoney(inc.grossAg)) + line('אחרי אי-תפוסה', reMoney(inc.effectiveAg)) + line('הכנסה נטו (NOI)', reMoney(inc.noiAg)) + line('שווי', reMoney(inc.valueAg), 'acct-total') : '<div class="acct-row muted">לא בשימוש</div>'}</div>
-      <div class="card"><h4>${esc(lists.approaches.cost)}</h4>
-        ${cost.ok ? line('עלות הקמה', reMoney(cost.buildAg)) + line('עם רווח יזמי', reMoney(cost.withProfitAg)) + line('אחרי פחת', reMoney(cost.depreciatedAg)) + line('קרקע', reMoney(cost.landAg)) + line('שווי', reMoney(cost.valueAg), 'acct-total') : '<div class="acct-row muted">לא בשימוש</div>'}</div>
-      <div class="card"><h4>שקלול ושווי סופי</h4>
+          + line(s.stats.weighted ? 'ממוצע משוקלל למ"ר' : 'ממוצע למ"ר', reMoney(s.perSqmAg)) + line(`שווי (× ${s.area} מ"ר)`, reMoney(s.valueAg), 'ss-row-total') : '<div class="ss-row ss-muted">אין תוצאה</div>'}</div>
+      <div class="ss-card"><h4 class="ss-section-title">${esc(lists.approaches.income)}</h4>
+        ${inc.ok ? line('הכנסה שנתית', reMoney(inc.grossAg)) + line('אחרי אי-תפוסה', reMoney(inc.effectiveAg)) + line('הכנסה נטו (NOI)', reMoney(inc.noiAg)) + line('שווי', reMoney(inc.valueAg), 'ss-row-total') : '<div class="ss-row ss-muted">לא בשימוש</div>'}</div>
+      <div class="ss-card"><h4 class="ss-section-title">${esc(lists.approaches.cost)}</h4>
+        ${cost.ok ? line('עלות הקמה', reMoney(cost.buildAg)) + line('עם רווח יזמי', reMoney(cost.withProfitAg)) + line('אחרי פחת', reMoney(cost.depreciatedAg)) + line('קרקע', reMoney(cost.landAg)) + line('שווי', reMoney(cost.valueAg), 'ss-row-total') : '<div class="ss-row ss-muted">לא בשימוש</div>'}</div>
+      <div class="ss-card"><h4 class="ss-section-title">שקלול ושווי סופי</h4>
         ${fin.ok ? Object.entries(fin.weights).map(([k, w]) => line(lists.approaches[k], Math.round(w * 100) / 100 + '%')).join('') + line('לפני עיגול', reMoney(fin.rawAg))
-          + line('שווי השומה', reMoney(fin.valueAg), 'acct-big') + (fin.perSqmAg ? line('למ"ר', reMoney(fin.perSqmAg)) : '') : '<div class="acct-row muted">אין עדיין שווי</div>'}</div>
+          + line('שווי השומה', reMoney(fin.valueAg), 'ss-row-big') + (fin.perSqmAg ? line('למ"ר', reMoney(fin.perSqmAg)) : '') : '<div class="ss-row ss-muted">אין עדיין שווי</div>'}</div>
     </div>
-    ${(r.warnings || []).length ? `<div class="card re-warn"><h4>⚠ לתשומת לב השמאי</h4>${r.warnings.map(w => `<div class="acct-row warn">${esc(w)}</div>`).join('')}
-      <small class="muted">ספי האזהרה הם של התוכנה ולא דרישה של תקן.</small></div>` : ''}`;
+    ${(r.warnings || []).length ? `<div class="ss-card ss-card-warning"><h4 class="ss-section-title">⚠ לתשומת לב השמאי</h4>${r.warnings.map(w => `<div class="ss-row">${esc(w)}</div>`).join('')}
+      <small class="ss-muted">ספי האזהרה הם של התוכנה ולא דרישה של תקן.</small></div>` : ''}`;
 }
 
 function reEditorHtml(o) {
@@ -202,21 +202,21 @@ function reEditorHtml(o) {
   const final = c.status === 'final';
   const no = String(c.no) + (c.rev ? '-' + c.rev : '');
   return `
-    <div class="acct-header"><span><button class="secondary" id="reBack">→ לרשימה</button> <b>תיק שומה ${esc(no)}</b> ${final ? '<span class="ss-badge">🔒 נעול — לשינוי פותחים גרסה מתוקנת</span>' : '<span class="muted">טיוטה</span>'}</span>
-      <span>
-        ${final ? '<button class="secondary" id="reReopen">פתיחת גרסה מתוקנת</button>' : '<button class="primary" id="reSave">שמירה וחישוב</button> <button class="secondary" id="reFinalize">🔒 נעילת השומה</button>'}
-        <button class="secondary" id="reExport">⬇ דוח PDF${final ? '' : ' (טיוטה)'}</button>
-        ${final ? '' : '<button class="secondary" id="reDelete">מחיקה</button>'}
+    <div class="ss-page-head"><span><button class="ss-btn-secondary" id="reBack">→ לרשימה</button> <b>תיק שומה ${esc(no)}</b> ${final ? '<span class="ss-badge ss-badge-success">🔒 נעול — לשינוי פותחים גרסה מתוקנת</span>' : '<span class="ss-badge ss-badge-warning">טיוטה</span>'}</span>
+      <span class="ss-actions">
+        ${final ? '<button class="ss-btn-secondary" id="reReopen">פתיחת גרסה מתוקנת</button>' : '<button class="ss-btn-primary" id="reSave">שמירה וחישוב</button> <button class="ss-btn-secondary" id="reFinalize">🔒 נעילת השומה</button>'}
+        <button class="ss-btn-secondary" id="reExport">⬇ דוח PDF${final ? '' : ' (טיוטה)'}</button>
+        ${final ? '' : '<button class="ss-btn-secondary" id="reDelete">מחיקה</button>'}
       </span></div>
-    ${!final && problems && problems.length ? `<div class="card re-warn"><b>לפני נעילה חסר:</b> ${problems.map(esc).join(' · ')}</div>` : ''}
-    <div class="card re-form"><h3>מזמין ומטרה</h3>
+    ${!final && problems && problems.length ? `<div class="ss-card ss-card-warning"><b>לפני נעילה חסר:</b> ${problems.map(esc).join(' · ')}</div>` : ''}
+    <div class="ss-card ss-form-grid"><h3 class="ss-section-title">מזמין ומטרה</h3>
       ${reInput('client.name', 'שם המזמין')} ${reInput('client.idNumber', 'ת.ז / ח.פ')} ${reInput('client.phone', 'טלפון', { type: 'tel' })} ${reInput('client.email', 'דוא"ל', { type: 'email' })}
       ${reInput('client.address', 'כתובת המזמין')}
       ${reSelect('purpose', 'מטרת השומה', lists.purposes || {})} ${f.purpose === 'other' ? reInput('purposeOther', 'פירוט המטרה') : ''}
       ${reInput('visitDate', 'תאריך הביקור', { type: 'date' })} ${reInput('effectiveDate', 'המועד הקובע', { type: 'date' })}
       ${reSelect('reportLang', 'שפת הדוח', { he: 'עברית', 'he-en': 'עברית ואנגלית' })}
     </div>
-    <div class="card re-form"><h3>הנכס</h3>
+    <div class="ss-card ss-form-grid"><h3 class="ss-section-title">הנכס</h3>
       ${reInput('property.address', 'כתובת')} ${reInput('property.city', 'יישוב')}
       ${reInput('property.block', 'גוש')} ${reInput('property.parcel', 'חלקה')} ${reInput('property.subParcel', 'תת-חלקה')}
       ${reSelect('property.type', 'סוג הנכס', lists.types || {})} ${reSelect('property.rights', 'הזכויות', lists.rights || {})} ${reSelect('property.condition', 'מצב', lists.conditions || {})}
@@ -229,19 +229,19 @@ function reEditorHtml(o) {
       ${reInput('property.legal', 'מצב משפטי (רישום, הערות, שעבודים)', { type: 'textarea', wide: true })}
       ${reInput('property.considerations', 'גורמים ושיקולים', { type: 'textarea', wide: true })}
     </div>
-    <div class="card">${reCompsHtml(f, lists, (result && result.sales && result.sales.rows) || [], final)}</div>
-    <div class="acct-grid">
-      <div class="card re-form"><h3>${esc((lists.approaches || {}).income || '')}</h3>
+    <div class="ss-card">${reCompsHtml(f, lists, (result && result.sales && result.sales.rows) || [], final)}</div>
+    <div class="ss-grid">
+      <div class="ss-card ss-form-grid"><h3 class="ss-section-title">${esc((lists.approaches || {}).income || '')}</h3>
         ${reCheck('income.enabled', 'בשימוש')}
         ${reInput('income.monthlyRent', 'שכר דירה חודשי (₪)')} ${reInput('income.vacancyPct', 'אי-תפוסה (%)')} ${reInput('income.annualExpenses', 'הוצאות שנתיות (₪)')} ${reInput('income.capRatePct', 'שיעור היוון (%)')}
         ${reInput('income.note', 'הסבר', { type: 'textarea', wide: true })}</div>
-      <div class="card re-form"><h3>${esc((lists.approaches || {}).cost || '')}</h3>
+      <div class="ss-card ss-form-grid"><h3 class="ss-section-title">${esc((lists.approaches || {}).cost || '')}</h3>
         ${reCheck('cost.enabled', 'בשימוש')}
         ${reInput('cost.land', 'שווי הקרקע (₪)')} ${reInput('cost.buildArea', 'שטח לחישוב (מ"ר; ריק — שטח הנכס)')} ${reInput('cost.costPerSqm', 'עלות הקמה למ"ר (₪)')}
         ${reInput('cost.profitPct', 'רווח יזמי (%)')} ${reInput('cost.depreciationPct', 'פחת (%)')}
         ${reInput('cost.note', 'הסבר', { type: 'textarea', wide: true })}</div>
     </div>
-    <div class="card re-form"><h3>שקלול</h3>
+    <div class="ss-card ss-form-grid"><h3 class="ss-section-title">שקלול</h3>
       ${reInput('reconcile.weights.sales', 'משקל גישת ההשוואה (%)')} ${reInput('reconcile.weights.income', 'משקל גישת ההכנסות (%)')} ${reInput('reconcile.weights.cost', 'משקל גישת העלות (%)')}
       ${reSelect('reconcile.roundToIls', 'עיגול', { 0: 'בלי עיגול', 100: 'ל-100 ₪', 1000: 'ל-1,000 ₪', 5000: 'ל-5,000 ₪', 10000: 'ל-10,000 ₪' })}
       ${reInput('reconcile.override', 'שווי סופי שנקבע ידנית (₪, רשות)')} ${reInput('reconcile.overrideReason', 'נימוק לשווי הידני')}
@@ -250,18 +250,18 @@ function reEditorHtml(o) {
     </div>
     ${rePhotosHtml(re.current.photos || [], final)}
     ${reResultsHtml(result, lists)}
-    ${(c.history || []).length ? `<details class="card"><summary>היסטוריית גרסאות (${c.history.length})</summary>${c.history.map(h => `<div class="acct-row"><span>דוח ${esc(String(c.no) + (h.rev ? '-' + h.rev : ''))}</span><span>${esc(h.reportDate || '')} · ${reMoney(h.valueAg)}</span></div>`).join('')}</details>` : ''}`;
+    ${(c.history || []).length ? `<details class="ss-card"><summary>היסטוריית גרסאות (${c.history.length})</summary>${c.history.map(h => `<div class="ss-row"><span>דוח ${esc(String(c.no) + (h.rev ? '-' + h.rev : ''))}</span><span>${esc(h.reportDate || '')} · ${reMoney(h.valueAg)}</span></div>`).join('')}</details>` : ''}`;
 }
 
 // צילומים לתיק: מוקטנים בממשק (עד 1200 פיקסלים, JPEG) לפני השליחה; השרת בודק שוב סוג וגודל
 const RE_PHOTO_MAX_CHARS = 280000;
 function rePhotosHtml(photos, final) {
-  const cards = photos.map(p => `<figure class="re-photo"><img src="${esc(p.data)}" alt="${esc(p.caption || 'צילום')}">
+  const cards = photos.map(p => `<figure class="ss-photo"><img src="${esc(p.data)}" alt="${esc(p.caption || 'צילום')}">
       <figcaption>${esc(p.caption || '')}</figcaption>
-      ${final ? '' : `<button class="secondary small" data-re-delphoto="${esc(p.id)}" title="מחיקת הצילום">✕</button>`}</figure>`).join('');
-  return `<div class="card"><div class="acct-header"><h3>צילומים (${photos.length}/6)</h3>
-      ${final || photos.length >= 6 ? '' : '<span><label>כיתוב לצילום <input type="text" id="rePhotoCaption" maxlength="120" placeholder="למשל: חזית הבניין"></label> <button class="secondary" id="reAddPhoto">＋ הוספת צילום</button></span>'}</div>
-    ${photos.length ? `<div class="re-photos">${cards}</div>` : '<p class="muted">אין צילומים. הצילומים יופיעו בדוח השומה.</p>'}</div>`;
+      ${final ? '' : `<button class="ss-btn-secondary ss-btn-sm" data-re-delphoto="${esc(p.id)}" title="מחיקת הצילום">✕</button>`}</figure>`).join('');
+  return `<div class="ss-card"><div class="ss-page-head"><h3 class="ss-section-title">צילומים (${photos.length}/6)</h3>
+      ${final || photos.length >= 6 ? '' : '<span class="ss-actions"><label class="ss-field"><span class="ss-label">כיתוב לצילום</span><input class="ss-input" type="text" id="rePhotoCaption" maxlength="120" placeholder="למשל: חזית הבניין"></label> <button class="ss-btn-secondary" id="reAddPhoto">＋ הוספת צילום</button></span>'}</div>
+    ${photos.length ? `<div class="ss-photos">${cards}</div>` : '<p class="ss-hint">אין צילומים. הצילומים יופיעו בדוח השומה.</p>'}</div>`;
 }
 
 function reCompressImage(file) {
@@ -308,7 +308,7 @@ function renderRealEstate(o) {
   if (re.tab === 'settings') body = reSettingsHtml(o);
   else if (re.caseId && re.current && re.form) body = reEditorHtml(o);
   else body = reListHtml(o);
-  return `<div class="realestate">${body}</div>`;
+  return `<div class="ss-stack" data-screen="realestate">${body}</div>`;
 }
 
 async function reOpenCase(id) {
