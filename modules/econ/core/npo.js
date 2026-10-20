@@ -6,6 +6,8 @@ const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
 const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
 const { assertIsraeliId, isValidIsraeliId } = require('./israeliId');
+// תרומה במטבע זר — נרשמת בשקלים לפי השער שהוקלד; המטבע והשער נשמרים ב-foreign (core/currency.js)
+const { parseForeign, stored: storedForeign, foreignLabel } = require('./currency');
 const str = (v, max, label) => {
   const s = String(v ?? '').trim();
   if (s.length > max) throw new Error(`${label} ארוך מדי (עד ${max} תווים)`);
@@ -112,7 +114,8 @@ function validateDonation(input, settings, count = 0) {
   const donorId = str(input.donorId, 12, 'מספר הזהות');
   if (type !== 'israeli' && donorId) throw new Error(`לתורם ${DONOR_TYPES[type]} אין להזין ת.ז — בדיווח יירשם הקוד ${REPORT_IDS[type]}`);
   assertIsraeliId(donorId, 'מספר זהות / ח"פ של התורם');
-  const amount = Number(input.amount);
+  const foreign = parseForeign(input);
+  const amount = foreign ? fromAg(foreign.ilsAg) : Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new Error('סכום התרומה אינו תקין');
   const method = METHODS[input.method] ? input.method : 'transfer';
   const fundId = input.fundId || GENERAL_FUND.id;
@@ -124,6 +127,7 @@ function validateDonation(input, settings, count = 0) {
     donorAddress: str(input.donorAddress, 300, 'כתובת התורם'),
     donorPhone: str(input.donorPhone, 30, 'טלפון התורם'),
     amount: fromAg(toAg(amount)), method, fundId,
+    ...(foreign ? { foreign: storedForeign(foreign) } : {}),
     purpose: str(input.purpose, 300, 'ייעוד התרומה'),
     reference: str(input.reference, 60, 'אסמכתא'),
     campaignId: str(input.campaignId, 60, 'הקמפיין'),
@@ -256,7 +260,8 @@ function planChequeDonation(input, settings, count = 0) {
   const warnings = [];
   const donations = splitChequesByYear(cheques).map((g, i) => {
     const date = chequeYearDate(g.year, receivedDate, g.cheques);
-    const clean = validateDonation({ ...input, date, amount: fromAg(g.amountAg), method: 'check', reference: chequeReference(g.cheques) }, s, count + i);
+    // המחאות — בשקלים בלבד (הסכום לכל שנה מחושב מההמחאות, לא מסכום זר)
+    const clean = validateDonation({ ...input, currency: 'ILS', date, amount: fromAg(g.amountAg), method: 'check', reference: chequeReference(g.cheques) }, s, count + i);
     if (sec46Eligible(s, receivedDate) && !sec46Eligible(s, date)) {
       warnings.push({ code: 'sec46-lapsed', year: g.year, text: `אישור סעיף 46 בתוקף עד ${s.sec46ValidUntil} — הקבלה לשנת ${g.year} תצא בלי זיכוי לפי סעיף 46` });
     }
@@ -519,8 +524,8 @@ function exportTable(kind, donations, grants, settings, year) {
     const funds = Object.fromEntries(allFunds(settings).map(f => [f.id, f.name]));
     const rows = donations.filter(d => inYear(d.date, year)).sort((a, b) => a.date.localeCompare(b.date) || byReceipt(a, b))
       .map(d => [receiptLabel(d), d.date, d.donorName, d.donorId, d.amount, METHODS[d.method] || d.method, funds[d.fundId] || '', d.receipt.sec46 ? 'כן' : 'לא', d.status === 'cancelled' ? 'בוטלה' : 'פעילה', d.purpose,
-        Array.isArray(d.cheques) ? d.cheques.map(c => `${c.number} (${c.dueDate})`).join('; ') : '']);
-    return { name: `תרומות-${year}`, headers: ['מס\' קבלה', 'תאריך', 'תורם', 'ת.ז/ח.פ', 'סכום', 'אמצעי תשלום', 'קרן', 'סעיף 46', 'סטטוס', 'ייעוד', 'המחאות (פירעון)'], rows };
+        Array.isArray(d.cheques) ? d.cheques.map(c => `${c.number} (${c.dueDate})`).join('; ') : '', foreignLabel(d.foreign)]);
+    return { name: `תרומות-${year}`, headers: ['מס\' קבלה', 'תאריך', 'תורם', 'ת.ז/ח.פ', 'סכום', 'אמצעי תשלום', 'קרן', 'סעיף 46', 'סטטוס', 'ייעוד', 'המחאות (פירעון)', 'מטבע זר'], rows };
   }
   if (kind === 'grants') {
     const rows = grants.filter(g => Number(g.year) === Number(year))

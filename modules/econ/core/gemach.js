@@ -7,6 +7,7 @@ const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
 const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
 const { assertIsraeliId } = require('./israeliId');
+const { parseForeign, stored: storedForeign, foreignLabel } = require('./currency');
 const str = (v, max, label) => {
   const s = String(v ?? '').trim();
   if (s.length > max) throw new Error(`${label} ארוך מדי (עד ${max} תווים)`);
@@ -108,9 +109,15 @@ function validateDepositInput(input, count = 0) {
   if (!isDate(date)) throw new Error('תאריך לא תקין (YYYY-MM-DD)');
   const depositorName = str(input.depositorName, 200, 'שם המפקיד');
   if (!depositorName) throw new Error('שם המפקיד חובה');
-  const amount = Number(input.amount);
+  // הפקדה במטבע זר — נרשמת בשקלים לפי השער שהוקלד (core/currency.js); יתרת הקופה נשארת בשקלים
+  const foreign = parseForeign(input);
+  const amount = foreign ? fromAg(foreign.ilsAg) : Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new Error('סכום ההפקדה אינו תקין');
-  return { date, depositorName, amount: fromAg(toAg(amount)), notes: str(input.notes, 300, 'הערות') };
+  return {
+    date, depositorName, amount: fromAg(toAg(amount)),
+    ...(foreign ? { foreign: storedForeign(foreign) } : {}),
+    notes: str(input.notes, 300, 'הערות')
+  };
 }
 
 // רישום תשלום על תשלום מסוים בלוח הסילוקין. מאפשר תשלום חלקי (paidAg מצטבר).
@@ -197,8 +204,8 @@ function exportTable(kind, loans, deposits, settings, asOf) {
     return { name: 'הלוואות-גמח', headers: ['לווה', 'ת.ז', 'סכום', 'תשלומים', 'תאריך הלוואה', 'סטטוס', 'נותר לפירעון', 'שולם', 'תשלומים בפיגור', 'ערבים'], rows };
   }
   if (kind === 'deposits') {
-    const rows = deposits.map(d => [d.date, d.depositorName, d.amount, d.notes]);
-    return { name: 'הפקדות-גמח', headers: ['תאריך', 'מפקיד', 'סכום', 'הערות'], rows };
+    const rows = deposits.map(d => [d.date, d.depositorName, d.amount, foreignLabel(d.foreign), d.notes]);
+    return { name: 'הפקדות-גמח', headers: ['תאריך', 'מפקיד', 'סכום (₪)', 'מטבע זר', 'הערות'], rows };
   }
   if (kind === 'arrears') {
     const rows = loans.filter(l => l.status === 'active').flatMap(l =>

@@ -2,6 +2,7 @@
 
 const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 const AL = require('./allocation');
+const { foreignLabel } = require('./currency');
 const money = (n) => '₪' + Number(n || 0).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // מיתוג המסמך: צבע (#rrggbb בלבד), לוגו (data:image בלבד — בלי טעינה מבחוץ) וחתימה
@@ -233,6 +234,7 @@ ${cancelled ? '<div class="void">מבוטלת</div>' : ''}
   <div class="row"><span>אמצעי תשלום</span><span>${esc(METHOD_LABELS[d.method] || d.method)}${d.reference ? ` · אסמכתא ${esc(d.reference)}` : ''}</span></div>
   <div class="row"><span>ייעוד</span><span>${esc(r.fundName || 'כללי')}${d.purpose ? ` — ${esc(d.purpose)}` : ''}</span></div>
   <div class="row amount"><span>סכום התרומה</span><span>${money(d.amount)}</span></div>
+  ${d.foreign ? `<div class="row"><span>התקבל במטבע זר</span><span dir="ltr">${esc(foreignLabel(d.foreign))}</span></div>` : ''}
 </div>
 ${chequesBlock(d)}
 ${r.sec46 ? `<div class="s46">התרומה מוכרת לזיכוי ממס לפי סעיף 46 לפקודת מס הכנסה · אישור מס' ${esc(r.sec46Number)}${r.sec46ValidUntil ? ` · בתוקף עד ${esc(r.sec46ValidUntil)}` : ''}</div>` : ''}

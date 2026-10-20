@@ -602,3 +602,18 @@ function findRecordById(id) {
 }
 
 // Render dashboard view
+
+// מטבע זר בתרומות ובהפקדות לגמ"ח (core/currency.js): שלושה שדות לטופס. ההמרה לשקלים רק בשרת
+const CURRENCY_FIELDS = [
+  { name: 'currency', label: 'מטבע', type: 'select', options: [
+    { value: 'ILS', label: '₪ שקל' }, { value: 'USD', label: '$ דולר' }, { value: 'EUR', label: '€ אירו' }, { value: 'GBP', label: '£ לירה שטרלינג' }] },
+  { name: 'foreignAmount', label: 'סכום במטבע הזר (רק כשהמטבע אינו שקל)', type: 'number' },
+  { name: 'rate', label: 'שער: כמה שקלים ל-1 יחידה (רק כשהמטבע אינו שקל)', type: 'number' }
+];
+const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£' };
+// הערה קטנה ליד סכום בשקלים: "1,000.00 $"
+function currencyNote(f) {
+  if (!f || !CURRENCY_SYMBOLS[f.currency]) return '';
+  const n = (Number(f.amountMinor) / 100).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return ` <small class="muted" title="שער ${esc(Number(f.rateE4) / 10000)}">${esc(n)} ${CURRENCY_SYMBOLS[f.currency]}</small>`;
+}
