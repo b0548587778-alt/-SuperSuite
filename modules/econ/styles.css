@@ -1151,3 +1151,4 @@ header h1, .hub-head h2 { font: 700 var(--ss-fs-xl) / 1.2 var(--ss-font-title); 
 .tag.income { background: var(--ss-success-soft); color: var(--ss-success-ink); }
 .tag.expense { background: var(--ss-danger-soft); color: var(--ss-danger-ink); }
 .tag.client { background: var(--ss-info-soft); color: var(--ss-info-ink); }
+

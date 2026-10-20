@@ -133,6 +133,7 @@ function attachViewHandlers(viewName) {
   if (viewName === 'mortgage-advisor') attachMadvHandlers();
   if (viewName === 'mortgage-lab') attachLabHandlers();
   if (viewName === 'realty') attachRealtyHandlers();
+  if (viewName === 'realestate') attachRealEstateHandlers();
 
   // תיבת חיפוש
   const searchInput = document.getElementById('viewSearch');

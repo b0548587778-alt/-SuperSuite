@@ -2454,6 +2454,17 @@ select {
 .pu-item .btn-ghost { width: auto; padding: 4px 10px; }
 @media (max-width: 520px) { .pu-line { grid-template-columns: 1fr 1fr; } }
 
+/* תיק שמאות מקצועי (src/case-ui.js) */
+/* תיק השמאות בנוי מרכיבי shell/ui-kit.css בלבד. בערכה הכהה — אותם רכיבים בצבעי הערכה הכהה (רק בתוך #cs-root) */
+[data-theme="dark"] #cs-root {
+  --ss-surface: var(--ss-dark-surface); --ss-surface-2: var(--ss-dark-surface-2); --ss-surface-input: var(--ss-dark-bg-2);
+  --ss-border: var(--ss-dark-border); --ss-border-strong: var(--ss-dark-border-strong);
+  --ss-text: var(--ss-dark-text); --ss-text-2: var(--ss-dark-muted); --ss-muted: var(--ss-dark-muted); --ss-faint: var(--ss-dark-faint);
+  --ss-navy-2: var(--ss-dark-gold-light); --ss-primary: var(--ss-dark-gold); --ss-primary-dark: var(--ss-dark-gold-dim); --ss-on-primary: var(--ss-dark-bg);
+  --ss-shadow: none; --ss-shadow-sm: none;
+}
+[data-theme="dark"] #cs-root .ss-btn-primary { color: var(--ss-dark-bg); }
+
 /* ===== ui-kit — מיפוי: המחלקות של השמאות ← ספריית הרכיבים (shell/ui-kit.css) ===== */
 /* בערכה הבהירה (ברירת המחדל) — אותו מראה כמו בשאר התוכנה. בערכה הכהה נשארים צבעי הזהב של המודול */
 [data-theme="light"] .btn-primary, [data-theme="light"] .btn-secondary, [data-theme="light"] .btn-ghost { display:inline-flex; align-items:center; justify-content:center; gap:var(--ss-sp-2);

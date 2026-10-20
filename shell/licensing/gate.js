@@ -12,6 +12,7 @@ const ECON_SUB_FEATURES = {
   chesed: 'econ.chesed',
   madv: 'econ.mortgage-advisor',
   mlab: 'econ.mortgage-lab',
+  realestate: 'econ.realestate',
   mortgage: 'econ.mortgage',
   // רישיון "נדל"ן" אחד (החלטת הבעלים 20.10.2026): שמאות מקרקעין (realestate) ותיווך ויזמים (rlty)
   rlty: 'econ.realestate',

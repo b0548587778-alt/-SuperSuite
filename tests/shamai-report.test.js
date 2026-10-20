@@ -38,10 +38,10 @@ test('פיצול: אין const/let/class כפולים ברמה העליונה ב
   }
 });
 
-test('מיקוד: זהב, קניית זהב מלקוח, יהלומים, שעונים, יודאיקה, מטבעות וספרים ראשונים; השאר תחת "תחומים נוספים"', () => {
+test('מיקוד: תיק שמאות, זהב, קניית זהב מלקוח, יהלומים, שעונים, יודאיקה, מטבעות וספרים ראשונים; השאר תחת "תחומים נוספים"', () => {
   const main = html.slice(html.indexOf('id="hub-main"'), html.indexOf('id="hub-more"'));
   const subs = [...main.matchAll(/data-sub="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(subs, ['gold', 'purchase', 'diamond', 'watch', 'antique', 'coin', 'book']);
+  assert.deepEqual(subs, ['cases', 'gold', 'purchase', 'diamond', 'watch', 'antique', 'coin', 'book']);
   const more = html.slice(html.indexOf('id="hub-more"'), html.indexOf('</details>', html.indexOf('id="hub-more"')));
   for (const k of ['realestate', 'vehicle', 'phone', 'scrap', 'wine']) assert.match(more, new RegExp(`data-sub="${k}"`));
 });
@@ -124,4 +124,17 @@ test('דוח וקטלוג: נפתחים בתצוגה בתוך העמוד, לא �
   // המסגרת בלי allow-scripts
   assert.match(report, /setAttribute\('sandbox', 'allow-same-origin allow-modals'\)/);
   assert.match(html, /id="ap-save"/);
+});
+
+test('מבנה: כל מסך שמאות בתוך ה-section שלו (תג סוגר עודף הוציא את כל מסכי השמאות מחוץ ל-section, והלחיצה על תחום לא פתחה כלום)', () => {
+  const sections = [...html.matchAll(/<section class="view" data-view="(\w+)">([\s\S]*?)<\/section>/g)];
+  assert.deepEqual(sections.map((m) => m[1]), ['dashboard', 'appraisal', 'ledger', 'tools']);
+  for (const [, view, body] of sections) {
+    const open = (body.match(/<div\b/g) || []).length, close = (body.match(/<\/div>/g) || []).length;
+    assert.equal(close, open, `section ${view}: ${open} פתיחות div מול ${close} סגירות`);
+  }
+  const appraisal = sections.find((m) => m[1] === 'appraisal')[2];
+  for (const sub of ['cases', 'gold', 'purchase', 'diamond', 'watch', 'antique', 'coin', 'book', 'realestate']) {
+    assert.match(appraisal, new RegExp(`class="sub-view" data-sub="${sub}"`), sub);
+  }
 });

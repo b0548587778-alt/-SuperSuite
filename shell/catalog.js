@@ -40,6 +40,7 @@
         { mod: 'econ', view: 'mortgage-advisor', icon: '🏦', name: 'ייעוץ משכנתאות',       desc: 'תיקי לקוחות ומסמכים' },
         { mod: 'econ', view: 'mortgage-lab',     icon: '🧮', name: 'מעבדת תמהיל',          desc: 'סימולטור, סלים ואופטימייזר' },
         { mod: 'econ', view: 'realty',           icon: '🏘', name: 'נדל"ן ותיווך',         desc: 'נכסים, קונים ומוכרים ועסקאות' },
+        { mod: 'econ', view: 'realestate',       icon: '📐',  name: 'שמאות מקרקעין',        desc: 'תיק שומה, עסקאות השוואה ודוח' },
         { mod: 'shamai',                         icon: '💎', name: 'שמאות נכסים',          desc: 'הערכת שווי נכסים' }
       ]
     },

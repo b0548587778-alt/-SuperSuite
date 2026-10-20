@@ -55,6 +55,7 @@ function initSubView(parent, sub) {
   // Render the appropriate view based on sub-id
   const renderers = {
     'gold': renderGoldView,
+    'cases': renderCasesView,
     'purchase': renderPurchaseView,
     'diamond': renderDiamondView,
     'watch': renderWatchView,
@@ -83,7 +84,7 @@ function initSubView(parent, sub) {
     'auth': renderAuthHubView,
     'calc': renderCalcView,
     'compare': renderCompare,
-    'settings': () => { renderSettingsStats(); renderAppraiserSettings(); },
+    'settings': () => { renderSettingsStats(); renderAppraiserSettings(); renderAppraiserEnSettings(); },
   };
   // Vehicle appraisal (sub) vs Vehicle TCO tool (data-tool)
   if (parent === 'tools' && sub === 'vehicle') {
@@ -436,7 +437,7 @@ function bindEvents() {
   $('#btn-cloud-download')?.addEventListener('click', downloadFromCloud);
 
   // Real estate
-  ['re-area', 're-size', 're-rooms', 're-floor', 're-year', 're-asking',
+  ['re-ppsqm', 're-size', 're-rooms', 're-floor', 're-year', 're-asking',
    're-elevator', 're-parking', 're-balcony', 're-storage', 're-renovated', 're-tama', 're-view', 're-noise'].forEach(id => {
     document.addEventListener('input', e => { if (e.target.id === id) recalcRealEstate(); });
     document.addEventListener('change', e => { if (e.target.id === id) recalcRealEstate(); });

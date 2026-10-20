@@ -79,7 +79,8 @@ issuedAt, expiresAt, graceDays
 ## שלב 2: שער הרישוי (`shell/licensing/gate.js`, `store.js`)
 - **הרשאה בפועל = תפקיד (RBAC) ∩ רישיון.** `runGuarded` ב-`ipc.js` בודק קודם את התפקיד ואז את `LG.checkChannel`.
 - כל ערוץ במערכת הכלכלית דורש את התכונה `econ`; תחומים נפרדים (`ECON_SUB_FEATURES`): `acct`→`econ.accounting`,
-  `npo`, `gemach`, `chesed`, `madv`, `mlab`, `mortgage`. **תחילית ערוצים חדשה לתחום נפרד — להוסיף שם.**
+  `npo`, `gemach`, `chesed`, `madv`, `mlab`, `mortgage`, `realestate`→`econ.realestate`. **תחילית ערוצים חדשה לתחום נפרד — להוסיף שם.**
+- **רישיון "נדל"ן"** (החלטת הבעלים, 20.10.2026: "שמאות מקרקעין ותיווך ויזמים יימכרו כרישיון נדל"ן אחד"): התכונה `econ.realestate` פותחת גם את שמאות המקרקעין (`realestate:*`) וגם את תיווך ויזמים (`rlty:*`, ענף `work/mortgage-pro`). שם המפתח לא משתנה — רישיונות שכבר הונפקו ממשיכים לעבוד. במיזוג — `rlty` ממופה ל-`econ.realestate` ב-`ECON_SUB_FEATURES`.
 - מצב `pending_payment` / `suspended`: קריאה, ייצוא וגיבוי בלבד, כדי שהלקוח לא יאבד גישה לנתונים שלו. `locked` / `terminated`: הכול חסום.
 - תמיד פתוחים (אחרי כניסה): `auth:*`, `license:*`. הערוץ `license:getStatus` מחזיר מצב וסיבות למסך.
 - `maxUsers` נאכף ב-`users:create` ובהפעלה מחדש של משתמש חסום ב-`users:update`.

@@ -491,20 +491,8 @@ function saveCurrentAsOpp(category) {
       const typeName = RE_TYPES.find(t => t.k === re.type)?.name || 'נכס';
       opp.name = `${typeName} ${re.size || ''}מ"ר ${re.rooms || ''} חד'`.trim();
       opp.asking = re.asking;
-      const pricePerSqm = RE_AREAS[re.area];
-      const typeMult = RE_TYPES.find(t => t.k === re.type)?.base ?? 1;
-      const condMult = CONDITIONS.find(c => c.k === re.condition)?.mult ?? 1;
-      let featuresMult = 1;
-      if (re.elevator) featuresMult *= 1.05;
-      if (re.parking) featuresMult *= 1.06;
-      if (re.balcony) featuresMult *= 1.04;
-      if (re.storage) featuresMult *= 1.02;
-      if (re.renovated) featuresMult *= 1.08;
-      if (re.tama) featuresMult *= 1.10;
-      if (re.view) featuresMult *= 1.03;
-      if (re.noise) featuresMult *= 0.95;
-      const floorMult = re.floor === 0 ? 0.95 : re.floor >= 4 ? 1.03 : 1.00;
-      opp.estimate = (re.size || 0) * pricePerSqm * typeMult * condMult * featuresMult * floorMult;
+      const q = reQuickEstimate(re);
+      opp.estimate = q ? q.value : 0;
       break;
     }
     case 'vehicle': {

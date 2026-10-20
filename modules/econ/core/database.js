@@ -42,6 +42,8 @@ const collections = [
   'mortgageAdvisor',   // ייעוץ משכנתאות: תיקי לקוחות והצעות בנקים
   'realty',            // נדל"ן ותיווך: נכסים, לקוחות ועסקאות (core/realty.js)
   'mortgageLab',       // מעבדת תמהיל: תחזית, אימותי כללים ותרחישים שמורים
+  'realEstate',        // שמאות מקרקעין: תיקי שומה, עסקאות השוואה ופרטי השמאי (core/realEstateAppraisal.js)
+  'realEstatePhotos',  // צילומים לתיקי השומה — אוסף נפרד ומוגבל בגודל (כל שמירה כותבת את כל האוספים)
   'payments',          // גבייה מלקוחות: דרישות תשלום וקישורים לחברת הסליקה של הארגון — בלי פרטי אשראי
   'privacy'            // תיקון 13: יומן בקשות עיון ותיקון של נושאי מידע
 ];
@@ -59,6 +61,8 @@ const objectCollections = new Set([
   'mortgageAdvisor',
   'realty',
   'mortgageLab',
+  'realEstate',
+  'realEstatePhotos',
   'payments',
   'privacy'
 ]);
@@ -101,6 +105,8 @@ const defaults = {
   mortgageAdvisor: { clients: [], offers: [] },
   realty: { properties: [], clients: [], deals: [] },
   mortgageLab: { forecast: null, verifications: [], scenarios: [], rateConvention: 'NOMINAL' },
+  realEstate: { cases: [], seq: 0, settings: {} },
+  realEstatePhotos: { photos: [] },
   payments: { settings: {}, requests: [] },
   privacy: { requests: [] },
   settings: { currency: 'ILS', vatRate: 0.18 }

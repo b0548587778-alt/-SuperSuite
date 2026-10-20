@@ -27,6 +27,7 @@ function dataMap(data, userCounts = {}) {
     { area: 'נדל"ן ותיווך — לקוחות', count: len(data.realty && data.realty.clients), fields: 'שם, ת.ז (רשות), טלפון, דוא"ל, תקציב ודרישות', sensitivity: 'regular', access: all },
     { area: 'נדל"ן ותיווך — הזמנות שירותי תיווך', count: len(data.realty && data.realty.orders), fields: 'לקוח (מהרשימה), כתובת הלקוח, תיאור הנכס, מחיר ועמלה', sensitivity: 'regular', access: all },
     { area: 'נדל"ן ותיווך — עסקאות', count: len(data.realty && data.realty.deals), fields: 'קונה ומוכר (מהרשימה), מחיר, מועדים, עמלות ותשלומים; קישור לתיק משכנתא', sensitivity: 'regular', access: all },
+    { area: 'שמאות מקרקעין — תיקי שומה', count: len(data.realEstate && data.realEstate.cases), fields: 'שם מזמין השומה, ת.ז, טלפון, כתובת הנכס, גוש/חלקה ושווי', sensitivity: 'sensitive', access: all },
     { area: 'אנשי קשר', count: len(data.contacts), fields: 'שם, טלפון, דוא"ל, כתובת', sensitivity: 'regular', access: all }
   ].map(r => ({ ...r, sensitivityLabel: SENSITIVITY[r.sensitivity] }));
   return {
