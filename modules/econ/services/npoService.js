@@ -67,16 +67,19 @@ class NpoService {
     return { order: withoutBank(order), donation };
   }
 
-  // סימון בתוך נתונים שכבר נטענו (בלי שמירה) — גם לסגירת אצוות מס"ב בשמירה אחת
-  _recordStandingIn(data, order, month, status, date, extra = {}) {
-    SO.assertCanRecord(order, month, status);
+  /* סימון בתוך נתונים שכבר נטענו (בלי שמירה) — גם לסגירת אצוות מס"ב בשמירה אחת.
+     fromBatch: { amountAg } — חיוב מאצוות מס"ב: הקבלה בסכום שנכתב בקובץ (לא בסכום הנוכחי של ההוראה),
+     ובלי בדיקת תקופת ההוראה (היא הסתיימה אחרי שהקובץ נשלח) */
+  _recordStandingIn(data, order, month, status, date, extra = {}, fromBatch = null) {
+    SO.assertCanRecord(order, month, status, { ignorePeriod: !!fromBatch });
     const entry = { month, status, at: new Date().toISOString(), ...extra };
     let donation = null;
     if (status === 'received') {
       if (!data.npo.settings.orgName) throw new Error('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
       const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : SO.dueDate(month, order.dayOfMonth);
+      const amount = fromBatch && Number.isInteger(fromBatch.amountAg) ? fromBatch.amountAg / 100 : order.amount;
       const clean = N.validateDonation({
-        date: day, donorName: order.donorName, donorId: order.donorId, amount: order.amount, method: order.method,
+        date: day, donorName: order.donorName, donorId: order.donorId, amount, method: order.method,
         fundId: order.fundId, purpose: order.purpose || 'הוראת קבע', donorPhone: order.donorPhone, donorAddress: order.donorAddress
       }, data.npo.settings, data.npo.donations.length);
       const { receipt, settings } = N.issueReceipt(clean, data.npo.settings);
@@ -169,16 +172,31 @@ class NpoService {
     if (!m.settings) throw new Error('יש להגדיר תחילה את פרטי המוסד במס"ב');
     const parsed = MSV.parseReturnsFile(text);
     const r = MSV.applyReturns(m.batches, parsed, m.settings.institution);
+    const manual = [];
     for (const x of r.matched) {
       const [orderId, month] = x.itemKey.split('|');
       const order = data.npo.standingOrders.find(o => o.id === orderId);
       if (!order) continue;
       const last = (order.history || []).filter(h => h.month === month).pop();
-      if (!last || last.status !== 'failed') this._recordStandingIn(data, order, month, 'failed', '', { reason: x.reason, masavBatchId: x.batchId });
+      // חודש שסומן ידנית "התקבל" (עם קבלה) והבנק החזיר — לא רושמים "נכשל" מעליו (זה היה מפיל את כל הקובץ);
+      // הקבלה מבוטלת ידנית, ושאר ההחזרות בקובץ נקלטות כרגיל
+      if (last && last.status === 'received') {
+        const why = `סומן "התקבל" והבנק החזיר את החיוב (${x.reason}) — יש לבטל את הקבלה ידנית`;
+        const it = m.batches.find(b => b.id === x.batchId).items.find(i => i.key === x.itemKey);
+        it.manual = why;
+        manual.push({ label: order.donorName, month, amountAg: it.amountAg, why });
+      } else if (!last || last.status !== 'failed') {
+        this._recordStandingIn(data, order, month, 'failed', '', { reason: x.reason, masavBatchId: x.batchId }, {});
+      }
       if (x.fatal) order.masavStopped = x.reason;
     }
+    // החזרה אחרי סגירת האצווה: התשלום כבר נרשם (ביטול ידני), אבל החזרה סופית עוצרת את החיובים הבאים
+    for (const x of r.late) {
+      const order = data.npo.standingOrders.find(o => o.id === x.itemKey.split('|')[0]);
+      if (order && x.fatal) order.masavStopped = x.reason;
+    }
     await this.db.save(data);
-    return MSV.returnsSummary(r, parsed);
+    return MSV.returnsSummary(r, parsed, manual);
   }
 
   // סגירת אצווה: כל חיוב שלא הוחזר ← "התקבל" וקבלה בתאריך החיוב, הכול בשמירה אחת
@@ -188,19 +206,34 @@ class NpoService {
     if (!b) throw new Error('האצווה לא נמצאה');
     if (b.status !== 'open') throw new Error('האצווה כבר סגורה או מבוטלת');
     let receipts = 0;
+    const manual = [];
     for (const it of b.items.filter(i => i.status === 'pending')) {
       const [orderId, month] = it.key.split('|');
       const order = data.npo.standingOrders.find(o => o.id === orderId);
-      if (!order) throw new Error(`הוראת הקבע של ${it.label} נמחקה — לא ניתן לסגור את האצווה`);
-      // חודש שסומן "התקבל" ידנית בינתיים — בלי קבלה נוספת
+      // הוראה שנמחקה (נתונים מלפני החסימה ב-deleteStandingOrder) — לא מפילה את כל האצווה; נרשמת לטיפול ידני
+      if (!order) {
+        it.status = 'paid';
+        it.manual = 'הוראת הקבע נמחקה — הכסף נגבה, ויש להפיק קבלה ידנית';
+        manual.push({ label: it.label, amountAg: it.amountAg, why: it.manual });
+        continue;
+      }
+      // חודש שסומן "התקבל" ידנית בינתיים — בלי קבלה נוספת. אחרת — קבלה בסכום שחויב בקובץ
       const last = (order.history || []).filter(h => h.month === month).pop();
-      if (!last || last.status !== 'received') { this._recordStandingIn(data, order, month, 'received', b.chargeDate, { masavBatchId: b.id }); receipts++; }
+      if (!last || last.status !== 'received') {
+        this._recordStandingIn(data, order, month, 'received', b.chargeDate, { masavBatchId: b.id }, { amountAg: it.amountAg });
+        receipts++;
+      }
       it.status = 'paid';
     }
     b.status = 'closed';
     b.closedAt = new Date().toISOString();
     await this.db.save(data);
-    return { paid: receipts, batch: MSV.batchView(b) };
+    return { paid: receipts, manual, batch: MSV.batchView(b) };
+  }
+
+  // הוראה שיש לה חיוב באצווה שלא בוטלה — הכסף עשוי להיגבות; מחיקה תשאיר את האצווה בלי הוראה
+  _inOpenBatch(data, orderId) {
+    return data.npo.masav.batches.some(b => b.status === 'open' && b.items.some(i => i.status === 'pending' && i.key.split('|')[0] === orderId));
   }
 
   async deleteStandingOrder(orderId) {
@@ -209,6 +242,7 @@ class NpoService {
     if (!order) throw new Error('הוראת הקבע לא נמצאה');
     // הוראה שכבר הפיקה קבלות לא נמחקת — רק מסתיימת, כדי שהקשר לקבלות יישמר
     if ((order.history || []).some(h => h.status === 'received')) throw new Error('להוראה זו כבר הופקו קבלות. במקום למחוק — קבע לה חודש סיום');
+    if (this._inOpenBatch(data, orderId)) throw new Error('להוראה זו יש חיוב באצוות מס"ב פתוחה. יש לסגור או לבטל את האצווה לפני המחיקה');
     data.npo.standingOrders = data.npo.standingOrders.filter(o => o.id !== orderId);
     await this.db.save(data);
     return true;

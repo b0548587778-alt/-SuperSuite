@@ -80,7 +80,8 @@ test('שם בעברית: קוד ישן (א=0x60) או CP862 (א=0x80), בסדר 
   assert.equal(s, '    12 ' + String.fromCharCode(0x62, 0x61, 0x60));
   const d = M.textField('ת', 3, 'cp862');
   assert.equal(d, '  ' + String.fromCharCode(0x80 + 26));
-  assert.equal(M.textField('Levi', 6), 'Levi  ', 'לטינית — משמאל');
+  assert.equal(M.textField('Levi', 6), 'LEVI  ', 'לטינית — משמאל, ובקוד הישן באותיות גדולות (קטנות = עברית)');
+  assert.equal(M.textField('Levi', 6, 'cp862'), 'Levi  ', 'ב-CP862 אין התנגשות');
   assert.equal(M.textField('בית־"הלל"', 8).trim().length, 7, 'גרשיים נמחקים, מקף ← רווח');
   // ם (0x6D) ו (0x65) ל (0x6C) ש (0x79) — סדר חזותי, ניקוד מוסר
   assert.equal(M.textField('שָׁלוֹם', 4), String.fromCharCode(0x6D, 0x65, 0x6C, 0x79));

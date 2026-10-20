@@ -118,10 +118,11 @@ function summarize(orders, today) {
 }
 
 // בדיקת סימון חודש: החודש חייב להיות פעיל, ולא ניתן לסמן "התקבל" פעמיים
-function assertCanRecord(order, ym, status) {
+// ignorePeriod — חיוב שהבנק כבר ביצע (מס"ב): נרשם גם אם ההוראה הסתיימה אחרי שהקובץ נשלח
+function assertCanRecord(order, ym, status, { ignorePeriod = false } = {}) {
   if (!MONTH_RE.test(String(ym))) throw new Error('חודש לא תקין');
   if (status !== 'received' && status !== 'failed') throw new Error('סטטוס לא תקין');
-  if (ym < order.startMonth || (order.endMonth && ym > order.endMonth)) throw new Error('ההוראה אינה פעילה בחודש זה');
+  if (!ignorePeriod && (ym < order.startMonth || (order.endMonth && ym > order.endMonth))) throw new Error('ההוראה אינה פעילה בחודש זה');
   const rec = lastRecord(order, ym);
   if (rec && rec.status === 'received') throw new Error('התשלום לחודש זה כבר נרשם כהתקבל');
 }

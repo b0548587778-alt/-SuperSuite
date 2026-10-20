@@ -59,7 +59,10 @@ function validateSettings(input) {
 // טקסט לשדה X: ניקוד מוסר, גרשיים נמחקים, סימנים מפרידים ← רווח, עברית ← קוד לפי ההגדרה, תו אחר ← רווח.
 // סדר חזותי: הסדר הלוגי מתהפך, ורצפים של ספרות ואותיות לטיניות חוזרים לסדרם. הפלט צמוד לימין
 function textField(text, len, hebrew = 'oldcode') {
-  const base = (HEBREW_CODES[hebrew] || HEBREW_CODES.oldcode).base;
+  const code = HEBREW_CODES[hebrew] ? hebrew : 'oldcode';
+  const base = HEBREW_CODES[code].base;
+  // בקוד הישן (7 ביט) הבתים 0x60–0x7A הם א–ת — אות לטינית קטנה הייתה נקראת בבנק כעברית. לכן רק אותיות גדולות
+  const latin = code === 'oldcode' ? (ch) => ch.toUpperCase() : (ch) => ch;
   // מקף עברי (U+05BE) בתוך טווח הניקוד — הופך לרווח לפני הסרת הניקוד
   const clean = String(text ?? '').normalize('NFC').replace(/־/g, ' ').replace(/[֑-ׇ]/g, '').replace(/["'`״׳]/g, '')
     .replace(/[()\/_\-–]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -68,7 +71,7 @@ function textField(text, len, hebrew = 'oldcode') {
   for (const ch of clean) {
     const c = ch.codePointAt(0);
     if (c >= 0x05D0 && c <= 0x05EA) out.push({ ch: String.fromCharCode(base + c - 0x05D0), ltr: false });
-    else if (/[0-9A-Za-z]/.test(ch)) out.push({ ch, ltr: true });
+    else if (/[0-9A-Za-z]/.test(ch)) out.push({ ch: latin(ch), ltr: true });
     else out.push({ ch: /[ .,:#+]/.test(ch) ? ch : ' ', ltr: false });
   }
   const hasHeb = /[א-ת]/.test(clean);
@@ -190,9 +193,11 @@ function busyKeys(batches) {
 }
 
 /* החלת קובץ החזרות על האצוות: כל החזרה מותאמת לחיוב ממתין לפי מוסד, אסמכתה, סכום ותאריך החיוב (אם יש).
-   מחזיר { matched: [{ batchId, itemKey, reason, fatal }], skipped, unmatched: [החזרה + סיבה] } ומעדכן את האצוות במקום */
+   מחזיר { matched: [{ batchId, itemKey, reason, fatal }], late, skipped, unmatched: [החזרה + סיבה] } ומעדכן את האצוות במקום.
+   late — החזרה לחיוב שכבר אושר כהתקבל: התשלום לא משתנה (ביטול ידני), אבל ההחזרה נרשמת — כדי שלא תדווח שוב
+   בכל קליטה, ושהחזרה סופית תעצור את החיובים הבאים */
 function applyReturns(batches, parsed, institution) {
-  const matched = [], unmatched = [];
+  const matched = [], unmatched = [], late = [];
   let skipped = 0;
   const inst = N(digits(institution) || '0', 8);
   for (const r of parsed.items) {
@@ -207,14 +212,20 @@ function applyReturns(batches, parsed, institution) {
     }
     if (!cands.length) { unmatched.push({ ...r, why: 'לא נמצא חיוב תואם באצוות' }); continue; }
     const { b, it } = cands.find(c => c.it.status === 'pending') || cands[0];
-    if (it.status === 'paid') { unmatched.push({ ...r, why: `החיוב כבר אושר כהתקבל באצווה של ${b.chargeDate} — יש לבטל את התשלום ידנית` }); continue; }
+    if (it.status === 'paid') {
+      unmatched.push({ ...r, why: `החיוב כבר אושר כהתקבל באצווה של ${b.chargeDate} — יש לבטל את התשלום ידנית` });
+      it.lateReturn = r.reason;
+      b.returns = [...(b.returns || []), key];
+      late.push({ batchId: b.id, itemKey: it.key, reason: r.reason, fatal: r.fatal });
+      continue;
+    }
     it.status = 'returned';
     it.reason = r.reason;
     it.reasonCode = r.reasonCode;
     b.returns = [...(b.returns || []), key];
     matched.push({ batchId: b.id, itemKey: it.key, reason: r.reason, fatal: r.fatal });
   }
-  return { matched, skipped, unmatched };
+  return { matched, late, skipped, unmatched };
 }
 
 module.exports = {
@@ -241,14 +252,18 @@ function batchView(b) {
     count: b.items.length, totalAg: b.items.reduce((t, i) => t + i.amountAg, 0),
     pending: b.items.filter(i => i.status === 'pending').length, pendingAg: sum('pending'),
     returned: b.items.filter(i => i.status === 'returned').map(i => ({ label: i.label, amountAg: i.amountAg, reason: i.reason || '' })),
-    paid: b.items.filter(i => i.status === 'paid').length
+    paid: b.items.filter(i => i.status === 'paid').length,
+    // דורש טיפול ידני: הוחזר אחרי האישור, או חיוב שלא נרשם בסגירה
+    manual: b.items.filter(i => i.lateReturn || i.manual).map(i => ({ label: i.label, amountAg: i.amountAg,
+      why: i.manual || `הוחזר אחרי האישור (${i.lateReturn}) — יש לבטל את התשלום ידנית` }))
   };
 }
 
-// סיכום קליטת החזרות לממשק — בלי מספרי חשבון
-const returnsSummary = (r, parsed) => ({
+// סיכום קליטת החזרות לממשק — בלי מספרי חשבון. manual — החזרות שנקלטו אבל דורשות פעולה ידנית בתחום
+const returnsSummary = (r, parsed, manual = []) => ({
   returned: r.matched.length, skipped: r.skipped,
   unmatched: r.unmatched.map(u => ({ reference: u.reference, amountAg: u.amountAg, reason: u.reason, why: u.why })),
+  manual,
   errors: parsed.errors
 });
 
