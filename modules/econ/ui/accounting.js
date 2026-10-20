@@ -389,6 +389,11 @@ function renderRecurring(rec) {
       </div>`).join('')}`;
 }
 
+// חשבונית מס/קבלה (320): הקבלה חלק מהמסמך — אין "בטל תשלום", רק חשבונית זיכוי. פטור — לעולם לא 320 (כמו docTypeOf)
+function isTaxInvoiceReceipt(i) {
+  return i.kind === 'tax-invoice-receipt' && !i.vatExempt;
+}
+
 function renderAcctInvoices(d) {
   const invoices = Array.isArray(d?.invoices) ? d.invoices : [];
   const docs = Array.isArray(d?.docs) ? d.docs : [];
@@ -417,7 +422,8 @@ function renderAcctInvoices(d) {
           ${['pending', 'waived'].includes(invoiceAllocState(i)) ? `<button class="secondary" data-action="alloc" data-id="${esc(i.id)}">הזנת מספר הקצאה</button>` : ''}
           ${invoiceAllocState(i) === 'pending' ? `<button class="secondary" data-action="alloc-waive" data-id="${esc(i.id)}">לא נדרש</button>` : ''}
           ${i.status === 'open' ? `<button class="secondary" data-action="pay" data-id="${esc(i.id)}">סמן כשולמה</button>` : ''}
-          ${i.status === 'paid' ? `<button class="danger-outline" data-action="unpay" data-id="${esc(i.id)}">בטל תשלום</button>` : ''}
+          ${i.status === 'paid' && !isTaxInvoiceReceipt(i) ? `<button class="danger-outline" data-action="unpay" data-id="${esc(i.id)}">בטל תשלום</button>` : ''}
+          ${i.status === 'paid' && isTaxInvoiceReceipt(i) ? '<small class="muted">חשבונית מס/קבלה — ביטול התשלום דרך חשבונית זיכוי</small>' : ''}
           ${i.receiptId ? `<button class="secondary" data-doc-pdf="${esc(i.receiptId)}">קבלה ${esc(i.receiptNumber)} (PDF)</button>` : ''}
           ${i.status !== 'cancelled' && Number(i.balance ?? i.total) > 0 ? `<button class="secondary" data-action="credit" data-id="${esc(i.id)}">חשבונית זיכוי</button>` : ''}
           ${i.status === 'open' && !(i.credited > 0) ? `<button class="danger-outline" data-action="cancel" data-id="${esc(i.id)}">בטל (חשבונית זיכוי)</button>` : ''}

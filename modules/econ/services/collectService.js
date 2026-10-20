@@ -4,7 +4,7 @@
 // השירותים האחרים טוענים ושומרים את המסד בעצמם — לכן הקריאה אליהם תמיד לפני/אחרי _load שלנו, לא באמצע.
 const crypto = require('crypto');
 const P = require('../core/collect');
-const { AccountingService: accounting } = require('./accountingService');
+const { AccountingService: accounting, localDay } = require('./accountingService');
 const { NpoService: npo } = require('./npoService');
 const { GemachService: gemach } = require('./gemachService');
 
@@ -40,7 +40,10 @@ class CollectService {
     if (input.kind === 'invoice') {
       const inv = await accounting.getInvoice(String(input.targetId || ''));
       if (inv.status !== 'open') throw new Error('החשבונית אינה פתוחה לתשלום');
-      if (P.toAg(inv.total) !== amountAg) throw new Error(`הסכום חייב להיות סכום החשבונית (${inv.total} ₪)`);
+      // הלקוח משלם את היתרה אחרי זיכויים — זה מה שנרשם ביומן ובקבלה
+      const balanceAg = P.toAg(inv.balance);
+      if (!(balanceAg > 0)) throw new Error('החשבונית זוכתה במלואה — אין יתרה לגבייה');
+      if (balanceAg !== amountAg) throw new Error(`הסכום חייב להיות סכום החשבונית לתשלום — היתרה אחרי זיכויים (${P.fromAg(balanceAg)} ₪)`);
     } else if (input.kind === 'gemach') {
       const loan = await gemach.getLoan(String(input.targetId || ''));
       if (loan.status !== 'active') throw new Error('ההלוואה אינה פעילה');
@@ -86,7 +89,9 @@ class CollectService {
   async _applyPayment(r, { date, txId }) {
     const t = r.target || {};
     if (r.kind === 'invoice') {
-      const inv = await accounting.recordPayment(t.id, { date });
+      // דף התשלום של חברת הסליקה = כרטיס אשראי; האסמכתה בקבלה — מספר העסקה, ובלעדיו מספר הדרישה.
+      // expectedAg: אם החשבונית זוכתה אחרי יצירת הדרישה, היתרה כבר לא שווה למה שהלקוח שילם — לא רושמים בשקט
+      const inv = await accounting.recordPayment(t.id, { date, method: 'card', reference: txId || r.ref, expectedAg: r.amountAg });
       return { invoiceNumber: inv.number };
     }
     if (r.kind === 'gemach') {
@@ -108,7 +113,7 @@ class CollectService {
     const r = payments.requests.find(x => x.id === id);
     if (!r) throw new Error('דרישת התשלום לא נמצאה');
     if (r.status !== 'open') throw new Error('הדרישה אינה ממתינה לתשלום');
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(input.date || '')) ? input.date : new Date().toISOString().slice(0, 10);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(input.date || '')) ? input.date : localDay();
     const txId = String(input.txId || '').trim().slice(0, 80);
     const applied = await this._applyPayment(r, { date, txId });
     return this._setPaid(id, { date, txId, source: 'manual', applied });

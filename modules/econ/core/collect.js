@@ -125,8 +125,11 @@ const FIELDS = {
   status: { label: 'סטטוס', required: false, hints: ['סטטוס', 'מצב', 'status', 'result'] },
 };
 const norm = (h) => String(h ?? '').replace(/^﻿/, '').toLowerCase().replace(/[\s"'`׳״.\-_:()/\\]/g, '');
-// סטטוס בדוח: רק "הצליח" נחשב תשלום. ריק = הצליח (דוחות רבים כוללים רק עסקאות שעברו)
+// סטטוס בדוח — רשימה לבנה: ריק (דוחות רבים כוללים רק עסקאות שעברו) או מילת הצלחה מוכרת = תשלום.
+// עסקה שנכשלה — מדולגת; כל סטטוס אחר ("ממתין לאישור", pending) — לא נרשם, ומוצג ברשימת "לא זוהו"
 const FAILED = /נכשל|נדחה|בוטל|זיכוי|החזר|failed|declined|cancel|refund|void|error/i;
+const SUCCEEDED = new Set(['הצליח', 'הצליחה', 'אושר', 'אושרה', 'שולם', 'בוצע', 'success', 'succeeded', 'approved', 'completed', 'paid']);
+const isSuccessStatus = (s) => !s || SUCCEEDED.has(String(s).trim().toLowerCase());
 
 function guessMapping(headers, saved = {}) {
   const map = {};
@@ -159,6 +162,7 @@ const nameKey = (s) => String(s || '').replace(/[\s"'`׳״.\-]/g, '').toLowerCas
 
 /* התאמת שורות הדוח לדרישות פתוחות:
    1. מספר הדרישה (P00012) מופיע באסמכתא / בהערה — התאמה ודאית, אם הסכום זהה.
+      מספר של דרישה ששולמה או בוטלה — לא עוברים לשלב 2 (אחרת אותו תשלום נרשם לדרישה אחרת של אותו אדם).
    2. אחרת — סכום זהה ושם זהה, ורק אם יש בדיוק דרישה פתוחה אחת כזו.
    עסקה שכבר נקלטה (לפי מספר עסקה) — מדולגת. מחזיר הצעה בלבד; השירות רושם אחרי אישור המשתמש. */
 function matchReport(csvText, mapping, requests) {
@@ -185,6 +189,8 @@ function matchReport(csvText, mapping, requests) {
     const txId = get('txId').slice(0, 80);
     if (txId && seenTx.has(txId)) { skipped++; return; }
     const row = { line, date, amountAg, name: get('name').slice(0, 120), txId, refText: get('ref').slice(0, 200) };
+    const status = get('status');
+    if (!isSuccessStatus(status)) { unmatched.push({ ...row, reason: `סטטוס לא מוכר: ${status.slice(0, 40)}` }); return; }
     const refs = (row.refText.match(/P\d{5,}/gi) || []).map(x => x.toUpperCase());
     const dup = refs.find(x => taken.has(x));
     let req = open.find(q => !taken.has(q.ref) && refs.includes(q.ref));
@@ -192,6 +198,13 @@ function matchReport(csvText, mapping, requests) {
     if (!req && dup) {
       unmatched.push({ ...row, reason: `הדרישה ${dup} כבר שויכה לשורה אחרת בדוח — ייתכן חיוב כפול` });
       return;
+    }
+    if (!req) {
+      const closed = requests.find(q => refs.includes(q.ref));
+      if (closed) {
+        unmatched.push({ ...row, reason: closed.status === 'cancelled' ? `הדרישה בוטלה (${closed.ref})` : `הדרישה כבר סומנה כשולמה (${closed.ref})` });
+        return;
+      }
     }
     if (req && req.amountAg !== amountAg) {
       unmatched.push({ ...row, reason: `מספר הדרישה ${req.ref} נמצא, אבל הסכום שונה (${fromAg(req.amountAg)} ₪ בדרישה)` });

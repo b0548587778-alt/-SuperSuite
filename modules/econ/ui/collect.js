@@ -98,13 +98,15 @@ async function collectNewRequest() {
   const base = { name: 'payerPhone', label: 'טלפון (לא חובה)' };
   let input = null;
   if (kind.kind === 'invoice') {
-    const invoices = (await window.systemAPI.getInvoices()).filter(i => i.status === 'open');
+    // הסכום לתשלום = היתרה אחרי זיכויים; חשבונית שזוכתה במלואה לא מוצעת
+    const due = (i) => Number(i.balance ?? i.total);
+    const invoices = (await window.systemAPI.getInvoices()).filter(i => i.status === 'open' && due(i) > 0);
     if (!invoices.length) throw new Error('אין חשבוניות פתוחות');
     const v = await licForm('תשלום חשבונית', [
-      { name: 'targetId', label: 'חשבונית', type: 'select', options: invoices.map(i => [i.id, `${i.number} — ${i.customer} — ${i.total} ₪`]) }, base], 'יצירה');
+      { name: 'targetId', label: 'חשבונית', type: 'select', options: invoices.map(i => [i.id, `${i.number} — ${i.customer} — ${due(i)} ₪${i.credited > 0 ? ' (יתרה אחרי זיכוי)' : ''}`]) }, base], 'יצירה');
     if (!v) return false;
     const inv = invoices.find(i => i.id === v.targetId);
-    input = { kind: 'invoice', targetId: inv.id, amount: inv.total, payerName: inv.customer, payerPhone: v.payerPhone, description: `חשבונית ${inv.number}` };
+    input = { kind: 'invoice', targetId: inv.id, amount: due(inv), payerName: inv.customer, payerPhone: v.payerPhone, description: `חשבונית ${inv.number}` };
   } else if (kind.kind === 'gemach') {
     const ov = await window.systemAPI.getGemachOverview();
     const loans = (ov.loans || []).filter(l => l.status === 'active');
