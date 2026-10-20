@@ -8,6 +8,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const D = require('../shell/display');
+const { shamaiSource } = require('./helpers/shamai-src');
 const TOKENS = read('shell/design-tokens.css');
 
 test('sanitize: ערך לא מוכר ← ברירת המחדל; קלט לא אובייקט ← הכול ברירת מחדל', () => {
@@ -142,9 +143,12 @@ test('סרגל הצד וכותרת מסך הבית נשארים כהים גם ב
   for (const k of ['side-top', 'on-dark', 'hero-end', 'navy-0', 'navy-1', 'ink', 'ink-2']) assert.ok(!(k in dark), 'הערכה הכהה לא משנה את ' + k);
 });
 
-test('שמאות: כפתור הערכה משנה את כל התוכנה, וערכת התוכנה גוברת על הבחירה השמורה', () => {
-  const c = read('modules/shamai/src/contacts.js');
-  assert.match(c, /window\.ssDisplay\.setTheme\(next\)/);
-  assert.match(c, /const savedTheme = suiteTheme\(\) \|\| localStorage\.getItem\('shamai_theme'\)/);
-  assert.match(c, /attributeFilter: \['data-ss-theme'\]/);
+test('שמאות: אין מתג יום/לילה משלו — ערכה אחת כמו בכל התוכנה (בהיר/כהה רק מחלון "תצוגה")', () => {
+  const html = read('modules/shamai/index.html');
+  const css = read('modules/shamai/style.css');
+  assert.match(html, /<html lang="he" dir="rtl" data-theme="light">/);
+  assert.doesNotMatch(html, /btn-theme/);
+  assert.doesNotMatch(shamaiSource(), /btn-theme|toggleTheme|shamai_theme|setAttribute\('data-theme'/);
+  // אין עיצוב לערכה הכהה הישנה של השמאות — הכהה מגיע רק מ-data-ss-theme (design-tokens.css)
+  assert.doesNotMatch(css, /\[data-theme="dark"\]/);
 });

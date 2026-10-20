@@ -178,33 +178,8 @@ function renderTemplatesList() {
   $$('.template-del').forEach(b => b.addEventListener('click', () => deleteTemplate(b.dataset.tplDel)));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  THEME TOGGLE - dark/light
-// ─────────────────────────────────────────────────────────────────────────────
-
-function setTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('shamai_theme', theme);
-  state.settings = state.settings || {};
-  state.settings.theme = theme;
-  Storage.save('settings', state.settings);
-}
-
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'light';
-  const next = current === 'dark' ? 'light' : 'dark';
-  setTheme(next);
-  // בתוכנה (PLAN.md 7.4): הכפתור משנה את הערכה של כל התוכנה, לא רק של השמאות
-  if (window.ssDisplay && window.ssDisplay.setTheme) window.ssDisplay.setTheme(next);
-}
-
-// ערכת התוכנה (data-ss-theme על <html>, מ-display-preload.js) גוברת על הבחירה השמורה בשמאות, ומתעדכנת בלי טעינה מחדש
-function suiteTheme() { const t = document.documentElement.getAttribute('data-ss-theme'); return t === 'dark' || t === 'light' ? t : null; }
-function watchSuiteTheme(onChange) {
-  if (typeof MutationObserver === 'undefined') return;
-  new MutationObserver(() => { const t = suiteTheme(); if (t && t !== document.documentElement.getAttribute('data-theme')) onChange(t); })
-    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-ss-theme'] });
-}
+// ערכת צבע: אין בשמאות מתג משלו. data-theme="light" קבוע (ב-index.html), כלומר צבעי התוכנה (--ss-*);
+// בהיר או כהה — רק מחלון "תצוגה" במעטפת, שמחליף את משתני --ss-* בכל המודולים יחד (PLAN.md 7.4)
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  TODAY'S INSIGHTS - smart suggestions
@@ -378,19 +353,6 @@ function renderInsights() {
     return;
   }
   setTimeout(() => {
-    // Theme
-    const savedTheme = suiteTheme() || localStorage.getItem('shamai_theme') || 'light';
-    setTheme(savedTheme);
-    watchSuiteTheme((t) => { setTheme(t); const b = $('#btn-theme'); if (b) b.textContent = t === 'light' ? '☀️' : '🌙'; });
-    $('#btn-theme')?.addEventListener('click', () => {
-      toggleTheme();
-      const btn = $('#btn-theme');
-      if (btn) btn.textContent = document.documentElement.getAttribute('data-theme') === 'light' ? '☀️' : '🌙';
-    });
-    // Set initial theme button icon
-    const themeBtn = $('#btn-theme');
-    if (themeBtn) themeBtn.textContent = savedTheme === 'light' ? '☀️' : '🌙';
-
     // Render templates when new opp form opens
     const newOppBtn = $('#btn-new-opp');
     if (newOppBtn) {
