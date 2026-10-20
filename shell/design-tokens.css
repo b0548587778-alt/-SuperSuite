@@ -9,6 +9,10 @@
   --ss-navy-2: #13264a;
   --ss-navy-3: #1b3260;
   --ss-navy-line: #22365e;
+  /* קבועים — לא משתנים בערכה הכהה (סרגל הצד וכותרת מסך הבית כהים תמיד) */
+  --ss-side-top: #13264a;
+  --ss-hero-end: #1d4f86;
+  --ss-on-dark: #ffffff;
   --ss-gold: #b8860b;
   --ss-gold-bright: #d4a73a;
   --ss-gold-deep: #8b6508;
@@ -117,6 +121,7 @@
   --ss-shadow-sm: 0 1px 2px rgba(20, 33, 61, .05);
   --ss-shadow: 0 1px 2px rgba(20, 33, 61, .05), 0 8px 24px rgba(20, 33, 61, .06);
   --ss-shadow-lg: 0 12px 40px rgba(20, 33, 61, .18);
+  --ss-glass: rgba(255, 255, 255, .86);     /* פס עליון שקוף-למחצה (כותרת המודול הכלכלי) */
   --ss-overlay: rgba(11, 20, 38, .55);       /* רקע מאחורי חלון הודעה (ss-dialog.js, dialog במעטפת) */
   --ss-focus: 0 0 0 3px rgba(36, 71, 158, .14);
   --ss-focus-ring: var(--ss-primary);        /* מסגרת מיקוד במקלדת (7.3) — על רקע בהיר */
@@ -133,3 +138,113 @@
    important: כללים ישנים מבטלים outline ב-:focus, ומסגרת המיקוד חייבת לגבור עליהם. */
 :focus-visible { outline: 3px solid var(--ss-focus-ring) !important; outline-offset: 2px !important; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* ===================================================================================================
+   הגדרות תצוגה (PLAN.md 7.4) — המשתמש בוחר בחלון "תצוגה" במעטפת; shell/display-preload.js מציב את המאפיינים
+   על <html> בכל מסך. כאן רק משתנים מוחלפים — כל מסך שמשתמש ב-var(--ss-*) מתעדכן בלי קוד משלו.
+   =================================================================================================== */
+
+/* ---- ערכה כהה ---- */
+:root[data-ss-theme="dark"] {
+  color-scheme: dark;
+  --ss-bg: #0e1626;
+  --ss-surface: #16213a;
+  --ss-surface-2: #1d2a47;
+  --ss-surface-input: #111b30;
+  --ss-border: #2a3a5c;
+  --ss-border-strong: #3a4d74;
+  --ss-text: #e8edf7;
+  --ss-text-2: #c9d3e6;
+  --ss-muted: #a3b2cc;
+  --ss-faint: #93a3c0;
+  --ss-navy-2: #dfe7f7;            /* בשימוש בעיקר כצבע כותרות */
+  --ss-gold: #d4a73a;
+  --ss-gold-deep: #e0b955;
+  --ss-gold-soft: #3a3020;
+  --ss-primary: #6d9bff;
+  --ss-primary-dark: #8db1ff;
+  --ss-primary-soft: #1c2c52;
+  --ss-primary-ring: rgba(109, 155, 255, .25);
+  --ss-on-primary: #0e1626;
+  --ss-success: #34c38f;
+  --ss-success-soft: #12352a;
+  --ss-success-line: #1f5a44;
+  --ss-success-ink: #7fe0b5;
+  --ss-warning: #e0a030;
+  --ss-warning-mid: #e0a030;
+  --ss-warning-soft: #3a2e12;
+  --ss-warning-line: #6b5320;
+  --ss-warning-ink: #f5cf7a;
+  --ss-danger: #f07070;
+  --ss-danger-soft: #3d1b1f;
+  --ss-danger-line: #6e2c33;
+  --ss-danger-ink: #ffb3b3;
+  --ss-info: #6d9bff;
+  --ss-info-soft: #182a4d;
+  --ss-info-line: #2d4a80;
+  --ss-info-ink: #a9c4ff;
+  --ss-cat-blue: #6d9bff;
+  --ss-cat-green: #34c38f;
+  --ss-cat-amber: #d4a73a;
+  --ss-cat-purple: #a78bfa;
+  --ss-cat-teal: #2cc4c4;
+  --ss-cat-slate: #a3b2cc;
+  --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
+  --ss-shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 24px rgba(0, 0, 0, .3);
+  --ss-shadow-lg: 0 12px 40px rgba(0, 0, 0, .5);
+  --ss-overlay: rgba(0, 0, 0, .6);
+  --ss-glass: rgba(22, 33, 58, .9);
+  --ss-focus: 0 0 0 3px rgba(109, 155, 255, .3);
+  --ss-focus-ring: var(--ss-gold-bright);
+}
+
+/* דוגמית הצבע בחלון "תצוגה" */
+:root { --ss-accent-blue: #24479e; --ss-accent-navy: #13264a; --ss-accent-teal: #0f7a7a; --ss-accent-green: #13794f; --ss-accent-purple: #5b3fa8; --ss-accent-burgundy: #8e2340; --ss-accent-gold: #7a5806; }
+
+/* ---- צבע הדגשה (כפתור ראשי, קישורים, סימון) — בהיר, ובערכה הכהה גוון בהיר יותר ---- */
+:root[data-ss-accent="navy"] { --ss-primary: #13264a; --ss-primary-dark: #0b1426; --ss-primary-soft: #e6eaf3; --ss-primary-ring: rgba(19, 38, 74, .16); }
+:root[data-ss-accent="teal"] { --ss-primary: #0f7a7a; --ss-primary-dark: #0b5f5f; --ss-primary-soft: #e3f4f4; --ss-primary-ring: rgba(15, 122, 122, .16); }
+:root[data-ss-accent="green"] { --ss-primary: #13794f; --ss-primary-dark: #0e5c3c; --ss-primary-soft: #e5f4ec; --ss-primary-ring: rgba(19, 121, 79, .16); }
+:root[data-ss-accent="purple"] { --ss-primary: #5b3fa8; --ss-primary-dark: #452f84; --ss-primary-soft: #efeafa; --ss-primary-ring: rgba(91, 63, 168, .16); }
+:root[data-ss-accent="burgundy"] { --ss-primary: #8e2340; --ss-primary-dark: #6e1a31; --ss-primary-soft: #f8e6eb; --ss-primary-ring: rgba(142, 35, 64, .16); }
+:root[data-ss-accent="gold"] { --ss-primary: #7a5806; --ss-primary-dark: #5c4204; --ss-primary-soft: #f6eccb; --ss-primary-ring: rgba(139, 101, 8, .16); }
+:root[data-ss-theme="dark"][data-ss-accent="navy"] { --ss-primary: #9db4e0; --ss-primary-dark: #bccbea; --ss-primary-soft: #1f2b45; }
+:root[data-ss-theme="dark"][data-ss-accent="teal"] { --ss-primary: #3cc8c8; --ss-primary-dark: #6fd8d8; --ss-primary-soft: #133536; }
+:root[data-ss-theme="dark"][data-ss-accent="green"] { --ss-primary: #3fcf94; --ss-primary-dark: #72dcb0; --ss-primary-soft: #133528; }
+:root[data-ss-theme="dark"][data-ss-accent="purple"] { --ss-primary: #b39dfa; --ss-primary-dark: #cbbcfc; --ss-primary-soft: #2a2348; }
+:root[data-ss-theme="dark"][data-ss-accent="burgundy"] { --ss-primary: #f0809e; --ss-primary-dark: #f5a6bb; --ss-primary-soft: #3d1c27; }
+:root[data-ss-theme="dark"][data-ss-accent="gold"] { --ss-primary: #f0c040; --ss-primary-dark: #f5d270; --ss-primary-soft: #3a3020; }
+
+/* ---- צפיפות: גובה פקדים ומרווחים ---- */
+:root[data-ss-density="compact"] {
+  --ss-ctl-h: 32px; --ss-ctl-pad-x: 12px;
+  --ss-sp-1: 3px; --ss-sp-2: 6px; --ss-sp-3: 9px; --ss-sp-4: 12px; --ss-sp-5: 18px; --ss-sp-6: 24px;
+}
+:root[data-ss-density="spacious"] {
+  --ss-ctl-h: 46px; --ss-ctl-pad-x: 20px;
+  --ss-sp-1: 5px; --ss-sp-2: 10px; --ss-sp-3: 15px; --ss-sp-4: 20px; --ss-sp-5: 30px; --ss-sp-6: 40px;
+}
+
+/* ---- גודל טקסט (גם יחידות rem של המודולים) ---- */
+:root[data-ss-text="sm"] { font-size: 15px; --ss-fs-xs: 11px; --ss-fs-sm: 12px; --ss-fs-md: 13px; --ss-fs-lg: 15px; --ss-fs-xl: 20px; --ss-fs-2xl: 25px; }
+:root[data-ss-text="lg"] { font-size: 18px; --ss-fs-xs: 13px; --ss-fs-sm: 15px; --ss-fs-md: 16px; --ss-fs-lg: 19px; --ss-fs-xl: 25px; --ss-fs-2xl: 32px; }
+:root[data-ss-text="xl"] { font-size: 20px; --ss-fs-xs: 15px; --ss-fs-sm: 17px; --ss-fs-md: 18px; --ss-fs-lg: 22px; --ss-fs-xl: 28px; --ss-fs-2xl: 36px; }
+
+/* ---- פינות ---- */
+:root[data-ss-shape="square"] { --ss-radius-sm: 2px; --ss-radius: 3px; --ss-radius-lg: 4px; }
+:root[data-ss-shape="round"] { --ss-radius-sm: 14px; --ss-radius: 18px; --ss-radius-lg: 22px; }
+
+/* ---- ניגודיות גבוהה ---- */
+:root[data-ss-contrast="high"] {
+  --ss-text: #000814; --ss-text-2: #0b1426; --ss-muted: #2b3a58; --ss-faint: #2b3a58;
+  --ss-border: #8a96ad; --ss-border-strong: #5d6b85;
+}
+:root[data-ss-theme="dark"][data-ss-contrast="high"] {
+  --ss-text: #ffffff; --ss-text-2: #f0f4fb; --ss-muted: #d5deef; --ss-faint: #d5deef;
+  --ss-border: #6a7fa8; --ss-border-strong: #8ea0c4;
+}
+
+/* ---- תנועה מופחתת ---- */
+:root[data-ss-motion="reduced"] *, :root[data-ss-motion="reduced"] *::before, :root[data-ss-motion="reduced"] *::after {
+  animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important;
+}

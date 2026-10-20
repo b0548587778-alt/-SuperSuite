@@ -47,7 +47,7 @@ button {
 
 .primary {
     background-color: var(--primary);
-    color: white;
+    color: var(--ss-on-primary);
     border: none;
     padding: 0.5rem 1rem;
     border-radius: var(--radius);
@@ -61,7 +61,7 @@ button {
 
 .secondary {
     background-color: var(--gray);
-    color: white;
+    color: var(--ss-on-primary);
     border: none;
     padding: 0.5rem 1rem;
     border-radius: var(--radius);
@@ -75,7 +75,7 @@ button {
 
 .danger {
     background-color: var(--danger);
-    color: white;
+    color: var(--ss-on-primary);
 }
 
 .danger:hover {
@@ -100,7 +100,7 @@ button {
 }
 
 .modal-card {
-    background-color: white;
+    background-color: var(--ss-on-primary);
     border-radius: var(--radius);
     width: 90%;
     max-width: 500px;
@@ -166,7 +166,7 @@ button {
 
 .toast {
     background-color: var(--dark);
-    color: white;
+    color: var(--ss-surface);
     padding: 0.75rem 1rem;
     border-radius: var(--radius);
     min-width: 250px;
@@ -206,7 +206,7 @@ body {
 
 aside {
     width: 260px;
-    background-color: white;
+    background-color: var(--ss-on-primary);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
@@ -224,7 +224,7 @@ header {
     align-items: center;
     padding: var(--spacing);
     border-bottom: 1px solid var(--border);
-    background-color: white;
+    background-color: var(--ss-on-primary);
 }
 
 .header-actions {
@@ -236,7 +236,7 @@ header {
 .status {
     padding: 0.25rem 0.5rem;
     background-color: var(--success);
-    color: white;
+    color: var(--ss-on-primary);
     border-radius: var(--radius);
     font-size: 0.875rem;
 }
@@ -300,12 +300,12 @@ nav {
 
 .nav.active {
     background-color: var(--primary);
-    color: white;
+    color: var(--ss-on-primary);
     border-radius: var(--radius) 0 0 var(--radius);
 }
 
 .nav.active span {
-    color: white;
+    color: var(--ss-on-primary);
 }
 
 .side-bottom {
@@ -334,7 +334,7 @@ nav {
 }
 
 .card {
-    background-color: white;
+    background-color: var(--ss-on-primary);
     border-radius: var(--radius);
     padding: var(--spacing);
     box-shadow: var(--shadow);
@@ -373,7 +373,7 @@ nav {
 }
 
 .panel {
-    background-color: white;
+    background-color: var(--ss-on-primary);
     border-radius: var(--radius);
     padding: var(--spacing);
     box-shadow: var(--shadow);
@@ -457,22 +457,22 @@ nav {
 
 .tag.income {
     background-color: var(--success);
-    color: white;
+    color: var(--ss-on-primary);
 }
 
 .tag.expense {
     background-color: var(--danger);
-    color: white;
+    color: var(--ss-on-primary);
 }
 
 .tag.client {
     background-color: var(--primary);
-    color: white;
+    color: var(--ss-on-primary);
 }
 
 .tag.donation {
     background-color: var(--ss-cat-purple);
-    color: white;
+    color: var(--ss-on-primary);
 }
 
 /* Forms */
@@ -572,7 +572,7 @@ nav {
 /* Print styles */
 @media print {
     body {
-        background-color: white;
+        background-color: var(--ss-on-primary);
         color: black;
     }
 
@@ -605,7 +605,7 @@ nav {
     border-radius: var(--radius);
     font-family: inherit;
     font-size: 1rem;
-    background-color: white;
+    background-color: var(--ss-on-primary);
 }
 
 .search-box input:focus {
@@ -667,7 +667,7 @@ nav {
     border-radius: var(--radius);
     font-family: inherit;
     font-size: 1rem;
-    background-color: white;
+    background-color: var(--ss-on-primary);
 }
 
 #modalForm .field input:focus,
@@ -699,7 +699,7 @@ button.secondary:disabled {
     margin-top: 0.35rem;
     padding: 0.15rem 0.5rem;
     background-color: var(--danger);
-    color: white;
+    color: var(--ss-on-primary);
     border-radius: var(--radius);
     font-size: 0.8rem;
 }
@@ -852,7 +852,7 @@ body { background: var(--light); color: var(--dark); -webkit-font-smoothing: ant
 
 header {
     padding: 18px 28px;
-    background: rgba(255,255,255,.86);
+    background: var(--ss-glass);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--border);
     position: sticky; top: 0; z-index: 5;
@@ -1052,7 +1052,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .modal-form textarea{width:100%;font-family:var(--font-mono);font-size:12px;padding:8px;border:1px solid var(--border);border-radius:var(--radius);resize:vertical}
 
 /* מסך הכניסה והמנהל הראשון (PLAN.md 7.2) — מסך מלא בצבעי המותג, כרטיס במרכז */
-.modal.auth-screen{background:radial-gradient(600px 360px at 100% 0%,rgba(212,167,58,.16),transparent 70%),linear-gradient(180deg,var(--ss-navy-2),var(--ss-navy-0))}
+.modal.auth-screen{background:radial-gradient(600px 360px at 100% 0%,rgba(212,167,58,.16),transparent 70%),linear-gradient(180deg,var(--ss-side-top),var(--ss-navy-0))}
 .modal.auth-screen{overflow-y:auto;align-items:safe center;padding:var(--ss-sp-4) 0}
 .auth-card{width:min(440px,92vw);max-width:none;max-height:none;overflow:visible;margin:auto 0;border-radius:var(--ss-radius-lg);box-shadow:var(--ss-shadow-lg);padding-top:var(--ss-sp-4)}
 .auth-head{display:flex;flex-direction:column;align-items:center;gap:6px;padding:0 var(--ss-sp-5)}

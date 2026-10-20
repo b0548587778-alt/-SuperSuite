@@ -136,7 +136,7 @@ function buildWeb() {
   // המעטפת
   const shellDst = path.join(WWW, 'shell');
   fs.mkdirSync(shellDst, { recursive: true });
-  for (const f of ['hebcal.js', 'catalog.js', 'onboarding.js', 'shell.js', 'design-tokens.css', 'ui-kit.css', 'ss-dialog.js']) fs.copyFileSync(path.join(ROOT, 'shell', f), path.join(shellDst, f));
+  for (const f of ['display.js', 'hebcal.js', 'catalog.js', 'onboarding.js', 'shell.js', 'design-tokens.css', 'ui-kit.css', 'ss-dialog.js']) fs.copyFileSync(path.join(ROOT, 'shell', f), path.join(shellDst, f));
   for (const f of ['node-shims.js', 'host.js', 'mobile.js']) fs.copyFileSync(path.join(AND, 'web', f), path.join(shellDst, f));
 
   const host = bundle({
