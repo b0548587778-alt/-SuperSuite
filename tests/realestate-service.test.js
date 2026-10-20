@@ -122,6 +122,8 @@ test('שירות: פרטי השמאי נשמרים מנוקים, ומחיקת ת
 test('רישוי, קטלוג ומסד: תחום נפרד econ.realestate', () => {
   assert.equal(LG.ECON_SUB_FEATURES.realestate, 'econ.realestate');
   assert.ok(OFFER.FEATURES.includes('econ.realestate'));
+  // החלטת הבעלים (20.10.2026): רישיון נדל"ן אחד — שמאות מקרקעין ותיווך ויזמים
+  assert.ok(fs.readFileSync(path.join(ROOT, 'modules/econ/ui/licensing.js'), 'utf8').includes(`['econ.realestate', 'נדל"ן (שמאות מקרקעין, תיווך ויזמים)']`));
   const without = { mode: 'licensed', status: 'active', features: ['econ'] };
   assert.ok(LG.checkChannel(without, 'realestate:getOverview', 'data.view'), 'בלי התחום — חסום');
   assert.equal(LG.checkChannel({ ...without, features: ['econ', 'econ.realestate'] }, 'realestate:getOverview', 'data.view'), null);
