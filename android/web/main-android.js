@@ -12,6 +12,7 @@ const TrainerCheck = require('../../shell/trainer-backup-check');
 
 const MODS = ['econ', 'shamai', 'trainer', 'tools'];
 const LS_MODS = ['shamai', 'trainer', 'tools'];
+const MOD_NAMES = { shamai: 'השמאות', trainer: 'האימונים', tools: 'ארגז הכלים' };
 const ENTRY = {
   econ: '/views/index.html?embedded=1',
   shamai: '/index.html',
@@ -133,7 +134,13 @@ function start(ctx) {
     for (const id of LS_MODS) {
       if (scope !== 'all' && scope !== id) continue;
       frames.ensure(id, ENTRY[id]);
-      try { out.localStorage[id] = await frames.request(id, 'ls-dump'); } catch { out.localStorage[id] = {}; }
+      // כשל במודול = כשל של הגיבוי כולו (כמו בכספים) — לא קובץ שנראה שלם בלי נתוני המודול
+      try { out.localStorage[id] = await frames.request(id, 'ls-dump'); }
+      catch {
+        const err = new Error(`לא ניתן היה לקרוא את נתוני ${MOD_NAMES[id] || id}, ולכן הגיבוי לא נשמר. נסו שוב בעוד רגע.`);
+        err.code = 'module-read-failed';
+        throw err;
+      }
     }
     return out;
   }

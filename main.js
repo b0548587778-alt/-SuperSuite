@@ -22,7 +22,7 @@ const SyncService = require('./shell/sync/service');
 const LG = require('./shell/licensing/gate');
 const LoginGate = require('./shell/login-gate');
 const { createLogger } = require('./shell/logger');
-const { createCrashGuard } = require('./shell/crash');
+const { createCrashGuard, MODULE_NAMES } = require('./shell/crash');
 // יומן תקלות ורשת ביטחון לקריסות (PLAN.md 2.1–2.2) — מותקנים לפני כל דבר אחר, כדי לתפוס גם תקלה בעלייה
 const logger = createLogger({ dir: app.getPath('userData') });
 const crash = createCrashGuard({ logger, dialog, app, getWin: () => win, version: app.getVersion ? String(app.getVersion()) : '' });
@@ -448,6 +448,13 @@ function waitLoaded(wc) {
 // scope: 'all' או שם מודול בודד ('econ' | 'shamai' | 'trainer' | 'tools')
 // כשל בקריאת הכספים = כשל של הגיבוי כולו (code: 'econ-read-failed'): קודם נכתב גיבוי בלי הכספים, הסטטוס
 // הראה "הצליח", והסבב האוטומטי מחק בגללו את הגיבוי התקין הישן ביותר. עכשיו לא נכתב דבר ולא נמחק דבר
+// כך גם כשל בקריאת מודול (code: 'module-read-failed') — קודם נשמר {} בשקט, והגיבוי נראה שלם בלי נתוני המודול
+function moduleReadError(id, cause) {
+  logger.error('backup-module-read', cause);
+  const err = new Error(`לא ניתן היה לקרוא את נתוני ${MODULE_NAMES[id] || id}, ולכן הגיבוי לא נשמר. נסו שוב בעוד רגע; אם התקלה חוזרת — שמרו דוח תקלה (F1) ופנו לתמיכה.`);
+  err.code = 'module-read-failed';
+  return err;
+}
 async function collectBackup(scope = 'all') {
   const out = { suite: 'SuperSuite', version: 2, scope, createdAt: new Date().toISOString(), econ: null, localStorage: {} };
   if (scope === 'all' || scope === 'econ') {
@@ -466,7 +473,8 @@ async function collectBackup(scope = 'all') {
     if (SecureStore.MODULES.includes(id) && secureStore(id).state === 'encrypted') { out.localStorage[id] = secureStore(id).snapshot(); continue; }
     const v = ensureView(id);
     await waitLoaded(v.webContents);
-    try { out.localStorage[id] = JSON.parse(await v.webContents.executeJavaScript(DUMP)); } catch { out.localStorage[id] = {}; }
+    try { out.localStorage[id] = JSON.parse(await v.webContents.executeJavaScript(DUMP)); }
+    catch (e) { throw moduleReadError(id, e); }
   }
   // ensureView יוצר תצוגות מוסתרות ואינו משנה את המודול הפעיל — אין צורך להחזיר פוקוס,
   // אחרת הגיבוי האוטומטי גונב את הפוקוס מהמשתמש כל 6 שעות

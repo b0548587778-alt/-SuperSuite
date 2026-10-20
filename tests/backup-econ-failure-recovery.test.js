@@ -43,7 +43,7 @@ test('runAutoBackup: איסוף שנכשל ← השגיאה עולה, בלי כ�
 
 /* ---------- אנדרואיד: גיבוי ידני ---------- */
 // main-android.js נטען ישירות ב-Node (בלי המאגד — הקוד שנבדק כאן לא תלוי ב-shims), עם מודול כלכלי מדומה
-function startAndroid({ econFails }) {
+function startAndroid({ econFails, moduleFails = false }) {
   const MA = require('../android/web/main-android.js');
   const handlers = new Map();
   const alerts = [], saved = [];
@@ -54,7 +54,7 @@ function startAndroid({ econFails }) {
   const frames = {
     _f: new Set(['econ']), exists: (id) => frames._f.has(id), ensure: (id) => frames._f.add(id), setVisible() {},
     whenReady: () => Promise.resolve(), send() {}, reloadAll() {}, moduleSenderIds: () => [],
-    request: async (id, type) => (type === 'ls-dump' ? { k: 'v-' + id } : true)
+    request: async (id, type) => { if (moduleFails && type === 'ls-dump') throw new Error('timeout'); return type === 'ls-dump' ? { k: 'v-' + id } : true; }
   };
   MA.start({
     ipcMain: { handle: (c, fn) => handlers.set(c, fn), on() {} }, econ, frames, SHELL_ID: 1, emitShell() {},
@@ -93,6 +93,23 @@ test('אנדרואיד (בקרה): גיבוי תקין נשמר מוצפן עם 
   assert.deepEqual(JSON.parse(BK.decryptBackup(tools.saved[0].text, 'backup-pass-1')).localStorage, { tools: { k: 'v-tools' } });
 });
 
+
+test('אנדרואיד: מודול שלא ענה לקריאת הנתונים ← שגיאה בעברית, לא נשמר קובץ שנראה שלם', async () => {
+  for (const scope of ['all', 'tools']) {
+    const a = startAndroid({ econFails: false, moduleFails: true });
+    await assert.rejects(a.call('shell:backup-all', 'backup-pass-1', scope), (e) => {
+      assert.equal(e.code, 'module-read-failed');
+      assert.match(e.message, /הגיבוי לא נשמר/);
+      assert.doesNotMatch(e.message, /timeout/);
+      return true;
+    });
+    assert.deepEqual(a.saved, [], scope + ': לא נפתח בוחר קבצים ולא נכתב דבר');
+    assert.deepEqual(a.alerts, [], scope + ': אין הודעת "נשמר"');
+  }
+  // גיבוי של הכספים בלבד לא קורא את המודולים — לא נפגע
+  const econOnly = startAndroid({ econFails: false, moduleFails: true });
+  assert.deepEqual(await econOnly.call('shell:backup-all', 'backup-pass-1', 'econ'), { ok: true });
+});
 /* ---------- שחזור מסד פגום: הגיבוי החדש ביותר שמכיל את הכספים ---------- */
 const KEY = crypto.randomBytes(32).toString('base64');
 function writeAuto(dir, day, econ) {

@@ -17,6 +17,7 @@ fs.writeFileSync(path.join(userData, 'ui-settings.json'), JSON.stringify({ calen
 
 const handlers = {};
 const created = { views: [], windows: [] };
+let moduleDumpFails = false; // קריאת localStorage של מודול נכשלת (בדיקת module-read-failed)
 let readyCallback = null;
 
 function chainable(props = {}) {
@@ -38,7 +39,7 @@ class WebContentsViewStub {
     this.opts = opts;
     created.views.push(this);
     this.webContents = chainable({ id: this.id, isDestroyed: () => false, isLoading: () => false, send() {},
-      executeJavaScript: async () => '{}' });
+      executeJavaScript: async () => { if (moduleDumpFails) throw new Error('Script failed to execute'); return '{}'; } });
   }
   setVisible(v) { this.visible = v; }
   setBounds() {}
@@ -202,6 +203,40 @@ test('גיבוי ידני של מודול בלי כספים לא נפגע מתק
   assert.ok(dialogLog.some(d => d[0] === 'box' && d[1] === 'הגיבוי נשמר ומוצפן'));
 });
 
+
+// כשל בקריאת מודול (ארגז הכלים / שמאות / אימונים) — גם הוא כשל של הגיבוי כולו, ולא {} שקט
+async function withBrokenModules(fn) {
+  moduleDumpFails = true;
+  try { return await fn(); } finally { moduleDumpFails = false; }
+}
+
+test('גיבוי: כשל בקריאת מודול ← שגיאה בעברית, בלי קובץ; בגיבוי האוטומטי — סטטוס כשל בלי מחיקה', async () => {
+  await boot();
+  const out = path.join(userData, 'manual-tools-broken.ssbk');
+  dialogPlan.save = { canceled: false, filePath: out };
+  dialogLog.length = 0;
+  await withBrokenModules(() => assert.rejects(handlers['shell:backup-all'](shellSender(), 'long-pass-123', 'tools'), (e) => {
+    assert.equal(e.code, 'module-read-failed');
+    assert.match(e.message, /ארגז הכלים.*הגיבוי לא נשמר/);
+    assert.doesNotMatch(e.message, /Script failed/, 'בלי טקסט טכני באנגלית למשתמש');
+    return true;
+  }));
+  dialogPlan.save = { canceled: true };
+  assert.ok(!fs.existsSync(out), 'לא נכתב קובץ');
+  assert.deepEqual(dialogLog, [], 'לא נפתח חלון שמירה ולא הוצגה הודעת "נשמר"');
+  // הגיבוי של היום (מהבדיקה הקודמת) — הצידה, אחרת הסבב מדלג בלי לאסוף
+  const before = snapshotDir();
+  const today = listDir().filter(f => /^auto-.*\.ssbk$/.test(f)).pop();
+  const aside = path.join(userData, 'aside-' + today);
+  fs.renameSync(path.join(bkDir, today), aside);
+  let status;
+  try { status = await withBrokenModules(() => autoBackup()); } finally { fs.renameSync(aside, path.join(bkDir, today)); }
+  assert.equal(status.ok, false);
+  assert.equal(status.reason, 'module-read-failed');
+  assert.deepEqual(snapshotDir(), before, 'אין קובץ חדש ושום גיבוי ישן לא נמחק');
+  assert.match(await handlers['shell:get-backup-status'](shellSender()), /^⚠ הגיבוי לא נשמר — קריאת הנתונים של אחד המודולים נכשלה/);
+  assert.match(fs.readFileSync(path.join(userData, 'crash.log'), 'utf8'), /\[backup-module-read\][^\n]*Script failed/);
+});
 /* ---------- ממצא 6: saveJson — קובץ זמני והחלפה ---------- */
 const uiFile = path.join(userData, 'ui-settings.json');
 const crashLog = () => (fs.existsSync(path.join(userData, 'crash.log')) ? fs.readFileSync(path.join(userData, 'crash.log'), 'utf8') : '');

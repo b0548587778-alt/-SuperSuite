@@ -242,7 +242,7 @@ public class MainActivity extends Activity {
                 String name = displayName(uri, "");
                 if (p.open) {
                     try (InputStream in = getContentResolver().openInputStream(uri)) {
-                        if (in == null) throw new IllegalStateException("open failed");
+                        if (in == null) throw new IllegalStateException("לא ניתן לפתוח את הקובץ");
                         ByteArrayOutputStream buf = new ByteArrayOutputStream();
                         byte[] chunk = new byte[64 * 1024];
                         int n;
