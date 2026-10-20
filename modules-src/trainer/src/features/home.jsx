@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { GOALS } from '../data/constants.js';
 import { S, K } from '../lib/db.js';
 import { TodayPanel } from '../studio.jsx';
+import * as St from '../lib/studio.js';
 import { FONT_HEADING, FONT_BODY, Btn, Card, Field, Input, Textarea } from '../components/legacy-ui.jsx';
 import { askConfirm } from '../lib/dialog.js';
 
@@ -76,28 +77,17 @@ export function TrainerSetup({ onSave }) {
 export function Dashboard({ clients, trainer, setView }) {
   const [stats, setStats] = useState({ sessionsWeek: 0, sessionsMonth: 0, inactive: [] });
 
+  // נוכחות ביומן + רישום ביצוע בתוכנית (lib/studio.js → trainingOverview), לפי היום המקומי
   useEffect(() => {
     (async () => {
-      let weekCount = 0, monthCount = 0;
-      const inactive = [];
-      const now = Date.now();
-      const week = 7 * 24 * 3600 * 1000;
-      const month = 30 * 24 * 3600 * 1000;
-
+      const schedule = await S.get(K.schedule);
+      const sessionsByClient = {};
       for (const c of clients) {
-        const sess = (await S.get(K.sessions(c.id))) || [];
-        let lastSession = 0;
-        sess.forEach((s) => {
-          const t = new Date(s.completedAt).getTime();
-          if (now - t < week) weekCount++;
-          if (now - t < month) monthCount++;
-          if (t > lastSession) lastSession = t;
-        });
-        if (lastSession === 0 || (now - lastSession > 7 * 24 * 3600 * 1000)) {
-          inactive.push({ ...c, lastSession });
-        }
+        const sess = await S.get(K.sessions(c.id));
+        sessionsByClient[c.id] = Array.isArray(sess) ? sess : [];
       }
-      setStats({ sessionsWeek: weekCount, sessionsMonth: monthCount, inactive: inactive.slice(0, 5) });
+      const r = St.trainingOverview({ clients, schedule: Array.isArray(schedule) ? schedule : [], sessionsByClient, today: St.todayStr() });
+      setStats({ ...r, inactive: r.inactive.slice(0, 5) });
     })();
   }, [clients]);
 
@@ -171,7 +161,7 @@ export function Dashboard({ clients, trainer, setView }) {
                   <div>
                     <div className="text-sm">{c.name}</div>
                     <div className="text-xs text-slate-500">
-                      {c.lastSession === 0 ? 'טרם התאמן' : `אימון אחרון: ${formatRelative(c.lastSession)}`}
+                      {c.lastDate ? `אימון אחרון: ${St.relativeDaysHe(c.lastDays)}` : 'טרם התאמן'}
                     </div>
                   </div>
                   <span className="text-amber-400 text-xs">←</span>
@@ -240,15 +230,6 @@ function StatCard({ title, value, tone = 'normal', onClick }) {
   );
 }
 
-function formatRelative(ts) {
-  const diff = Date.now() - ts;
-  const days = Math.floor(diff / (24 * 3600 * 1000));
-  if (days === 0) return 'היום';
-  if (days === 1) return 'אתמול';
-  if (days < 7) return `לפני ${days} ימים`;
-  if (days < 30) return `לפני ${Math.floor(days / 7)} שבועות`;
-  return `לפני ${Math.floor(days / 30)} חודשים`;
-}
 
 // ═══════════════════════════════════════════════════════════════════
 //                      TRAINER SETTINGS

@@ -7,6 +7,7 @@ import { filterExercises, getMedicalWarnings } from '../lib/program.js';
 import { FONT_HEADING, FONT_BODY, Btn, Card, Field, Input, Textarea, Badge, Modal } from '../components/legacy-ui.jsx';
 import { askConfirm, showMessage } from '../lib/dialog.js';
 import { savePdf, printNow } from '../lib/print.js';
+import { todayStr } from '../lib/studio.js';
 
 
 // ─── Program tab ───
@@ -61,7 +62,7 @@ export function ProgramTab({ client, program, trainer, onGenerate, onSave, onLog
           }}>💬 וואטסאפ</Btn>
           <Btn variant="outline" size="sm" onClick={() => {
             const text = programToPlainText(client, program, trainer);
-            downloadText(text, `תוכנית-${client.name}-${new Date().toISOString().split('T')[0]}.txt`);
+            downloadText(text, `תוכנית-${client.name}-${todayStr()}.txt`);
           }}>⬇ הורדה</Btn>
           <Btn variant="outline" onClick={() => setPrintMode(true)}>⎙ ייצוא PDF</Btn>
           <Btn variant="secondary" onClick={async () => { if (await askConfirm('ליצור תוכנית חדשה? הקיימת תימחק.', { danger: true })) onGenerate(); }}>↻ בנה מחדש</Btn>

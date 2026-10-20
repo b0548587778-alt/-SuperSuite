@@ -185,7 +185,8 @@ test('שמירה ושחזור: S שומר JSON ומחזיר אותו, וכל מ�
     const { checkTrainerItems, isKnownKey } = require('../shell/trainer-backup-check');
     const keys = Object.values(K).map(k => (typeof k === 'function' ? k('abc') : k));
     for (const k of keys) assert.ok(isKnownKey(k), 'לא ישוחזר: ' + k);
-    const items = Object.fromEntries(keys.map(k => [k, JSON.stringify(k === K.clientIndex ? ['abc'] : (/plans|schedule/.test(k) ? [] : {}))]));
+    // רשימות: plans, schedule ו-sessions/measurements/assessments/memberships; השאר — אובייקט
+    const items = Object.fromEntries(keys.map(k => [k, JSON.stringify(k === K.clientIndex ? ['abc'] : (/plans|schedule|^(sessions|measurements|assessments|memberships):/.test(k) ? [] : {}))]));
     const r = checkTrainerItems(items);
     assert.equal(r.ok, true, JSON.stringify(r));
   } finally { delete global.window; }

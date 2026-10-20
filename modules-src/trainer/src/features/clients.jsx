@@ -4,12 +4,12 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { MEDICAL_CONDITIONS, GOALS, EQUIPMENT, LEVELS } from '../data/constants.js';
 import { S, K } from '../lib/db.js';
 import { ClientMembershipTab, ClientReport } from '../studio.jsx';
-import { generateProgram, getMedicalWarnings, calcBMI, bmiCategory } from '../lib/program.js';
+import { generateProgram, getMedicalWarnings, calcBMI, bmiCategory, validateClient } from '../lib/program.js';
 import { FONT_HEADING, Btn, Card, Field, Input, Textarea, Badge, Toggle } from '../components/legacy-ui.jsx';
 import { ProgramTab } from './program.jsx';
 import { ClientNutritionTab } from './nutrition.jsx';
 import { ClientAssessmentTab } from './tools.jsx';
-import { askConfirm } from '../lib/dialog.js';
+import { askConfirm, showMessage } from '../lib/dialog.js';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -123,7 +123,9 @@ export function ClientForm({ initial, onSave, onCancel }) {
     createdAt: new Date().toISOString(),
   });
 
-  const canSave = d.name.trim() && d.age && d.goal && d.level;
+  // טווחים: גיל, גובה (ס"מ), משקל, ימים, ולפחות פריט ציוד אחד (lib/program.js → validateClient)
+  const errors = validateClient(d);
+  const canSave = d.name.trim() && d.goal && d.level && errors.length === 0;
 
   const update = (k, v) => setD({ ...d, [k]: v });
 
@@ -225,6 +227,11 @@ export function ClientForm({ initial, onSave, onCancel }) {
         <Textarea value={d.notes} onChange={(v) => update('notes', v)} rows={4} placeholder="זמינות, העדפות, הערות אישיות..." />
       </Card>
 
+      {errors.length > 0 && (
+        <div className="mb-3 text-sm text-amber-300" aria-live="polite">
+          {errors.map((e) => <div key={e}>{e}</div>)}
+        </div>
+      )}
       <div className="flex justify-between">
         <Btn variant="ghost" onClick={onCancel}>ביטול</Btn>
         <Btn variant="primary" disabled={!canSave} onClick={handleSave}>שמירה</Btn>
@@ -280,7 +287,8 @@ export function ClientDetail({ clientId, initialTab, clients, trainer, setView, 
   const bmi = calcBMI(client.height, client.weight);
 
   const handleGenerate = async () => {
-    const newProgram = generateProgram(client);
+    let newProgram;
+    try { newProgram = generateProgram(client); } catch (e) { showMessage(e.message); return; }
     await S.set(K.program(client.id), newProgram);
     setProgram(newProgram);
     setTab('program');

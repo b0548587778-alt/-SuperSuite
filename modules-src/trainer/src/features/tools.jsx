@@ -5,6 +5,7 @@ import { S } from '../lib/db.js';
 import { FONT_HEADING, FONT_BODY, Btn, Card, Field, Input, Badge } from '../components/legacy-ui.jsx';
 import { IntervalTimer } from './cardio.jsx';
 import { savePdf, printNow } from '../lib/print.js';
+import { todayStr } from '../lib/studio.js';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -153,7 +154,7 @@ function FMSAssessment() {
 
 function PARQForm() {
   const [name, setName] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(todayStr()); // היום המקומי (לא UTC — שאלון חתום בין חצות ל-03:00)
   const [answers, setAnswers] = useState({});
 
   return (

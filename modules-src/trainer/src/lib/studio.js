@@ -277,6 +277,13 @@ export function attendanceStats(schedule, clientId, from = '0000-00-00', to = '9
 // ─── תזכורות (מחושבות, לא נשלחות לבד) ───
 const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || '';
 
+// היום שאחרי today שיש בו אימונים: מחר, ואם מחר שבת — יום ראשון ("ביום ראשון" במקום "מחר")
+export function nextTrainingDay(today) {
+  const tomorrow = addDays(today, 1);
+  if (!isShabbat(tomorrow)) return { date: tomorrow, label: 'מחר' };
+  return { date: addDays(today, 2), label: 'ביום ראשון' };
+}
+
 export function reminders({ clients, membershipsByClient, lastSessionByClient = {}, schedule, today, trainer }) {
   const out = [];
   const sign = trainer?.name ? `\n${trainer.name}` : '';
@@ -310,13 +317,14 @@ export function reminders({ clients, membershipsByClient, lastSessionByClient = 
         message: `שלום ${firstName(c.name)},\nמתגעגעים אליך באימונים! מתי נוח לך לקבוע את האימון הבא?${sign}` });
     }
   }
-  const tomorrow = addDays(today, 1);
-  for (const a of appointmentsOn(schedule, tomorrow)) {
+  // יום האימונים הבא: מחר, וביום שישי — יום ראשון (בשבת אין אימונים)
+  const { date: nextDay, label: nextLabel } = nextTrainingDay(today);
+  for (const a of appointmentsOn(schedule, nextDay)) {
     for (const p of a.participants.filter((x) => x.status === 'booked')) {
       const c = (clients || []).find((x) => x.id === p.clientId);
       if (!c) continue;
-      out.push({ kind: 'tomorrow', clientId: c.id, tone: 'indigo', title: `${c.name} — ${a.kind === 'group' ? a.title : 'אימון אישי'} מחר ב-${a.time}`, detail: formatDayHe(tomorrow),
-        message: `שלום ${firstName(c.name)},\nתזכורת: ${a.kind === 'group' ? a.title : 'אימון'} מחר (${formatDayHe(tomorrow)}) בשעה ${a.time}. נתראה!${sign}` });
+      out.push({ kind: 'tomorrow', clientId: c.id, tone: 'indigo', title: `${c.name} — ${a.kind === 'group' ? a.title : 'אימון אישי'} ${nextLabel} ב-${a.time}`, detail: formatDayHe(nextDay),
+        message: `שלום ${firstName(c.name)},\nתזכורת: ${a.kind === 'group' ? a.title : 'אימון'} ${nextLabel} (${formatDayHe(nextDay)}) בשעה ${a.time}. נתראה!${sign}` });
     }
   }
   const order = { ended: 0, expired: 0, debt: 1, ending: 2, tomorrow: 3, inactive: 4 };
@@ -334,6 +342,45 @@ export function lastTrainingDate(schedule, sessions, clientId) {
     if (d && (!last || d > last)) last = d;
   }
   return last;
+}
+
+// לוח הבקרה: אימונים ב-7 / 30 הימים האחרונים ומי לא התאמן 7 ימים ומעלה — מנוכחות ביומן ומרישום ביצוע בתוכנית.
+// נספר יום אימון אחד למתאמן ביום (נוכחות ביומן ורישום בתוכנית באותו יום = אותו אימון). תאריך עתידי לא נספר
+export function trainingOverview({ clients, schedule, sessionsByClient = {}, today }) {
+  let sessionsWeek = 0;
+  let sessionsMonth = 0;
+  const inactive = [];
+  for (const c of clients || []) {
+    const days = new Set();
+    for (const a of schedule || []) {
+      if ((a?.participants || []).some((p) => p.clientId === c.id && p.status === 'attended') && isDateStr(a.date)) days.add(a.date);
+    }
+    for (const s of sessionsByClient[c.id] || []) {
+      const d = s?.completedAt ? todayStr(new Date(s.completedAt)) : null;
+      if (d && isDateStr(d)) days.add(d);
+    }
+    let last = null;
+    for (const d of days) {
+      if (d > today) continue;
+      const ago = daysBetween(d, today);
+      if (ago < 7) sessionsWeek++;
+      if (ago < 30) sessionsMonth++;
+      if (!last || d > last) last = d;
+    }
+    const lastDays = last ? daysBetween(last, today) : null;
+    if (lastDays === null || lastDays >= 7) inactive.push({ ...c, lastDate: last, lastDays });
+  }
+  return { sessionsWeek, sessionsMonth, inactive };
+}
+
+// "היום" / "אתמול" / "לפני 3 ימים" / "לפני שבוע" / "לפני 2 שבועות" / "לפני חודש"
+export function relativeDaysHe(days) {
+  if (days === 0) return 'היום';
+  if (days === 1) return 'אתמול';
+  if (days < 7) return `לפני ${days} ימים`;
+  if (days < 30) { const w = Math.floor(days / 7); return w === 1 ? 'לפני שבוע' : `לפני ${w} שבועות`; }
+  const m = Math.floor(days / 30);
+  return m === 1 ? 'לפני חודש' : `לפני ${m} חודשים`;
 }
 
 // ─── דוח התקדמות ───

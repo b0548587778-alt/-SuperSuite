@@ -66,8 +66,14 @@ function readClients(items, today) {
       const priceAg = Number.isSafeInteger(m.priceAg) && m.priceAg >= 0 && m.priceAg <= MAX_AG ? m.priceAg : 0;
       const start = isDate(m.start) ? m.start : '';
       const end = isDate(m.end) ? m.end : '';
-      const active = !m.cancelledAt && (!start || !today || start <= today) && (!end || !today || end >= today);
-      return { id: m.id, name: clip(m.name, 120) || 'מנוי', start, end, cancelled: !!m.cancelledAt, active, priceAg, paidAg, dueAg: Math.max(0, priceAg - paidAg) };
+      // פעיל — כמו membershipStatus במודול (studio.js): לא בוטל, בטווח התאריכים, וכרטיסייה שלא נוצלה כולה
+      const sessions = Number.isSafeInteger(m.sessions) && m.sessions >= 0 ? m.sessions : null;
+      const used = Array.isArray(m.uses) ? m.uses.length : 0;
+      const exhausted = sessions !== null && used >= sessions;
+      const active = !m.cancelledAt && !exhausted && (!start || !today || start <= today) && (!end || !today || end >= today);
+      // מנוי שבוטל — בלי חוב בשורה (גם הסכום הכולל במאגר האנשים לא סופר אותו)
+      const dueAg = m.cancelledAt ? 0 : Math.max(0, priceAg - paidAg);
+      return { id: m.id, name: clip(m.name, 120) || 'מנוי', start, end, cancelled: !!m.cancelledAt, active, priceAg, paidAg, dueAg };
     });
     out.push({ clientId, name, phone: clip(client.phone, 30), since: isDate(String(client.createdAt || '').slice(0, 10)) ? String(client.createdAt).slice(0, 10) : '', memberships });
   }
@@ -79,10 +85,51 @@ function receiptFor(invoices, key) {
   return (invoices || []).find(i => i.trainerPayment && i.trainerPayment.key === key && i.status !== 'cancelled') || null;
 }
 
+// חשבוניות אימונים בתוקף שהתשלום שלהן כבר לא קיים במודול (נמחק, או שוחזר גיבוי ישן) — החשבונית נשארה בתוקף
+function orphanReceipts(payments, invoices) {
+  const keys = new Set((payments || []).map(p => p.key));
+  return (invoices || []).filter(i => i && i.trainerPayment && i.status !== 'cancelled' && !keys.has(String(i.trainerPayment.key || '')));
+}
+
+const invoiceAg = (inv) => Math.round(Number(inv.total) * 100);
+
+// חשד לחשבונית כפולה (בדיקת קוד 20.10.2026, ממצא 3): במודול אין עריכת תשלום, ולכן מתקנים במחיקה והזנה מחדש.
+// התשלום החדש מקבל מפתח חדש, וחשבונית נוספת עליו = אותו כסף פעמיים בהכנסות ובמע"מ.
+// לתשלום בלי חשבונית — חשבוניות בתוקף של אותו מתאמן (clientId) ובאותו סכום:
+//   orphan — התשלום של החשבונית כבר לא קיים (כל תאריך: לרוב מזינים מחדש כדי לתקן תאריך או אמצעי);
+//   same-date — התשלום שלה קיים, אבל באותו תאריך (ייתכן שהתשלום הוזן פעמיים במודול).
+// אזהרה בלבד — לא חוסם: ייתכנו שני תשלומים זהים אמיתיים, וההחלטה של המשתמש
+function duplicateCandidates(p, payments, invoices) {
+  if (!p || receiptFor(invoices, p.key)) return [];
+  const byKey = new Map((payments || []).map(x => [x.key, x]));
+  const out = [];
+  for (const inv of invoices || []) {
+    const tp = inv && inv.trainerPayment;
+    if (!tp || inv.status === 'cancelled' || String(tp.clientId || '') !== p.clientId || invoiceAg(inv) !== p.amountAg) continue;
+    const paid = byKey.get(String(tp.key || ''));
+    const reason = !paid ? 'orphan' : (paid.key !== p.key && inv.date === p.date ? 'same-date' : null);
+    if (reason) out.push({ invoiceId: inv.id, invoiceNumber: inv.number, date: inv.date, reason });
+  }
+  return out;
+}
+
+// נוסח האזהרה בעברית (לרשימה ולחלון האישור במסך הגבייה)
+function duplicateWarning(list) {
+  if (!list || !list.length) return '';
+  const nums = list.map(d => d.invoiceNumber).join(', ');
+  const orphan = list.some(d => d.reason === 'orphan');
+  return `⚠ ייתכן שכבר הופקה חשבונית על התשלום הזה (מספר ${nums}): ` +
+    (orphan ? 'נמצאה חשבונית בתוקף לאותו מתאמן ובאותו סכום, שהתשלום שלה נמחק במודול האימונים. '
+      : 'נמצאה חשבונית בתוקף לאותו מתאמן, באותו תאריך ובאותו סכום. ') +
+    'אם זה אותו תשלום — אין להפיק שוב; אם החשבונית הקודמת שגויה — יש לבטל אותה במסך החשבוניות.';
+}
+
 function withReceipts(payments, invoices) {
   return payments.map(p => {
     const inv = receiptFor(invoices, p.key);
-    return { ...p, amount: p.amountAg / 100, ...(inv ? { invoiceId: inv.id, invoiceNumber: inv.number } : {}) };
+    const dups = inv ? [] : duplicateCandidates(p, payments, invoices);
+    return { ...p, amount: p.amountAg / 100, ...(inv ? { invoiceId: inv.id, invoiceNumber: inv.number } : {}),
+      ...(dups.length ? { possibleDuplicateOf: dups, duplicateWarning: duplicateWarning(dups) } : {}) };
   });
 }
 
@@ -97,4 +144,5 @@ function invoiceInput(p) {
   };
 }
 
-module.exports = { METHODS, METHOD_LABELS, keyOf, readPayments, readClients, receiptFor, withReceipts, invoiceInput };
+module.exports = { METHODS, METHOD_LABELS, keyOf, readPayments, readClients, receiptFor, withReceipts, invoiceInput,
+  orphanReceipts, duplicateCandidates, duplicateWarning };

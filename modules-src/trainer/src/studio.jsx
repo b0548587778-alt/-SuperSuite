@@ -495,7 +495,7 @@ export function RemindersView({ clients, trainer, setView }) {
   const list = studio.ready ? St.reminders({ clients, membershipsByClient: studio.memberships, lastSessionByClient: studio.lastByClient, schedule: studio.schedule, today, trainer }) : [];
   const groups = [
     ['מנוי ותשלום', list.filter((r) => ['ended', 'expired', 'ending', 'debt'].includes(r.kind))],
-    ['אימונים מחר', list.filter((r) => r.kind === 'tomorrow')],
+    [St.nextTrainingDay(today).label === 'מחר' ? 'אימונים מחר' : 'אימונים ביום ראשון', list.filter((r) => r.kind === 'tomorrow')],
     ['לא התאמנו לאחרונה', list.filter((r) => r.kind === 'inactive')],
   ];
   return (
