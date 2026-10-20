@@ -24,7 +24,7 @@
 
 ```bash
 npm start          # הרצת האפליקציה בפיתוח (run-electron.js — עובד גם בלי path.txt של electron)
-npm test           # הרצת כל הבדיקות בתיקיית tests (node --test "tests/*.test.js")
+npm test           # הרצת כל הבדיקות בתיקיית tests — דרך tools/run-tests.js: תיקייה זמנית משלה (TEMP/TMP), שנמחקת בסוף
 npm run dist       # בניית מתקין NSIS + portable ל-Windows
 npm run dist:local # בנייה מהמטמון המקומי בלבד (בלי הורדות) — מומלץ בסביבה מסוננת
 npm run dist:check # בדיקה מה קיים מקומית לבנייה, בלי לבנות
@@ -208,6 +208,7 @@ python -m unittest test_encryption -v
 
 - מסגרת: `node --test`. אין Jest/Vitest — רק מודול `test` המובנה.
 - **כל קובץ `tests/*.test.js` רץ אוטומטית** ב-`npm test` — אין צורך לרשום קובץ חדש ב-package.json. כולן חייבות לעבור לפני סיום עבודה.
+- **תיקיות זמניות:** `npm test` רץ דרך `tools/run-tests.js`, שמפנה את TEMP/TMP/TMPDIR לתיקייה אחת (`ss-tests-*`) ומוחק אותה בסוף — גם לתהליכי הבן. **הרצה ישירה של `node --test` לא מנקה**: רוב הבדיקות לא מוחקות את מה שיצרו ב-`os.tmpdir()` (עד 21.10.2026 הצטברו כ-50,000 תיקיות ומילאו את הכונן). בדיקה חדשה — עדיף `test.after(() => fs.rmSync(dir, ...))` (ראו `tests/relay-flood.test.js`)
 - קבצים עיקריים: `accounting`, `integration`, `ipc-guard`, `exports`, `backupCrypto`, `pricing`, `regressions`, `security`, `features`, `regressions-r2`, `tools-calc`, `nav-guard`, `main-behavior`, `shell-ui`, `ui-nav`, `fitness-view`, `catalog`, `npo`, `gemach`, `chesed`, `chesed-gemach-view`.
 - כל תיקון באג חייב לקבל בדיקת רגרסיה מלווה.
 - בדיקות ה-UI מריצות את הרינדור ב-Chromium עם API מדומה (ללא שגיאות JS).

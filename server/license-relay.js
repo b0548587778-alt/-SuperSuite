@@ -32,26 +32,109 @@ const MAX_NONCES = 200000;            // זיכרון — מעבר לזה השר
 const MAX_PREKEYS = 100000;           // מפתחות זמניים שמורים
 const MAX_PENDING_PAYMENTS = 5;            // תשלומים פתוחים למכשיר
 const PAYMENT_TTL_MS = 24 * 60 * 60 * 1000; // תשלום שלא הושלם — פג
+// מפתח חדש לא עולה כלום, ולכן מכסה לפי מפתח לבדה לא עוצרת הצפה — יש גם מכסות לפי כתובת (בדיקת אבטחה 21.10.2026)
+const SEND_PER_IP_HOUR = 1000;        // הודעות מכתובת אחת בשעה
+const CHECKOUT_PER_IP_DAY = 20;       // דפי תשלום שנפתחים מכתובת אחת ביום (כל אחד נפתח גם אצל ספק הסליקה)
+const FREE_SIGNUP_PER_IP_DAY = 3;     // הרשמות לתכנית חינם מכתובת אחת ביום
+const MAX_FREE_IN_BOX = 1000;         // הרשמות חינם שממתינות אצל מנהל-העל — לא תופסות מקום של הרשמות ששולמו
+const MAX_PENDING_TOTAL = 5000;       // תשלומים פתוחים בשרת כולו
+const MAX_STORE_BYTES = 2 * 1024 ** 3;          // כל הקבצים יחד — מעבר לזה שליחה רגילה נדחית, והדיסק לא מתמלא
+const SYSTEM_RESERVE_BYTES = 256 * 1024 ** 2;   // מקום שמור למסירות של השרת עצמו (הרשמות ששולמו)
+const MESSAGE_TTL_MS = 60 * 24 * 60 * 60 * 1000; // הודעה שלא נקראה 60 יום נמחקת (מסירות של השרת — לא)
+const BOX_SWEEP_MS = 24 * 60 * 60 * 1000;
+
+function httpError(status, message) { const e = new Error(message); e.status = status; return e; }
 
 // billing (אופציונלי): { rootKeys, provider } — הרשמה ותשלום. בלי billing השרת הוא ממסר בלבד
-function createRelay({ dataDir, clock = Date.now, billing = null }) {
+function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes = MAX_STORE_BYTES }) {
   fs.mkdirSync(dataDir, { recursive: true });
+  const signupDir = path.join(dataDir, 'signups'); // נוצרת בתשלום הראשון
+
+  // ---------- אחסון ----------
+  // קובץ שלא קיים = ריק. קובץ שקיים ולא נקרא (פגום, גדול מדי לזיכרון, תקלת דיסק) — שגיאה ולא "ריק":
+  // אחרת הכתיבה הבאה דורסת אותו, ותשלומים והודעות נמחקים (בדיקת אבטחה 21.10.2026)
+  function readJson(f, def) {
+    let text;
+    try { text = fs.readFileSync(f, 'utf8'); }
+    catch (e) { if (e.code === 'ENOENT') return def; throw storeError(f, e); }
+    try { return JSON.parse(text); } catch (e) { throw storeError(f, e); }
+  }
+  function storeError(f, e) {
+    console.error('relay: cannot read ' + path.basename(f) + ': ' + ((e && (e.code || e.message)) || e));
+    return httpError(503, 'השרת אינו זמין כרגע — נסו שוב מאוחר יותר');
+  }
+  // הנפח שבשימוש — נסרק פעם אחת, ומתעדכן בכל כתיבה ומחיקה
+  let used = null;
+  function scanBytes(dir) {
+    let t = 0;
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) t += scanBytes(p); else if (e.isFile()) t += fs.statSync(p).size;
+    }
+    return t;
+  }
+  const usedBytes = () => { if (used === null) used = scanBytes(dataDir); return used; };
+  const sizeOf = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
+  function writeJson(f, v) {
+    const text = JSON.stringify(v);
+    const before = sizeOf(f);
+    fs.writeFileSync(f + '.tmp', text);
+    fs.renameSync(f + '.tmp', f);
+    if (used !== null) used += Buffer.byteLength(text) - before;
+  }
+  function removeFile(f) {
+    const s = sizeOf(f);
+    try { fs.rmSync(f, { force: true }); if (used !== null) used -= s; } catch { /* ינוקה בסבב הבא */ }
+  }
+  // system: מסירה של השרת עצמו — מותר לה להשתמש במקום השמור
+  function assertRoom(extra, system = false) {
+    if (usedBytes() + extra > maxStoreBytes + (system ? SYSTEM_RESERVE_BYTES : 0)) throw httpError(507, 'השרת מלא — נסו שוב מאוחר יותר');
+  }
+
   const boxFile = (id) => path.join(dataDir, id + '.json');
-  const readBox = (id) => { try { return JSON.parse(fs.readFileSync(boxFile(id), 'utf8')); } catch { return []; } };
-  const writeBox = (id, msgs) => { const f = boxFile(id); fs.writeFileSync(f + '.tmp', JSON.stringify(msgs)); fs.renameSync(f + '.tmp', f); };
+  const readBox = (id) => readJson(boxFile(id), []);
+  const writeBox = (id, msgs) => { if (msgs.length) writeJson(boxFile(id), msgs); else removeFile(boxFile(id)); };
   const nonces = new Map(); // nonce ← תפוגה; מונע שידור חוזר של בקשה חתומה
-  const hits = new Map();   // כתובת ← [זמנים]
-  const sends = new Map();  // מפתח שולח ← [זמנים]
+  // מונים לפי חלון זמן: מפתח (כתובת / מפתח שולח) ← [זמנים]
+  const windows = {
+    hits: { ms: 60000, map: new Map() },
+    sends: { ms: 3600000, map: new Map() },
+    ipSends: { ms: 3600000, map: new Map() },
+    checkouts: { ms: 24 * 3600000, map: new Map() },
+    frees: { ms: 24 * 3600000, map: new Map() },
+  };
+  const hits = windows.hits.map;
   let lastSweep = 0;
+  let lastBoxSweep = clock();
   // ניקוי תקופתי של המפות שבזיכרון (ולא בכל בקשה — O(n))
   function sweep(now) {
+    if (now - lastBoxSweep >= BOX_SWEEP_MS) { lastBoxSweep = now; expireMessages(now); }
     if (now - lastSweep < 10000 && nonces.size < MAX_NONCES) return;
     lastSweep = now;
     for (const [n, exp] of nonces) if (exp < now) nonces.delete(n);
-    for (const m of [hits, sends]) {
-      const win = m === hits ? 60000 : 3600000;
-      for (const [k, list] of m) { const live = list.filter(t => now - t < win); if (live.length) m.set(k, live); else m.delete(k); }
+    for (const { ms, map } of Object.values(windows)) {
+      for (const [k, list] of map) { const live = list.filter(t => now - t < ms); if (live.length) map.set(k, live); else map.delete(k); }
     }
+  }
+  // הודעות שאיש לא קרא 60 יום (תיבה שאין לה בעלים, או מכשיר שנזנח) — נמחקות, כדי שהדיסק לא יתמלא לתמיד
+  function expireMessages(now) {
+    for (const name of fs.readdirSync(dataDir)) {
+      const m = /^([A-Za-z0-9_-]{22})\.json$/.exec(name);
+      if (!m) continue;
+      let box;
+      try { box = readBox(m[1]); } catch { continue; } // קובץ שלא נקרא — לא נוגעים בו
+      const live = box.filter(x => x.from === 'relay' || now - x.at < MESSAGE_TTL_MS);
+      if (live.length !== box.length) writeBox(m[1], live);
+    }
+  }
+  // מכסה בחלון זמן. n — כמה פעמים לספור
+  function quota(kind, key, limit, n, message) {
+    const { ms, map } = windows[kind];
+    const now = clock();
+    const list = (map.get(key) || []).filter(t => now - t < ms);
+    if (list.length + n > limit) throw httpError(429, message);
+    for (let i = 0; i < n; i++) list.push(now);
+    map.set(key, list);
   }
 
   function authenticate(req) {
@@ -71,36 +154,27 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
   }
 
   function rateLimit(ip) {
-    const now = clock();
-    const list = (hits.get(ip) || []).filter(t => now - t < 60000);
-    if (list.length >= RATE.perMinute) throw httpError(429, 'יותר מדי בקשות — נסו שוב בעוד דקה');
-    list.push(now);
-    hits.set(ip, list);
+    quota('hits', ip, RATE.perMinute, 1, 'יותר מדי בקשות — נסו שוב בעוד דקה');
   }
 
-  function sendQuota(from, n) {
-    const now = clock();
-    const list = (sends.get(from) || []).filter(t => now - t < 3600000);
-    if (list.length + n > SEND_PER_HOUR) throw httpError(429, 'יותר מדי הודעות בשעה האחרונה — נסו מאוחר יותר');
-    for (let i = 0; i < n; i++) list.push(now);
-    sends.set(from, list);
-  }
-
-  const readJsonFileSafe = (n) => { try { return JSON.parse(fs.readFileSync(path.join(dataDir, n), 'utf8')) || {}; } catch { return {}; } };
-  const writeJsonFileSafe = (n, v) => { const f = path.join(dataDir, n); fs.writeFileSync(f + '.tmp', JSON.stringify(v)); fs.renameSync(f + '.tmp', f); };
+  const dataFile = (n) => path.join(dataDir, n);
+  const readJsonFile = (n, def) => readJson(dataFile(n), def);
+  const writeJsonFile = (n, v) => writeJson(dataFile(n), v);
 
   // ---------- הרשמה ותשלום ----------
-  const readJsonFile = (n, def) => { try { return JSON.parse(fs.readFileSync(path.join(dataDir, n), 'utf8')); } catch { return def; } };
-  const writeJsonFile = (n, v) => { const f = path.join(dataDir, n); fs.writeFileSync(f + '.tmp', JSON.stringify(v)); fs.renameSync(f + '.tmp', f); };
   const ownerBox = () => L.keyId(billing.rootKeys[0]);
   const needBilling = () => { if (!billing || !billing.rootKeys || !billing.rootKeys.length) throw httpError(404, 'השרת אינו מוגדר להרשמה'); };
   // מסירה מהשרת עצמו (הרשמה ששולמה): לא כפופה לתקרת התיבה של השולחים — אחרת כל אחד יכול למלא את
   // תיבת מנהל-העל (המזהה ציבורי) ולחסום מסירה של הרשמות ששולמו (סקירת אבטחה 10.2026, ממצא 1).
-  // תקרה נפרדת וגבוהה — רק כדי שהדיסק לא יתמלא
-  function deliver(to, kind, bodyText) {
+  // הרשמות חינם (free) — בתקרה נפרדת, כדי שלא יתפסו את המקום של הרשמות ששולמו
+  function deliver(to, kind, bodyText, { free = false } = {}) {
     const box = readBox(to);
-    if (box.filter(m => m.from === 'relay').length >= MAX_SYSTEM_IN_BOX) throw httpError(507, 'תיבת היעד מלאה');
-    writeBox(to, [...box, { id: crypto.randomUUID(), from: 'relay', kind, body: bodyText, at: clock() }]);
+    const sys = box.filter(m => m.from === 'relay');
+    if (sys.length >= MAX_SYSTEM_IN_BOX) throw httpError(507, 'תיבת היעד מלאה');
+    if (free && sys.filter(m => m.free).length >= MAX_FREE_IN_BOX) throw httpError(507, 'יש יותר מדי הרשמות שממתינות לאישור — נסו שוב מאוחר יותר');
+    const msg = { id: crypto.randomUUID(), from: 'relay', kind, body: bodyText, at: clock(), ...(free ? { free: true } : {}) };
+    assertRoom(Buffer.byteLength(JSON.stringify(msg)), !free);
+    writeBox(to, [...box, msg]);
   }
 
   // מנהל-העל מפרסם הצעה (חתומה במפתח השורש — רק הוא יכול)
@@ -118,33 +192,56 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     return { ok: true, offer: o.text };
   }
 
+  // חבילת ההרשמה (עד ~200KB עם תמונת החתימה) נשמרת בקובץ משלה, ו-payments.json מחזיק רק את פרטי התשלום —
+  // כך הקובץ המשותף נשאר קטן. רשומה ישנה עם signup בתוכה — עדיין נקראת
+  const signupFile = (paymentId) => path.join(signupDir, paymentId + '.json');
+  const signupOf = (x) => (x.signup !== undefined ? x.signup : readJson(signupFile(x.id), null));
+  // תשלום פתוח שפג — נמחק יחד עם חבילת ההרשמה שלו
+  function livePayments(list, now) {
+    return list.filter(x => {
+      if (x.status !== 'pending' || now - x.createdAt < PAYMENT_TTL_MS) return true;
+      if (x.signup === undefined) removeFile(signupFile(x.id));
+      return false;
+    });
+  }
+
   // הרשמה: נבדקת מול ההצעה החתומה; הסכום נקבע לפי ההצעה בלבד. תכנית חינם — נמסרת מיד
-  async function checkout(from, p) {
+  async function checkout(from, p, ip = '') {
     needBilling();
     let v;
     try { v = SU.verifySignup(p.signup, billing.rootKeys); } catch (e) { throw httpError(400, e.message); }
     if (v.body.keyId !== from) throw httpError(403, 'ההרשמה אינה של המכשיר השולח');
     if (v.plan.priceAgorot === 0) {
-      deliver(ownerBox(), 'signup', JSON.stringify({ type: 'supersuite-signup-delivery', signup: p.signup, payment: null }));
+      quota('frees', ip, FREE_SIGNUP_PER_IP_DAY, 1, 'יותר מדי הרשמות מהכתובת הזו היום — נסו שוב מחר');
+      deliver(ownerBox(), 'signup', JSON.stringify({ type: 'supersuite-signup-delivery', signup: p.signup, payment: null }), { free: true });
       return { ok: true, free: true };
     }
     if (!billing.provider) throw httpError(503, 'התשלום אינו זמין כרגע');
     const now = clock();
-    const all = readJsonFile('payments.json', []).filter(x => x.status !== 'pending' || now - x.createdAt < PAYMENT_TTL_MS);
-    if (all.filter(x => x.keyId === from && x.status === 'pending').length >= MAX_PENDING_PAYMENTS) throw httpError(429, 'יותר מדי תשלומים פתוחים — נסו מאוחר יותר');
+    const all = livePayments(readJsonFile('payments.json', []), now);
     const paid = all.find(x => x.signupId === v.body.id && x.status === 'paid');
     if (paid) return { ok: true, paymentId: paid.id, status: 'paid' };
+    const open = all.find(x => x.signupId === v.body.id && x.status === 'pending');
+    if (open) return { ok: true, paymentId: open.id, url: open.url, status: 'pending' };
+    if (all.filter(x => x.keyId === from && x.status === 'pending').length >= MAX_PENDING_PAYMENTS) throw httpError(429, 'יותר מדי תשלומים פתוחים — נסו מאוחר יותר');
+    if (all.filter(x => x.status === 'pending').length >= MAX_PENDING_TOTAL) throw httpError(503, 'השרת עמוס — נסו שוב מאוחר יותר');
+    // כל ניסיון פותח דף תשלום אצל ספק הסליקה — מכסה לכתובת, כי מפתח חדש לא עולה כלום
+    quota('checkouts', ip, CHECKOUT_PER_IP_DAY, 1, 'יותר מדי ניסיונות תשלום מהכתובת הזו היום — נסו שוב מחר');
+    assertRoom(Buffer.byteLength(p.signup) + 1024);
     const paymentId = crypto.randomUUID();
     const co = await billing.provider.createCheckout({ paymentId, amountAgorot: v.plan.priceAgorot,
       description: `${v.plan.name} — ${v.body.customer.org}`, customer: v.body.customer });
     // הקריאה לספק אסינכרונית — בינתיים בקשות אחרות אולי עדכנו את הקובץ. הקריאה-כתיבה עצמה
     // סינכרונית (בלי await באמצע), ולכן webhook או checkout אחר לא יכולים להיכנס בין הקריאה לכתיבה
-    const fresh = readJsonFile('payments.json', []).filter(x => x.status !== 'pending' || clock() - x.createdAt < PAYMENT_TTL_MS);
+    const fresh = livePayments(readJsonFile('payments.json', []), clock());
     // ייתכן ששתי בקשות לאותה הרשמה רצו במקביל, והראשונה כבר נרשמה — לא פותחים תשלום שני
     const raced = fresh.find(x => x.signupId === v.body.id && (x.status === 'paid' || x.status === 'pending'));
     if (raced) return { ok: true, paymentId: raced.id, url: raced.status === 'pending' ? raced.url : undefined, status: raced.status };
+    // קודם חבילת ההרשמה, ורק אז הרשומה: רשומה בלי חבילה הייתה תשלום שאי אפשר למסור
+    fs.mkdirSync(signupDir, { recursive: true });
+    writeJson(signupFile(paymentId), p.signup);
     writeJsonFile('payments.json', [...fresh, { id: paymentId, keyId: from, signupId: v.body.id, amountAgorot: v.plan.priceAgorot,
-      checkoutId: co.checkoutId, url: co.url, status: 'pending', createdAt: now, signup: p.signup }]);
+      checkoutId: co.checkoutId, url: co.url, status: 'pending', createdAt: now }]);
     return { ok: true, paymentId, url: co.url, status: 'pending' };
   }
   function paymentStatus(from, p) {
@@ -175,13 +272,17 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     // קודם מוסרים, ורק אז מסמנים "שולם": אם המסירה נכשלה, התשלום נשאר pending והספק ינסה שוב.
     // בסדר ההפוך, ניסיון חוזר של הספק קיבל "כפול" — והלקוח שילם בלי לקבל רישיון
     if (ev.status === 'paid') {
-      deliver(ownerBox(), 'signup', JSON.stringify({ type: 'supersuite-signup-delivery', signup: x.signup,
+      const signup = signupOf(x);
+      if (signup == null) throw httpError(503, 'חבילת ההרשמה של התשלום חסרה בשרת');
+      deliver(ownerBox(), 'signup', JSON.stringify({ type: 'supersuite-signup-delivery', signup,
         payment: { id: x.id, amountAgorot: x.amountAgorot, provider: billing.provider.name, providerRef: ev.providerRef, paidAt: at } }));
     }
     x.status = ev.status;
     x.providerRef = ev.providerRef;
     x.updatedAt = at;
     writeJsonFile('payments.json', all);
+    // אחרי המסירה ההרשמה נמצאת בתיבה של מנהל-העל; תשלום שנכשל — אין בה צורך
+    if (x.signup === undefined) removeFile(signupFile(x.id));
     return { ok: true };
   }
 
@@ -198,19 +299,20 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
       if (!b || payload.owner !== from || typeof sig !== 'string' || !L.verifyObject(payload, sig, body.pub)) throw httpError(400, 'מפתח זמני לא תקין');
       if (JSON.stringify(b).length > 2048 || typeof payload.id !== 'string' || !Number.isSafeInteger(payload.createdAt)
         || !/^[A-Za-z0-9_-]{43}$/.test(String(payload.pub))) throw httpError(400, 'מפתח זמני לא תקין');
-      const all = readJsonFileSafe('prekeys.json');
+      const all = readJsonFile('prekeys.json', {}) || {};
       if (!all[from] && Object.keys(all).length >= MAX_PREKEYS) throw httpError(507, 'השרת מלא');
+      if (!all[from]) assertRoom(2048 + 30);
       all[from] = b;
-      writeJsonFileSafe('prekeys.json', all);
+      writeJsonFile('prekeys.json', all);
       return { ok: true };
     }
     if (body.op === 'getPrekey') {
       if (!ID_RE.test(String(p.id))) throw httpError(400, 'מזהה לא תקין');
-      return { ok: true, bundle: readJsonFileSafe('prekeys.json')[p.id] || null };
+      return { ok: true, bundle: (readJsonFile('prekeys.json', {}) || {})[p.id] || null };
     }
     if (body.op === 'setOffer') return setOffer(from, p);
     if (body.op === 'getOffer') return getOffer();
-    if (body.op === 'checkout') return checkout(from, p);
+    if (body.op === 'checkout') return checkout(from, p, ip);
     if (body.op === 'paymentStatus') return paymentStatus(from, p);
     if (body.op === 'send') {
       const items = Array.isArray(p.items) ? p.items : [];
@@ -235,7 +337,9 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
         if (box.filter(m => m.from === from).length + msgs.length > MAX_FROM_SENDER_IN_BOX) throw httpError(429, 'יותר מדי הודעות שטרם נקראו אצל הנמען');
         boxes.set(to, [...box, ...msgs]);
       }
-      sendQuota(from, items.length);
+      assertRoom([...byBox.values()].flat().reduce((t, m) => t + Buffer.byteLength(JSON.stringify(m)) + 1, 0));
+      quota('sends', from, SEND_PER_HOUR, items.length, 'יותר מדי הודעות בשעה האחרונה — נסו מאוחר יותר');
+      quota('ipSends', ip, SEND_PER_IP_HOUR, items.length, 'יותר מדי הודעות מהכתובת הזו בשעה האחרונה — נסו מאוחר יותר');
       for (const [to, all] of boxes) writeBox(to, all);
       return { ok: true, sent: items.length };
     }
@@ -249,10 +353,8 @@ function createRelay({ dataDir, clock = Date.now, billing = null }) {
     throw httpError(400, 'פעולה לא מוכרת');
   }
 
-  return { handle, webhook, billing, rateLimit };
+  return { handle, webhook, billing, rateLimit, expireMessages: () => expireMessages(clock()) };
 }
-
-function httpError(status, message) { const e = new Error(message); e.status = status; return e; }
 
 // ספק הבדיקות נותן לכל אחד ללחוץ "שולם" ולקבל רישיון בחינם. טעות בפקודת ההפעלה בשרת אמיתי
 // לא תפעיל אותו בשקט (ממצא 8): דורשים הסכמה מפורשת, ואף פעם לא עם תעודה או כתובת https ציבורית

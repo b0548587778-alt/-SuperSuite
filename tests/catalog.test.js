@@ -81,7 +81,8 @@ test('סנכרון אוטומטי: בסרגל הפנימי הנוכחי אין �
 test('כל קובץ בדיקה בתיקיית tests רץ ב-npm test', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const files = fs.readdirSync(path.join(ROOT, 'tests')).filter(f => f.endsWith('.test.js'));
-  const script = pkg.scripts.test;
-  const covered = f => script.includes('tests/' + f) || /tests\/\*\.test\.js/.test(script);
-  assert.deepEqual(files.filter(f => !covered(f)), [], 'קבצי בדיקה שלא רצים');
+  // npm test רץ דרך tools/run-tests.js (תיקייה זמנית שנמחקת), שאוסף את כל tests/*.test.js
+  assert.equal(pkg.scripts.test, 'node tools/run-tests.js');
+  const listed = require('../tools/run-tests').testFiles().map(f => path.basename(f));
+  assert.deepEqual(files.filter(f => !listed.includes(f)), [], 'קבצי בדיקה שלא רצים');
 });
