@@ -100,9 +100,9 @@ test('גיבוי מוצפן: תואם בשני הכיוונים בין אנדר�
   const BKa = globalThis.__ssBk.require('bk', { crypto: shims.crypto });
   delete globalThis.__ssBk;
   const plain = JSON.stringify({ שם: 'ישראל', n: 42 });
-  assert.strictEqual(BKnode.decryptBackup(BKa.encryptBackup(plain, 'pass-word-1'), 'pass-word-1'), plain);
-  assert.strictEqual(BKa.decryptBackup(BKnode.encryptBackup(plain, 'pass-word-1'), 'pass-word-1'), plain);
-  assert.throws(() => BKa.decryptBackup(BKnode.encryptBackup(plain, 'pass-word-1'), 'wrong-pass-1'), /שגויה/);
+  assert.strictEqual(BKnode.decryptBackup(BKa.encryptBackup(plain, 'pass-word-12345'), 'pass-word-12345'), plain);
+  assert.strictEqual(BKa.decryptBackup(BKnode.encryptBackup(plain, 'pass-word-12345'), 'pass-word-12345'), plain);
+  assert.throws(() => BKa.decryptBackup(BKnode.encryptBackup(plain, 'pass-word-12345'), 'wrong-pass-1'), /שגויה/);
 });
 
 test('המודול הכלכלי עולה מעל ה-shims: הקמת מנהל, כניסה, הרשאות, נתונים', async () => {

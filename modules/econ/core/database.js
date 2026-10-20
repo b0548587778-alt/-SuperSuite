@@ -479,10 +479,17 @@ class Database {
       throw new Error('שם משתמש או סיסמה שגויים');
     }
 
-    await this.run(
-      'UPDATE auth_users SET failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?',
-      [new Date().toISOString(), user.id]
-    );
+    if (needsRehash(user.password_hash)) {
+      await this.run(
+        'UPDATE auth_users SET password_hash = ?, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?',
+        [hashPassword(password), new Date().toISOString(), user.id]
+      );
+    } else {
+      await this.run(
+        'UPDATE auth_users SET failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?',
+        [new Date().toISOString(), user.id]
+      );
+    }
 
     return this._sessionUser(user);
   }
@@ -812,15 +819,25 @@ function validateCredentials(username, password) {
   }
 }
 
+// "scrypt$" — N=2^14, r=8, p=1 (משתמשים ישנים). "scrypt2$" — p=5, כמו הגיבוי (אחת החלופות השקולות של OWASP,
+// באותו זיכרון). הפרמטרים לפי התחילית בלבד — ערך שנערך במסד לא יכול לבקש חישוב כבד יותר. ישן מוחלף בכניסה הבאה.
+const PASSWORD_SCHEMES = { scrypt: { N: 16384, r: 8, p: 1 }, scrypt2: { N: 16384, r: 8, p: 5 } };
+const PASSWORD_SCHEME = 'scrypt2';
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  return `scrypt$${salt}$${crypto.scryptSync(password, salt, 64).toString('hex')}`;
+  return `${PASSWORD_SCHEME}$${salt}$${crypto.scryptSync(password, salt, 64, PASSWORD_SCHEMES[PASSWORD_SCHEME]).toString('hex')}`;
+}
+
+function needsRehash(storedHash) {
+  return !String(storedHash).startsWith(`${PASSWORD_SCHEME}$`);
 }
 
 function verifyPassword(password, storedHash) {
-  const [, salt, expected] = String(storedHash).split('$');
-  if (!salt || !expected) return false;
-  const actual = crypto.scryptSync(password, salt, 64);
+  const [scheme, salt, expected] = String(storedHash).split('$');
+  const params = Object.hasOwn(PASSWORD_SCHEMES, scheme) ? PASSWORD_SCHEMES[scheme] : null;
+  if (!params || !salt || !expected) return false;
+  const actual = crypto.scryptSync(password, salt, 64, params);
   const expectedBuffer = Buffer.from(expected, 'hex');
   return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer);
 }
