@@ -225,6 +225,6 @@ function saveJson(f, obj) { try { fs.writeFileSync(f, JSON.stringify(obj)); } ca
 
 ### לפני הפצה
 
-- **חבילת האימונים צריכה בנייה מחדש** (`npm run build:trainer`, ב-GitHub Actions — בסביבה המסוננת ההתקנה של vite נחסמת). התיקונים נמצאים בקוד המקור (`modules-src/trainer`), והחבילה שב-`modules/trainer/assets` עדיין ישנה.
+- **חבילת האימונים נבנתה מחדש** ב-GitHub Actions (ריצה #49, 1,311 בדיקות עברו שם) והוחלפה ב-`modules/trainer` — כוללת את כל תיקוני האימונים.
 - **מס"ב:** לא נבדק בסימולטור של בנק.
 - **`shell/licensing/root-keys.js`** לא נגעתי בו — הרישוי עדיין כבוי.
