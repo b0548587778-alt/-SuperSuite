@@ -96,6 +96,37 @@ test('נתוני דוגמה לנדל"ן: נכס, שני לקוחות בלי ת"�
   assert.deepEqual(SD.availableKinds({ mode: 'licensed', features: ['econ.realestate'] }), ['realty']);
 });
 
+test('רישוי: רק נדל"ן — עסקאות בלי מצב משכנתא ובלי פתיחת תיק; רק ייעוץ — תיקים בלי העסקה', async () => {
+  const LG = require('../shell/licensing/gate');
+  const lic = (f) => ({ mode: 'licensed', status: 'active', features: ['econ', f] });
+  // הערוץ נבדק ברישיון הנדל"ן, ובנוסף ה-IPC בודק שייעוץ המשכנתאות פתוח (rltyMortgage)
+  assert.equal(LG.checkChannel(lic('econ.realestate'), 'rlty:openMortgageCase', 'data.edit'), null);
+  assert.ok(LG.checkChannel(lic('econ.realestate'), 'madv:getOverview', 'data.view'));
+  assert.ok(LG.checkChannel(lic('econ.mortgage-advisor'), 'rlty:getOverview', 'data.view'));
+  const ipcSrc = fs.readFileSync(path.join(__dirname, '..', 'modules', 'econ', 'ipc.js'), 'utf8');
+  assert.match(ipcSrc, /handle\('rlty:openMortgageCase'[\s\S]{0,120}if \(!rltyMortgage\(\)\) throw/);
+
+  const { RealtyService: rs } = require('../modules/econ/services/realtyService');
+  const { MortgageAdvisorService: ms } = require('../modules/econ/services/mortgageAdvisorService');
+  const store = {
+    realty: { properties: [{ id: 'p', city: 'א', listing: 'sale', askingAg: 100 }], clients: [{ id: 'b', name: 'ב', role: 'buyer' }],
+      deals: [{ id: 'd', propertyId: 'p', buyerClientId: 'b', stage: 'negotiation', priceAg: 100, dependsOnMortgage: true, signDate: '2026-10-22', mortgageCaseId: 'c' }], orders: [] },
+    mortgageAdvisor: { clients: [{ id: 'c', name: 'ב', status: 'lead', requestedAmountAg: 50, realtyDealId: 'd' }], offers: [] }
+  };
+  const db = { load: async () => JSON.parse(JSON.stringify(store)), save: async () => {} };
+  await rs.initialize(db);
+  await ms.initialize(db);
+  assert.equal((await rs.getOverview(TODAY, { mortgage: false })).deals[0].mortgage, null, 'בלי ייעוץ ברישיון — בלי מצב משכנתא');
+  assert.equal((await rs.getOverview(TODAY, { mortgage: true })).deals[0].mortgage.stageLabel, 'פנייה');
+  assert.equal((await ms.getOverview(null, { realty: false })).clients[0].realtyDeal, null, 'בלי נדל"ן ברישיון — בלי העסקה');
+  assert.equal((await ms.getOverview(null, { realty: true, today: TODAY })).clients[0].realtyDeal.dealId, 'd');
+  // יועץ שרואה רק את שלו — תיק של יועץ אחר מוצג בלי פרטים
+  store.mortgageAdvisor.settings = { ownOnly: true };
+  store.mortgageAdvisor.clients[0].advisorId = 'other';
+  const m = (await rs.getOverview(TODAY, { mortgage: true, actor: { id: 'me', isManager: false } })).deals[0].mortgage;
+  assert.deepEqual(m, { linked: true, missing: true, label: 'תיק של יועץ אחר' });
+});
+
 test('מדריך: פרק משכנתאות ונדל"ן בתוכן העניינים', () => {
   const g = fs.readFileSync(path.join(__dirname, '..', 'shell', 'guide', 'index.html'), 'utf8');
   assert.match(g, /href="#realty"/);
