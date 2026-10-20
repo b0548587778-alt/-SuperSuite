@@ -2,8 +2,8 @@
 // סקריפט רגיל (לא מודול): כל קבצי ui/ חולקים טווח שמות אחד, לפי הסדר ב-views/index.html.
 'use strict';
 
-const RLTY_TABS = [['properties', 'נכסים'], ['clients', 'לקוחות'], ['deals', 'עסקאות'], ['orders', 'הזמנות תיווך'], ['invest', 'כדאיות ומס רכישה']];
-const rltyUi = { tab: 'properties', matches: null, deal: null, inv: {}, invResult: null, analysisId: '', table: null };
+const RLTY_TABS = [['properties', 'נכסים'], ['clients', 'לקוחות'], ['deals', 'עסקאות'], ['orders', 'הזמנות תיווך'], ['invest', 'כדאיות ומס רכישה'], ['project', 'תזרים יזם']];
+const rltyUi = { tab: 'properties', matches: null, deal: null, inv: {}, invResult: null, analysisId: '', table: null, proj: null, projResult: null };
 const rltyData = () => state.data.realty || {};
 const rltyOpts = (map, blank) => [...(blank ? [{ value: '', label: blank }] : []), ...Object.entries(map || {}).map(([value, label]) => ({ value, label }))];
 
@@ -145,7 +145,32 @@ const rltyTaxTableSchema = {
   update: (id, d) => window.systemAPI.saveRealtyTaxTable(d)
 };
 
-const RLTY_SCHEMAS = { properties: rltyPropertySchema, clients: rltyClientSchema, deals: rltyDealSchema, orders: rltyOrderSchema, invest: rltyTaxTableSchema };
+// ---------- תזרים פרויקט ליזם ----------
+const RLTY_PROJ_DEFAULT_PLAN = '20, 0\n40, 12\n40, 24';
+const rltyProjBlank = () => ({ name: '', startMonth: madvToday().slice(0, 7), months: 24, deficitRate: '', equity: '', planText: RLTY_PROJ_DEFAULT_PLAN, notes: '',
+  costs: [{ category: 'land', label: '', amount: '', from: 1, spread: 1 }, { category: 'build', label: '', amount: '', from: 3, spread: 18 }],
+  sales: [{ label: '', units: 1, price: '', month: 6 }] });
+
+// הפרויקט החדש מכפתור "＋ הוספת רשומה": שם, חודש התחלה ומשך — והשאר נערך בלשונית
+const rltyProjectSchema = {
+  title: 'פרויקט יזמי חדש',
+  prepare: async (schema) => {
+    const m = schema.fields.find(x => x.name === 'startMonth');
+    m.value = m.value || madvToday().slice(0, 7);
+  },
+  fields: [
+    { name: 'name', label: 'שם הפרויקט', type: 'text', required: true },
+    { name: 'startMonth', label: 'חודש התחלה (שנה-חודש, למשל 2027-01)', type: 'text', required: true },
+    { name: 'months', label: 'משך בחודשים', type: 'number', required: true, value: 24 }
+  ],
+  create: async (d) => {
+    const p = await window.systemAPI.saveRealtyProject('', { ...rltyProjBlank(), ...d, costs: [], sales: [] });
+    rltyUi.proj = { ...p, costs: rltyProjBlank().costs, sales: rltyProjBlank().sales };
+    rltyUi.projResult = null;
+    return p;
+  }
+};
+const RLTY_SCHEMAS = { properties: rltyPropertySchema, clients: rltyClientSchema, deals: rltyDealSchema, orders: rltyOrderSchema, invest: rltyTaxTableSchema, project: rltyProjectSchema };
 
 // כפתור "＋ הוספת רשומה" — לפי הלשונית הפתוחה
 formSchemas['realty'] = {
@@ -162,7 +187,7 @@ formSchemas['realty'] = {
 
 
 function rltyTabsHtml(o) {
-  const count = { properties: (o.properties || []).length, clients: (o.clients || []).length, deals: (o.deals || []).length, orders: (o.orders || []).length, invest: (o.analyses || []).length };
+  const count = { properties: (o.properties || []).length, clients: (o.clients || []).length, deals: (o.deals || []).length, orders: (o.orders || []).length, invest: (o.analyses || []).length, project: (o.projects || []).length };
   return `<div class="lab-tabs" role="tablist">${RLTY_TABS.map(([id, label]) => `<button class="${rltyUi.tab === id ? '' : 'secondary'}" data-rlty-tab="${id}" aria-pressed="${rltyUi.tab === id}">${label} (${count[id]})</button>`).join('')}</div>`;
 }
 
@@ -297,7 +322,7 @@ function rltySettingsHtml(o) {
 
 function renderRealty(o) {
   const d = o || {};
-  const body = rltyUi.tab === 'clients' ? rltyClientsHtml(d) : rltyUi.tab === 'deals' ? rltyCommissionHtml(d) + rltyDealsHtml(d) : rltyUi.tab === 'orders' ? rltySettingsHtml(d) + rltyOrdersHtml(d) : rltyUi.tab === 'invest' ? rltyInvestHtml(d) : rltyPropertiesHtml(d);
+  const body = rltyUi.tab === 'clients' ? rltyClientsHtml(d) : rltyUi.tab === 'deals' ? rltyCommissionHtml(d) + rltyDealsHtml(d) : rltyUi.tab === 'orders' ? rltySettingsHtml(d) + rltyOrdersHtml(d) : rltyUi.tab === 'invest' ? rltyInvestHtml(d) : rltyUi.tab === 'project' ? rltyProjectHtml(d) : rltyPropertiesHtml(d);
   return `<div class="realty mortgage-lab">${rltyTabsHtml(d)}${rltyMatchesHtml()}${body}</div>`;
 }
 
@@ -546,6 +571,162 @@ function attachRealtyInvestHandlers() {
   }));
 }
 
+
+// עמודות היתרה המצטברת לפי חודש: מעל הקו — עודף, מתחת — גירעון (SVG, בלי ספרייה)
+function rltyBalanceChart(rows) {
+  const vals = rows.map(r => r.balanceAg);
+  const max = Math.max(1, ...vals.map(Math.abs));
+  const h = 90, w = Math.max(4, Math.min(22, Math.floor(720 / rows.length) - 2)), gap = 2;
+  const pos = Math.max(0, ...vals) > 0, neg = Math.min(0, ...vals) < 0;
+  const top = pos ? h : 0, total = (pos ? h : 0) + (neg ? h : 0) || h;
+  const bars = rows.map((r, i) => {
+    const bh = Math.max(1, Math.round(Math.abs(r.balanceAg) / max * h));
+    const y = r.balanceAg >= 0 ? top + 10 - bh : top + 10;
+    return `<rect class="${r.balanceAg >= 0 ? 'biz-in' : 'rlty-neg'}" x="${10 + i * (w + gap)}" y="${y}" width="${w}" height="${bh}" rx="1"><title>${esc(r.month)}: ${money(r.balance)}</title></rect>`;
+  }).join('');
+  const width = 20 + rows.length * (w + gap);
+  return `<svg class="biz-chart rlty-chart" viewBox="0 0 ${width} ${total + 20}" role="img" aria-label="יתרה מצטברת לפי חודש">
+    <line x1="5" y1="${top + 10}" x2="${width - 5}" y2="${top + 10}" class="biz-axis"/>${bars}</svg>
+    <div class="biz-legend"><span class="biz-dot biz-in"></span>יתרה חיובית <span class="biz-dot rlty-neg"></span>גירעון</div>`;
+}
+
+function rltyProjectResultHtml(r) {
+  if (!r) return '';
+  const pct = (v) => (v === null || v === undefined ? '—' : `${v}%`);
+  const row = (l, v, cls) => `<div class="acct-row${cls ? ' ' + cls : ''}"><span>${l}</span><span>${v}</span></div>`;
+  return `
+    <div class="ss-kpis">
+      <div class="ss-kpi"><small>רווח</small><strong>${money(r.profit)}</strong></div>
+      <div class="ss-kpi"><small>רווח על העלות</small><strong>${pct(r.profitOnCostPct)}</strong></div>
+      <div class="ss-kpi"><small>שיא הגירעון</small><strong>${money(r.peakDeficit)}</strong></div>
+      <div class="ss-kpi"><small>יתרה חוזרת לחיובית</small><strong>${esc(r.breakEvenMonth || '—')}</strong></div>
+    </div>
+    <div class="card">
+      ${r.warnings.map(w => `<p class="warn">⚠ ${esc(w)}</p>`).join('')}
+      ${row('הכנסות ממכירות', money(r.revenue))}
+      ${r.costByCategory.map(c => row(esc(c.label), money(c.amount))).join('')}
+      ${r.interest ? row('ריבית על הגירעון', money(r.interest)) : ''}
+      ${row('עלות כוללת', money(r.totalCost), 'acct-total')}
+      ${row('רווח', money(r.profit), 'acct-total')}
+      ${row('רווח מההכנסות', pct(r.profitOnRevenuePct))}
+      ${row('שיא הגירעון' + (r.peakMonth ? ` (${esc(r.peakMonth)})` : ''), money(r.peakDeficit))}
+      ${r.equity ? row('הון עצמי', money(r.equity)) : ''}
+      ${r.fundingGap ? row('חסר מימון מעבר להון העצמי', money(r.fundingGap)) : ''}
+      ${rltyBalanceChart(r.rows)}
+      <details><summary>טבלה חודשית (${r.horizon} חודשים)</summary>
+        <div class="acct-scroll"><table class="acct-table"><thead><tr><th>#</th><th>חודש</th><th>עלויות</th><th>הכנסות</th><th>ריבית</th><th>נטו</th><th>יתרה מצטברת</th></tr></thead>
+          <tbody>${r.rows.map(m => `<tr${m.balanceAg < 0 ? ' class="warn"' : ''}><td>${m.index}</td><td>${esc(m.month)}</td><td>${money(m.cost)}</td><td>${money(m.income)}</td><td>${m.interest ? money(m.interest) : ''}</td><td>${money(m.net)}</td><td>${money(m.balance)}</td></tr>`).join('')}</tbody></table></div>
+      </details>
+      <p class="muted">${esc(r.assumptions)}</p>
+    </div>`;
+}
+
+function rltyProjectHtml(o) {
+  const p = rltyUi.proj || (rltyUi.proj = rltyProjBlank());
+  const cats = o.costCategories || {};
+  const projects = o.projects || [];
+  const inp = (id, value, attrs = '') => `<input class="ss-input" id="${id}" value="${esc(value ?? '')}" ${attrs}>`;
+  const costRow = (c, i) => `<tr>
+    <td><select id="rltyPc_category_${i}" aria-label="סוג">${Object.entries(cats).map(([k, l]) => `<option value="${k}"${c.category === k ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></td>
+    <td>${inp('rltyPc_label_' + i, c.label, 'type="text" aria-label="תיאור"')}</td>
+    <td>${inp('rltyPc_amount_' + i, c.amount, 'type="number" min="0" step="any" aria-label="סכום"')}</td>
+    <td>${inp('rltyPc_from_' + i, c.from, 'type="number" min="1" step="1" aria-label="מחודש"')}</td>
+    <td>${inp('rltyPc_spread_' + i, c.spread, 'type="number" min="1" step="1" aria-label="על פני חודשים"')}</td>
+    <td><button class="icon-btn danger" data-rlty-pc-del="${i}" title="הסרת השורה">✕</button></td></tr>`;
+  const saleRow = (s, i) => `<tr>
+    <td>${inp('rltyPs_label_' + i, s.label, 'type="text" aria-label="יחידה"')}</td>
+    <td>${inp('rltyPs_units_' + i, s.units, 'type="number" min="1" step="1" aria-label="כמות"')}</td>
+    <td>${inp('rltyPs_price_' + i, s.price, 'type="number" min="0" step="any" aria-label="מחיר ליחידה"')}</td>
+    <td>${inp('rltyPs_month_' + i, s.month, 'type="number" min="1" step="1" aria-label="חודש המכירה"')}</td>
+    <td><button class="icon-btn danger" data-rlty-ps-del="${i}" title="הסרת השורה">✕</button></td></tr>`;
+  return `
+    <div class="card">
+      <h3>${p.id ? esc(p.name) : 'פרויקט חדש'}</h3>
+      <div class="acct-actions">
+        <label>שם ${inp('rltyP_name', p.name, 'type="text"')}</label>
+        <label>חודש התחלה ${inp('rltyP_startMonth', p.startMonth, 'type="month"')}</label>
+        <label>משך (חודשים) ${inp('rltyP_months', p.months, 'type="number" min="1" max="120" step="1"')}</label>
+        <label>הון עצמי (₪) ${inp('rltyP_equity', p.equity, 'type="number" min="0" step="any"')}</label>
+        <label>ריבית שנתית על גירעון (%) ${inp('rltyP_deficitRate', p.deficitRate, 'type="number" min="0" max="30" step="any"')}</label>
+      </div>
+      <h4>עלויות</h4>
+      <p class="muted">כל עלות נפרסת שווה בשווה מהחודש שלה על פני מספר החודשים (חודש 1 = חודש ההתחלה).</p>
+      <div class="acct-scroll"><table class="acct-table"><thead><tr><th>סוג</th><th>תיאור</th><th>סכום (₪)</th><th>מחודש</th><th>על פני חודשים</th><th></th></tr></thead>
+        <tbody>${p.costs.map(costRow).join('')}</tbody></table></div>
+      <div class="acct-actions"><button class="secondary" id="rltyPcAdd">＋ עלות</button></div>
+      <h4>מכירות</h4>
+      <div class="acct-scroll"><table class="acct-table"><thead><tr><th>יחידה</th><th>כמות</th><th>מחיר ליחידה (₪)</th><th>חודש המכירה</th><th></th></tr></thead>
+        <tbody>${p.sales.map(saleRow).join('')}</tbody></table></div>
+      <div class="acct-actions"><button class="secondary" id="rltyPsAdd">＋ מכירה</button></div>
+      <label>לוח תשלומים של הקונים — שורה לכל תשלום: "אחוז, חודשים מהמכירה" (0 = בחודש המכירה; סה"כ 100%)
+        <textarea class="ss-input" id="rltyP_planText" rows="4">${esc(p.planText)}</textarea></label>
+      <label>הערות <textarea class="ss-input" id="rltyP_notes" rows="2">${esc(p.notes)}</textarea></label>
+      <div class="acct-actions">
+        <button id="rltyPCalc">חישוב התזרים</button>
+        <button class="secondary" id="rltyPSave">${p.id ? 'עדכון הפרויקט' : 'שמירת הפרויקט'}</button>
+        ${p.id ? '<button class="secondary" id="rltyPNew">פרויקט חדש</button>' : ''}
+      </div>
+    </div>
+    ${rltyProjectResultHtml(rltyUi.projResult)}
+    ${projects.length ? `<div class="card"><h3>פרויקטים שמורים</h3>${projects.map(x => `<div class="acct-row"><span>${esc(x.name)} <small class="muted">${esc(x.startMonth)} · ${x.months} חודשים</small></span><span>
+      <button class="secondary" data-rlty-project="${esc(x.id)}">פתיחה</button>
+      <button class="icon-btn danger" data-rlty-project-del="${esc(x.id)}" title="מחיקת פרויקט">🗑</button></span></div>`).join('')}</div>` : ''}`;
+}
+
+// קריאת הטופס אל rltyUi.proj (לפני כל רינדור מחדש, כדי לא לאבד הקלדה)
+function rltyProjCollect() {
+  const p = rltyUi.proj || rltyProjBlank();
+  const val = (id) => { const el = document.getElementById(id); return el ? el.value : undefined; };
+  for (const k of ['name', 'startMonth', 'months', 'equity', 'deficitRate', 'planText', 'notes']) {
+    const v = val('rltyP_' + k);
+    if (v !== undefined) p[k] = v;
+  }
+  p.costs = p.costs.map((c, i) => Object.fromEntries(['category', 'label', 'amount', 'from', 'spread'].map(k => [k, val(`rltyPc_${k}_${i}`) ?? c[k]])));
+  p.sales = p.sales.map((s, i) => Object.fromEntries(['label', 'units', 'price', 'month'].map(k => [k, val(`rltyPs_${k}_${i}`) ?? s[k]])));
+  rltyUi.proj = p;
+  return p;
+}
+
+function attachRealtyProjectHandlers() {
+  const o = rltyData();
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+  on('rltyPcAdd', () => { const p = rltyProjCollect(); const last = p.costs[p.costs.length - 1]; p.costs.push({ category: 'other', label: '', amount: '', from: last ? last.from : 1, spread: 1 }); renderView('realty'); });
+  on('rltyPsAdd', () => { const p = rltyProjCollect(); const last = p.sales[p.sales.length - 1]; p.sales.push({ label: '', units: 1, price: last ? last.price : '', month: last ? last.month : 1 }); renderView('realty'); });
+  document.querySelectorAll('[data-rlty-pc-del]').forEach(b => b.addEventListener('click', () => { const p = rltyProjCollect(); p.costs.splice(Number(b.dataset.rltyPcDel), 1); renderView('realty'); }));
+  document.querySelectorAll('[data-rlty-ps-del]').forEach(b => b.addEventListener('click', () => { const p = rltyProjCollect(); p.sales.splice(Number(b.dataset.rltyPsDel), 1); renderView('realty'); }));
+  on('rltyPCalc', async () => {
+    const p = rltyProjCollect();
+    try { rltyUi.projResult = await window.systemAPI.calcRealtyProject({ ...p, name: p.name || 'ללא שם' }); renderView('realty'); }
+    catch (error) { showError('שגיאה בחישוב: ' + errMsg(error)); }
+  });
+  on('rltyPSave', async () => {
+    const p = rltyProjCollect();
+    try {
+      const saved = await window.systemAPI.saveRealtyProject(p.id || '', p);
+      rltyUi.proj = { ...saved };
+      showToast('הפרויקט נשמר');
+      await switchView('realty');
+    } catch (error) { showError('שגיאה בשמירה: ' + errMsg(error)); }
+  });
+  on('rltyPNew', () => { rltyUi.proj = rltyProjBlank(); rltyUi.projResult = null; renderView('realty'); });
+  document.querySelectorAll('[data-rlty-project]').forEach(b => b.addEventListener('click', () => {
+    const x = (o.projects || []).find(p => p.id === b.dataset.rltyProject);
+    if (!x) return;
+    rltyUi.proj = JSON.parse(JSON.stringify(x));
+    rltyUi.projResult = null;
+    renderView('realty');
+  }));
+  document.querySelectorAll('[data-rlty-project-del]').forEach(b => b.addEventListener('click', async () => {
+    if (!(await askConfirm('למחוק את הפרויקט?'))) return;
+    try {
+      await window.systemAPI.deleteRealtyProject(b.dataset.rltyProjectDel);
+      if (rltyUi.proj && rltyUi.proj.id === b.dataset.rltyProjectDel) { rltyUi.proj = rltyProjBlank(); rltyUi.projResult = null; }
+      showToast('נמחק');
+      await switchView('realty');
+    } catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+  }));
+}
+
 // ערכי טופס מתוך רשומה בתצוגה (שקלים)
 function rltyFormValues(tab, rec) {
   if (tab === 'orders') return { ...rec, exclusive: rec.exclusive ? 'yes' : '' };
@@ -560,6 +741,7 @@ function attachRealtyHandlers() {
   document.querySelectorAll('[data-rlty-tab]').forEach(b => b.addEventListener('click', () => { rltyUi.tab = b.dataset.rltyTab; rltyUi.matches = null; rltyUi.deal = null; renderView('realty'); }));
   attachRealtyCommissionHandlers();
   attachRealtyInvestHandlers();
+  attachRealtyProjectHandlers();
   document.querySelectorAll('[data-rlty-edit]').forEach(b => b.addEventListener('click', async () => {
     const tab = b.dataset.rltyEdit;
     const rec = listOf[tab].find(x => x.id === b.dataset.id);

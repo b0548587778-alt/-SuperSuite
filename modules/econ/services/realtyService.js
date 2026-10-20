@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const R = require('../core/realty');
 const B = require('../core/brokerage');
 const I = require('../core/realtyInvest');
+const P = require('../core/devProject');
 
 class RealtyService {
   constructor(db) {
@@ -26,7 +27,8 @@ class RealtyService {
       orders: Array.isArray(r.orders) ? r.orders : [],
       settings: B.normalizeSettings(r.settings),
       taxTables: Array.isArray(r.taxTables) ? r.taxTables : [],
-      analyses: Array.isArray(r.analyses) ? r.analyses : []
+      analyses: Array.isArray(r.analyses) ? r.analyses : [],
+      projects: Array.isArray(r.projects) ? r.projects : []
     };
     return data;
   }
@@ -75,6 +77,8 @@ class RealtyService {
       taxKinds: I.TAX_KINDS,
       taxTables: data.realty.taxTables.map(I.taxTableView).sort((a, b) => b.year - a.year || a.kind.localeCompare(b.kind)),
       analyses: data.realty.analyses,
+      costCategories: P.COST_CATEGORIES,
+      projects: data.realty.projects,
       // סיכום עמלות: בעסקאות שלא בוטלו
       commissionTotals: { total: open.reduce((s, d) => s + d.commission.total, 0), paid: open.reduce((s, d) => s + d.commission.paid, 0), balance: open.reduce((s, d) => s + d.commission.balance, 0) }
     };
@@ -398,6 +402,38 @@ class RealtyService {
     const data = await this._load();
     this._find(data.realty.analyses, id, 'הניתוח');
     data.realty.analyses = data.realty.analyses.filter(a => a.id !== id);
+    await this.db.save(data);
+    return true;
+  }
+
+  // ---------- תזרים פרויקט ליזם ----------
+  async calcProject(input) {
+    return P.cashflow(input || {});
+  }
+
+  async saveProject(id, input) {
+    const data = await this._load();
+    const list = data.realty.projects;
+    const rec = P.projectRecord(input || {});
+    const now = new Date().toISOString();
+    if (!id) {
+      if (list.length >= P.MAX_PROJECTS) throw new Error('הגעת למספר המקסימלי של פרויקטים');
+      const p = { id: crypto.randomUUID(), ...rec, createdAt: now, updatedAt: now };
+      list.push(p);
+      await this.db.save(data);
+      return p;
+    }
+    const i = list.findIndex(x => x.id === id);
+    if (i < 0) throw new Error('הפרויקט לא נמצא');
+    list[i] = { ...list[i], ...rec, updatedAt: now };
+    await this.db.save(data);
+    return list[i];
+  }
+
+  async deleteProject(id) {
+    const data = await this._load();
+    this._find(data.realty.projects, id, 'הפרויקט');
+    data.realty.projects = data.realty.projects.filter(p => p.id !== id);
     await this.db.save(data);
     return true;
   }

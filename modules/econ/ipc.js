@@ -1687,6 +1687,17 @@ function registerIpcHandlers() {
     await auditEvent(event, 'realty.analysis.delete', { id });
     return true;
   });
+  handle('rlty:calcProject', async (event, input) => realtyService.calcProject(input || {}));
+  handle('rlty:saveProject', async (event, id, input) => {
+    const p = await realtyService.saveProject(id ? String(id) : '', input || {});
+    await auditEvent(event, id ? 'realty.project.update' : 'realty.project.create', { id: p.id });
+    return p;
+  });
+  handle('rlty:deleteProject', async (event, id) => {
+    await realtyService.deleteProject(String(id || ''));
+    await auditEvent(event, 'realty.project.delete', { id });
+    return true;
+  });
   handle('rlty:saveSettings', async (event, input) => {
     const s = await realtyService.saveSettings(input || {});
     await auditEvent(event, 'realty.settings.save', { licenseNo: s.licenseNo });
