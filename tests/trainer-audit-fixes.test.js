@@ -189,3 +189,40 @@ test('ממצא 11: memberships/sessions/measurements/assessments שאינם רש
   assert.equal(legacyTrainerBackup({ ...good, 'memberships:c_1': '{}' }), null, 'קובץ JSON ישן ופגום — לא מומר לשחזור');
   assert.ok(legacyTrainerBackup(good));
 });
+
+// ממצא 3 (המשך): האזהרה מחושבת בשרת — וחייבת להגיע למסך: בשורה ובחלון האישור לפני ההפקה
+test('מסך הגבייה: חשד לחשבונית כפולה מוצג בשורת התשלום ובראש נוסח האישור', async () => {
+  const vm = require('vm');
+  const EconUI = require('./helpers/econ-ui');
+  const context = { console, setTimeout, clearTimeout, Date, Intl, URLSearchParams, location: { search: '' },
+    document: { readyState: 'loading', addEventListener() {}, getElementById() { return null; }, querySelectorAll() { return []; } } };
+  context.window = context;
+  vm.createContext(context);
+  EconUI.run(context);
+  const warning = TP.duplicateWarning([{ invoiceNumber: 17, reason: 'orphan' }]);
+  const base = { key: 'c1/m1/p2', date: '2026-10-18', clientName: 'יוסף כהן', membershipName: 'כרטיסייה 10', amount: 350, methodLabel: 'מזומן' };
+  context.__p = { ...base, duplicateWarning: warning };
+  const text = vm.runInContext('collectTrainerConfirmText(__p)', context);
+  assert.ok(text.startsWith(warning), 'האזהרה בראש נוסח האישור');
+  context.__p = base;
+  assert.doesNotMatch(vm.runInContext('collectTrainerConfirmText(__p)', context), /⚠/, 'בלי חשד — בלי אזהרה');
+
+  let html = '';
+  context.systemAPI = { collectTrainerPayments: async () => ({ available: true,
+    payments: [{ ...base, duplicateWarning: warning }, { ...base, key: 'c1/m1/p1', invoiceNumber: 17 }] }) };
+  context.openDialog = (build) => {
+    const card = { style: {}, innerHTML: '', querySelector: () => ({ addEventListener() {} }), querySelectorAll: () => [] };
+    build(card, () => {});
+    html = card.innerHTML;
+    return Promise.resolve(null);
+  };
+  await vm.runInContext('collectTrainerPayments()', context);
+  const rows = html.split('<tr>').filter(r => r.includes('data-trainer-issue') || r.includes('חשבונית 17'));
+  const pending = rows.find(r => r.includes('data-trainer-issue="c1/m1/p2"'));
+  assert.ok(pending, 'שורת התשלום בלי חשבונית');
+  assert.match(pending, /ss-badge-warning/);
+  assert.match(pending, /ייתכן שכבר הופקה/);
+  assert.ok(pending.includes('מספר 17'), 'מספר החשבונית החשודה מופיע (בכותרת התגית)');
+  const done = rows.find(r => r.includes('ss-badge-success'));
+  assert.ok(done && !done.includes('ss-badge-warning'), 'לתשלום שכבר יש לו חשבונית — בלי אזהרה');
+});

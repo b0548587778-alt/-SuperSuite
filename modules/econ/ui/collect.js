@@ -192,8 +192,10 @@ async function collectImport() {
 }
 
 // נוסח האישור לפני הפקה — כל הפרטים שיופיעו במסמך
+// חשד לכפילות (duplicateWarning מהשרת) — בראש הנוסח, כדי שייקרא לפני האישור
 function collectTrainerConfirmText(p) {
-  return `הפקת מסמך על ${money(p.amount)} ל${p.clientName} (${p.membershipName}), בתאריך ${p.date}, ב${p.methodLabel}. ` +
+  return (p.duplicateWarning ? p.duplicateWarning + ' ' : '') +
+    `הפקת מסמך על ${money(p.amount)} ל${p.clientName} (${p.membershipName}), בתאריך ${p.date}, ב${p.methodLabel}. ` +
     'המסמך נרשם ביומן ומקבל מספר רץ. אחרי ההפקה אפשר לבטל אותו רק במסך החשבוניות.';
 }
 const COLLECT_TRAINER_DOCS = [['taxed', 'חשבונית מס/קבלה — עוסק מורשה (הסכום כולל מע"מ)'], ['exempt', 'חשבונית עסקה וקבלה — עוסק פטור (בלי מע"מ)']];
@@ -208,7 +210,7 @@ async function collectTrainerPayments() {
       card.style.maxWidth = '720px';
       const row = (p) => `<tr><td>${esc(p.date)}</td><td>${esc(p.clientName)}<br><small class="muted">${esc(p.membershipName)}${p.cancelled ? ' · בוטל' : ''}</small></td>
         <td>${money(p.amount)}</td><td>${esc(p.methodLabel)}</td>
-        <td>${p.invoiceNumber ? `<span class="badge good">חשבונית ${esc(p.invoiceNumber)}</span>` : `<button type="button" class="primary small" data-trainer-issue="${esc(p.key)}">🧾 הפקה</button>`}</td></tr>`;
+        <td>${p.invoiceNumber ? `<span class="ss-badge ss-badge-success">חשבונית ${esc(p.invoiceNumber)}</span>` : `<button type="button" class="primary small" data-trainer-issue="${esc(p.key)}">🧾 הפקה</button>`}${p.duplicateWarning ? `<br><span class="ss-badge ss-badge-warning" title="${esc(p.duplicateWarning)}">⚠ ייתכן שכבר הופקה</span>` : ''}</td></tr>`;
       card.innerHTML = `<h2>🏋️ תשלומי אימונים</h2>
         <p class="muted" style="padding:0 1.5rem">התשלומים שנרשמו במודול האימונים, בכרטיס המתאמן. לכל תשלום אפשר להפיק חשבונית מס/קבלה אחת, אחרי אישור.</p>
         <div class="table-wrap" style="max-height:55vh"><table><thead><tr><th>תאריך</th><th>מתאמן</th><th>סכום</th><th>אמצעי</th><th></th></tr></thead><tbody>
