@@ -114,3 +114,7 @@ input.rounded-lg, textarea.rounded-lg, select.rounded-lg {
 input.rounded-lg:focus, textarea.rounded-lg:focus, select.rounded-lg:focus { border-color: var(--ss-primary); box-shadow: var(--ss-focus); outline: none; }
 /* כרטיס */
 .rounded-xl.backdrop-blur { background-color: var(--ss-surface); border-color: var(--ss-border); border-radius: var(--ss-radius-lg); box-shadow: var(--ss-shadow); backdrop-filter: none; }
+
+/* ---- ui-kit — מיפוי 2: כותרות ותגיות כמו בשאר התוכנה (shell/ui-kit.css) ---- */
+h1.font-bold { font: 700 var(--ss-fs-xl) / 1.2 var(--ss-font-title); color: var(--ss-navy-2); font-size: var(--ss-fs-2xl); }
+span.inline-block.rounded.text-xs { border-radius: 999px; padding: 2px 10px; font: 600 var(--ss-fs-sm) var(--ss-font); }

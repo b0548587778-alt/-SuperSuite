@@ -60,3 +60,23 @@ test('ui-kit: כל מודול ממפה את הכפתורים, השדות והכ�
     assert.doesNotMatch(block.split('</style>')[0], /#[0-9a-f]{3,8}\b/i, p + ': צבע hex בבלוק המיפוי');
   }
 });
+
+test('ui-kit: כותרת עמוד, מדדים, לשוניות ותגיות מצב — רכיב אחד לכל התוכנה', () => {
+  for (const c of ['.ss-page-head', '.ss-kpis', '.ss-kpi', '.ss-tabs', '.ss-tab', '.ss-badge-success', '.ss-badge-warning', '.ss-badge-danger', '.ss-badge-info'])
+    assert.ok(KIT.includes(c), 'חסר רכיב: ' + c);
+  // כל מודול ממפה גם את הכותרות והמדדים לאותם ערכים
+  const second = {
+    'modules/econ/styles.css': ['--ss-fs-xl', '--ss-shadow-sm', '--ss-surface-2'],
+    'modules/shamai/style.css': ['--ss-fs-xl', '--ss-shadow-sm'],
+    'modules/tools/index.html': ['--ss-fs-xl'],
+    'modules-src/trainer/src/theme.css': ['--ss-fs-xl'],
+  };
+  for (const [p, vars] of Object.entries(second)) {
+    const src = read(p);
+    const i = src.indexOf('ui-kit — מיפוי 2');
+    assert.ok(i >= 0, p + ': חסר בלוק המיפוי של הכותרות והמדדים');
+    const block = src.slice(i).split('</style>')[0];
+    for (const v of vars) assert.ok(block.includes(`var(${v})`), `${p}: המיפוי לא משתמש ב-${v}`);
+    assert.doesNotMatch(block, /#[0-9a-f]{3,8}\b/i, p + ': צבע hex בבלוק המיפוי');
+  }
+});
