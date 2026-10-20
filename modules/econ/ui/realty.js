@@ -2,8 +2,8 @@
 // סקריפט רגיל (לא מודול): כל קבצי ui/ חולקים טווח שמות אחד, לפי הסדר ב-views/index.html.
 'use strict';
 
-const RLTY_TABS = [['properties', 'נכסים'], ['clients', 'לקוחות'], ['deals', 'עסקאות'], ['orders', 'הזמנות תיווך']];
-const rltyUi = { tab: 'properties', matches: null, deal: null };
+const RLTY_TABS = [['properties', 'נכסים'], ['clients', 'לקוחות'], ['deals', 'עסקאות'], ['orders', 'הזמנות תיווך'], ['invest', 'כדאיות ומס רכישה']];
+const rltyUi = { tab: 'properties', matches: null, deal: null, inv: {}, invResult: null, analysisId: '', table: null };
 const rltyData = () => state.data.realty || {};
 const rltyOpts = (map, blank) => [...(blank ? [{ value: '', label: blank }] : []), ...Object.entries(map || {}).map(([value, label]) => ({ value, label }))];
 
@@ -125,7 +125,27 @@ const rltyOrderSchema = {
   update: (id, d) => window.systemAPI.saveRealtyOrder(id, d)
 };
 
-const RLTY_SCHEMAS = { properties: rltyPropertySchema, clients: rltyClientSchema, deals: rltyDealSchema, orders: rltyOrderSchema };
+// טבלת מדרגות מס רכישה — מוקלדת (או נטענת מקובץ בכפתור נפרד). אין ערכים מובנים בתוכנה
+const rltyTaxTableSchema = {
+  title: 'טבלת מס רכישה',
+  editTitle: 'עריכת טבלת מס רכישה',
+  prepare: async (schema) => {
+    schema.fields.find(x => x.name === 'kind').options = rltyOpts(rltyData().taxKinds);
+    const y = schema.fields.find(x => x.name === 'year');
+    y.value = y.value || new Date().getFullYear();
+  },
+  fields: [
+    { name: 'year', label: 'שנת תוקף', type: 'number', required: true },
+    { name: 'kind', label: 'סוג רוכש', type: 'select', options: [] },
+    { name: 'validFrom', label: 'בתוקף מתאריך (לא חובה)', type: 'date' },
+    { name: 'bracketsText', label: 'מדרגות — שורה לכל מדרגה: "עד סכום, שיעור%". בשורה האחרונה: "מעל, שיעור"', type: 'textarea', required: true },
+    { name: 'source', label: 'מקור (מאיפה הועתקו המדרגות)', type: 'text' }
+  ],
+  create: (d) => window.systemAPI.saveRealtyTaxTable(d),
+  update: (id, d) => window.systemAPI.saveRealtyTaxTable(d)
+};
+
+const RLTY_SCHEMAS = { properties: rltyPropertySchema, clients: rltyClientSchema, deals: rltyDealSchema, orders: rltyOrderSchema, invest: rltyTaxTableSchema };
 
 // כפתור "＋ הוספת רשומה" — לפי הלשונית הפתוחה
 formSchemas['realty'] = {
@@ -140,8 +160,9 @@ formSchemas['realty'] = {
   create: (d) => RLTY_SCHEMAS[rltyUi.tab].create(d)
 };
 
+
 function rltyTabsHtml(o) {
-  const count = { properties: (o.properties || []).length, clients: (o.clients || []).length, deals: (o.deals || []).length, orders: (o.orders || []).length };
+  const count = { properties: (o.properties || []).length, clients: (o.clients || []).length, deals: (o.deals || []).length, orders: (o.orders || []).length, invest: (o.analyses || []).length };
   return `<div class="lab-tabs" role="tablist">${RLTY_TABS.map(([id, label]) => `<button class="${rltyUi.tab === id ? '' : 'secondary'}" data-rlty-tab="${id}" aria-pressed="${rltyUi.tab === id}">${label} (${count[id]})</button>`).join('')}</div>`;
 }
 
@@ -276,7 +297,7 @@ function rltySettingsHtml(o) {
 
 function renderRealty(o) {
   const d = o || {};
-  const body = rltyUi.tab === 'clients' ? rltyClientsHtml(d) : rltyUi.tab === 'deals' ? rltyCommissionHtml(d) + rltyDealsHtml(d) : rltyUi.tab === 'orders' ? rltySettingsHtml(d) + rltyOrdersHtml(d) : rltyPropertiesHtml(d);
+  const body = rltyUi.tab === 'clients' ? rltyClientsHtml(d) : rltyUi.tab === 'deals' ? rltyCommissionHtml(d) + rltyDealsHtml(d) : rltyUi.tab === 'orders' ? rltySettingsHtml(d) + rltyOrdersHtml(d) : rltyUi.tab === 'invest' ? rltyInvestHtml(d) : rltyPropertiesHtml(d);
   return `<div class="realty mortgage-lab">${rltyTabsHtml(d)}${rltyMatchesHtml()}${body}</div>`;
 }
 
@@ -373,6 +394,158 @@ function attachRealtyCommissionHandlers() {
   });
 }
 
+// ---------- כדאיות השקעה ומס רכישה ----------
+const RLTY_INV_FIELDS = [
+  ['price', 'מחיר הנכס (₪)'], ['lawyer', 'עורך דין (₪)'], ['brokerage', 'דמי תיווך (₪)'], ['renovation', 'שיפוץ (₪)'], ['otherCosts', 'עלויות אחרות (₪)'],
+  ['loan', 'משכנתא (₪)'], ['loanRate', 'ריבית שנתית (%)'], ['loanYears', 'שנים'],
+  ['monthlyRent', 'שכר דירה חודשי (₪)'], ['occupiedMonths', 'חודשי השכרה בשנה'], ['monthlyExpenses', 'הוצאות חודשיות — ועד, ביטוח, תחזוקה (₪)'],
+  ['manualTax', 'מס רכישה ידני (₪; ריק — לפי טבלה)']
+];
+
+function rltyInvestResultHtml(r) {
+  if (!r) return '';
+  const pct = (v) => (v === null || v === undefined ? '—' : `${v}%`);
+  const row = (l, v, cls) => `<div class="acct-row${cls ? ' ' + cls : ''}"><span>${l}</span><span>${v}</span></div>`;
+  return `<div class="card">
+    ${r.warnings.map(w => `<p class="warn">⚠ ${esc(w)}</p>`).join('')}
+    ${row('מס רכישה' + (r.taxSource === 'unverified' ? ' (הערכה)' : r.taxSource === 'manual' ? ' (ידני)' : ''), `${money(r.tax.tax)} · ${pct(r.tax.effectivePct)}`)}
+    ${r.tax.lines.length ? `<div class="acct-scroll"><table class="acct-table"><thead><tr><th>מ-</th><th>עד</th><th>שיעור</th><th>מס</th></tr></thead>
+      <tbody>${r.tax.lines.map(l => `<tr><td>${money(l.from)}</td><td>${money(l.to)}</td><td>${l.ratePct}%</td><td>${money(l.tax)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${row('עלות כוללת', money(r.totalCost), 'acct-total')}
+    ${row('הון עצמי נדרש', money(r.equity))}
+    ${row('שיעור מימון', pct(r.ltvPct))}
+    ${row('החזר חודשי', money(r.payment))}
+    ${row('הכנסה שנתית משכירות', money(r.annualRent))}
+    ${row('הכנסה נטו לפני מימון (NOI)', money(r.noi))}
+    ${row('תזרים שנתי אחרי החזר', money(r.cashFlow), 'acct-total')}
+    ${row('תשואה ברוטו', pct(r.grossYieldPct))}
+    ${row('תשואה נטו (על העלות הכוללת)', pct(r.netYieldPct))}
+    ${row('תשואה על ההון העצמי', pct(r.cashOnCashPct))}
+    <p class="muted">${esc(r.assumptions)}</p>
+  </div>`;
+}
+
+function rltyInvestHtml(o) {
+  const v = rltyUi.inv;
+  const kinds = o.taxKinds || {};
+  const years = [...new Set((o.taxTables || []).map(t => t.year))];
+  const analyses = o.analyses || [];
+  const tables = o.taxTables || [];
+  return `
+    <div class="card">
+      <h3>מחשבון כדאיות</h3>
+      <div class="acct-actions">
+        <label>נכס <select id="rltyInvProperty" aria-label="נכס"><option value="">ללא</option>${(o.properties || []).filter(p => p.listing === 'sale').map(p => `<option value="${esc(p.id)}"${v.propertyId === p.id ? ' selected' : ''}>${esc(p.title)}</option>`).join('')}</select></label>
+        <label>שנת מס <select id="rltyInv_taxYear" aria-label="שנת מס"><option value="">ללא טבלה</option>${years.map(y => `<option${String(v.taxYear) === String(y) ? ' selected' : ''}>${y}</option>`).join('')}</select></label>
+        <label>סוג רוכש <select id="rltyInv_taxKind" aria-label="סוג רוכש">${Object.entries(kinds).map(([k, l]) => `<option value="${k}"${v.taxKind === k ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      </div>
+      <div class="acct-actions">${RLTY_INV_FIELDS.map(([k, l]) => `<label>${l} <input type="number" step="any" min="0" id="rltyInv_${k}" value="${esc(v[k] ?? '')}"></label>`).join('')}</div>
+      <div class="acct-actions">
+        <button id="rltyInvCalc">חישוב</button>
+        <button class="secondary" id="rltyInvSave">${rltyUi.analysisId ? 'עדכון הניתוח' : 'שמירה כניתוח'}</button>
+        ${rltyUi.analysisId ? '<button class="secondary" id="rltyInvNew">ניתוח חדש</button>' : ''}
+      </div>
+    </div>
+    ${rltyInvestResultHtml(rltyUi.invResult)}
+    ${analyses.length ? `<div class="card"><h3>ניתוחים שמורים</h3>${analyses.map(a => `<div class="acct-row"><span>${esc(a.name)}</span><span>
+      <button class="secondary" data-rlty-analysis="${esc(a.id)}">פתיחה</button>
+      <button class="icon-btn danger" data-rlty-analysis-del="${esc(a.id)}" title="מחיקת ניתוח">🗑</button></span></div>`).join('')}</div>` : ''}
+    <div class="card">
+      <div class="acct-header"><h3>טבלאות מס רכישה</h3><button class="secondary" id="rltyTaxFile">טעינה מקובץ…</button></div>
+      <p class="muted">אין בתוכנה מדרגות מובנות. מקלידים את הטבלה מאתר רשות המסים (או טוענים מקובץ CSV: "עד סכום, שיעור" בכל שורה), ומנהל מסמן "אומת" אחרי בדיקה. חישוב עם טבלה שלא אומתה מוצג כהערכה.</p>
+      ${tables.length ? `<div class="acct-scroll"><table class="acct-table"><thead><tr><th>שנה</th><th>סוג</th><th>מדרגות</th><th>מצב</th><th></th></tr></thead>
+        <tbody>${tables.map(t => `<tr><td>${t.year}</td><td>${esc(t.kindLabel)}</td>
+          <td><small>${t.brackets.map(b => `${b.upTo === null ? 'מעל ' + money(b.from) : 'עד ' + money(b.upTo)}: ${b.ratePct}%`).join(' · ')}</small>${t.source ? `<br><small class="muted">${esc(t.source)}</small>` : ''}</td>
+          <td><span class="ss-badge${t.verified ? '' : ' ss-badge-warn'}">${esc(t.statusLabel)}</span>${t.verifyNote ? `<br><small>${esc(t.verifyNote)}</small>` : ''}</td>
+          <td><button class="icon-btn" data-rlty-tax-edit="${esc(t.id)}" title="עריכה">✏</button>
+            ${o.isManager ? (t.verified ? `<button class="icon-btn" data-rlty-tax-unverify="${esc(t.id)}" title="ביטול האימות">↺</button>` : `<button class="icon-btn" data-rlty-tax-verify="${esc(t.id)}" title="סימון כמאומת">✓</button>`) : ''}
+            <button class="icon-btn danger" data-rlty-tax-del="${esc(t.id)}" title="מחיקת טבלה">🗑</button></td></tr>`).join('')}</tbody></table></div>`
+        : renderEmpty('אין טבלאות מס רכישה — לחץ "＋ הוספת רשומה" כדי להקליד טבלה', '🧾')}
+    </div>`;
+}
+
+function rltyInvCollect() {
+  const v = {};
+  const p = document.getElementById('rltyInvProperty');
+  if (p) v.propertyId = p.value;
+  for (const k of ['taxYear', 'taxKind', ...RLTY_INV_FIELDS.map(f => f[0])]) {
+    const el = document.getElementById('rltyInv_' + k);
+    if (el && el.value !== '') v[k] = el.value;
+  }
+  rltyUi.inv = v;
+  return v;
+}
+
+function attachRealtyInvestHandlers() {
+  const o = rltyData();
+  const prop = document.getElementById('rltyInvProperty');
+  if (prop) prop.addEventListener('change', () => {
+    const v = rltyInvCollect();
+    const p = (o.properties || []).find(x => x.id === v.propertyId);
+    if (p) { v.price = p.asking; renderView('realty'); }
+  });
+  const calc = document.getElementById('rltyInvCalc');
+  if (calc) calc.addEventListener('click', async () => {
+    try { rltyUi.invResult = await window.systemAPI.calcRealtyInvestment(rltyInvCollect()); renderView('realty'); }
+    catch (error) { showError('שגיאה בחישוב: ' + errMsg(error)); }
+  });
+  const save = document.getElementById('rltyInvSave');
+  if (save) save.addEventListener('click', async () => {
+    const input = rltyInvCollect();
+    const cur = (o.analyses || []).find(a => a.id === rltyUi.analysisId);
+    const v = await askFields('שם לניתוח', [{ name: 'name', label: 'שם' }], 'שמירה', { name: cur ? cur.name : '' });
+    if (!v) return;
+    try {
+      const a = await window.systemAPI.saveRealtyAnalysis(rltyUi.analysisId, { name: v.name, propertyId: input.propertyId || '', input });
+      rltyUi.analysisId = a.id;
+      showToast('הניתוח נשמר');
+      await switchView('realty');
+    } catch (error) { showError('שגיאה בשמירה: ' + errMsg(error)); }
+  });
+  const fresh = document.getElementById('rltyInvNew');
+  if (fresh) fresh.addEventListener('click', () => { rltyUi.analysisId = ''; rltyUi.inv = {}; rltyUi.invResult = null; renderView('realty'); });
+  document.querySelectorAll('[data-rlty-analysis]').forEach(b => b.addEventListener('click', () => {
+    const a = (o.analyses || []).find(x => x.id === b.dataset.rltyAnalysis);
+    if (!a) return;
+    rltyUi.analysisId = a.id;
+    rltyUi.inv = { ...a.input, propertyId: a.propertyId };
+    rltyUi.invResult = null;
+    renderView('realty');
+  }));
+  document.querySelectorAll('[data-rlty-analysis-del]').forEach(b => b.addEventListener('click', async () => {
+    if (!(await askConfirm('למחוק את הניתוח?'))) return;
+    try { await window.systemAPI.deleteRealtyAnalysis(b.dataset.rltyAnalysisDel); if (rltyUi.analysisId === b.dataset.rltyAnalysisDel) rltyUi.analysisId = ''; showToast('נמחק'); await switchView('realty'); }
+    catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+  }));
+  const tables = o.taxTables || [];
+  document.querySelectorAll('[data-rlty-tax-edit]').forEach(b => b.addEventListener('click', async () => {
+    const t = tables.find(x => x.id === b.dataset.rltyTaxEdit);
+    if (t) await openSubForm(rltyTaxTableSchema, t, t.id);
+  }));
+  const file = document.getElementById('rltyTaxFile');
+  if (file) file.addEventListener('click', async () => {
+    try {
+      const r = await window.systemAPI.readRealtyTaxTableFile();
+      if (r && !r.canceled) await openSubForm(rltyTaxTableSchema, { bracketsText: r.text });
+    } catch (error) { showError('שגיאה בקריאת הקובץ: ' + errMsg(error)); }
+  });
+  document.querySelectorAll('[data-rlty-tax-verify]').forEach(b => b.addEventListener('click', async () => {
+    const v = await askFields('אימות טבלת מס רכישה', [{ name: 'note', label: 'מאיפה נבדקה הטבלה (למשל: אתר רשות המסים, תאריך)' }], 'סימון כמאומת');
+    if (!v) return;
+    try { await window.systemAPI.verifyRealtyTaxTable(b.dataset.rltyTaxVerify, v.note); showToast('הטבלה סומנה כמאומתת'); await switchView('realty'); }
+    catch (error) { showError('שגיאה: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-rlty-tax-unverify]').forEach(b => b.addEventListener('click', async () => {
+    try { await window.systemAPI.unverifyRealtyTaxTable(b.dataset.rltyTaxUnverify); showToast('האימות בוטל'); await switchView('realty'); }
+    catch (error) { showError('שגיאה: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-rlty-tax-del]').forEach(b => b.addEventListener('click', async () => {
+    if (!(await askConfirm('למחוק את הטבלה?'))) return;
+    try { await window.systemAPI.deleteRealtyTaxTable(b.dataset.rltyTaxDel); showToast('נמחק'); await switchView('realty'); }
+    catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+  }));
+}
+
 // ערכי טופס מתוך רשומה בתצוגה (שקלים)
 function rltyFormValues(tab, rec) {
   if (tab === 'orders') return { ...rec, exclusive: rec.exclusive ? 'yes' : '' };
@@ -386,6 +559,7 @@ function attachRealtyHandlers() {
   const listOf = { properties: o.properties || [], clients: o.clients || [], deals: o.deals || [], orders: o.orders || [] };
   document.querySelectorAll('[data-rlty-tab]').forEach(b => b.addEventListener('click', () => { rltyUi.tab = b.dataset.rltyTab; rltyUi.matches = null; rltyUi.deal = null; renderView('realty'); }));
   attachRealtyCommissionHandlers();
+  attachRealtyInvestHandlers();
   document.querySelectorAll('[data-rlty-edit]').forEach(b => b.addEventListener('click', async () => {
     const tab = b.dataset.rltyEdit;
     const rec = listOf[tab].find(x => x.id === b.dataset.id);

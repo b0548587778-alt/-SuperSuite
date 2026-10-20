@@ -26,6 +26,7 @@ const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/m
 const { RealtyService: realtyService } = require('./services/realtyService');
 const MR = require('./core/mortgageReport');
 const BR = require('./core/brokerage');
+const RI = require('./core/realtyInvest');
 // שפת העיצוב מוטמעת במסמכי PDF (חלון ה-PDF אינו טוען קבצים). בלי הקובץ (אנדרואיד) — ברירות המחדל של הדפדפן
 let tokensCache = null;
 function designTokensCss() {
@@ -234,6 +235,9 @@ function permissionFor(channel) {
   if (channel === 'madv:saveSettings' || channel === 'madv:saveBrand' || channel === 'madv:setBrandLogo') return 'users.manage';
   // פרטי המשרד בהזמנת התיווך (שם, רישיון, עוסק פטור) — מנהל בלבד
   if (channel === 'rlty:saveSettings') return 'users.manage';
+  // אימות טבלת מס רכישה משנה את האזהרות לכל המשתמשים — מנהל בלבד (כמו אימות כללים במעבדה)
+  if (channel === 'rlty:verifyTaxTable' || channel === 'rlty:unverifyTaxTable') return 'users.manage';
+  if (channel === 'rlty:readTaxTableFile') return 'data.edit';
   // מיפוי מאגרים ומזעור נתונים (תיקון 13) — מנהל בלבד
   if (channel.startsWith('privacy:')) return 'users.manage';
   // רישוי: התקנה, הנפקת מערכות בת והשבתתן — מנהל בלבד. מצב הרישיון — לכל משתמש מחובר
@@ -1620,6 +1624,46 @@ function registerIpcHandlers() {
     const r = await saveHtmlAsPdf(html, `הזמנת-שירותי-תיווך-${d.order.date}.pdf`);
     if (r.ok) await auditEvent(event, 'realty.order.pdf', { id });
     return r;
+  });
+  // כדאיות השקעה ומס רכישה: טבלאות המדרגות מוקלדות או נטענות מקובץ — אין ערכים בקוד ואין רשת
+  handle('rlty:calcInvestment', async (event, input) => realtyService.calcInvestment(input || {}));
+  handle('rlty:saveTaxTable', async (event, input) => {
+    const t = await realtyService.saveTaxTable(input || {});
+    await auditEvent(event, 'realty.taxTable.save', { id: t.id, year: t.year, kind: t.kind });
+    return t;
+  });
+  // קובץ טקסט / CSV מקומי: "עד סכום, שיעור" בכל שורה. התוכן מוחזר למסך לבדיקה לפני שמירה
+  handle('rlty:readTaxTableFile', async () => {
+    const pick = await dialog.showOpenDialog({ title: 'טבלת מדרגות מס רכישה', properties: ['openFile'], filters: [{ name: 'טבלה', extensions: ['csv', 'txt'] }] });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { canceled: true };
+    if (fs.statSync(pick.filePaths[0]).size > 64 * 1024) throw new Error('הקובץ גדול מדי לטבלת מדרגות');
+    const text = fs.readFileSync(pick.filePaths[0], 'utf8').replace(/^﻿/, '');
+    return { text: RI.bracketsText(RI.parseBrackets(text)) };
+  });
+  handle('rlty:deleteTaxTable', async (event, id) => {
+    await realtyService.deleteTaxTable(String(id || ''));
+    await auditEvent(event, 'realty.taxTable.delete', { id });
+    return true;
+  });
+  handle('rlty:verifyTaxTable', async (event, id, note) => {
+    const t = await realtyService.verifyTaxTable(String(id || ''), note, true);
+    await auditEvent(event, 'realty.taxTable.verify', { id: t.id, year: t.year, kind: t.kind, note: t.verifyNote });
+    return t;
+  });
+  handle('rlty:unverifyTaxTable', async (event, id) => {
+    const t = await realtyService.verifyTaxTable(String(id || ''), '', false);
+    await auditEvent(event, 'realty.taxTable.unverify', { id: t.id });
+    return t;
+  });
+  handle('rlty:saveAnalysis', async (event, id, input) => {
+    const a = await realtyService.saveAnalysis(id ? String(id) : '', input || {});
+    await auditEvent(event, id ? 'realty.analysis.update' : 'realty.analysis.create', { id: a.id });
+    return a;
+  });
+  handle('rlty:deleteAnalysis', async (event, id) => {
+    await realtyService.deleteAnalysis(String(id || ''));
+    await auditEvent(event, 'realty.analysis.delete', { id });
+    return true;
   });
   handle('rlty:saveSettings', async (event, input) => {
     const s = await realtyService.saveSettings(input || {});

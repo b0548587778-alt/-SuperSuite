@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const R = require('../core/realty');
 const B = require('../core/brokerage');
+const I = require('../core/realtyInvest');
 
 class RealtyService {
   constructor(db) {
@@ -23,7 +24,9 @@ class RealtyService {
       clients: Array.isArray(r.clients) ? r.clients : [],
       deals: Array.isArray(r.deals) ? r.deals : [],
       orders: Array.isArray(r.orders) ? r.orders : [],
-      settings: B.normalizeSettings(r.settings)
+      settings: B.normalizeSettings(r.settings),
+      taxTables: Array.isArray(r.taxTables) ? r.taxTables : [],
+      analyses: Array.isArray(r.analyses) ? r.analyses : []
     };
     return data;
   }
@@ -69,6 +72,9 @@ class RealtyService {
       board: R.dealBoard(deals, ctx),
       upcoming: R.upcoming(deals, t),
       orders: orders.map(o => B.orderView(o, ctx)),
+      taxKinds: I.TAX_KINDS,
+      taxTables: data.realty.taxTables.map(I.taxTableView).sort((a, b) => b.year - a.year || a.kind.localeCompare(b.kind)),
+      analyses: data.realty.analyses,
       // סיכום עמלות: בעסקאות שלא בוטלו
       commissionTotals: { total: open.reduce((s, d) => s + d.commission.total, 0), paid: open.reduce((s, d) => s + d.commission.paid, 0), balance: open.reduce((s, d) => s + d.commission.balance, 0) }
     };
@@ -221,6 +227,8 @@ class RealtyService {
     this._find(data.realty.properties, id, 'הנכס');
     if (data.realty.deals.some(d => d.propertyId === id)) throw new Error('לנכס יש עסקאות — אפשר לסמן אותו "הוסר" במקום למחוק');
     data.realty.properties = data.realty.properties.filter(p => p.id !== id);
+    // ניתוח כדאיות שהיה מקושר לנכס נשאר, בלי הקישור
+    for (const a of data.realty.analyses) if (a.propertyId === id) a.propertyId = '';
     await this.db.save(data);
     return true;
   }
@@ -315,6 +323,81 @@ class RealtyService {
     // עסקה עם תשלומי עמלה לא נמחקת — הכסף והחשבוניות צריכים להישאר מקושרים
     if ((d.commissionPayments || []).length) throw new Error('בעסקה נרשמו תשלומי עמלה — אפשר לסמן אותה "בוטלה" במקום למחוק');
     data.realty.deals = data.realty.deals.filter(x => x.id !== id);
+    await this.db.save(data);
+    return true;
+  }
+
+  // ---------- כדאיות השקעה ומס רכישה ----------
+  // טבלה לשנה ולסוג רוכש — אחת בלבד; שמירה מחדש מחליפה ומבטלת את האימות (הערך השתנה)
+  async saveTaxTable(input) {
+    const data = await this._load();
+    const t = I.validateTaxTable(input);
+    const list = data.realty.taxTables;
+    const i = list.findIndex(x => x.year === t.year && x.kind === t.kind);
+    const now = new Date().toISOString();
+    if (i < 0) {
+      if (list.length >= I.MAX_TABLES) throw new Error('הגעת למספר המקסימלי של טבלאות');
+      list.push({ id: crypto.randomUUID(), ...t, createdAt: now, updatedAt: now });
+    } else {
+      list[i] = { id: list[i].id, ...t, createdAt: list[i].createdAt, updatedAt: now };
+    }
+    await this.db.save(data);
+    return I.taxTableView(list[i < 0 ? list.length - 1 : i]);
+  }
+
+  async deleteTaxTable(id) {
+    const data = await this._load();
+    this._find(data.realty.taxTables, id, 'הטבלה');
+    data.realty.taxTables = data.realty.taxTables.filter(t => t.id !== id);
+    await this.db.save(data);
+    return true;
+  }
+
+  // אימות: מנהל מאשר שבדק את הטבלה מול המקור (נאכף ב-permissionFor). לא משנה את הערכים
+  async verifyTaxTable(id, note, verify = true) {
+    const data = await this._load();
+    const t = this._find(data.realty.taxTables, id, 'הטבלה');
+    if (verify) {
+      const n = String(note || '').trim().slice(0, 300);
+      if (!n) throw new Error('יש לרשום מאיפה נבדקה הטבלה');
+      t.verifiedAt = new Date().toISOString();
+      t.verifyNote = n;
+    } else {
+      delete t.verifiedAt;
+      delete t.verifyNote;
+    }
+    await this.db.save(data);
+    return I.taxTableView(t);
+  }
+
+  async calcInvestment(input) {
+    const data = await this._load();
+    return I.investment(input || {}, data.realty.taxTables);
+  }
+
+  async saveAnalysis(id, input) {
+    const data = await this._load();
+    const list = data.realty.analyses;
+    const a = I.validateAnalysis(input || {}, data.realty.properties);
+    const now = new Date().toISOString();
+    if (!id) {
+      if (list.length >= I.MAX_ANALYSES) throw new Error('הגעת למספר המקסימלי של ניתוחים');
+      const rec = { id: crypto.randomUUID(), ...a, createdAt: now, updatedAt: now };
+      list.push(rec);
+      await this.db.save(data);
+      return rec;
+    }
+    const i = list.findIndex(x => x.id === id);
+    if (i < 0) throw new Error('הניתוח לא נמצא');
+    list[i] = { ...list[i], ...a, updatedAt: now };
+    await this.db.save(data);
+    return list[i];
+  }
+
+  async deleteAnalysis(id) {
+    const data = await this._load();
+    this._find(data.realty.analyses, id, 'הניתוח');
+    data.realty.analyses = data.realty.analyses.filter(a => a.id !== id);
     await this.db.save(data);
     return true;
   }
