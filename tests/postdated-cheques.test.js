@@ -533,7 +533,10 @@ test('שירות: חלוקה שווה (generate) מחושבת בשרת, ו-chequ
 
 test('הלוגיקה של ההמחאות בלי require חדש (אנדרואיד) ובלי toISOString לתאריכים', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/core/npo.js'), 'utf8');
-  assert.deepEqual([...src.matchAll(/require\('([^']+)'\)/g)].map(m => m[1]), ['./israeliId']);
+  // רק קבצים מקומיים שה-bundler של אנדרואיד אורז; currency.js עצמו בלי require בכלל
+  assert.deepEqual([...src.matchAll(/require\('([^']+)'\)/g)].map(m => m[1]), ['./israeliId', './currency']);
+  const cur = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/core/currency.js'), 'utf8');
+  assert.doesNotMatch(cur, /require\(/);
   const block = src.slice(src.indexOf('// ---------- המחאות דחויות'), src.indexOf('// רשימת מסמכים לתמיכה'));
   assert.doesNotMatch(block, /toISOString/);
 });

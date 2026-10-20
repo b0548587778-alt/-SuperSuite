@@ -48,7 +48,8 @@ const gemachDepositSchema = {
   fields: [
     { name: 'date', label: 'תאריך', type: 'date', required: true },
     { name: 'depositorName', label: 'שם המפקיד', type: 'text', required: true },
-    { name: 'amount', label: 'סכום (₪)', type: 'number', required: true },
+    { name: 'amount', label: 'סכום (₪) — בהפקדה במטבע זר יחושב לפי השער', type: 'number' },
+    ...CURRENCY_FIELDS,
     { name: 'notes', label: 'הערות', type: 'text' }
   ],
   create: (d) => window.systemAPI.addGemachDeposit(d)
@@ -314,7 +315,7 @@ function renderGemach(o) {
           ${deposits.map(d => `
             <div class="acct-row">
               <span>${esc(d.depositorName)} <small class="muted">${esc(d.date)}${d.notes ? ' · ' + esc(d.notes) : ''}</small></span>
-              <span>${money(d.amount)}
+              <span>${money(d.amount)}${currencyNote(d.foreign)}
                 <button class="icon-btn danger" data-gemach-deposit-del="${esc(d.id)}" title="מחיקה">🗑</button>
               </span>
             </div>`).join('') || '<div class="acct-row muted">אין הפקדות עדיין</div>'}

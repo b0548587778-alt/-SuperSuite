@@ -30,7 +30,8 @@ formSchemas['npo'] = {
     { name: 'donorName', label: 'שם התורם', type: 'text', required: true },
     { name: 'donorType', label: 'סוג התורם (לדיווח ל"תרומות ישראל")', type: 'select', options: opts(NPO_DONOR_TYPES) },
     { name: 'donorId', label: 'ת.ז / ח.פ של התורם (לתושב ישראל)', type: 'text' },
-    { name: 'amount', label: 'סכום (₪)', type: 'number', required: true },
+    { name: 'amount', label: 'סכום (₪) — בתרומה במטבע זר יחושב לפי השער', type: 'number' },
+    ...CURRENCY_FIELDS,
     { name: 'method', label: 'אמצעי תשלום', type: 'select', options: opts(NPO_METHODS) },
     { name: 'fundId', label: 'קרן', type: 'select', options: [] },
     { name: 'campaignId', label: 'קמפיין', type: 'select', options: [] },
@@ -438,7 +439,7 @@ function renderNpo(o) {
             <tbody>${donations.map(d => `
               <tr class="${d.status === 'cancelled' ? 'muted' : ''}">
                 <td>${d.receipt && d.receipt.external ? `<small class="muted" title="הקבלה הופקה בערוץ התרומה">${esc(NPO_IMPORT_SOURCES[d.receipt.source] || 'חיצונית')}${d.receipt.externalNumber ? ' ' + esc(d.receipt.externalNumber) : ''}</small>` : esc(d.receipt && d.receipt.number)}</td><td>${esc(d.date)}</td>
-                <td>${esc(d.donorName)}</td><td>${money(d.amount)}</td>
+                <td>${esc(d.donorName)}</td><td>${money(d.amount)}${currencyNote(d.foreign)}</td>
                 <td>${esc(NPO_METHODS[d.method] || d.method)}${Array.isArray(d.cheques) && d.cheques.length ? ` <small class="muted" title="${esc(d.cheques.map(c => c.number + ' · ' + c.dueDate).join('\n'))}">${d.cheques.length} דחויות</small>` : ''}${d.bouncedCheque ? ' <small class="bad">חזרה</small>' : ''}</td><td>${esc(funds[d.fundId] || 'כללי')}</td>
                 <td>${d.receipt && d.receipt.sec46 ? '✓' : '—'}</td>
                 <td><small class="${d.taxStatus === 'pending' || d.taxStatus === 'cancel-pending' ? 'bad' : 'muted'}">${esc(NPO_TAX[d.taxStatus] || '')}${d.taxReport && d.taxReport.registrationNumber ? ' · ' + esc(d.taxReport.registrationNumber) : ''}</small>
