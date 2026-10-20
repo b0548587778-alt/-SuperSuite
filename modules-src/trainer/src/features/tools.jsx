@@ -4,6 +4,7 @@ import { ASSESSMENTS, calculate1RM, calculatePercentages, PARQ_QUESTIONS } from 
 import { S } from '../lib/db.js';
 import { FONT_HEADING, FONT_BODY, Btn, Card, Field, Input, Badge } from '../components/legacy-ui.jsx';
 import { IntervalTimer } from './cardio.jsx';
+import { savePdf, printNow } from '../lib/print.js';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -155,8 +156,6 @@ function PARQForm() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [answers, setAnswers] = useState({});
 
-  const printForm = () => window.print();
-
   return (
     <div>
       <Card className="mb-4 no-print">
@@ -165,7 +164,8 @@ function PARQForm() {
           טופס סטנדרטי שמלא כל מתאמן לפני תחילת תוכנית אימונים. תשובה "כן" לאחת השאלות מחייבת אישור רופא לפני התחלת אימונים.
         </p>
         <div className="flex gap-3">
-          <Btn variant="primary" onClick={printForm}>🖨 הדפסה</Btn>
+          <Btn variant="primary" onClick={printNow}>🖨 הדפסה</Btn>
+          <Btn variant="outline" onClick={() => savePdf(`שאלון PAR-Q — ${name || ''}`)}>⎙ שמירה כ-PDF</Btn>
         </div>
       </Card>
 

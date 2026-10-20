@@ -6,6 +6,7 @@ import { programToPlainText, whatsappShareUrl, copyToClipboard, downloadText } f
 import { filterExercises, getMedicalWarnings } from '../lib/program.js';
 import { FONT_HEADING, FONT_BODY, Btn, Card, Field, Input, Textarea, Badge, Modal } from '../components/legacy-ui.jsx';
 import { askConfirm, showMessage } from '../lib/dialog.js';
+import { savePdf, printNow } from '../lib/print.js';
 
 
 // ─── Program tab ───
@@ -216,7 +217,8 @@ function PrintableProgram({ client, program, trainer, onClose }) {
             <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
               <input type="checkbox" checked={showDetails} onChange={(e) => setShowDetails(e.target.checked)} /> כולל הוראות
             </label>
-            <Btn variant="primary" onClick={() => window.print()}>⎙ הדפס / PDF</Btn>
+            <Btn variant="primary" onClick={() => savePdf(`תוכנית אימון — ${client.name || ''}`)}>⎙ שמירה כ-PDF</Btn>
+            <Btn variant="outline" onClick={printNow}>🖨 הדפסה</Btn>
             <Btn variant="outline" onClick={onClose}>סגור</Btn>
           </div>
         </div>

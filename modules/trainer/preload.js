@@ -250,7 +250,40 @@ function onPrintClick(e) {
   }
 }
 
+// ── שמירה כ-PDF (PLAN.md 6.4) ──
+// המסך מבקש שמירה באירוע ss:save-pdf (אין חשיפה לעמוד; src/lib/print.js), והשם המוצע במאפיין data-ss-pdf-name.
+// main.js מפיק PDF מהתצוגה עצמה, בסגנון ההדפסה של העמוד (trainer:save-pdf). באנדרואיד אין ערוץ כזה —
+// חוזרים להדפסה, ומסך ההדפסה של המערכת מציע "שמירה כ-PDF".
+let savingPdf = false;
+async function onSavePdf() {
+  if (savingPdf) return;
+  const root = parqRoot();
+  if (root) {
+    const missing = missingParts(readParq(root));
+    if (missing.length && !window.confirm(`בטופס חסרים: ${missing.join(', ')}.\nלשמור בכל זאת?`)) return;
+  }
+  savingPdf = true;
+  const name = document.documentElement.getAttribute('data-ss-pdf-name') || '';
+  let reply = null;
+  preparePrint();
+  try {
+    reply = await ipcRenderer.invoke('trainer:save-pdf', name);
+  } catch { /* אין ערוץ (אנדרואיד) */ } finally {
+    cleanupPrint();
+    savingPdf = false;
+  }
+  if (!reply) { window.print(); return; }
+  // שגיאה מהתוכנה — העמוד מציג אותה בחלון ההודעה המשותף (ה-preload רץ בעולם מבודד ולא רואה את ssDialog;
+  // מאפיין על <html> ואירוע בלי נתונים עוברים בין העולמות)
+  if (reply.error) {
+    document.documentElement.setAttribute('data-ss-pdf-error', String(reply.error));
+    window.dispatchEvent(new Event('ss:pdf-error'));
+  }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
+  // המסך יודע שאפשר לשמור PDF דרך התוכנה (מחוץ לתוכנה — הדפסה רגילה)
+  if (document.documentElement) document.documentElement.setAttribute('data-ss-pdf', '1');
   const style = document.createElement('style');
   style.textContent = 'aside{display:none !important}';
   document.head.appendChild(style);
@@ -265,5 +298,6 @@ window.addEventListener('DOMContentLoaded', () => {
   enhance();
 });
 window.addEventListener('click', onPrintClick, true);
+window.addEventListener('ss:save-pdf', onSavePdf);
 window.addEventListener('beforeprint', preparePrint);
 window.addEventListener('afterprint', cleanupPrint);

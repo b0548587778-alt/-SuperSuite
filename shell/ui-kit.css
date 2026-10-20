@@ -63,4 +63,25 @@
 .ss-board-card { background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm); padding: var(--ss-sp-2); margin-bottom: var(--ss-sp-2); font-size: var(--ss-fs-sm); }
 .ss-board-card.is-stuck { border-color: var(--ss-warning-line); background: var(--ss-warning-soft); color: var(--ss-warning-ink); }
 .ss-board-card strong { display: block; }
-.ss-badge-warn { background: var(--ss-warning-soft); color: var(--ss-warning-ink); }
+
+/* ---------- כותרת עמוד: כותרת, הסבר ופעולות בשורה אחת ---------- */
+.ss-page-head { display: flex; justify-content: space-between; align-items: center; gap: var(--ss-sp-4); flex-wrap: wrap; margin-bottom: var(--ss-sp-4); }
+.ss-page-head h1, .ss-page-head h2 { margin: 0; font: 700 var(--ss-fs-xl) / 1.2 var(--ss-font-title); color: var(--ss-navy-2); }
+
+/* ---------- מדד (KPI): תווית קטנה ומספר גדול ---------- */
+.ss-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--ss-sp-3); margin-bottom: var(--ss-sp-4); }
+.ss-kpi { background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: var(--ss-radius); box-shadow: var(--ss-shadow-sm); padding: var(--ss-sp-3) var(--ss-sp-4); border-top: 3px solid var(--ss-gold); }
+.ss-kpi small { display: block; color: var(--ss-muted); font-size: var(--ss-fs-sm); }
+.ss-kpi strong { display: block; margin-top: var(--ss-sp-1); font: 700 var(--ss-fs-lg) / 1.2 var(--ss-font); color: var(--ss-navy-2); font-variant-numeric: tabular-nums; }
+
+/* ---------- לשוניות ---------- */
+.ss-tabs { display: flex; gap: var(--ss-sp-1); border-bottom: 2px solid var(--ss-border); margin-bottom: var(--ss-sp-4); overflow-x: auto; }
+.ss-tab { background: none; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; padding: 10px 16px; font: 500 var(--ss-fs-md) var(--ss-font); color: var(--ss-muted); cursor: pointer; white-space: nowrap; }
+.ss-tab:hover { color: var(--ss-text); }
+.ss-tab.active, .ss-tab[aria-selected="true"] { color: var(--ss-navy-2); border-bottom-color: var(--ss-gold); font-weight: 700; }
+
+/* ---------- תגיות מצב ---------- */
+.ss-badge-success { background: var(--ss-success-soft); color: var(--ss-success-ink); }
+.ss-badge-warning { background: var(--ss-warning-soft); color: var(--ss-warning-ink); }
+.ss-badge-danger  { background: var(--ss-danger-soft);  color: var(--ss-danger-ink); }
+.ss-badge-info    { background: var(--ss-info-soft);    color: var(--ss-info-ink); }

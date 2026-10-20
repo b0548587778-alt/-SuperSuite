@@ -44,6 +44,7 @@ const path = require('path');
 const LG = require('../../shell/licensing/gate');
 const TP = require('./core/trainerPayments');
 const GS = require('../../shell/google-signin');
+const GOOGLE_CLIENT = require('../../shell/google-client');
 const LS = require('../../shell/licensing/store');
 const ROOT_KEYS = require('../../shell/licensing/root-keys');
 const OC = require('../../shell/licensing/owner-core');
@@ -147,7 +148,7 @@ let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
 async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, relayUrl = DEFAULT_RELAY_URL, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
-  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, trainerData } = {}) {
+  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, trainerData, googleClient } = {}) {
   restTime = isRestTime;
   trainerSource = typeof trainerData === 'function' ? trainerData : null;
   clockNow = clock || (() => Date.now());
@@ -205,6 +206,8 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, relayUrl = DEFAULT
   mortgageLabService.initialize(db);
   const startSettings = (await db.load()).settings || {};
   authService.setIdleMinutes(startSettings.idleMinutes);
+  // באנדרואיד אין כניסה עם Google (אין http ואין דפדפן חיצוני) — גם לא עם המזהה המובנה
+  googleBuiltIn = ad.platform === 'android' ? null : builtInGoogle(googleClient === undefined ? GOOGLE_CLIENT : googleClient);
   googlePolicy = normalizeGoogle(startSettings.google);
   registerIpcHandlers();
   return db;
@@ -312,13 +315,32 @@ async function runGuarded(channel, fn, event, args) {
 // ---------- כניסה עם Google ----------
 // הגדרות (data.settings.google): enabled, clientId, clientSecret, onlineRequiresGoogle.
 // הכניסה בסיסמה נשארת תמיד — התוכנה עובדת גם בלי אינטרנט.
+// מזהה מובנה (PLAN.md 4.7, shell/google-client.js): כשהמנהל לא שמר הגדרות — הכניסה פעילה איתו, בלי שום הגדרה.
+// הגדרות שנשמרו גוברות: כיבוי נשאר כבוי, ומזהה משלו (ארגון) מחליף את המובנה. מזהה ריק בהגדרות = המובנה.
 let googleDeps = null;
-let googlePolicy = { enabled: false, clientId: '', clientSecret: '', onlineRequiresGoogle: false };
+let googleBuiltIn = null;
+let googlePolicy = { enabled: false, clientId: '', clientSecret: '', onlineRequiresGoogle: false, source: 'none' };
 let googleBusy = false;
+function builtInGoogle(c) {
+  if (!c || !c.clientId) return null;
+  try { return GS.validateConfig(c); } catch (e) { console.error('google-client.js: ' + e.message); return null; }
+}
 function normalizeGoogle(g) {
-  const x = g && typeof g === 'object' ? g : {};
-  return { enabled: x.enabled === true, clientId: String(x.clientId || ''), clientSecret: String(x.clientSecret || ''),
-    onlineRequiresGoogle: x.enabled === true && x.onlineRequiresGoogle === true };
+  const saved = g && typeof g === 'object';
+  const x = saved ? g : {};
+  const own = String(x.clientId || '');
+  const enabled = saved ? x.enabled === true : !!googleBuiltIn;
+  const useBuiltIn = !own && !!googleBuiltIn;
+  return { enabled: enabled && (!!own || useBuiltIn),
+    clientId: useBuiltIn ? googleBuiltIn.clientId : own,
+    clientSecret: useBuiltIn ? googleBuiltIn.clientSecret : String(x.clientSecret || ''),
+    onlineRequiresGoogle: enabled && x.onlineRequiresGoogle === true,
+    source: own ? 'custom' : (useBuiltIn ? 'builtin' : 'none'), ownSecret: !!x.clientSecret };
+}
+// מה המסך מקבל: בלי שום סוד, ומזהה רק כשהוא של הארגון (המובנה — רק "יש")
+function googleSettingsView(g) {
+  return { enabled: g.enabled, clientId: g.source === 'custom' ? g.clientId : '', hasSecret: g.source === 'custom' && g.ownSecret,
+    onlineRequiresGoogle: g.onlineRequiresGoogle, builtIn: !!googleBuiltIn, source: g.source };
 }
 const ONLINE_GOOGLE_CHANNELS = /^chat:/;
 function googleOnlineDenied(channel, session) {
@@ -1757,22 +1779,24 @@ function registerIpcHandlers() {
 
   // ---------- כניסה עם Google: הגדרות (מנהל בלבד) ----------
   handle('settings:getGoogle', async () => {
-    const g = googlePolicy;
-    return { enabled: g.enabled, clientId: g.clientId, hasSecret: !!g.clientSecret, onlineRequiresGoogle: g.onlineRequiresGoogle };
+    return googleSettingsView(googlePolicy);
   });
   handle('settings:saveGoogle', async (event, input = {}) => {
     const i = input && typeof input === 'object' ? input : {};
     const enabled = i.enabled === true;
     // סוד ריק = משאירים את הקיים (המסך לא מציג אותו)
-    const secret = i.clientSecret === undefined || i.clientSecret === '' ? googlePolicy.clientSecret : String(i.clientSecret);
-    const next = { enabled, clientId: String(i.clientId || '').trim(), clientSecret: secret.trim(), onlineRequiresGoogle: enabled && i.onlineRequiresGoogle === true };
-    if (enabled) GS.validateConfig(next);
+    const clientId = String(i.clientId || '').trim();
+    const keep = googlePolicy.source === 'custom' ? googlePolicy.clientSecret : '';
+    const secret = clientId ? (i.clientSecret === undefined || i.clientSecret === '' ? keep : String(i.clientSecret)) : '';
+    const next = { enabled, clientId, clientSecret: secret.trim(), onlineRequiresGoogle: enabled && i.onlineRequiresGoogle === true };
+    // מזהה ריק = המזהה המובנה; בלי מזהה מובנה — חובה מזהה משלכם
+    if (enabled && (clientId || !googleBuiltIn)) GS.validateConfig(next);
     const data = await db.load();
     data.settings = { ...(data.settings || {}), google: next };
     await db.save(data);
     googlePolicy = normalizeGoogle(next);
     await auditEvent(event, 'settings.google.save', { enabled, clientId: next.clientId, onlineRequiresGoogle: next.onlineRequiresGoogle });
-    return { enabled, clientId: next.clientId, hasSecret: !!next.clientSecret, onlineRequiresGoogle: next.onlineRequiresGoogle };
+    return googleSettingsView(googlePolicy);
   });
 
   // ---------- משתמשים ותפקידים (מנהל בלבד) ----------

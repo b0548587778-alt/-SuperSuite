@@ -240,6 +240,36 @@ test('מסכי האימונים בסרגל האחיד: פתיחה לפי הקט�
   assert.equal(await handlers['shell:trainer-view'](shellSender(), Catalog.TRAINER_LABELS.cardio), false);
 });
 
+test('trainer:save-pdf: רק מתצוגת האימונים, PDF מהתצוגה עצמה לקובץ שנבחר (PLAN.md 6.4)', async () => {
+  await boot();
+  await handlers['shell:open'](shellSender(), 'trainer', 'nutrition');
+  const trainerView = created.views.find(v => /trainer[\\/]preload\.js$/.test((v.opts.webPreferences || {}).preload || ''));
+  const econView = created.views[0];
+  const printed = [];
+  const sender = { id: trainerView.id, printToPDF: async (o) => { printed.push(o); return Buffer.from('%PDF-1.4 test'); } };
+  // מודול אחר והמעטפת — נדחים בלי חלון שמירה
+  dialogPlan.save = { canceled: false, filePath: path.join(userData, 'x.pdf') };
+  assert.deepEqual(await handlers['trainer:save-pdf']({ sender: { ...sender, id: econView.id } }, 'א'), { ok: false });
+  assert.deepEqual(await handlers['trainer:save-pdf']({ sender: { ...sender, id: 1 } }, 'א'), { ok: false });
+  assert.equal(printed.length, 0);
+  // ביטול בחלון השמירה — בלי הדפסה
+  dialogPlan.save = { canceled: true };
+  assert.deepEqual(await handlers['trainer:save-pdf']({ sender }, 'תוכנית אימון'), { ok: false });
+  assert.equal(printed.length, 0);
+  const out = path.join(userData, 'trainer-test.pdf');
+  dialogPlan.save = { canceled: false, filePath: out };
+  assert.deepEqual(await handlers['trainer:save-pdf']({ sender }, 'תוכנית אימון — יצחק'), { ok: true });
+  assert.equal(fs.readFileSync(out, 'utf8'), '%PDF-1.4 test');
+  assert.equal(printed[0].pageSize, 'A4');
+  assert.equal(printed[0].printBackground, true);
+  // שגיאת כתיבה — הודעה בעברית, לא קריסה
+  dialogPlan.save = { canceled: false, filePath: path.join(userData, 'no-such-dir', 'y.pdf') };
+  const r = await handlers['trainer:save-pdf']({ sender }, 'א');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /שמירת הקובץ נכשלה/);
+  dialogPlan.save = { canceled: true };
+});
+
 test('shell:catalog-extras: רק המעטפת מקבלת את רשימת המסכים החדשים', async () => {
   await boot();
   const r = await handlers['shell:catalog-extras'](shellSender());

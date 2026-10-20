@@ -59,6 +59,20 @@ const clickText = (text) => `(()=>{const b=[...document.querySelectorAll('button
 const clickTab = (text) => `(()=>{const b=[...document.querySelectorAll('button')].filter(x=>!x.closest('aside')).find(x=>x.textContent.trim()===${JSON.stringify(text)});if(b){b.click();return true}return false})()`;
 const clickMatch = (re) => `(()=>{const b=[...document.querySelectorAll('button')].find(x=>${re}.test(x.textContent));if(b){b.click();return true}return false})()`;
 
+// מצב העיצוב של המסך (PLAN.md 6.4): לכל אלמנט גלוי — הצבעים, המסגרת והמידות, לפי סדר המסמך.
+// משווים בין שתי בניות כדי לוודא שהעברת ערכת הצבעים לקוד המקור לא שינתה את המראה
+const STYLE_DUMP = `(() => {
+  const props = ['color', 'background-color', 'border-top-color', 'border-top-width', 'border-radius', 'box-shadow', 'min-height', 'font-size', 'font-weight', 'opacity'];
+  const out = [];
+  for (const el of document.querySelectorAll('body *')) {
+    if (!el.getClientRects().length) continue;
+    const cs = getComputedStyle(el);
+    const cls = (el.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean).join('.');
+    out.push(el.tagName.toLowerCase() + (cls ? '.' + cls : '') + ' :: ' + props.map(p => cs.getPropertyValue(p)).join(' | '));
+  }
+  return out;
+})()`;
+
 const CLIENT = { id: 'c1', name: 'יצחק ברגר', age: 45, gender: 'male', height: 175, weight: 88, level: 'beginner', goal: 'health',
   daysPerWeek: 3, medical: ['knee', 'back'], equipment: ['bw', 'dumbbells', 'bands'], phone: '050-0000000', createdAt: 1760000000000, updatedAt: 1760000000000 };
 
@@ -92,9 +106,14 @@ async function main() {
     await tr.send('Runtime.enable');
     await wait(3000);
 
+    const styles = {};
+    // השוואה יציבה: בלי מעברי אנימציה (צבע באמצע מעבר) ובלי ריחוף של הסמן האמיתי מעל אלמנט
+    await tr.js(`(() => { const s = document.createElement('style'); s.textContent = '*,*::before,*::after{transition:none!important;animation:none!important}'; document.head.appendChild(s); return 1; })()`);
     const capture = async (name) => {
+      await tr.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 });
       await wait(900);
       report[name] = await tr.js('document.body.innerText');
+      styles[name] = await tr.js(STYLE_DUMP);
       await tr.shot(name);
     };
 
@@ -124,6 +143,7 @@ async function main() {
     report.program = await tr.js(`localStorage.getItem('program:c1')`);
     report.errors = tr.errors;
     fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2));
+    fs.writeFileSync(path.join(OUT, 'styles.json'), JSON.stringify(styles, null, 2));
     console.log('צולמו', Object.keys(report).length - 2, 'מסכים ←', OUT, '| שגיאות:', tr.errors.length);
     tr.close(); econ.close(); shell.close();
   } finally {
