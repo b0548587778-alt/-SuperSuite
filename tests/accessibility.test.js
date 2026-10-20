@@ -51,7 +51,6 @@ test('מקלדת: מסגרת מיקוד בכל מסך (focus-visible בקובץ 
   assert.match(TOKENS, /:focus-visible \{ outline: 3px solid var\(--ss-focus-ring\) !important;/);
   assert.match(TOKENS, /prefers-reduced-motion: reduce/);
   assert.match(read('shell/shell.html'), /\.side :focus-visible\{outline-color:var\(--ss-focus-ring-dark\) !important\}/);
-  assert.match(read('modules/shamai/style.css'), /\[data-theme="dark"\] :focus-visible \{ outline-color: var\(--ss-focus-ring-dark\) !important; \}/);
 });
 
 // כפתור בלי טקסט עברי/אנגלי (רק אייקון) חייב aria-label
@@ -104,7 +103,7 @@ test('קורא מסך: לכל דיאלוג יש כותרת, וההודעות מ�
   assert.match(econ, /id="modal"[^>]*role="dialog"[^>]*aria-labelledby="modalTitle"/);
   assert.match(econ, /id="toastContainer" role="status" aria-live="polite"/);
   for (const f of ['shell/shell.html', 'modules/econ/views/index.html', 'modules/tools/index.html', 'modules/shamai/index.html', 'modules/trainer/index.html']) {
-    assert.match(read(f), /<html lang="he" dir="rtl">/, f);
+    assert.match(read(f), /<html lang="he" dir="rtl"[ >]/, f);
   }
 });
 

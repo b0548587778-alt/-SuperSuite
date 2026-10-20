@@ -149,9 +149,8 @@ test('שמאות: אין כפתורי ענן ואין "מחירים חיים" (�
   assert.doesNotMatch(html + js, /מחירי שוק חיים|שווקים חיים|"העלה לענן"/);
 });
 
-test('שמאות: ערכה בהירה כברירת מחדל, ברוחב שולחני', () => {
-  const js = shamaiSource();
-  assert.match(js, /localStorage\.getItem\('shamai_theme'\) \|\| 'light'/);
+test('שמאות: ערכת התוכנה (data-theme="light" קבוע), ברוחב שולחני', () => {
+  assert.match(read('modules/shamai/index.html'), /<html [^>]*data-theme="light"/);
   assert.doesNotMatch(read('modules/shamai/style.css'), /max-width: 720px/);
 });
 
