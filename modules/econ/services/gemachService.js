@@ -95,6 +95,10 @@ class GemachService {
     const l = data.gemach.loans.find(x => x.id === loanId);
     if (!l) throw new Error('ההלוואה לא נמצאה');
     if (G.totalPaidAg(l) > 0) throw new Error('לא ניתן לבטל הלוואה שכבר נרשמו עליה תשלומים');
+    // חיוב שכבר נשלח לבנק — הכסף עשוי להיגבות; ביטול היה משאיר את האצווה בלי הלוואה
+    if (data.gemach.masav.batches.some(b => b.status === 'open' && b.items.some(i => i.status === 'pending' && i.key.split('|')[0] === loanId))) {
+      throw new Error('להלוואה זו יש חיוב באצוות מס"ב פתוחה. יש לסגור או לבטל את האצווה לפני ביטול ההלוואה');
+    }
     l.status = 'cancelled';
     l.cancelledAt = new Date().toISOString();
     // הלוואה שבוטלה לא תחויב — פרטי החשבון נמחקים
@@ -188,6 +192,11 @@ class GemachService {
       l.masavReturns = [...(l.masavReturns || []), { seq: Number(seq), reason: x.reason, batchId: x.batchId, at }];
       if (x.fatal) l.masavStopped = x.reason;
     }
+    // החזרה אחרי סגירת האצווה: התשלום כבר נרשם (ביטול ידני), אבל החזרה סופית עוצרת את החיובים הבאים
+    for (const x of r.late) {
+      const l = data.gemach.loans.find(o => o.id === x.itemKey.split('|')[0]);
+      if (l && x.fatal) l.masavStopped = x.reason;
+    }
     await this.db.save(data);
     return MSV.returnsSummary(r, parsed);
   }
@@ -199,10 +208,17 @@ class GemachService {
     if (!b) throw new Error('האצווה לא נמצאה');
     if (b.status !== 'open') throw new Error('האצווה כבר סגורה או מבוטלת');
     let paid = 0;
+    const manual = [];
     for (const it of b.items.filter(i => i.status === 'pending')) {
       const [loanId, seq] = it.key.split('|');
       const i = data.gemach.loans.findIndex(o => o.id === loanId);
-      if (i < 0 || data.gemach.loans[i].status === 'cancelled') throw new Error(`ההלוואה של ${it.label} לא נמצאה או בוטלה — לא ניתן לסגור את האצווה`);
+      // הלוואה שנמחקה או בוטלה (נתונים מלפני החסימה ב-cancelLoan) — לא מפילה את כל האצווה; נרשמת לטיפול ידני
+      if (i < 0 || data.gemach.loans[i].status === 'cancelled') {
+        it.status = 'paid';
+        it.manual = 'ההלוואה בוטלה אחרי שליחת הקובץ — הכסף נגבה, ויש להחזיר אותו ללווה או לרשום ידנית';
+        manual.push({ label: it.label, amountAg: it.amountAg, why: it.manual });
+        continue;
+      }
       const s = data.gemach.loans[i].schedule.find(x => x.seq === Number(seq));
       // תשלום שנרשם ידנית בינתיים — לא נרשם פעמיים; נרשם רק מה שנותר, עד סכום החיוב
       const amountAg = Math.min(it.amountAg, s ? s.amountAg - s.paidAg : 0);
@@ -213,7 +229,7 @@ class GemachService {
     b.status = 'closed';
     b.closedAt = new Date().toISOString();
     await this.db.save(data);
-    return { paid, batch: MSV.batchView(b) };
+    return { paid, manual, batch: MSV.batchView(b) };
   }
 
   async addDeposit(input) {

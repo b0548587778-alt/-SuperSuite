@@ -651,7 +651,8 @@ function renderMasavPanel(domain, m) {
       <thead><tr><th>תאריך חיוב</th><th>חודש</th><th>חיובים</th><th>סכום</th><th>הוחזרו</th><th>מצב</th><th></th></tr></thead>
       <tbody>${batches.map(b => `<tr class="${b.status === 'cancelled' ? 'muted' : ''}">
         <td>${esc(b.chargeDate)}</td><td>${esc(b.month)}</td><td>${Number(b.count) || 0}</td><td>${ag(b.totalAg)}</td>
-        <td>${(b.returned || []).length ? `<small class="bad" title="${esc(b.returned.map(r => `${r.label}: ${r.reason}`).join('\n'))}">${b.returned.length}</small>` : '—'}</td>
+        <td>${(b.returned || []).length ? `<small class="bad" title="${esc(b.returned.map(r => `${r.label}: ${r.reason}`).join('\n'))}">${b.returned.length}</small>` : '—'}
+          ${(b.manual || []).length ? `<small class="bad" title="${esc(b.manual.map(r => `${r.label}: ${r.why}`).join('\n'))}">⚠ ${b.manual.length} לטיפול ידני</small>` : ''}</td>
         <td><small>${esc(MASAV_BATCH_STATUS[b.status] || b.status)}</small></td>
         <td>${b.status === 'open' ? `<button class="secondary small" data-masav-close="${esc(b.id)}" data-domain="${domain}" title="כל מה שלא הוחזר נרשם כהתקבל">✓ סגירת אצווה (${Number(b.pending) || 0})</button>
           ${b.paid || (b.returned || []).length ? '' : `<button class="icon-btn danger" data-masav-cancel="${esc(b.id)}" data-domain="${domain}" title="ביטול אצווה שלא נשלחה">✖</button>`}` : ''}</td>
@@ -713,7 +714,8 @@ async function masavImportReturns(domain) {
   if (!text) return false;
   const r = await window.systemAPI.importMasavReturns(domain, text);
   showToast(`נקלטו ${r.returned} החזרות${r.skipped ? `, ${r.skipped} כבר נקלטו קודם` : ''}`);
-  const problems = [...(r.errors || []).map(e => `שורה ${e.line}: ${e.message}`), ...(r.unmatched || []).map(u => `אסמכתה ${u.reference}, ${money(u.amountAg / 100)}: ${u.why}`)];
+  const problems = [...(r.manual || []).map(u => `${u.label}: ${u.why}`), ...(r.errors || []).map(e => `שורה ${e.line}: ${e.message}`),
+    ...(r.unmatched || []).map(u => `אסמכתה ${u.reference}, ${money(u.amountAg / 100)}: ${u.why}`)];
   if (problems.length) showError(problems.slice(0, 5).join(' · '));
   return true;
 }
@@ -746,6 +748,7 @@ function attachMasavHandlers(cur) {
     if (!(await askConfirm('לסגור את האצווה? כל חיוב שלא הוחזר יירשם כהתקבל בתאריך החיוב (בעמותה — עם קבלה). כדאי לקלוט קודם את קובץ ההחזרות.'))) return false;
     const r = await window.systemAPI.closeMasavBatch(b.dataset.domain, b.dataset.masavClose);
     showToast(`האצווה נסגרה — ${r.paid} תשלומים נרשמו`);
+    if ((r.manual || []).length) showError(r.manual.slice(0, 5).map(u => `${u.label}: ${u.why}`).join(' · '));
   })));
   document.querySelectorAll('[data-masav-cancel]').forEach(b => b.addEventListener('click', act(b.dataset.domain, async () => {
     if (!(await askConfirm('לבטל את האצווה? יש לבטל רק אצווה שלא נשלחה לבנק. החיובים יחזרו לקובץ הבא.'))) return false;
