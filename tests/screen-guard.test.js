@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { install, MESSAGE } = require('../shell/screen-guard');
-const { fixThemeOrder } = require('../tools/build-trainer');
+const { checkThemeOrder } = require('../tools/build-trainer');
 
 const ROOT = path.join(__dirname, '..');
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
@@ -98,10 +98,10 @@ test('כל מודול טוען את רשת הביטחון, ו-main.js מגיש �
   assert.match(read('android/build-apk.js'), /'screen-guard\.js'/);
 });
 
-test('בניית האימונים שומרת את רשת הביטחון אחרי ערכת הצבעים (בלי כפילות)', () => {
-  const built = '<head><link rel="stylesheet" href="/suite-theme.css">\n<script src="/screen-guard.js"></script><link rel="stylesheet" href="/assets/x.css"></head>';
-  const out = fixThemeOrder(built);
-  assert.equal(out.match(/screen-guard\.js/g).length, 1);
-  assert.ok(out.indexOf('screen-guard.js') > out.indexOf('/assets/x.css'));
-  assert.ok(out.indexOf('screen-guard.js') > out.indexOf('suite-theme.css'));
+test('בניית האימונים נכשלת כשרשת הביטחון או חלון ההודעה חסרים ב-index.html', () => {
+  const head = '<link rel="stylesheet" href="/design-tokens.css"><link rel="stylesheet" href="/ui-kit.css">';
+  const ok = `<head>${head}<script src="/screen-guard.js"></script><script src="/ss-dialog.js"></script><link rel="stylesheet" href="/assets/x.css"></head>`;
+  assert.equal(checkThemeOrder(ok), ok);
+  assert.throws(() => checkThemeOrder(ok.replace('<script src="/screen-guard.js"></script>', '')), /screen-guard/);
+  assert.throws(() => checkThemeOrder(ok.replace('<script src="/ss-dialog.js"></script>', '')), /ss-dialog/);
 });

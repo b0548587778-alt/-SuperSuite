@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { GOALS, ACTIVITY_LEVELS } from '../data/constants.js';
 import { FOODS, calculateBMR, calculateTDEE, calculateGoalCalories, calculateMacros, MEAL_PLANS, NUTRITION_TIPS } from '../data/nutrition.js';
 import { FONT_HEADING, FONT_BODY, Btn, Card, Field, Input, Badge, Modal, Toggle } from '../components/legacy-ui.jsx';
+import { savePdf, printNow } from '../lib/print.js';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -348,7 +349,8 @@ function PrintableNutrition({ client, bmr, tdee, targetCal, macros, activity, on
         <div className="sticky top-0 bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-10">
           <div className="text-sm text-slate-400">תוכנית תזונה — תצוגה מקדימה</div>
           <div className="flex gap-2">
-            <Btn variant="primary" onClick={() => window.print()}>⎙ הדפס / PDF</Btn>
+            <Btn variant="primary" onClick={() => savePdf(`תוכנית תזונה — ${client.name || ''}`)}>⎙ שמירה כ-PDF</Btn>
+            <Btn variant="outline" onClick={printNow}>🖨 הדפסה</Btn>
             <Btn variant="outline" onClick={onClose}>סגור</Btn>
           </div>
         </div>

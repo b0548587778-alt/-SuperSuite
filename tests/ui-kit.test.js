@@ -29,8 +29,11 @@ test('ui-kit: כל מסך טוען את הספרייה אחרי שפת העיצ�
     assert.ok(kit > 0, p + ': לא טוען את ui-kit.css');
     assert.ok(html.indexOf('design-tokens.css') < kit, p + ': ui-kit.css לפני design-tokens.css');
   }
-  const theme = read('modules/trainer/suite-theme.css');
-  assert.ok(theme.indexOf('@import url("/design-tokens.css")') < theme.indexOf('@import url("/ui-kit.css")'), 'אימונים: ui-kit לא נטען');
+  for (const p of ['modules-src/trainer/index.html', 'modules/trainer/index.html']) {
+    const html = read(p);
+    const kit = html.indexOf('href="/ui-kit.css"');
+    assert.ok(kit > 0 && html.indexOf('href="/design-tokens.css"') < kit, p + ': ui-kit לא נטען אחרי שפת העיצוב');
+  }
 });
 
 test('ui-kit: מוגש מהמעטפת לכל מודול ומועתק לאנדרואיד', () => {
@@ -46,7 +49,7 @@ test('ui-kit: כל מודול ממפה את הכפתורים, השדות והכ�
     'modules/shamai/style.css': ['--ss-ctl-h', '--ss-ctl-radius', '--ss-focus'],
     'modules/tools/index.html': ['--ss-ctl-h', '--ss-ctl-radius', '--ss-focus', '--ss-radius-lg'],
     'shell/shell.html': ['--ss-ctl-h', '--ss-ctl-radius', '--ss-focus'],
-    'modules/trainer/suite-theme.css': ['--ss-ctl-h', '--ss-ctl-radius', '--ss-focus', '--ss-radius-lg'],
+    'modules-src/trainer/src/theme.css': ['--ss-ctl-h', '--ss-ctl-radius', '--ss-focus', '--ss-radius-lg'],
   };
   for (const [p, vars] of Object.entries(maps)) {
     const src = read(p);
@@ -55,5 +58,25 @@ test('ui-kit: כל מודול ממפה את הכפתורים, השדות והכ�
     const block = src.slice(i);
     for (const v of vars) assert.ok(block.includes(`var(${v})`), `${p}: המיפוי לא משתמש ב-${v}`);
     assert.doesNotMatch(block.split('</style>')[0], /#[0-9a-f]{3,8}\b/i, p + ': צבע hex בבלוק המיפוי');
+  }
+});
+
+test('ui-kit: כותרת עמוד, מדדים, לשוניות ותגיות מצב — רכיב אחד לכל התוכנה', () => {
+  for (const c of ['.ss-page-head', '.ss-kpis', '.ss-kpi', '.ss-tabs', '.ss-tab', '.ss-badge-success', '.ss-badge-warning', '.ss-badge-danger', '.ss-badge-info'])
+    assert.ok(KIT.includes(c), 'חסר רכיב: ' + c);
+  // כל מודול ממפה גם את הכותרות והמדדים לאותם ערכים
+  const second = {
+    'modules/econ/styles.css': ['--ss-fs-xl', '--ss-shadow-sm', '--ss-surface-2'],
+    'modules/shamai/style.css': ['--ss-fs-xl', '--ss-shadow-sm'],
+    'modules/tools/index.html': ['--ss-fs-xl'],
+    'modules-src/trainer/src/theme.css': ['--ss-fs-xl'],
+  };
+  for (const [p, vars] of Object.entries(second)) {
+    const src = read(p);
+    const i = src.indexOf('ui-kit — מיפוי 2');
+    assert.ok(i >= 0, p + ': חסר בלוק המיפוי של הכותרות והמדדים');
+    const block = src.slice(i).split('</style>')[0];
+    for (const v of vars) assert.ok(block.includes(`var(${v})`), `${p}: המיפוי לא משתמש ב-${v}`);
+    assert.doesNotMatch(block, /#[0-9a-f]{3,8}\b/i, p + ': צבע hex בבלוק המיפוי');
   }
 });

@@ -3,8 +3,9 @@
 //   node tools/build-trainer.js --check   בדיקה מה חסר, בלי לבנות
 // מה הסקריפט עושה אחרי vite build:
 // - מעתיק את התוצר ל-modules/trainer ומוחק חבילות ישנות מ-assets (שם קובץ חדש בכל בנייה);
-// - שומר את קבצי השילוב עם SuperSuite שאינם חלק מהבנייה: preload.js, suite-theme.css;
-// - מזיז את suite-theme.css לסוף ה-head — Vite מוסיף את ה-CSS המהודר אחריו, ואז ערכת הצבעים לא גוברת;
+// - שומר את קובץ השילוב עם SuperSuite שאינו חלק מהבנייה: preload.js;
+// - מוודא ששפת העיצוב (design-tokens.css, ui-kit.css) נטענת לפני ה-CSS של החבילה: ערכת הצבעים (src/theme.css)
+//   נמצאת בתוך החבילה וממפה אליה, ובאותה עדיפות הכלל שנטען אחרון גובר (PLAN.md 6.4);
 // - נכשל אם בתוצר יש פנייה לרשת (Google Fonts, CDN, שירות QR).
 // בסביבה מסוננת (NetFree) npm install של vite נחסם — הבנייה רצה ב-GitHub Actions (.github/workflows/build.yml).
 'use strict';
@@ -17,18 +18,22 @@ const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'modules-src', 'trainer');
 const OUT = path.join(ROOT, 'modules', 'trainer');
 // קבצים ב-modules/trainer שאינם תוצר הבנייה — לא נמחקים ולא נדרסים
-const KEEP = ['preload.js', 'suite-theme.css'];
+const KEEP = ['preload.js'];
 const FORBIDDEN = [/fonts\.googleapis\.com/, /fonts\.gstatic\.com/, /api\.qrserver\.com/, /cdn\.jsdelivr\.net/, /unpkg\.com/];
 
-// ערכת הצבעים חייבת לבוא אחרי כל CSS אחר ב-head
-// רשת הביטחון (screen-guard.js, PLAN.md 2.4) וחלון ההודעה המשותף (ss-dialog.js) נשארים מיד אחריה
-function fixThemeOrder(html) {
-  const tag = /\s*<link rel="stylesheet" href="\/suite-theme\.css">/;
-  const guard = /\s*(<!--[^>]*2\.4[^>]*-->\s*)?<script src="\/screen-guard\.js"><\/script>/;
-  const dialog = /\s*<script src="\/ss-dialog\.js"><\/script>/;
-  if (!tag.test(html)) throw new Error('index.html: חסר הקישור ל-suite-theme.css');
-  const out = html.replace(tag, '').replace(guard, '').replace(dialog, '');
-  return out.replace('</head>', '    <!-- ערכת הצבעים של SuperSuite — אחרי ה-CSS המהודר כדי לגבור עליו -->\n    <link rel="stylesheet" href="/suite-theme.css">\n    <script src="/screen-guard.js"></script>\n    <script src="/ss-dialog.js"></script>\n  </head>');
+// שפת העיצוב חייבת לבוא לפני ה-CSS של החבילה (Vite מוסיף אותו לסוף ה-head), ואין עוד ערכת צבעים חיצונית
+function checkThemeOrder(html) {
+  if (/suite-theme\.css/.test(html)) throw new Error('index.html: suite-theme.css הוסר — ערכת הצבעים ב-src/theme.css');
+  const bundle = html.search(/<link rel="stylesheet"[^>]*href="\/assets\//);
+  for (const href of ['/design-tokens.css', '/ui-kit.css']) {
+    const at = html.indexOf(`href="${href}"`);
+    if (at < 0) throw new Error('index.html: חסר הקישור ל-' + href);
+    if (bundle >= 0 && at > bundle) throw new Error('index.html: ' + href + ' אחרי ה-CSS של החבילה');
+  }
+  for (const src of ['/screen-guard.js', '/ss-dialog.js']) {
+    if (!html.includes(`<script src="${src}"></script>`)) throw new Error('index.html: חסר ' + src);
+  }
+  return html;
 }
 
 function findForbidden(dir) {
@@ -54,7 +59,9 @@ function install(dist, out = OUT) {
   fs.cpSync(dist, out, { recursive: true });
   for (const k of KEEP) if (!fs.existsSync(path.join(out, k))) throw new Error('חסר קובץ שילוב: ' + k);
   const index = path.join(out, 'index.html');
-  fs.writeFileSync(index, fixThemeOrder(fs.readFileSync(index, 'utf8')));
+  checkThemeOrder(fs.readFileSync(index, 'utf8'));
+  // ערכת הצבעים הישנה, אם נשארה מבנייה קודמת
+  fs.rmSync(path.join(out, 'suite-theme.css'), { force: true });
 }
 
 function check() {
@@ -86,4 +93,4 @@ function main(argv) {
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
 
-module.exports = { fixThemeOrder, findForbidden, install, check, KEEP, FORBIDDEN };
+module.exports = { checkThemeOrder, findForbidden, install, check, KEEP, FORBIDDEN };

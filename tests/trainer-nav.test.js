@@ -102,10 +102,70 @@ test('preload האימונים: בקשת ניווט לפני שהסרגל קיי
 });
 
 test('מודול האימונים: שורת לשוניות גלילה אופקית לא מציגה פס גלילה אנכי (פיקסל של -mb-px)', () => {
-  const css = fs.readFileSync(path.join(TRAINER, 'suite-theme.css'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'modules-src', 'trainer', 'src', 'theme.css'), 'utf8');
   assert.match(css, /\.overflow-x-auto\s*\{\s*overflow-y:\s*hidden;?\s*\}/);
   // הסתרת הגלילה האנכית בטוחה רק כשאין לאלמנט גובה קבוע שדורש גלילה כזו
   for (const m of bundleSource().matchAll(/className:"([^"]*overflow-x-auto[^"]*)"/g)) {
     assert.doesNotMatch(m[1], /(^|\s)(max-h-|h-\d)/, 'overflow-x-auto עם גובה קבוע: ' + m[1]);
   }
+});
+
+// שמירה כ-PDF (PLAN.md 6.4): המסך שולח ss:save-pdf, וה-preload מבקש מהתוכנה PDF של התצוגה
+function loadPdfPreload({ invokeImpl } = {}) {
+  const dom = makeDom(Object.values(Catalog.TRAINER_LABELS), 0);
+  const attrs = {};
+  dom.document.documentElement = {
+    setAttribute: (k, v) => { attrs[k] = String(v); },
+    getAttribute: (k) => (k in attrs ? attrs[k] : null),
+    classList: { add() {}, remove() {} },
+  };
+  dom.document.getElementById = () => null;
+  const invoked = [];
+  let printed = 0;
+  dom.window.print = () => { printed++; };
+  dom.window.confirm = () => true;
+  const ipcRenderer = {
+    invoke: (ch, arg) => { invoked.push([ch, arg]); return invokeImpl ? invokeImpl(ch, arg) : Promise.resolve(true); },
+    on() {},
+  };
+  const code = fs.readFileSync(path.join(TRAINER, 'preload.js'), 'utf8');
+  vm.runInNewContext(code, { require: () => ({ ipcRenderer }), document: dom.document, window: dom.window, MutationObserver: dom.MutationObserver, Event: class { constructor(type) { this.type = type; } } });
+  dom.listeners.DOMContentLoaded();
+  return { dom, attrs, invoked, printed: () => printed };
+}
+
+test('preload האימונים: שמירה כ-PDF — מסמן את המסך, ושולח לתוכנה את השם המוצע', async () => {
+  const { dom, attrs, invoked, printed } = loadPdfPreload();
+  assert.equal(attrs['data-ss-pdf'], '1', 'המסך יודע שאפשר לשמור דרך התוכנה');
+  attrs['data-ss-pdf-name'] = 'תוכנית אימון — יצחק';
+  await dom.listeners['ss:save-pdf']();
+  assert.deepEqual(invoked.filter(c => c[0] === 'trainer:save-pdf'), [['trainer:save-pdf', 'תוכנית אימון — יצחק']]);
+  assert.equal(printed(), 0, 'לא נפתח גם חלון הדפסה');
+});
+
+test('preload האימונים: בלי ערוץ שמירה (אנדרואיד) — חוזרים להדפסה', async () => {
+  const { dom, printed } = loadPdfPreload({ invokeImpl: (ch) => (ch === 'trainer:save-pdf' ? Promise.reject(new Error('No handler')) : Promise.resolve(true)) });
+  await dom.listeners['ss:save-pdf']();
+  assert.equal(printed(), 1);
+});
+
+test('קוד המקור: כל כפתור PDF עובר דרך lib/print.js, ואין window.print ישיר במסכים', () => {
+  const src = require('./helpers/trainer-src');
+  const ui = src.trainerUiSource();
+  assert.doesNotMatch(ui.replace(/\/\/.*$/gm, ''), /window\.print\(/, 'להשתמש ב-savePdf / printNow מ-lib/print.js');
+  const lib = fs.readFileSync(path.join(ROOT, 'modules-src', 'trainer', 'src', 'lib', 'print.js'), 'utf8');
+  assert.match(lib, /dispatchEvent\(new Event\('ss:save-pdf'\)\)/);
+  assert.match(lib, /hasAttribute\('data-ss-pdf'\)/);
+  // תוכנית, תזונה, תבנית, דוח למתאמן וטופס PAR-Q
+  assert.equal((ui.match(/savePdf\(/g) || []).length, 5);
+});
+
+test('preload האימונים: שגיאה בשמירת ה-PDF מועברת לעמוד (מאפיין + אירוע), בלי הדפסה', async () => {
+  const { dom, attrs, printed } = loadPdfPreload({ invokeImpl: (ch) => Promise.resolve(ch === 'trainer:save-pdf' ? { ok: false, error: 'שמירת הקובץ נכשלה.' } : true) });
+  const events = [];
+  dom.window.dispatchEvent = (ev) => { events.push(ev.type); };
+  await dom.listeners['ss:save-pdf']();
+  assert.equal(attrs['data-ss-pdf-error'], 'שמירת הקובץ נכשלה.');
+  assert.deepEqual(events, ['ss:pdf-error']);
+  assert.equal(printed(), 0);
 });

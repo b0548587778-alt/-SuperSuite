@@ -43,7 +43,9 @@ test('index.html של המקור: CSP, גופנים מקומיים, ערכת ה�
   assert.match(html, /Content-Security-Policy[^>]+script-src 'self'/);
   assert.doesNotMatch(html, /unsafe-eval/);
   assert.match(html, /--font-display:/);
-  assert.match(html, /href="\/suite-theme\.css"/);
+  assert.doesNotMatch(html, /suite-theme\.css/, 'ערכת הצבעים בתוך החבילה (src/theme.css, PLAN.md 6.4)');
+  assert.ok(html.indexOf('href="/design-tokens.css"') > 0 && html.indexOf('href="/design-tokens.css"') < html.indexOf('href="/ui-kit.css"'));
+  assert.equal(BT.checkThemeOrder(html), html);
   assert.match(html, /src="\/src\/main\.jsx"/);
   assert.doesNotMatch(html, /\/assets\//, 'אין הפניה לחבילה מהודרת ישנה');
 });
@@ -60,15 +62,21 @@ test('המקור תואם למודול שרץ היום: כל טקסט ממשק �
   }
 });
 
-test('build-trainer: ערכת הצבעים מוזזת לסוף ה-head (אחרי ה-CSS ש-Vite מוסיף)', () => {
-  const built = '<html><head>\n<link rel="stylesheet" href="/suite-theme.css">\n<script type="module" src="/assets/index-X.js"></script>\n<link rel="stylesheet" href="/assets/index-Y.css">\n</head><body></body></html>';
-  const out = BT.fixThemeOrder(built);
-  assert.ok(out.indexOf('/suite-theme.css') > out.indexOf('/assets/index-Y.css'));
-  assert.equal(out.match(/suite-theme\.css/g).length, 1);
-  assert.throws(() => BT.fixThemeOrder('<head></head>'), /suite-theme/);
+// ה-head כפי ש-Vite מוציא אותו: הקישורים מ-index.html, ואחריהם החבילה
+const BUILT_HEAD = '<head><link rel="stylesheet" href="/design-tokens.css"><link rel="stylesheet" href="/ui-kit.css">'
+  + '<script src="/screen-guard.js"></script><script src="/ss-dialog.js"></script>'
+  + '<script type="module" src="/assets/index-X.js"></script><link rel="stylesheet" href="/assets/index-Y.css"></head>';
+
+test('build-trainer: שפת העיצוב לפני ה-CSS של החבילה, ואין ערכת צבעים חיצונית (PLAN.md 6.4)', () => {
+  assert.equal(BT.checkThemeOrder(BUILT_HEAD), BUILT_HEAD);
+  // design-tokens אחרי החבילה — המשתנים עדיין עובדים, אבל ui-kit היה גובר על המיפוי שבחבילה
+  const late = BUILT_HEAD.replace('<link rel="stylesheet" href="/ui-kit.css">', '').replace('</head>', '<link rel="stylesheet" href="/ui-kit.css"></head>');
+  assert.throws(() => BT.checkThemeOrder(late), /ui-kit\.css אחרי/);
+  assert.throws(() => BT.checkThemeOrder(BUILT_HEAD.replace('<link rel="stylesheet" href="/design-tokens.css">', '')), /design-tokens/);
+  assert.throws(() => BT.checkThemeOrder(BUILT_HEAD.replace('</head>', '<link rel="stylesheet" href="/suite-theme.css"></head>')), /suite-theme/);
 });
 
-test('build-trainer: התקנה מוחקת חבילות ישנות ושומרת את קבצי השילוב', () => {
+test('build-trainer: התקנה מוחקת חבילות ישנות ואת ערכת הצבעים הישנה, ושומרת את קובץ השילוב', () => {
   const out = tmp();
   const dist = tmp();
   fs.mkdirSync(path.join(out, 'assets'));
@@ -77,14 +85,20 @@ test('build-trainer: התקנה מוחקת חבילות ישנות ושומרת 
   fs.writeFileSync(path.join(out, 'suite-theme.css'), 'THEME');
   fs.mkdirSync(path.join(dist, 'assets'));
   fs.writeFileSync(path.join(dist, 'assets', 'index-NEW.js'), 'new');
-  fs.writeFileSync(path.join(dist, 'index.html'), '<head><link rel="stylesheet" href="/suite-theme.css"><link rel="stylesheet" href="/assets/index-NEW.css"></head>');
+  fs.writeFileSync(path.join(dist, 'index.html'), BUILT_HEAD);
   BT.install(dist, out);
   assert.ok(!fs.existsSync(path.join(out, 'assets', 'index-OLD.js')), 'חבילה ישנה נמחקה');
   assert.ok(fs.existsSync(path.join(out, 'assets', 'index-NEW.js')));
   assert.equal(fs.readFileSync(path.join(out, 'preload.js'), 'utf8'), 'PRELOAD');
-  assert.equal(fs.readFileSync(path.join(out, 'suite-theme.css'), 'utf8'), 'THEME');
-  const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
-  assert.ok(html.indexOf('/suite-theme.css') > html.indexOf('/assets/index-NEW.css'));
+  assert.ok(!fs.existsSync(path.join(out, 'suite-theme.css')), 'ערכת הצבעים הישנה הוסרה');
+  assert.equal(fs.readFileSync(path.join(out, 'index.html'), 'utf8'), BUILT_HEAD);
+});
+
+test('ערכת הצבעים בקוד המקור: main.jsx מייבא את theme.css אחרי Tailwind', () => {
+  const main = read('src/main.jsx');
+  assert.ok(main.indexOf("import './theme.css';") > main.indexOf("import './index.css';"), 'theme.css אחרי index.css (Tailwind)');
+  assert.ok(main.indexOf("import './index.css';") > 0);
+  assert.ok(fs.existsSync(path.join(SRC, 'src', 'theme.css')));
 });
 
 test('build-trainer: תוצר עם פנייה לרשת נדחה', () => {
