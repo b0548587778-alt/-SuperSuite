@@ -107,7 +107,7 @@ class AccountingService {
     const doc = (data.salesDocs || []).find(d => d.entryId === original.id && d.kind === 'credit');
     if (doc) throw new Error(`הרשומה שייכת לחשבונית זיכוי ${doc.number} — לא ניתן לבטל אותה ידנית`);
     this._assertOpen(data, original.date);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDay();
     const reversal = {
       id: crypto.randomUUID(),
       date: today,
@@ -137,13 +137,15 @@ class AccountingService {
       ...(receipt ? { receiptNumber: receipt.number, receiptId: receipt.id } : {}) };
   }
 
-  // paidNow: { method, reference } — חשבונית מס/קבלה: החשבונית והגבייה בשמירה אחת, בלי קבלה נפרדת
+  // paidNow: { method, reference } — חשבונית מס/קבלה: החשבונית והגבייה בשמירה אחת, בלי קבלה נפרדת.
+  // פטור ממע"מ: אין "חשבונית מס/קבלה" — חשבונית עסקה (300) וקבלה נפרדת (400), כמו createTrainerReceipt
   async createInvoice(invoiceData) {
     const data = await this._load();
     const invoice = this._createInvoiceIn(data, invoiceData);
     if (invoiceData && invoiceData.paidNow) {
-      this._payIn(data, invoice, { date: invoice.date, ...SD.validatePayment(invoiceData.paidNow), issueReceipt: false });
-      invoice.kind = 'tax-invoice-receipt';
+      const exempt = !!invoice.vatExempt;
+      this._payIn(data, invoice, { date: invoice.date, ...SD.validatePayment(invoiceData.paidNow), issueReceipt: exempt });
+      if (!exempt) invoice.kind = 'tax-invoice-receipt';
     }
     await this.db.save(data);
     return invoice;
@@ -153,7 +155,7 @@ class AccountingService {
     const rate = this._vatRate(data);
     data.settings = data.settings || {};
     const number = A.nextInvoiceNumber(data.invoices, data.settings.invoiceSeq);
-    const date = invoiceData.date || new Date().toISOString().slice(0, 10);
+    const date = invoiceData.date || localDay();
     this._assertOpen(data, date);
     const inv = { number, date, customer: String(invoiceData.customer || '').trim(), items: invoiceData.items, vatExempt: !!invoiceData.vatExempt };
     // מחיר כולל מע"מ — רק לשורה אחת (מנוי), כדי שהמע"מ יחושב כהפרש
@@ -173,6 +175,8 @@ class AccountingService {
       items: computed.items, net: computed.net, vat: computed.vat, total: computed.total,
       vatExempt: computed.vatExempt, status: 'open', entryId: entry.id, createdAt: new Date().toISOString()
     };
+    // שיעור המע"מ בזמן ההפקה (שדה 1268 במבנה אחיד) — היחס מע"מ/נטו אינו מדויק בחשבונית קטנה, וההגדרה יכולה להשתנות
+    if (!invoice.vatExempt) invoice.vatRate = rate;
     if (customerTaxId) invoice.customerTaxId = customerTaxId;
     if (invoiceData.sourceDoc) invoice.sourceDoc = invoiceData.sourceDoc;
     if (invoiceData.recurring) invoice.recurring = invoiceData.recurring;
@@ -239,12 +243,17 @@ class AccountingService {
     return stored;
   }
 
-  // גביית חשבונית: חובה בנק, זכות לקוחות — על היתרה אחרי זיכויים. מופקת קבלה (סוג 400) עם מספר משלה
-  async recordPayment(invoiceId, { date, method, reference } = {}) {
+  // גביית חשבונית: חובה בנק, זכות לקוחות — על היתרה אחרי זיכויים. מופקת קבלה (סוג 400) עם מספר משלה.
+  // expectedAg (אגורות, לא חובה): הסכום שהלקוח שילם בפועל — יתרה אחרת נדחית ולא נרשמת גבייה בסכום שונה
+  async recordPayment(invoiceId, { date, method, reference, expectedAg } = {}) {
     const data = await this._load();
     const inv = data.invoices.find(i => i.id === invoiceId);
     if (!inv) throw new Error('חשבונית לא נמצאה');
-    this._payIn(data, inv, { date: date || new Date().toISOString().slice(0, 10), ...SD.validatePayment({ method, reference }), issueReceipt: true });
+    if (expectedAg !== undefined) {
+      const balanceAg = A.toAg(inv.total) - SD.creditedAg(data.salesDocs, inv.id);
+      if (balanceAg !== expectedAg) throw new Error(`יתרת חשבונית ${inv.number} (${A.fromAg(balanceAg)} ₪) שונה מסכום הדרישה (${A.fromAg(expectedAg)} ₪) — ייתכן שהופק זיכוי בינתיים; יש לטפל בתשלום ידנית`);
+    }
+    this._payIn(data, inv, { date: date || localDay(), ...SD.validatePayment({ method, reference }), issueReceipt: true });
     await this.db.save(data);
     return inv;
   }
@@ -281,12 +290,15 @@ class AccountingService {
     }
   }
 
-  // ביטול גבייה: רושמים היפוך של רשומת הגבייה והחשבונית חוזרת למצב פתוח
+  // ביטול גבייה: רושמים היפוך של רשומת הגבייה והחשבונית חוזרת למצב פתוח.
+  // חשבונית מס/קבלה (320) — לא: הקבלה היא חלק מהמסמך שכבר הונפק, וביטול ורישום מחדש היו משנים את פרטי התקבול שלו
+  // ומדווחים את התקבול פעמיים במבנה האחיד. הדרך — חשבונית זיכוי
   async unrecordPayment(invoiceId) {
     const data = await this._load();
     const inv = data.invoices.find(i => i.id === invoiceId);
     if (!inv) throw new Error('חשבונית לא נמצאה');
     if (inv.status !== 'paid' || !inv.paymentEntryId) throw new Error('החשבונית אינה משולמת');
+    if (UF.docTypeOf(inv) === 320) throw new Error(`חשבונית ${inv.number} היא חשבונית מס/קבלה — הקבלה היא חלק מהמסמך ואי אפשר לבטל רק את התשלום. יש להפיק חשבונית זיכוי (ואם התשלום הוחזר, למשל המחאה שחזרה — לרשום זאת ביומן)`);
     const reversal = this._reverseIn(data, inv.paymentEntryId, { allowPaymentEntry: true });
     inv.status = 'open';
     const receipt = data.salesDocs.find(d => d.kind === 'receipt' && d.entryId === inv.paymentEntryId && d.status !== 'cancelled');
@@ -294,6 +306,7 @@ class AccountingService {
     delete inv.paidAt;
     delete inv.paymentEntryId;
     delete inv.paymentMethod;
+    delete inv.paymentRef;
     inv.paymentReversalId = reversal.id;
     await this.db.save(data);
     return inv;
@@ -354,7 +367,7 @@ class AccountingService {
   async getReports({ from, to } = {}) {
     const data = await this._load();
     const period = { from: from || undefined, to: to || undefined };
-    const asOf = to || new Date().toISOString().slice(0, 10);
+    const asOf = to || localDay();
     return {
       period: { from: from || null, to: asOf },
       vatRate: this._vatRate(data),
@@ -400,7 +413,7 @@ class AccountingService {
     // שמירה אחת: או שהכול נשמר (היפוך + סטטוס) או כלום
     const reversal = this._reverseIn(data, inv.entryId, { allowInvoiceEntry: true });
     inv.status = 'cancelled';
-    inv.cancelledAt = new Date().toISOString().slice(0, 10);
+    inv.cancelledAt = localDay();
     inv.reversalEntryId = reversal.id;
     await this.db.save(data);
     return inv;
@@ -542,7 +555,7 @@ class AccountingService {
     const data = await this._load();
     const src = data.salesDocs.find(d => d.id === docId);
     SD.assertConvertible(src, to);
-    const day = date || new Date().toISOString().slice(0, 10);
+    const day = date || localDay();
     if (day < src.date) throw new Error('תאריך המסמך החדש לפני תאריך המקור');
     const input = SD.conversionInput(src, day);
     let target;
@@ -567,7 +580,7 @@ class AccountingService {
     if (!SD.DRAFT_KINDS.includes(d.kind)) throw new Error('קבלה וזיכוי מבוטלים דרך החשבונית');
     if (d.status !== 'open') throw new Error('המסמך כבר הומר או בוטל');
     d.status = 'cancelled';
-    d.cancelledAt = new Date().toISOString().slice(0, 10);
+    d.cancelledAt = localDay();
     await this.db.save(data);
     return SD.docView(d);
   }
@@ -900,4 +913,4 @@ class AccountingService {
   }
 }
 
-module.exports = { AccountingService: new AccountingService() };
+module.exports = { AccountingService: new AccountingService(), localDay };

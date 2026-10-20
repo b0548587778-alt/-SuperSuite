@@ -131,21 +131,39 @@ function newPrimaryId() {
   return newPrimaryId();
 }
 
-// סוג המסמך לפי נספח 1
+// סוג המסמך לפי נספח 1. פטור לפני "חשבונית מס/קבלה": לעוסק פטור אין 320 (גם בנתונים ישנים שסומנו כך)
 function docTypeOf(inv) {
-  if (inv.kind === 'tax-invoice-receipt') return 320;
   if (inv.vatExempt) return 300;
+  if (inv.kind === 'tax-invoice-receipt') return 320;
   return 305;
 }
 
-// שיעור המע"מ בשורה: 9(2)v99 (18% = "1800"). נגזר מהחשבונית עצמה, כי השיעור בהגדרות יכול להשתנות
-function vatRateCode(inv) {
+// שיעורי המע"מ בישראל לפי תאריך — רק לחשבונית ישנה שלא נשמר בה שיעור (יש לאמת מול רשות המסים):
+// 17% מ-1.10.2015, 18% מ-1.1.2025. לפני 2015-10-01 — אין שיעור לפי תאריך, רק התאמה לסכומים
+const VAT_HISTORY = [{ from: '2015-10-01', rate: 0.17 }, { from: '2025-01-01', rate: 0.18 }];
+const legalVatRate = (date) => {
+  const d = String(date || '').slice(0, 10);
+  let rate = null;
+  for (const h of VAT_HISTORY) if (d >= h.from) rate = h.rate;
+  return rate;
+};
+
+// שיעור המע"מ בשורה: 9(2)v99 (18% = "1800"). השיעור שנשמר בחשבונית בזמן ההפקה (vatRate) גובר.
+// חשבונית ישנה בלי שיעור: שיעור מוכר (לפי התאריך, אחר כך מההגדרות, אחר כך 17%/18%) שמסביר את המע"מ עד אגורה;
+// היחס מע"מ/נטו לבדו שגוי בחשבונית קטנה (מע"מ מעוגל לאגורה). אם אף שיעור לא מסביר — היחס, כמו קודם
+function vatRateCode(inv, { fallbackRate } = {}) {
+  if (inv.vatExempt) return 0;
+  const stored = Number(inv.vatRate);
+  if (inv.vatRate != null && Number.isFinite(stored) && stored > 0 && stored < 1) return Math.round(stored * 10000);
   const net = ag(inv.net);
   const vat = ag(inv.vat);
   if (!net || !vat) return 0;
-  let pct = Math.round((vat / net) * 10000);
-  if (Math.abs(pct - Math.round(pct / 100) * 100) <= 5) pct = Math.round(pct / 100) * 100;
-  return pct;
+  // השיעור "מסביר" את המע"מ אם המע"מ המחושב בו רחוק לכל היותר אגורה אחת (עיגול) מהמע"מ שבחשבונית
+  const fits = (r) => Number.isFinite(r) && r > 0 && r < 1 && Math.abs(vat - net * r) <= 1;
+  const first = [legalVatRate(inv.date), Number(fallbackRate)].find(fits);
+  const nearest = VAT_HISTORY.map(h => h.rate).filter(fits).sort((a, b) => Math.abs(vat - net * a) - Math.abs(vat - net * b))[0];
+  const rate = first ?? nearest;
+  return rate !== undefined ? Math.round(rate * 10000) : Math.round((vat / net) * 10000);
 }
 
 // ---------- ההפקה
@@ -170,6 +188,7 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
   // הצעת מחיר אינה בנספח 1 — לא נכנסת לקובץ
   const salesDocs = (Array.isArray(data.salesDocs) ? data.salesDocs : []).filter(d => SD.KINDS[d.kind] && SD.KINDS[d.kind].code);
   const names = new Map(accounts.map(a => [String(a.code), a.name]));
+  const fallbackRate = Number(data.settings && data.settings.vatRate);
 
   const lines = [];
   const counts = {};
@@ -215,7 +234,7 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
       1253: type, 1254: String(inv.number), 1255: i + 1,
       1258: String(it.account) === A.SYS.SERVICES ? 1 : 2, 1260: it.description, 1263: 'יחידה',
       1264: Math.round(Number(it.quantity || 0) * 10000), 1265: ag(it.unitPrice), 1266: 0, 1267: ag(it.lineNet),
-      1268: vatRateCode(inv), 1272: ymd(inv.date), 1273: link
+      1268: vatRateCode(inv, { fallbackRate }), 1272: ymd(inv.date), 1273: link
     }));
     if (type === 320 || isReceipt) {
       // אמצעי התשלום (שדה 1306), ומספר ההמחאה (1310) כשהאסמכתה היא מספר. חשבונית ישנה בלי אמצעי תשלום — "אחר" (9)

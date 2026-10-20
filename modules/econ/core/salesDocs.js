@@ -95,7 +95,10 @@ function validateCredit(invoice, input, docs) {
   const already = creditedAg(docs, invoice.id);
   const remaining = A.toAg(invoice.total) - already;
   if (remaining <= 0) throw new Error(`חשבונית ${invoice.number} כבר זוכתה במלואה`);
-  const rate = invoice.net ? A.toAg(invoice.vat) / A.toAg(invoice.net) : 0;
+  // השיעור שנשמר בחשבונית בזמן ההפקה; בחשבונית ישנה — היחס מע"מ/נטו
+  const stored = Number(invoice.vatRate);
+  const rate = invoice.vatRate != null && Number.isFinite(stored) && stored >= 0 && stored < 1 ? stored
+    : invoice.net ? A.toAg(invoice.vat) / A.toAg(invoice.net) : 0;
   let items;
   if (Array.isArray(input.items) && input.items.length) {
     const fallback = (invoice.items[0] && invoice.items[0].account) || A.SYS.SALES;
@@ -116,6 +119,7 @@ function validateCredit(invoice, input, docs) {
     kind: 'credit', date, invoiceId: invoice.id, invoiceNumber: invoice.number, customer: invoice.customer,
     ...(invoice.customerTaxId ? { customerTaxId: invoice.customerTaxId } : {}), reason,
     items: computed.items, net: computed.net, vat: computed.vat, total: computed.total, vatExempt: computed.vatExempt,
+    ...(!computed.vatExempt && invoice.vatRate != null ? { vatRate: invoice.vatRate } : {}),
     full: A.toAg(computed.total) === remaining && !already
   };
 }
