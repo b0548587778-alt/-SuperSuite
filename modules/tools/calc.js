@@ -76,6 +76,24 @@
     return Number(a) * 100 + Number((b + '00').slice(0, 2));
   }
 
+  // היום המקומי YYYY-MM-DD (לא toISOString — UTC מזיז את היום בין חצות ל-03:00)
+  function localDay(d = new Date()) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  // מע"מ באגורות שלמות: סכום בשקלים (עד 2 ספרות), שיעור באחוזים (עד 2 ספרות, 0–100). לא תקין ← null.
+  // הוספה: מע"מ = עיגול הסכום × השיעור; הסרה: נטו = עיגול הסכום ÷ (1 + שיעור), המע"מ = ההפרש (כך נטו + מע"מ = הסכום בדיוק)
+  function vatCalc(amount, ratePct) {
+    const ag = toAg(amount);
+    const r = String(ratePct ?? '').trim();
+    if (ag === null || !/^\d+(\.\d{1,2})?$/.test(r)) return null;
+    const bp = Math.round(Number(r) * 100); // נקודות בסיס: 18% = 1800
+    if (bp > 10000) return null;
+    const addVatAg = Math.round((ag * bp) / 10000);
+    const removeNetAg = Math.round((ag * 10000) / (10000 + bp));
+    return { amountAg: ag, addVatAg, addTotalAg: ag + addVatAg, removeNetAg, removeVatAg: ag - removeNetAg };
+  }
+
   // טבלת שכר: מדרגות חודשיות (בשקלים) ושיעורים באחוזים, ביטוח לאומי ובריאות לעובד. verified=false ← אזהרה בממשק
   const SALARY_TABLE_DEFAULT = {
     year: 2026,
@@ -247,7 +265,7 @@
   }
 
   const api = { groupShoppingList, shoppingListText, powerCost, dateDiff, addDays, compoundInterest,
-    toAg, SALARY_TABLE_DEFAULT, parseSalaryTable, netSalary, hebrewYearOf, maaserSummary, newMaaserEntry,
+    toAg, localDay, vatCalc, SALARY_TABLE_DEFAULT, parseSalaryTable, netSalary, hebrewYearOf, maaserSummary, newMaaserEntry,
     indexLinkage, gematria, numberToHebrew, havraa, severance };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ToolsCalc = api;

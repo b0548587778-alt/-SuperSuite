@@ -113,6 +113,10 @@ export function generateProgram(client, { random = Math.random } = {}) {
     return { name: split.name, exercises: dayExercises };
   });
 
+  // בלי ציוד מתאים (או שכל התרגילים נפסלו בגלל המצב הרפואי) — לא תוכנית ריקה שמוצגת "פעילה"
+  if (!program.some((d) => d.exercises.length > 0)) {
+    throw new Error('אין תרגילים שמתאימים לציוד ולמצב הרפואי של המתאמן. יש לסמן ציוד זמין בכרטיס המתאמן ולנסות שוב.');
+  }
   return { days: program, createdAt: new Date().toISOString(), goal: client.goal };
 }
 
@@ -122,8 +126,39 @@ export function getMedicalWarnings(client) {
     .map((c) => ({ condition: c.label, warning: c.warning }));
 }
 
+// טווחים סבירים לכרטיס המתאמן (גובה בס"מ, משקל בק"ג)
+export const CLIENT_LIMITS = {
+  age: { min: 5, max: 120, label: 'גיל', unit: '' },
+  height: { min: 100, max: 250, label: 'גובה', unit: ' ס"מ' },
+  weight: { min: 20, max: 350, label: 'משקל', unit: ' ק"ג' },
+  daysPerWeek: { min: 1, max: 7, label: 'ימי אימון בשבוע', unit: '' },
+};
+const inRange = (v, { min, max }) => Number.isFinite(v) && v >= min && v <= max;
+
+// בדיקת טופס המתאמן לפני שמירה: רשימת הודעות בעברית (ריקה = תקין). גובה ומשקל — רשות, אבל אם הוזנו — בטווח
+export function validateClient(d) {
+  const errors = [];
+  const check = (key, required) => {
+    const raw = d?.[key];
+    if (raw === undefined || raw === null || String(raw).trim() === '') {
+      if (required) errors.push(`${CLIENT_LIMITS[key].label} — שדה חובה`);
+      return;
+    }
+    const lim = CLIENT_LIMITS[key];
+    if (!inRange(Number(raw), lim)) errors.push(`${lim.label} צריך להיות בין ${lim.min} ל-${lim.max}${lim.unit}`);
+  };
+  check('age', true);
+  check('height', false);
+  check('weight', false);
+  check('daysPerWeek', true);
+  if (!Array.isArray(d?.equipment) || d.equipment.length === 0) errors.push('יש לסמן לפחות פריט ציוד אחד (גם "משקל גוף")');
+  return errors;
+}
+
 export function calcBMI(h, w) {
   if (!h || !w) return null;
+  // ערך מחוץ לטווח (גובה במטרים, משקל שלילי) — אין BMI, לא מספר מופרך
+  if (!inRange(Number(h), CLIENT_LIMITS.height) || !inRange(Number(w), CLIENT_LIMITS.weight)) return null;
   return (w / ((h / 100) ** 2)).toFixed(1);
 }
 

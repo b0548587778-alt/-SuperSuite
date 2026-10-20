@@ -7,6 +7,10 @@ const FIXED = new Set(['trainer:profile', 'clients:index', 'studio:plans', 'stud
 const PER_CLIENT = /^(client|program|sessions|measurements|assessments|memberships):[A-Za-z0-9_-]{1,64}$/;
 
 const isKnownKey = (k) => FIXED.has(k) || PER_CLIENT.test(k);
+// מפתחות שערכם רשימה; השאר (trainer:profile, client:, program:) — אובייקט שאינו רשימה
+const LIST_FIXED = new Set(['studio:plans', 'studio:schedule']);
+const LIST_PER_CLIENT = /^(sessions|measurements|assessments|memberships):/;
+const isListKey = (k) => LIST_FIXED.has(k) || LIST_PER_CLIENT.test(k);
 
 function parse(v) {
   try { return { ok: true, value: JSON.parse(v) }; } catch { return { ok: false }; }
@@ -26,12 +30,10 @@ function checkTrainerItems(items) {
     if (k === 'clients:index' && !(Array.isArray(p.value) && p.value.every(id => typeof id === 'string'))) {
       return { ok: false, error: 'הקובץ פגום: רשימת המתאמנים אינה תקינה' };
     }
-    if ((k === 'studio:plans' || k === 'studio:schedule') && !Array.isArray(p.value)) {
-      return { ok: false, error: `הקובץ פגום: הערך של ${k} אינו תקין` };
-    }
-    if (k !== 'clients:index' && (p.value === null || typeof p.value !== 'object')) {
-      return { ok: false, error: `הקובץ פגום: הערך של ${k} אינו תקין` };
-    }
+    // רשימות (המסכים עוברים עליהן ב-for...of / forEach) מול רשומה בודדת (אובייקט שאינו רשימה)
+    const shapeOk = k === 'clients:index' || (isListKey(k) ? Array.isArray(p.value)
+      : (p.value !== null && typeof p.value === 'object' && !Array.isArray(p.value)));
+    if (!shapeOk) return { ok: false, error: `הקובץ פגום: הערך של ${k} אינו תקין` };
     clean[k] = v;
   }
   if (!Object.keys(clean).length) return { ok: false, error: 'הקובץ אינו גיבוי של ניהול האימונים — לא נמצאו בו נתוני מתאמנים' };

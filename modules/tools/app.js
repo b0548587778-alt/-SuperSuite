@@ -7,9 +7,10 @@ const fmt=n=>Number.isFinite(n)?(+n.toFixed(6)).toLocaleString('en-US',{maximumF
 /* מחשבון */
 (function(){
 const keys=['C','⌫','%','÷','7','8','9','×','4','5','6','−','1','2','3','+','±','0','.','='];
-let expr='',hist=store.get('calcHist',[]);
+let expr='',hist=store.get('calcHist',[]);if(!Array.isArray(hist))hist=[];
 const disp=$('cDisp');
-function show(){disp.textContent=expr||'0';$('cHist').innerHTML=hist.slice(-5).reverse().map(h=>'<div>'+h+'</div>').join('')}
+// ההיסטוריה נשמרת ב-localStorage ומשוחזרת מגיבוי — טקסט בלבד (textContent), לא HTML
+function show(){disp.textContent=expr||'0';$('cHist').replaceChildren(...hist.slice(-5).reverse().map(h=>{const d=document.createElement('div');d.textContent=String(h);return d}))}
 function evalExpr(e){
   const s=e.replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-').replace(/(\d+(?:\.\d+)?)%/g,'($1/100)');
   if(!/^[0-9+\-*/().\s]*$/.test(s))throw 0;
@@ -119,12 +120,16 @@ $('colH').oninput=()=>{upd($('colH').value);if(/^#[0-9a-f]{6}$/i.test($('colH').
 upd('#2b5fd9')})();
 
 /* מע״מ */
-(function(){function c(){const a=+$('vA').value,r=+$('vR').value/100;
- $('vO').innerHTML=`<div>הוספת מע״מ: ${fmt(a*(1+r))} (מע״מ ${fmt(a*r)})</div><div>הסרת מע״מ: ${fmt(a/(1+r))} (מע״מ ${fmt(a-a/(1+r))})</div>`}
+// באגורות שלמות (calc.js → vatCalc), המע"מ מעוגל לאגורה ומוצג בשתי ספרות
+(function(){const ils=ag=>'₪'+(ag/100).toLocaleString('he-IL',{minimumFractionDigits:2,maximumFractionDigits:2});
+ const line=t=>{const d=document.createElement('div');d.textContent=t;return d};
+ function c(){const v=window.ToolsCalc.vatCalc($('vA').value,$('vR').value);
+ if(!v){$('vO').replaceChildren(line('סכום או שיעור לא תקינים (עד 2 ספרות אחרי הנקודה)'));return}
+ $('vO').replaceChildren(line(`הוספת מע״מ: ${ils(v.addTotalAg)} (מע״מ ${ils(v.addVatAg)})`),line(`הסרת מע״מ: ${ils(v.removeNetAg)} (מע״מ ${ils(v.removeVatAg)})`))}
 ['vA','vR'].forEach(i=>$(i).oninput=c);c()})();
 
 /* תאריך עברי */
-(function(){const d=new Date();$('hD').value=d.toISOString().slice(0,10);
+(function(){$('hD').value=window.ToolsCalc.localDay();
 function c(){const v=$('hD').value;if(!v)return;const dt=new Date(v+'T12:00:00');
  const h=new Intl.DateTimeFormat('he-u-ca-hebrew',{day:'numeric',month:'long',year:'numeric'}).format(dt);
  const w=new Intl.DateTimeFormat('he',{weekday:'long'}).format(dt);$('hO').textContent=`${w}, ${h}`}
@@ -163,7 +168,7 @@ $('b64e').onclick=t(u8);$('b64d').onclick=t(un);o.onclick=()=>copy(o.textContent
     $('ciOut').textContent=`סה"כ צפוי: ${money(r.final)} · הפקדתם: ${money(r.deposited)} · ריבית שנצברה: ${money(r.interest)}`}catch(e){err($('ciOut'),e)}};
   ['pw','ph','pk','pd'].forEach(i=>$(i).oninput=pw); ['dA','dB'].forEach(i=>$(i).onchange=dd);
   ['dN','dX'].forEach(i=>$(i).onchange=da); ['ciP','ciM','ciR','ciY'].forEach(i=>$(i).oninput=ci);
-  pw(); ci(); (()=>{const t=new Date().toISOString().slice(0,10);$('dA').value=t;$('dX').value=t;$('dB').value=C.addDays(t,30);dd();da()})();
+  pw(); ci(); (()=>{const t=C.localDay();$('dA').value=t;$('dX').value=t;$('dB').value=C.addDays(t,30);dd();da()})();
 })();
 
 /* ---------- כלים לקהל היעד (PLAN.md 9.12) ---------- */
