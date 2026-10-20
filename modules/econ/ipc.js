@@ -1385,9 +1385,23 @@ function registerIpcHandlers() {
     if (shown) await auditEvent(event, 'chesed.confidential.view', { via: 'overview', count: shown });
     return o;
   });
-  handle('privacy:getMap', async () => privacyService.getMap(await db.listUsers()));
-  handle('privacy:retentionPreview', async (event, years, kind) => privacyService.retentionPreview(years, undefined, kind));
+  // מזעור לפי סוג — רק בתחום שפתוח ברישיון (אחרת: רשימת שמות ושינוי נתונים של תחום סגור)
+  const RETENTION_DOMAIN = { beneficiaries: 'chesed:x', donors: 'npo:x', borrowers: 'gemach:x', mortgageClients: 'madv:x', realtyClients: 'rlty:x' };
+  handle('privacy:getMap', async () => {
+    const m = await privacyService.getMap(await db.listUsers());
+    const open = Object.entries(m.retentionKinds || {}).filter(([k]) => !LG.checkChannel(licenseState(), RETENTION_DOMAIN[k] || 'econ:x', 'data.view'));
+    return { ...m, retentionKinds: Object.fromEntries(open) };
+  });
+  const assertRetentionKind = (kind, perm) => {
+    const msg = LG.checkChannel(licenseState(), RETENTION_DOMAIN[kind || 'beneficiaries'] || 'econ:x', perm);
+    if (msg) throw new Error(msg);
+  };
+  handle('privacy:retentionPreview', async (event, years, kind) => {
+    assertRetentionKind(kind, 'data.view');
+    return privacyService.retentionPreview(years, undefined, kind);
+  });
   handle('privacy:minimize', async (event, ids, years, kind) => {
+    assertRetentionKind(kind, 'data.edit');
     const r = await privacyService.minimize(ids, years, undefined, kind);
     await auditEvent(event, kind && kind !== 'beneficiaries' ? 'privacy.minimize' : 'chesed.privacy.minimize', { kind: kind || 'beneficiaries', years, minimized: r.minimized, skipped: r.skipped });
     return r;

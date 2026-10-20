@@ -152,6 +152,14 @@ test('ipc: הרישיון נאכף מעל התפקיד — תחום סגור, מ
   const people = (await handlers['people:search'](ev(5), '')).rows.map(r => r.name);
   assert.deepEqual(people, ['אברהם כהן']);
 
+  // מזעור לפי סוג (בדיקת קוד 20.10.2026): לווים / נזקקים — תחום סגור, גם לרשימה וגם למחיקה; תורמים — פתוח
+  await assert.rejects(handlers['privacy:retentionPreview'](ev(5), 1, 'borrowers'), /אינו כלול ברישיון/);
+  await assert.rejects(handlers['privacy:minimize'](ev(5), ['l1'], 1, 'borrowers'), /אינו כלול ברישיון/);
+  await assert.rejects(handlers['privacy:retentionPreview'](ev(5), 1), /אינו כלול ברישיון/, 'ברירת המחדל = נזקקים (חסד)');
+  assert.equal((await handlers['privacy:retentionPreview'](ev(5), 7, 'donors')).kind, 'donors');
+  assert.deepEqual(Object.keys((await handlers['privacy:getMap'](ev(5))).retentionKinds), ['donors'], 'במסך — רק סוגים מתחום פתוח');
+  assert.equal((await ipc.getDb().load()).gemach.loans[0].borrowerName, 'יצחק לוי', 'הלווה לא נגע');
+
   // maxUsers = 2: המנהל + עוד אחד
   await handlers['users:create'](ev(5), { username: 'mazkir_1', password: 'another-long-pass-2026', role: 'editor' });
   await assert.rejects(handlers['users:create'](ev(5), { username: 'mazkir_2', password: 'another-long-pass-2026', role: 'viewer' }), /עד 2 משתמשים/);
