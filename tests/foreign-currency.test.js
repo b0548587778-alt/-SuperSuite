@@ -82,7 +82,7 @@ test('גמ"ח: הפקדה באירו נרשמת בשקלים ונכנסת לית
   const ov = G.overview([], [dep, G.validateDepositInput({ date: '2026-01-02', depositorName: 'א', amount: 0.5 })], {});
   assert.equal(ov.depositsTotal, 10050.5);
   const t = G.exportTable('deposits', [], [dep], {});
-  assert.deepEqual(t.headers, ['תאריך', 'מפקיד', 'סכום (₪)', 'מטבע זר', 'הערות']);
+  assert.deepEqual(t.headers, ['תאריך', 'מפקיד', 'סכום (₪)', 'מטבע זר', 'בטוחה להלוואה של', 'הערות']);
   assert.match(t.rows[0][3], /€ \(שער 4\.02\)/);
   assert.throws(() => G.validateDepositInput({ depositorName: 'א', currency: 'EUR', foreignAmount: 10 }), /שער אירו/);
 });

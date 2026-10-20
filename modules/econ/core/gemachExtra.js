@@ -32,7 +32,8 @@ function validateApplication(input, count = 0) {
 function assertTransition(app, to) {
   if (!APP_STATUSES[to]) throw new Error('שלב לא מוכר');
   if (!(NEXT[app.status] || []).includes(to)) throw new Error(`לא ניתן לעבור מ"${APP_STATUSES[app.status]}" ל"${APP_STATUSES[to]}"`);
-  if (to === 'verified' && !(app.guarantors || []).length) throw new Error('אין ערבים בבקשה — יש להוסיף ערבים לפני האימות');
+  // בטוחה: ערבים, או פיקדון בקופה (הלוואה כנגד פיקדון). הפיקדון עצמו נבדק שוב באישור (assertCollateral)
+  if (to === 'verified' && !(app.guarantors || []).length && !app.collateralDepositId) throw new Error('אין ערבים ואין פיקדון בבקשה — יש להוסיף ערבים או לבחור פיקדון לפני האימות');
 }
 
 /* ---------- גמ"ח חפצים ---------- */
