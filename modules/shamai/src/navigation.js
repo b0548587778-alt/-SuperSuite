@@ -370,26 +370,31 @@ function bindEvents() {
   $('#no-add')?.addEventListener('click', saveOppFromForm);
 
   // Photo upload
+  // התמונה מוקטנת (כמו בתיק השומה) ונשמרת בלחיצה על "הוסף" / "שמור שינויים"
   $('#no-photo')?.addEventListener('change', async e => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
+    try {
+      const dataUrl = await caseCompressImage(file);
+      pendingPhoto = dataUrl;
+      photoRemoved = false;
       $('#no-photo-preview').innerHTML = `
-        <img src="${ev.target.result}" alt="תצוגה" />
+        <img src="${dataUrl}" alt="תצוגה" />
         <button class="remove-photo" aria-label="הסר">×</button>
       `;
       $('#no-photo-preview').hidden = false;
-      $('#no-photo-preview').dataset.data = ev.target.result;
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      e.target.value = '';
+      toast(err.message || 'התמונה לא נטענה', 'error');
+    }
   });
   document.addEventListener('click', e => {
     if (e.target.classList?.contains('remove-photo')) {
       $('#no-photo-preview').hidden = true;
       $('#no-photo-preview').innerHTML = '';
-      delete $('#no-photo-preview').dataset.data;
       $('#no-photo').value = '';
+      pendingPhoto = null;
+      photoRemoved = true;
     }
   });
 
@@ -614,6 +619,9 @@ async function init() {
 
   // Wire up events
   bindEvents();
+
+  // תמונות ישנות מ-IndexedDB הגלוי ← המחסן המוצפן
+  setTimeout(() => ImageDB.migrateAll(state.opportunities.filter(o => o.hasPhoto).map(o => 'opp_' + o.id)), 1500);
 
   // Service worker
   // בתוך SuperSuite המודול נטען מ-app:// — שם Service Worker אינו נתמך ואינו נחוץ (הקבצים מקומיים)

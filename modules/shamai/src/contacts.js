@@ -142,10 +142,11 @@ function applyTemplate(templateId) {
   $('#no-cat').value = t.category;
   $('#no-seller').value = t.seller || '';
   $('#no-notes').value = t.notes || '';
-  if (t.photo) {
+  if (isImageData(t.photo)) {
     $('#no-photo-preview').innerHTML = `<img src="${t.photo}" alt="תצוגה" /><button class="remove-photo" aria-label="הסר">×</button>`;
     $('#no-photo-preview').hidden = false;
-    $('#no-photo-preview').dataset.data = t.photo;
+    pendingPhoto = t.photo;
+    photoRemoved = false;
   }
   toast('✓ תבנית הוטענה', 'success');
 }

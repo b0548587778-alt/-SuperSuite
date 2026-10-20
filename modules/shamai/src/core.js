@@ -363,48 +363,81 @@ const Storage = {
   },
 };
 
-// IndexedDB for storing images (more space than localStorage)
+// תמונות פריטים — במחסן המוצפן (localStorage שהמעטפת מחליפה, PLAN.md 3.2), ולכן גם בגיבוי.
+// בעבר נשמרו ב-IndexedDB גלוי ומחוץ לגיבוי: תמונה ישנה מועברת בפעם הראשונה שהיא נטענת,
+// ונמחקת משם רק אחרי שנשמרה במחסן.
+const IMAGE_MAX_CHARS = 400 * 1024;          // תמונה חדשה — אחרי הקטנה (caseCompressImage)
+const IMAGE_LEGACY_MAX_CHARS = 4 * 1024 * 1024; // תמונה ישנה מ-IndexedDB, שנשמרה בלי הקטנה
+const isImageData = (s, max = IMAGE_MAX_CHARS) =>
+  typeof s === 'string' && s.length <= max && /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(s);
+
 const ImageDB = {
-  db: null,
-  async open() {
-    if (this.db) return this.db;
-    return new Promise((resolve, reject) => {
+  key: (id) => 'img_' + id,
+  // ---------- IndexedDB הישן: קריאה ומחיקה בלבד ----------
+  legacyDb: null,
+  legacyOpen() {
+    if (this.legacyDb) return Promise.resolve(this.legacyDb);
+    if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+    return new Promise((resolve) => {
       const req = indexedDB.open('shamai_images', 1);
-      req.onerror = () => reject(req.error);
-      req.onsuccess = () => { this.db = req.result; resolve(this.db); };
+      req.onerror = () => resolve(null);
+      req.onsuccess = () => { this.legacyDb = req.result; resolve(this.legacyDb); };
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
-        if (!db.objectStoreNames.contains('images')) {
-          db.createObjectStore('images');
-        }
+        if (!db.objectStoreNames.contains('images')) db.createObjectStore('images');
       };
     });
   },
-  async save(id, dataUrl) {
-    const db = await this.open();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('images', 'readwrite');
-      tx.objectStore('images').put(dataUrl, id);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+  async legacyGet(id) {
+    const db = await this.legacyOpen();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const req = db.transaction('images', 'readonly').objectStore('images').get(id);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      } catch (e) { resolve(null); }
     });
   },
-  async load(id) {
-    const db = await this.open();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('images', 'readonly');
-      const req = tx.objectStore('images').get(id);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
+  async legacyDelete(id) {
+    const db = await this.legacyOpen();
+    if (!db) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('images', 'readwrite');
+        tx.objectStore('images').delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch (e) { resolve(); }
     });
+  },
+  // ---------- המחסן ----------
+  store(id, dataUrl, max) {
+    if (!isImageData(dataUrl, max)) throw new Error('התמונה אינה תקינה או גדולה מדי');
+    Storage.save(this.key(id), dataUrl);
+    if (Storage.load(this.key(id), null) !== dataUrl) throw new Error('אין מקום לשמור את התמונה');
+  },
+  async save(id, dataUrl) { this.store(id, dataUrl, IMAGE_MAX_CHARS); },
+  async load(id) {
+    const s = Storage.load(this.key(id), null);
+    if (isImageData(s, IMAGE_LEGACY_MAX_CHARS)) return s;
+    const old = await this.legacyGet(id);
+    if (!isImageData(old, IMAGE_LEGACY_MAX_CHARS)) return null;
+    try { this.store(id, old, IMAGE_LEGACY_MAX_CHARS); await this.legacyDelete(id); } catch (e) { /* נשאר בישן, ננסה בפעם הבאה */ }
+    return old;
   },
   async delete(id) {
-    const db = await this.open();
-    return new Promise((resolve) => {
-      const tx = db.transaction('images', 'readwrite');
-      tx.objectStore('images').delete(id);
-      tx.oncomplete = () => resolve();
-    });
+    Storage.remove(this.key(id));
+    await this.legacyDelete(id);
+  },
+  // בעלייה: מעבירים את כל התמונות הישנות, גם כאלה שלא יוצגו. אחת-אחת, ושגיאה לא עוצרת את השאר
+  async migrateAll(ids) {
+    let moved = 0;
+    for (const id of ids || []) {
+      if (isImageData(Storage.load(this.key(id), null), IMAGE_LEGACY_MAX_CHARS)) continue;
+      try { if (await this.load(id)) moved++; } catch (e) { /* ננסה בפעם הבאה */ }
+    }
+    return moved;
   },
 };
 

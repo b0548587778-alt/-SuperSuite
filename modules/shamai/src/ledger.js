@@ -317,7 +317,8 @@ function openEditOpp(opp) {
     ImageDB.load(`opp_${opp.id}`).then(dataUrl => {
       if (dataUrl) {
         const preview = $('#no-photo-preview');
-        preview.innerHTML = `<img src="${dataUrl}" alt="" />`;
+        preview.innerHTML = `<img src="${dataUrl}" alt="" />
+          <button class="remove-photo" aria-label="הסר">×</button>`;
         preview.hidden = false;
       }
     });
@@ -339,9 +340,11 @@ function clearOppForm() {
   delete $('#no-add').dataset.editId;
   $('#no-add').textContent = 'הוסף';
   pendingPhoto = null;
+  photoRemoved = false;
 }
 
-let pendingPhoto = null; // base64 string awaiting save
+let pendingPhoto = null; // תמונה מוקטנת (data:image) שממתינה לשמירה
+let photoRemoved = false; // בעריכה: המשתמש הסיר את התמונה הקיימת
 
 async function saveOppFromForm() {
   const name = $('#no-name').value.trim();
@@ -360,10 +363,15 @@ async function saveOppFromForm() {
     opp.category = $('#no-cat').value;
     opp.seller = $('#no-seller').value.trim();
     opp.notes = $('#no-notes').value.trim();
-    if (pendingPhoto) {
-      await ImageDB.save(`opp_${editId}`, pendingPhoto);
-      opp.hasPhoto = true;
-    }
+    try {
+      if (pendingPhoto) {
+        await ImageDB.save(`opp_${editId}`, pendingPhoto);
+        opp.hasPhoto = true;
+      } else if (photoRemoved) {
+        await ImageDB.delete(`opp_${editId}`);
+        opp.hasPhoto = false;
+      }
+    } catch (e) { toast(e.message, 'error'); return; }
     Storage.save('opportunities', state.opportunities);
     toast('נשמר', 'success');
   } else {
@@ -381,8 +389,11 @@ async function saveOppFromForm() {
       created: new Date().toISOString(),
       hasPhoto: !!pendingPhoto,
     };
+    if (pendingPhoto) {
+      try { await ImageDB.save(`opp_${id}`, pendingPhoto); }
+      catch (e) { toast(e.message, 'error'); return; }
+    }
     state.opportunities.unshift(opp);
-    if (pendingPhoto) await ImageDB.save(`opp_${id}`, pendingPhoto);
     Storage.save('opportunities', state.opportunities);
     toast('נוסף', 'success');
   }
