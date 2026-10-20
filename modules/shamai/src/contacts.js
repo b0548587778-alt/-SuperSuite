@@ -62,7 +62,7 @@ function renderContactsView() {
       ${contacts.length} אנשי קשר · ${state.opportunities.length} עסקאות
     </div>
     ${contacts.map(c => `
-      <div class="contact-card" data-contact="${c.id}">
+      <div class="contact-card" data-contact="${escapeHtml(c.id)}">
         <div class="contact-head">
           <div class="contact-name">${escapeHtml(c.name)}</div>
           ${c.phone ? `<div class="contact-phone">${escapeHtml(c.phone)}</div>` : ''}
@@ -74,10 +74,10 @@ function renderContactsView() {
         </div>
         <div class="contact-actions">
           ${c.phone ? `
-            <button data-act="contact-call" data-phone="${c.phone}">📞 חייג</button>
-            <button data-act="contact-wa" data-phone="${c.phone}" data-name="${escapeHtml(c.name)}">💬 WhatsApp</button>
+            <button data-act="contact-call" data-phone="${escapeHtml(c.phone)}">📞 חייג</button>
+            <button data-act="contact-wa" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name)}">💬 WhatsApp</button>
           ` : ''}
-          <button data-act="contact-deals" data-contact="${c.id}">📋 ${c.deals.length} עסקאות</button>
+          <button data-act="contact-deals" data-contact="${escapeHtml(c.id)}">📋 ${c.deals.length} עסקאות</button>
         </div>
       </div>
     `).join('')}
