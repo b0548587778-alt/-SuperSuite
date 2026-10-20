@@ -47,7 +47,8 @@ test('אסימון פגום או לא שייך — נדחה', async () => {
 test('מפתח שהתחלף אצל Google — נטען מחדש פעם אחת', async () => {
   GS._resetCache();
   let calls = 0;
-  const fetchImpl = async () => { calls++; return { ok: true, json: async () => ({ keys: calls === 1 ? [] : [JWK] }) }; };
+  const OLD = { ...JWK, kid: 'k0' };
+  const fetchImpl = async () => { calls++; return { ok: true, json: async () => ({ keys: calls === 1 ? [OLD] : [OLD, JWK] }) }; };
   const r = await GS.verifyIdToken(token(), { clientId: CLIENT_ID, nonce: 'n1', now: NOW, fetchImpl });
   assert.equal(r.sub, '1001');
   assert.equal(calls, 2);
@@ -111,6 +112,9 @@ test('רגרסיה: מפתחות החתימה חסומים בסינון — הכ
     () => { throw new TypeError('fetch failed'); },
     () => ({ ok: false, status: 418, json: async () => ({}) }),
     () => ({ ok: true, json: async () => { throw new SyntaxError('דף חסימה'); } }),
+    () => ({ ok: true, json: async () => null }),
+    () => ({ ok: true, json: async () => ({}) }),
+    () => ({ ok: true, json: async () => ({ keys: [] }) }),
   ];
   for (const certs of blocked) {
     GS._resetCache();

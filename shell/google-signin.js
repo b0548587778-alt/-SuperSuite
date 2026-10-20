@@ -42,7 +42,9 @@ async function googleKeys(fetchImpl, now, force = false) {
   try { r = await fetchImpl(CERTS_URL); } catch { throw keysError(); }
   if (!r.ok) throw keysError();
   try { j = await r.json(); } catch { throw keysError(); }
-  certCache = { at: now, keys: Array.isArray(j.keys) ? j.keys : [] };
+  // תשובה בלי רשימת מפתחות (דף חסימה ב-JSON וכו') — כמו מפתחות לא זמינים, ולא נשמרת במטמון
+  if (!j || !Array.isArray(j.keys) || !j.keys.length) throw keysError();
+  certCache = { at: now, keys: j.keys };
   return certCache.keys;
 }
 
