@@ -96,8 +96,12 @@ function computeInvoice(invoice, vatRate = DEFAULT_VAT_RATE) {
     net += lineNet;
     return { description: String(it.description || '').trim() || 'שירות/מוצר', quantity: qty, unitPrice: price, lineNet: fromAg(lineNet), account: it.account ? String(it.account) : (it.kind === 'service' ? SYS.SERVICES : SYS.SALES) };
   });
-  // מחיר כולל מע"מ (grossAgorot): המע"מ = הסכום הכולל פחות הנטו, כך שהסה"כ שווה בדיוק למה ששולם
-  const vatAg = invoice.vatExempt ? 0 : Number.isSafeInteger(invoice.grossAgorot) ? invoice.grossAgorot - net : Math.round(net * vatRate);
+  // מחיר כולל מע"מ (grossAgorot): המע"מ = הסכום הכולל פחות הנטו, כך שהסה"כ שווה בדיוק למה ששולם.
+  // הפרש העיגול מול נטו × שיעור — אגורה אחת לכל היותר; יותר מזה = מחיר כולל שלא מתאים לפריט (דוח הבדיקה, ממצא 7)
+  const gross = !invoice.vatExempt && Number.isSafeInteger(invoice.grossAgorot);
+  if (gross && invoice.grossAgorot < net) throw new Error('המחיר הכולל מע"מ נמוך מהמחיר לפני מע"מ — יש לבדוק את הסכום');
+  if (gross && Math.abs(invoice.grossAgorot - net - Math.round(net * vatRate)) > 1) throw new Error('המחיר הכולל מע"מ אינו תואם למחיר לפני מע"מ ולשיעור המע"מ — יש לבדוק את הסכום');
+  const vatAg = invoice.vatExempt ? 0 : gross ? invoice.grossAgorot - net : Math.round(net * vatRate);
   return { items, net: fromAg(net), vat: fromAg(vatAg), total: fromAg(net + vatAg), vatExempt: !!invoice.vatExempt };
 }
 

@@ -662,6 +662,11 @@ class Database {
     }
 
     const data = normalizeData(backupData);
+    // מונים של מסמכים ממוספרים לא חוזרים אחורה (דוח הבדיקה, ממצא 4): גיבוי ישן לא מחזיר מספר שכבר נמסר ללקוח,
+    // דווח לרשות המסים או נשלח לבנק. מסד ריק (שחזור אחרי תקלה) — אין מה לשמור
+    let current = null;
+    try { current = await this.load(); } catch { /* מסד שלא נפתח — משחזרים כמו שהוא */ }
+    if (current) keepCounters(data, current);
     await this.save(data);
     return true;
   }
@@ -870,6 +875,58 @@ function isValidData(value) {
   return true;
 }
 
+// המספר הגבוה ביותר שכבר הוקצה: הגדול מבין המונה השמור והמספרים שברשומות
+const seqInt = (v) => (Number.isSafeInteger(v) && v > 0 ? v : 0);
+const maxNumber = (list, pick) => (Array.isArray(list) ? list : []).reduce((m, x) => {
+  const n = x && typeof x === 'object' ? Number(pick(x)) : NaN;
+  return Number.isSafeInteger(n) && n > m ? n : m;
+}, 0);
+const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+
+// שחזור: כל מונה = הגדול מבין הגיבוי למה שכבר הוקצה במסד הנוכחי. משנה את next במקום.
+// חשבוניות (settings.invoiceSeq), מסמכי מכירה לפי סוג (settings.docSeq), קבלות עמותה (npo.settings.receiptSeq),
+// אסמכתאות מס"ב (npo/gemach.masav.refSeq), דרישות תשלום (payments.settings.nextNumber — המספר הבא), תיקי שומה (realEstate.seq)
+function keepCounters(next, current) {
+  const cs = obj(current.settings);
+  next.settings = { ...obj(next.settings) };
+  const inv = Math.max(seqInt(cs.invoiceSeq), maxNumber(current.invoices, i => i.number));
+  if (inv > seqInt(next.settings.invoiceSeq)) next.settings.invoiceSeq = inv;
+
+  const curDoc = obj(cs.docSeq);
+  const docs = Array.isArray(current.salesDocs) ? current.salesDocs : [];
+  const kinds = new Set([...Object.keys(curDoc), ...docs.map(d => d && d.kind)].filter(k => typeof k === 'string' && /^[a-z][a-z-]*$/.test(k)));
+  const docSeq = { ...obj(next.settings.docSeq) };
+  let docChanged = false;
+  for (const k of kinds) {
+    const v = Math.max(seqInt(curDoc[k]), maxNumber(docs.filter(d => d && d.kind === k), d => d.number));
+    if (v > seqInt(docSeq[k])) { docSeq[k] = v; docChanged = true; }
+  }
+  if (docChanged) next.settings.docSeq = docSeq;
+
+  const curNpo = obj(current.npo);
+  next.npo = { ...obj(next.npo) };
+  const receipts = Math.max(seqInt(obj(curNpo.settings).receiptSeq), maxNumber(curNpo.donations, d => (d.receipt && !d.receipt.external ? d.receipt.number : null)));
+  if (receipts > seqInt(obj(next.npo.settings).receiptSeq)) next.npo.settings = { ...obj(next.npo.settings), receiptSeq: receipts };
+
+  for (const [domain, list] of [['npo', 'standingOrders'], ['gemach', 'loans']]) {
+    const cur = obj(current[domain]);
+    const ref = Math.max(seqInt(obj(cur.masav).refSeq), maxNumber(cur[list], x => x.masavRef));
+    next[domain] = { ...obj(next[domain]) };
+    if (ref > seqInt(obj(next[domain].masav).refSeq)) next[domain].masav = { ...obj(next[domain].masav), refSeq: ref };
+  }
+
+  const curPay = obj(current.payments);
+  const nextReq = Math.max(seqInt(obj(curPay.settings).nextNumber), maxNumber(curPay.requests, r => r.number) + 1);
+  next.payments = { ...obj(next.payments) };
+  if (nextReq > seqInt(obj(next.payments.settings).nextNumber)) next.payments.settings = { ...obj(next.payments.settings), nextNumber: nextReq };
+
+  const curRe = obj(current.realEstate);
+  const cases = Math.max(seqInt(curRe.seq), maxNumber(curRe.cases, c => c.no));
+  next.realEstate = { ...obj(next.realEstate) };
+  if (cases > seqInt(next.realEstate.seq)) next.realEstate.seq = cases;
+  return next;
+}
+
 function normalizeData(value) {
   const result = {
     ...defaults,
@@ -914,4 +971,4 @@ async function initializeDatabase(userDataPath, options = {}) {
   return database;
 }
 
-module.exports = { initializeDatabase, setAsideLockedDatabase, isValidData, defaults, ROLES };
+module.exports = { initializeDatabase, setAsideLockedDatabase, isValidData, keepCounters, defaults, ROLES };
