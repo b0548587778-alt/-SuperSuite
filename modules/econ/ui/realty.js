@@ -2,8 +2,8 @@
 // סקריפט רגיל (לא מודול): כל קבצי ui/ חולקים טווח שמות אחד, לפי הסדר ב-views/index.html.
 'use strict';
 
-const RLTY_TABS = [['properties', 'נכסים'], ['clients', 'לקוחות'], ['deals', 'עסקאות']];
-const rltyUi = { tab: 'properties', matches: null };
+const RLTY_TABS = [['properties', 'נכסים'], ['clients', 'לקוחות'], ['deals', 'עסקאות'], ['orders', 'הזמנות תיווך']];
+const rltyUi = { tab: 'properties', matches: null, deal: null };
 const rltyData = () => state.data.realty || {};
 const rltyOpts = (map, blank) => [...(blank ? [{ value: '', label: blank }] : []), ...Object.entries(map || {}).map(([value, label]) => ({ value, label }))];
 
@@ -93,7 +93,39 @@ const rltyDealSchema = {
   update: (id, d) => window.systemAPI.updateRealtyDeal(id, d)
 };
 
-const RLTY_SCHEMAS = { properties: rltyPropertySchema, clients: rltyClientSchema, deals: rltyDealSchema };
+const rltyOrderSchema = {
+  title: 'הזמנת שירותי תיווך',
+  editTitle: 'עריכת הזמנת שירותי תיווך',
+  prepare: async (schema) => {
+    const o = rltyData();
+    const f = (n) => schema.fields.find(x => x.name === n);
+    f('clientId').options = (o.clients || []).map(c => ({ value: c.id, label: `${c.name} (${c.roleLabel})` }));
+    f('propertyId').options = [{ value: '', label: 'ללא נכס מסוים (תיאור בהמשך)' }, ...(o.properties || []).map(p => ({ value: p.id, label: p.title }))];
+    f('transaction').options = rltyOpts(o.transactions, 'לבחירה');
+    f('feeType').options = rltyOpts(o.feeTypes);
+    f('date').value = f('date').value || madvToday();
+  },
+  fields: [
+    { name: 'clientId', label: 'לקוח', type: 'select', required: true, options: [] },
+    { name: 'transaction', label: 'סוג העסקה', type: 'select', options: [] },
+    { name: 'propertyId', label: 'נכס', type: 'select', options: [] },
+    { name: 'propertyDescription', label: 'תיאור הנכס (אם אין נכס ברשימה)', type: 'text' },
+    { name: 'clientAddress', label: 'כתובת הלקוח', type: 'text' },
+    { name: 'price', label: 'מחיר מבוקש / מוצע (₪)', type: 'number' },
+    { name: 'feeType', label: 'סוג דמי התיווך', type: 'select', options: [] },
+    { name: 'feeValue', label: 'דמי התיווך (% או ₪, לפני מע"מ)', type: 'number' },
+    { name: 'date', label: 'תאריך ההזמנה', type: 'date', required: true },
+    { name: 'exclusive', label: 'בלעדיות?', type: 'select', options: [{ value: '', label: 'לא' }, { value: 'yes', label: 'כן' }] },
+    { name: 'exclusiveUntil', label: 'בלעדיות עד', type: 'date' },
+    { name: 'marketing', label: 'פעולות שיווק (בבלעדיות)', type: 'textarea' },
+    { name: 'signedDate', label: 'הלקוח חתם בתאריך', type: 'date' },
+    { name: 'notes', label: 'הערות', type: 'textarea' }
+  ],
+  create: (d) => window.systemAPI.saveRealtyOrder('', d),
+  update: (id, d) => window.systemAPI.saveRealtyOrder(id, d)
+};
+
+const RLTY_SCHEMAS = { properties: rltyPropertySchema, clients: rltyClientSchema, deals: rltyDealSchema, orders: rltyOrderSchema };
 
 // כפתור "＋ הוספת רשומה" — לפי הלשונית הפתוחה
 formSchemas['realty'] = {
@@ -109,7 +141,7 @@ formSchemas['realty'] = {
 };
 
 function rltyTabsHtml(o) {
-  const count = { properties: (o.properties || []).length, clients: (o.clients || []).length, deals: (o.deals || []).length };
+  const count = { properties: (o.properties || []).length, clients: (o.clients || []).length, deals: (o.deals || []).length, orders: (o.orders || []).length };
   return `<div class="lab-tabs" role="tablist">${RLTY_TABS.map(([id, label]) => `<button class="${rltyUi.tab === id ? '' : 'secondary'}" data-rlty-tab="${id}" aria-pressed="${rltyUi.tab === id}">${label} (${count[id]})</button>`).join('')}</div>`;
 }
 
@@ -162,7 +194,10 @@ function rltyDealsHtml(o) {
   const board = o.board || [];
   const up = o.upcoming || [];
   if (!(o.deals || []).length) return renderEmpty('אין עסקאות עדיין — לחץ "＋ הוספת רשומה" כדי לפתוח עסקה על נכס', '🤝');
+  const t = o.commissionTotals;
   return `
+    ${t && t.total ? `<div class="card"><div class="acct-row"><span>עמלות בעסקאות פעילות וסגורות</span><span>${money(t.total)}</span></div>
+      <div class="acct-row"><span>התקבל</span><span>${money(t.paid)}</span></div><div class="acct-row acct-total"><span>יתרה לגבייה</span><span>${money(t.balance)}</span></div></div>` : ''}
     ${up.length ? `<div class="card"><h3>מועדים קרובים</h3><ul>${up.map(u => `<li${u.overdue ? ' class="warn"' : ''}>${esc(u.date)} — ${esc(u.label)}${u.mortgage ? ' <span class="ss-badge ss-badge-warn">תלוי במשכנתא</span>' : ''}${u.overdue ? ' (עבר)' : ''}</li>`).join('')}</ul></div>` : ''}
     <div class="ss-board">${board.map(col => `
       <div class="ss-board-col${col.closed ? ' is-closed' : ''}">
@@ -172,21 +207,175 @@ function rltyDealsHtml(o) {
           <span>${money(d.price)}</span><br>
           <small>${esc(d.buyerName)}${d.sellerName ? ' ← ' + esc(d.sellerName) : ''}</small>
           ${d.dependsOnMortgage ? '<br><small>תלוי במשכנתא</small>' : ''}${d.lostReason ? `<br><small>${esc(d.lostReason)}</small>` : ''}
-          <div><button class="icon-btn" data-rlty-edit="deals" data-id="${esc(d.id)}" title="עריכת עסקה">✏</button>
+          ${d.commission && d.commission.total ? `<br><small>עמלה ${money(d.commission.total)} · יתרה ${money(d.commission.balance)}</small>` : ''}
+          <div><button class="icon-btn" data-rlty-deal="${esc(d.id)}" title="עמלות תיווך">₪</button>
+            <button class="icon-btn" data-rlty-edit="deals" data-id="${esc(d.id)}" title="עריכת עסקה">✏</button>
             <button class="icon-btn danger" data-rlty-del="deals" data-id="${esc(d.id)}" title="מחיקת עסקה">🗑</button></div>
         </div>`).join('')}
       </div>`).join('')}
     </div>`;
 }
 
+// עמלות העסקה שנבחרה: גובה לכל צד, מצב גבייה, תשלומים וחשבונית
+function rltyCommissionHtml(o) {
+  const d = (o.deals || []).find(x => x.id === rltyUi.deal);
+  if (!d) return '';
+  const c = d.commission || { sides: [] };
+  const fees = d.commissionFees || {};
+  const sides = o.sides || {};
+  const states = o.payStates || {};
+  const methods = o.payMethods || {};
+  const feeRow = (side) => `<tr><td>${esc(sides[side])}</td>
+    <td><select id="rltyFeeType_${side}" aria-label="סוג העמלה — ${esc(sides[side])}">${Object.entries(o.feeTypes || {}).map(([v, l]) => `<option value="${v}"${(fees[side] || {}).type === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></td>
+    <td><input type="number" step="0.01" min="0" id="rltyFeeValue_${side}" aria-label="גובה העמלה — ${esc(sides[side])}" value="${fees[side] ? esc(fees[side].value) : ''}"></td></tr>`;
+  return `<div class="card">
+    <div class="acct-header"><h3>עמלות תיווך — ${esc(d.propertyTitle)} · ${money(d.price)}</h3><button class="secondary" id="rltyDealClose">סגירה</button></div>
+    <div class="acct-scroll"><table class="acct-table"><thead><tr><th>צד</th><th>סוג</th><th>גובה (לפני מע"מ)</th></tr></thead>
+      <tbody>${Object.keys(sides).map(feeRow).join('')}</tbody></table></div>
+    <div class="acct-actions"><button id="rltyFeeSave">שמירת העמלות</button></div>
+    ${c.sides.length ? `<div class="acct-scroll"><table class="acct-table"><thead><tr><th>צד</th><th>עמלה</th><th>סה"כ</th><th>שולם</th><th>יתרה</th><th>מצב</th></tr></thead>
+      <tbody>${c.sides.map(s => `<tr><td>${esc(s.label)}</td><td>${esc(s.feeText)}</td><td>${money(s.total)}</td><td>${money(s.paid)}</td><td>${money(s.balance)}</td>
+        <td><span class="ss-badge${s.state === 'paid' ? '' : ' ss-badge-warn'}">${esc(states[s.state] || s.state)}</span></td></tr>`).join('')}</tbody></table></div>
+      <h4>תשלומים</h4>
+      ${(d.commissionPayments || []).map(p => `<div class="acct-row"><span>${esc(p.date)} · ${esc(sides[p.side] || '')} · ${esc(methods[p.method] || '')}${p.note ? ' · ' + esc(p.note) : ''}</span><span>${money(p.amount)}
+        ${p.invoiceNumber ? `<small>חשבונית ${esc(p.invoiceNumber)}</small>` : `${o.canInvoice ? `<button class="icon-btn" data-rlty-invoice="${esc(p.id)}" title="הפקת חשבונית מס/קבלה">🧾</button>` : ''}
+        <button class="icon-btn danger" data-rlty-paydel="${esc(p.id)}" title="מחיקת תשלום">🗑</button>`}</span></div>`).join('') || '<p class="muted">עוד לא נרשמו תשלומים.</p>'}
+      <div class="acct-actions"><button class="secondary" id="rltyPayAdd">＋ תשלום שהתקבל</button></div>` : '<p class="muted">הזינו עמלה לפחות לצד אחד כדי לעקוב אחרי הגבייה.</p>'}
+  </div>`;
+}
+
+function rltyOrdersHtml(o) {
+  const list = o.orders || [];
+  const intro = `<p class="muted">הזמנת שירותי תיווך בכתב. התוכנה מציגה מה חסר בהזמנה — היא לא קובעת אם מגיעים דמי תיווך. רשימת השדות ${esc(o.unverified || 'לא מאומתת')}, לבדיקת עורך דין.</p>`;
+  if (!list.length) return intro + renderEmpty('אין הזמנות עדיין — לחץ "＋ הוספת רשומה" כדי ליצור הזמנת שירותי תיווך', '📝');
+  return intro + list.map(r => `<div class="card">
+    <div class="acct-header">
+      <div><h4>${esc(r.clientName)}${r.transactionLabel ? ` · ${esc(r.transactionLabel)}` : ''}</h4><small>${esc(r.date)}${r.feeText ? ' · ' + esc(r.feeText) : ''}${r.exclusive ? ' · בלעדיות' : ''}${r.signedDate ? ` · נחתם ${esc(r.signedDate)}` : ''}</small></div>
+      <div class="acct-actions">
+        <span class="ss-badge${r.check.complete ? '' : ' ss-badge-warn'}">${r.check.complete ? 'כל השדות מולאו' : `חסרים ${r.check.missing.length}`}</span>
+        <button class="icon-btn" data-rlty-order-pdf="${esc(r.id)}" title="טופס להחתמה (PDF)">📄</button>
+        <button class="icon-btn" data-rlty-edit="orders" data-id="${esc(r.id)}" title="עריכה">✏</button>
+        <button class="icon-btn danger" data-rlty-del="orders" data-id="${esc(r.id)}" title="מחיקת הזמנה">🗑</button>
+      </div>
+    </div>
+    ${r.check.missing.length ? `<p><strong>חסר:</strong> ${esc(r.check.missing.join(' · '))}</p>` : ''}
+    ${r.check.warnings.map(w => `<p class="warn">⚠ ${esc(w)}</p>`).join('')}
+  </div>`).join('');
+}
+
+function rltySettingsHtml(o) {
+  if (!o.isManager) return '';
+  const s = o.settings || {};
+  const f = (k, label) => `<label>${label} <input type="text" class="ss-input" id="rltySet_${k}" value="${esc(s[k] || '')}"></label>`;
+  return `<details class="card"><summary>פרטי המשרד להזמנות ולחשבוניות</summary>
+    ${f('brokerName', 'שם המתווך / המשרד')} ${f('licenseNo', 'מספר רישיון תיווך')} ${f('phone', 'טלפון')} ${f('address', 'כתובת')}
+    <label><input type="checkbox" id="rltySet_vatExempt"${s.vatExempt ? ' checked' : ''}> עוסק פטור (בלי מע"מ על העמלה)</label>
+    <div class="acct-actions"><button id="rltySaveSettings">שמירה</button></div>
+  </details>`;
+}
+
 function renderRealty(o) {
   const d = o || {};
-  const body = rltyUi.tab === 'clients' ? rltyClientsHtml(d) : rltyUi.tab === 'deals' ? rltyDealsHtml(d) : rltyPropertiesHtml(d);
+  const body = rltyUi.tab === 'clients' ? rltyClientsHtml(d) : rltyUi.tab === 'deals' ? rltyCommissionHtml(d) + rltyDealsHtml(d) : rltyUi.tab === 'orders' ? rltySettingsHtml(d) + rltyOrdersHtml(d) : rltyPropertiesHtml(d);
   return `<div class="realty mortgage-lab">${rltyTabsHtml(d)}${rltyMatchesHtml()}${body}</div>`;
+}
+
+// חלון תשלום עמלה: צד, תאריך, סכום (ברירת מחדל — היתרה של הצד), אמצעי והערה
+function rltyAskPayment(deal) {
+  const o = rltyData();
+  const open = (deal.commission.sides || []).filter(s => s.balance > 0);
+  const list = open.length ? open : deal.commission.sides;
+  return openDialog((card, finish) => {
+    const h = document.createElement('h2');
+    h.textContent = 'תשלום דמי תיווך שהתקבל';
+    h.id = 'rltyPayTitle';
+    card.parentNode.setAttribute('aria-labelledby', h.id);
+    const form = document.createElement('form');
+    form.className = 'modal-form';
+    form.noValidate = true;
+    const field = (label, el) => { const l = document.createElement('label'); l.textContent = label; l.appendChild(el); form.appendChild(l); return el; };
+    const mk = (type, value) => { const i = document.createElement('input'); i.type = type; i.value = value; return i; };
+    const side = field('מאיזה צד', document.createElement('select'));
+    side.innerHTML = list.map(s => `<option value="${esc(s.side)}">${esc(s.label)}</option>`).join('');
+    const date = field('תאריך', mk('date', madvToday()));
+    const amount = field('סכום (₪, כולל מע"מ)', mk('number', list[0] ? list[0].balance || '' : ''));
+    amount.min = '0'; amount.step = '0.01';
+    side.addEventListener('change', () => { const s = list.find(x => x.side === side.value); if (s) amount.value = s.balance || ''; });
+    const method = field('אמצעי תשלום', document.createElement('select'));
+    method.innerHTML = Object.entries(o.payMethods || {}).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+    const note = field('הערה (לא חובה)', mk('text', ''));
+    const err = document.createElement('div');
+    err.style.color = 'var(--ss-danger)';
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'ביטול';
+    const ok = document.createElement('button');
+    ok.type = 'submit'; ok.className = 'primary'; ok.textContent = 'שמירה';
+    actions.append(cancel, ok);
+    form.append(err, actions);
+    card.append(h, form);
+    cancel.addEventListener('click', () => finish(null));
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!date.value) { err.textContent = 'יש לבחור תאריך'; return; }
+      if (!(Number(amount.value) > 0)) { err.textContent = 'יש להזין סכום חיובי'; amount.focus(); return; }
+      finish({ side: side.value, date: date.value, amount: Number(amount.value), method: method.value, note: note.value.trim() });
+    });
+    amount.focus();
+  });
+}
+
+function attachRealtyCommissionHandlers() {
+  const o = rltyData();
+  document.querySelectorAll('[data-rlty-deal]').forEach(b => b.addEventListener('click', () => { rltyUi.deal = b.dataset.rltyDeal; renderView('realty'); }));
+  const close = document.getElementById('rltyDealClose');
+  if (close) close.addEventListener('click', () => { rltyUi.deal = null; renderView('realty'); });
+  const deal = (o.deals || []).find(x => x.id === rltyUi.deal);
+  const save = document.getElementById('rltyFeeSave');
+  if (save && deal) save.addEventListener('click', async () => {
+    const input = {};
+    for (const side of Object.keys(o.sides || {})) {
+      input[side] = { type: document.getElementById('rltyFeeType_' + side).value, value: document.getElementById('rltyFeeValue_' + side).value };
+    }
+    try { await window.systemAPI.setRealtyCommissions(deal.id, input); showToast('העמלות נשמרו'); await switchView('realty'); }
+    catch (error) { showError('שגיאה בשמירה: ' + errMsg(error)); }
+  });
+  const add = document.getElementById('rltyPayAdd');
+  if (add && deal) add.addEventListener('click', async () => {
+    const v = await rltyAskPayment(deal);
+    if (!v) return;
+    try { await window.systemAPI.addRealtyCommissionPayment(deal.id, v); showToast('התשלום נרשם'); await switchView('realty'); }
+    catch (error) { showError('שגיאה ברישום התשלום: ' + errMsg(error)); }
+  });
+  document.querySelectorAll('[data-rlty-paydel]').forEach(b => b.addEventListener('click', async () => {
+    if (!(await askConfirm('למחוק את התשלום?'))) return;
+    try { await window.systemAPI.deleteRealtyCommissionPayment(deal.id, b.dataset.rltyPaydel); showToast('התשלום נמחק'); await switchView('realty'); }
+    catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-rlty-invoice]').forEach(b => b.addEventListener('click', async () => {
+    if (!(await askConfirm('להפיק חשבונית מס/קבלה על התשלום הזה? החשבונית תירשם בהנהלת החשבונות ותקבל מספר.'))) return;
+    try { const r = await window.systemAPI.issueRealtyCommissionInvoice(deal.id, b.dataset.rltyInvoice, { confirmed: true }); showToast(`הופקה חשבונית מספר ${r.number}`); await switchView('realty'); }
+    catch (error) { showError('שגיאה בהפקת החשבונית: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-rlty-order-pdf]').forEach(b => b.addEventListener('click', async () => {
+    try { const r = await window.systemAPI.exportRealtyOrder(b.dataset.rltyOrderPdf); if (r && r.ok) showToast('הטופס נשמר'); }
+    catch (error) { showError('שגיאה בהפקת הטופס: ' + errMsg(error)); }
+  }));
+  const set = document.getElementById('rltySaveSettings');
+  if (set) set.addEventListener('click', async () => {
+    const val = (k) => (document.getElementById('rltySet_' + k) || {}).value || '';
+    try {
+      await window.systemAPI.saveRealtySettings({ brokerName: val('brokerName'), licenseNo: val('licenseNo'), phone: val('phone'), address: val('address'), vatExempt: document.getElementById('rltySet_vatExempt').checked });
+      showToast('הפרטים נשמרו');
+      await switchView('realty');
+    } catch (error) { showError('שגיאה בשמירה: ' + errMsg(error)); }
+  });
 }
 
 // ערכי טופס מתוך רשומה בתצוגה (שקלים)
 function rltyFormValues(tab, rec) {
+  if (tab === 'orders') return { ...rec, exclusive: rec.exclusive ? 'yes' : '' };
   if (tab === 'clients') return { ...rec, areas: rec.areasText || '', types: (rec.types || [])[0] || '', needsMortgage: rec.needsMortgage ? 'yes' : '' };
   if (tab === 'deals') return { ...rec, dependsOnMortgage: rec.dependsOnMortgage ? 'yes' : '' };
   return rec;
@@ -194,8 +383,9 @@ function rltyFormValues(tab, rec) {
 
 function attachRealtyHandlers() {
   const o = rltyData();
-  const listOf = { properties: o.properties || [], clients: o.clients || [], deals: o.deals || [] };
-  document.querySelectorAll('[data-rlty-tab]').forEach(b => b.addEventListener('click', () => { rltyUi.tab = b.dataset.rltyTab; rltyUi.matches = null; renderView('realty'); }));
+  const listOf = { properties: o.properties || [], clients: o.clients || [], deals: o.deals || [], orders: o.orders || [] };
+  document.querySelectorAll('[data-rlty-tab]').forEach(b => b.addEventListener('click', () => { rltyUi.tab = b.dataset.rltyTab; rltyUi.matches = null; rltyUi.deal = null; renderView('realty'); }));
+  attachRealtyCommissionHandlers();
   document.querySelectorAll('[data-rlty-edit]').forEach(b => b.addEventListener('click', async () => {
     const tab = b.dataset.rltyEdit;
     const rec = listOf[tab].find(x => x.id === b.dataset.id);
@@ -204,7 +394,8 @@ function attachRealtyHandlers() {
   const del = {
     properties: ['למחוק את הנכס?', (id) => window.systemAPI.deleteRealtyProperty(id)],
     clients: ['למחוק את הלקוח?', (id) => window.systemAPI.deleteRealtyClient(id)],
-    deals: ['למחוק את העסקה?', (id) => window.systemAPI.deleteRealtyDeal(id)]
+    deals: ['למחוק את העסקה?', (id) => window.systemAPI.deleteRealtyDeal(id)],
+    orders: ['למחוק את ההזמנה?', (id) => window.systemAPI.deleteRealtyOrder(id)]
   };
   document.querySelectorAll('[data-rlty-del]').forEach(b => b.addEventListener('click', async () => {
     const [msg, fn] = del[b.dataset.rltyDel];

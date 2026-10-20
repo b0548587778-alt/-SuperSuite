@@ -25,6 +25,7 @@ const { PrivacyService: privacyService } = require('./services/privacyService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
 const { RealtyService: realtyService } = require('./services/realtyService');
 const MR = require('./core/mortgageReport');
+const BR = require('./core/brokerage');
 // שפת העיצוב מוטמעת במסמכי PDF (חלון ה-PDF אינו טוען קבצים). בלי הקובץ (אנדרואיד) — ברירות המחדל של הדפדפן
 let tokensCache = null;
 function designTokensCss() {
@@ -231,6 +232,8 @@ function permissionFor(channel) {
   if (channel === 'mlab:verifyRule' || channel === 'mlab:unverifyRule') return 'users.manage';
   // הגדרות משרד הייעוץ (מי רואה אילו תיקים) — מנהל בלבד
   if (channel === 'madv:saveSettings' || channel === 'madv:saveBrand' || channel === 'madv:setBrandLogo') return 'users.manage';
+  // פרטי המשרד בהזמנת התיווך (שם, רישיון, עוסק פטור) — מנהל בלבד
+  if (channel === 'rlty:saveSettings') return 'users.manage';
   // מיפוי מאגרים ומזעור נתונים (תיקון 13) — מנהל בלבד
   if (channel.startsWith('privacy:')) return 'users.manage';
   // רישוי: התקנה, הנפקת מערכות בת והשבתתן — מנהל בלבד. מצב הרישיון — לכל משתמש מחובר
@@ -1550,7 +1553,11 @@ function registerIpcHandlers() {
   });
   // ---------- נדל"ן ותיווך (rlty ← econ.realty) ----------
   const rltyUser = (event) => { const s = authService.getSession(event.sender.id); return s && s.id; };
-  handle('rlty:getOverview', async () => realtyService.getOverview(localDay(Date.now())));
+  handle('rlty:getOverview', async (event) => ({
+    ...(await realtyService.getOverview(localDay(Date.now()))),
+    canInvoice: !LG.checkChannel(licenseState(), 'acct:x', 'data.edit') && authService.hasPermission(event.sender.id, 'data.edit'),
+    isManager: authService.hasPermission(event.sender.id, 'users.manage')
+  }));
   handle('rlty:getMatches', async (event, kind, id, minScore) => realtyService.getMatches(kind === 'client' ? 'client' : 'property', String(id || ''), minScore));
   for (const [kind, label] of [['Property', 'property'], ['Client', 'client'], ['Deal', 'deal']]) {
     const withActor = kind === 'Deal';
@@ -1570,6 +1577,55 @@ function registerIpcHandlers() {
       return true;
     });
   }
+  // עמלות תיווך: גובה לכל צד, תשלומים, וחשבונית מס/קבלה — רק כשהנהלת החשבונות ברישיון ובאישור מפורש
+  handle('rlty:setCommissions', async (event, dealId, input) => {
+    const r = await realtyService.setCommissions(String(dealId || ''), input || {});
+    await auditEvent(event, 'realty.commission.set', { id: r.id });
+    return r;
+  });
+  handle('rlty:addCommissionPayment', async (event, dealId, input) => {
+    const r = await realtyService.addCommissionPayment(String(dealId || ''), input || {}, rltyUser(event));
+    await auditEvent(event, 'realty.commission.payment', { id: dealId, paymentId: r.payment.id, side: r.payment.side, amountAg: r.payment.amountAg });
+    return r;
+  });
+  handle('rlty:deleteCommissionPayment', async (event, dealId, paymentId) => {
+    await realtyService.deleteCommissionPayment(String(dealId || ''), String(paymentId || ''));
+    await auditEvent(event, 'realty.commission.payment.delete', { id: dealId, paymentId });
+    return true;
+  });
+  handle('rlty:issueCommissionInvoice', async (event, dealId, paymentId, opts) => {
+    const denied = LG.checkChannel(licenseState(), 'acct:x', 'data.edit');
+    if (denied) throw new Error(denied);
+    if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
+    const p = await realtyService.commissionPaymentForInvoice(String(dealId || ''), String(paymentId || ''));
+    const inv = await accountingService.createAdvisoryReceipt(p);
+    await realtyService.linkCommissionInvoice(dealId, paymentId, inv);
+    await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'rlty', amountAg: p.grossAgorot });
+    return { id: inv.id, number: inv.number, total: inv.total };
+  });
+  // הזמנת שירותי תיווך: שמירה, בדיקת "מה חסר" (בתצוגה), וטופס PDF להחתמה
+  handle('rlty:saveOrder', async (event, id, input) => {
+    const r = await realtyService.saveOrder(id ? String(id) : '', input || {});
+    await auditEvent(event, id ? 'realty.order.update' : 'realty.order.create', { id: r.id });
+    return r;
+  });
+  handle('rlty:deleteOrder', async (event, id) => {
+    await realtyService.deleteOrder(String(id || ''));
+    await auditEvent(event, 'realty.order.delete', { id });
+    return true;
+  });
+  handle('rlty:exportOrderPdf', async (event, id) => {
+    const d = await realtyService.orderDocument(String(id || ''));
+    const html = BR.renderOrderHtml(d.order, d, designTokensCss());
+    const r = await saveHtmlAsPdf(html, `הזמנת-שירותי-תיווך-${d.order.date}.pdf`);
+    if (r.ok) await auditEvent(event, 'realty.order.pdf', { id });
+    return r;
+  });
+  handle('rlty:saveSettings', async (event, input) => {
+    const s = await realtyService.saveSettings(input || {});
+    await auditEvent(event, 'realty.settings.save', { licenseNo: s.licenseNo });
+    return s;
+  });
   handle('madv:saveSettings', async (event, input) => {
     const s = await mortgageAdvisorService.saveSettings(input || {});
     await auditEvent(event, 'madv.settings.save', s);

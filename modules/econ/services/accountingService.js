@@ -221,10 +221,11 @@ class AccountingService {
 
   // תשלום עמלת ייעוץ משכנתא (madv) ← חשבונית מס/קבלה, פעם אחת לכל תשלום — באותו מבנה כמו createTrainerReceipt.
   // source.key ייחודי לתשלום; הבדיקה לכפילות באותה טעינה של המסד שבה נשמרת החדשה
+  // גם לדמי תיווך (rlty) — אותו מבנה, מפתח שונה
   async createAdvisoryReceipt({ customer, date, grossAgorot, description, method, reference, key, exempt = false }) {
     if (!Number.isSafeInteger(grossAgorot) || grossAgorot <= 0) throw new Error('סכום החשבונית אינו תקין');
     const k = String(key || '');
-    if (!/^madv:[\w-]{1,80}:[\w-]{1,80}$/.test(k)) throw new Error('חסר שיוך לתשלום בתיק הייעוץ');
+    if (!/^(madv|rlty):[\w-]{1,80}:[\w-]{1,80}$/.test(k)) throw new Error('חסר שיוך לתשלום בתיק');
     const data = await this._load();
     const prev = data.invoices.find(i => i.advisoryPayment && i.advisoryPayment.key === k && i.status !== 'cancelled');
     if (prev) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${prev.number})`);
