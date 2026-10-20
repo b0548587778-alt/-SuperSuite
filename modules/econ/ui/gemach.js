@@ -13,10 +13,18 @@ const GEMACH_TIER_LABEL = {
   extended: 'מעל סף הרישוי המורחב — נדרש רישוי מורחב (יש לאמת מול הרשות לשוק ההון)'
 };
 
+// הלוואה כנגד פיקדון: רק הפקדות פנויות (שאינן בטוחה להלוואה פעילה); הבדיקה הסופית בשרת (assertCollateral)
+function gemachCollateralOptions() {
+  const deposits = ((state.data.gemach && state.data.gemach.deposits) || []).filter(d => !d.pledgedTo);
+  return [{ value: '', label: '— בלי פיקדון (ערבים בלבד) —' },
+    ...deposits.map(d => ({ value: d.id, label: `${d.depositorName} · ${money(d.amount)} · ${d.date}` }))];
+}
+
 formSchemas['gemach'] = {
   title: 'בקשת הלוואה חדשה',
   prepare: (schema) => {
     schema.fields.find(f => f.name === 'issueDate').value = today();
+    schema.fields.find(f => f.name === 'collateralDepositId').options = gemachCollateralOptions();
   },
   fields: [
     { name: 'borrowerName', label: 'שם הלווה', type: 'text', required: true },
@@ -27,6 +35,7 @@ formSchemas['gemach'] = {
     { name: 'installments', label: 'מספר תשלומים חודשיים', type: 'number', required: true },
     { name: 'issueDate', label: 'תאריך מתן ההלוואה', type: 'date', required: true },
     { name: 'guarantorsText', label: 'ערבים — שורה לכל ערב: שם, ת.ז, טלפון', type: 'textarea' },
+    { name: 'collateralDepositId', label: 'הלוואה כנגד פיקדון (במקום ערבים או בנוסף)', type: 'select', options: [] },
     { name: 'purpose', label: 'מטרת ההלוואה', type: 'text' },
     { name: 'notes', label: 'הערות', type: 'textarea' }
   ],
@@ -77,7 +86,10 @@ const GX_CONDITIONS = { new: 'חדש', good: 'תקין', worn: 'משומש', rep
 const gemachAppSchema = {
   title: 'בקשת הלוואה — טיוטה',
   editTitle: 'עריכת בקשת הלוואה',
-  prepare: (schema) => { schema.fields.find(f => f.name === 'requestDate').value = today(); },
+  prepare: (schema) => {
+    schema.fields.find(f => f.name === 'requestDate').value = today();
+    schema.fields.find(f => f.name === 'collateralDepositId').options = gemachCollateralOptions();
+  },
   fields: [
     { name: 'borrowerName', label: 'שם המבקש', type: 'text', required: true },
     { name: 'borrowerId', label: 'ת.ז', type: 'text' },
@@ -87,12 +99,13 @@ const gemachAppSchema = {
     { name: 'installments', label: 'מספר תשלומים חודשיים', type: 'number', required: true },
     { name: 'requestDate', label: 'תאריך הבקשה', type: 'date' },
     { name: 'guarantorsText', label: 'ערבים — שורה לכל ערב: שם, ת.ז, טלפון', type: 'textarea' },
+    { name: 'collateralDepositId', label: 'כנגד פיקדון (במקום ערבים או בנוסף)', type: 'select', options: [] },
     { name: 'purpose', label: 'מטרת ההלוואה', type: 'text' },
     { name: 'interviewNotes', label: 'סיכום הראיון', type: 'textarea' },
     { name: 'notes', label: 'הערות', type: 'textarea' }
   ],
   create: (d) => window.systemAPI.saveGemachApplication(null, d),
-  update: (id, d) => window.systemAPI.saveGemachApplication(id, { interviewNotes: '', notes: '', purpose: '', guarantorsText: '', ...d })
+  update: (id, d) => window.systemAPI.saveGemachApplication(id, { interviewNotes: '', notes: '', purpose: '', guarantorsText: '', collateralDepositId: '', ...d })
 };
 const gemachItemSchema = {
   title: 'פריט חדש לגמ"ח חפצים',
@@ -298,7 +311,7 @@ function renderGemach(o) {
             <details class="gemach-loan">
               <summary>
                 <span>${esc(l.borrowerName)} ${l.borrowerId ? `<small class="muted">ת.ז ${esc(l.borrowerId)}</small>` : ''}
-                  <small class="muted">${esc(GEMACH_LOAN_STATUS[l.status] || l.status)}${l.lateCount ? ` · ${l.lateCount} תשלומים בפיגור` : ''}</small>
+                  <small class="muted">${esc(GEMACH_LOAN_STATUS[l.status] || l.status)}${l.lateCount ? ` · ${l.lateCount} תשלומים בפיגור` : ''}${l.collateralDepositId ? ' · 🔒 כנגד פיקדון' : ''}</small>
                 </span>
                 <span>${money(l.outstanding)} / ${money(l.amount)}
                   ${l.bankMasked ? `<small class="muted">🏦 <bdi dir="ltr">${esc(l.bankMasked)}</bdi></small>` : ''}${l.masavStopped ? ` <small class="bad">מס"ב נעצר: ${esc(l.masavStopped)}</small>` : ''}
@@ -314,7 +327,7 @@ function renderGemach(o) {
           <div class="acct-header"><h3>הפקדות (${deposits.length})</h3><button class="secondary small" data-gemach-export="deposits">ייצוא</button></div>
           ${deposits.map(d => `
             <div class="acct-row">
-              <span>${esc(d.depositorName)} <small class="muted">${esc(d.date)}${d.notes ? ' · ' + esc(d.notes) : ''}</small></span>
+              <span>${esc(d.depositorName)} <small class="muted">${esc(d.date)}${d.notes ? ' · ' + esc(d.notes) : ''}</small>${d.pledgedTo ? ` <small class="bad">🔒 בטוחה להלוואה של ${esc(d.pledgedTo)}</small>` : ''}</span>
               <span>${money(d.amount)}${currencyNote(d.foreign)}
                 <button class="icon-btn danger" data-gemach-deposit-del="${esc(d.id)}" title="מחיקה">🗑</button>
               </span>

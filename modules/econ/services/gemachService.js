@@ -37,7 +37,11 @@ class GemachService {
       loans: [...gemach.loans]
         .map(l => ({ ...G.loanSummary(l, today), bankMasked: MSV.maskAccount(l.bankAccount), masavStopped: l.masavStopped || '' }))
         .sort((a, b) => (b.status === 'active') - (a.status === 'active') || b.issueDate.localeCompare(a.issueDate)),
-      deposits: [...gemach.deposits].sort((a, b) => b.date.localeCompare(a.date)),
+      deposits: (() => {
+        const pledged = G.pledgedDeposits(gemach.loans);
+        return [...gemach.deposits].sort((a, b) => b.date.localeCompare(a.date))
+          .map(d => (pledged.has(d.id) ? { ...d, pledgedTo: pledged.get(d.id).borrowerName } : d));
+      })(),
       overview: G.overview(gemach.loans, gemach.deposits, gemach.settings, today),
       applications: [...gemach.applications].sort((a, b) => (['approved', 'rejected'].includes(a.status) - ['approved', 'rejected'].includes(b.status)) || b.requestDate.localeCompare(a.requestDate))
         .map(a => ({ ...a, statusLabel: GX.APP_STATUSES[a.status] })),
@@ -72,6 +76,7 @@ class GemachService {
   async addLoan(input) {
     const data = await this._load();
     const clean = G.validateLoanInput(input, data.gemach.loans.length);
+    G.assertCollateral(clean.collateralDepositId, clean.amount, data.gemach.deposits, data.gemach.loans);
     const schedule = G.buildSchedule(clean.amount, clean.installments, clean.issueDate);
     const loan = { id: crypto.randomUUID(), ...clean, schedule, status: 'active', createdAt: new Date().toISOString() };
     data.gemach.loans.push(loan);
@@ -243,6 +248,8 @@ class GemachService {
 
   async deleteDeposit(depositId) {
     const data = await this._load();
+    const pledgedTo = G.pledgedDeposits(data.gemach.loans).get(depositId);
+    if (pledgedTo) throw new Error(`ההפקדה משמשת בטוחה להלוואה הפעילה של ${pledgedTo.borrowerName} — אפשר למחוק אותה רק אחרי שההלוואה תיפרע או תבוטל`);
     const before = data.gemach.deposits.length;
     data.gemach.deposits = data.gemach.deposits.filter(d => d.id !== depositId);
     if (data.gemach.deposits.length === before) throw new Error('ההפקדה לא נמצאה');
@@ -261,8 +268,10 @@ class GemachService {
     if (input && input.guarantorsText !== undefined) delete merged.guarantors;
     const clean = GX.validateApplication(merged, prev ? 0 : list.length);
     const now = new Date().toISOString();
-    // שינוי ערבים אחרי אימות מחזיר את הבקשה לשלב הראיון
-    const guarantorsChanged = prev && JSON.stringify(prev.guarantors) !== JSON.stringify(clean.guarantors);
+    // שינוי ערבים או פיקדון אחרי אימות מחזיר את הבקשה לשלב הראיון
+    const guarantorsChanged = prev && (JSON.stringify(prev.guarantors) !== JSON.stringify(clean.guarantors)
+      || (prev.collateralDepositId || '') !== (clean.collateralDepositId || ''));
+    if (prev && !clean.collateralDepositId) delete prev.collateralDepositId; // הוסר הפיקדון — לא נשאר מהגרסה הקודמת
     const app = prev
       ? Object.assign(prev, clean, { updatedAt: now }, guarantorsChanged && prev.status === 'verified' ? { status: 'interview' } : {})
       : { id: crypto.randomUUID(), ...clean, status: 'draft', history: [{ status: 'draft', at: now }], createdAt: now };
@@ -282,6 +291,7 @@ class GemachService {
     if (to === 'approved') {
       const issueDate = /^\d{4}-\d{2}-\d{2}$/.test(String(input.issueDate || '')) ? input.issueDate : now.slice(0, 10);
       const clean = G.validateLoanInput({ ...app, issueDate }, data.gemach.loans.length);
+      G.assertCollateral(clean.collateralDepositId, clean.amount, data.gemach.deposits, data.gemach.loans);
       loan = { id: crypto.randomUUID(), ...clean, schedule: G.buildSchedule(clean.amount, clean.installments, clean.issueDate), status: 'active', applicationId: app.id, createdAt: now };
       data.gemach.loans.push(loan);
       app.loanId = loan.id;

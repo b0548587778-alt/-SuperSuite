@@ -92,8 +92,10 @@ function validateLoanInput(input, count = 0) {
   if (!isDate(issueDate)) throw new Error('תאריך מתן ההלוואה אינו תקין (YYYY-MM-DD)');
   const guarantorsRaw = Array.isArray(input.guarantors) ? input.guarantors : parseGuarantorsText(input.guarantorsText);
   const guarantors = validateGuarantors(guarantorsRaw);
+  const collateralDepositId = str(input.collateralDepositId, 60, 'הפיקדון כבטוחה');
   return {
     borrowerName, borrowerId,
+    ...(collateralDepositId ? { collateralDepositId } : {}),
     borrowerPhone: str(input.borrowerPhone, 30, 'טלפון הלווה'),
     borrowerAddress: str(input.borrowerAddress, 300, 'כתובת הלווה'),
     amount: fromAg(toAg(amount)), installments, issueDate, guarantors,
@@ -118,6 +120,24 @@ function validateDepositInput(input, count = 0) {
     ...(foreign ? { foreign: storedForeign(foreign) } : {}),
     notes: str(input.notes, 300, 'הערות')
   };
+}
+
+// הלוואה כנגד פיקדון (במקום ערבים, או בנוסף להם): הפקדה קיימת בקופה משמשת בטוחה.
+// השעבוד מחושב, לא נשמר בהפקדה — הפקדה משועבדת כל עוד ההלוואה שמפנה אליה פעילה; נפרעה / בוטלה ← משתחררת.
+// אין קיזוז אוטומטי של הפיקדון מול חוב בפיגור — זו החלטה של מנהל הקופה (לפי ההסכם עם המפקיד).
+function pledgedDeposits(loans) {
+  const map = new Map();
+  for (const l of loans || []) if (l.status === 'active' && l.collateralDepositId) map.set(l.collateralDepositId, l);
+  return map;
+}
+
+function assertCollateral(depositId, amount, deposits, loans) {
+  if (!depositId) return;
+  const dep = (deposits || []).find(d => d.id === depositId);
+  if (!dep) throw new Error('הפיקדון שנבחר כבטוחה לא נמצא');
+  const other = pledgedDeposits(loans).get(depositId);
+  if (other) throw new Error(`הפיקדון של ${dep.depositorName} כבר משמש בטוחה להלוואה של ${other.borrowerName}`);
+  if (toAg(amount) > toAg(dep.amount)) throw new Error(`סכום ההלוואה גבוה מהפיקדון שנבחר כבטוחה (${fromAg(toAg(dep.amount))} ₪)`);
 }
 
 // רישום תשלום על תשלום מסוים בלוח הסילוקין. מאפשר תשלום חלקי (paidAg מצטבר).
@@ -159,7 +179,8 @@ function loanSummary(loan, asOf) {
     totalPaid: fromAg(totalPaidAg(loan)),
     lateCount: late.length,
     lateAmount: fromAg(late.reduce((t, s) => t + (s.amountAg - s.paidAg), 0)),
-    guarantorsCount: (loan.guarantors || []).length
+    guarantorsCount: (loan.guarantors || []).length,
+    collateralDepositId: loan.collateralDepositId || ''
   };
 }
 
@@ -196,16 +217,19 @@ function overview(loans, deposits, settings, asOf) {
 function exportTable(kind, loans, deposits, settings, asOf) {
   const today = asOf || new Date().toISOString().slice(0, 10);
   if (kind === 'loans') {
+    const depName = Object.fromEntries(deposits.map(d => [d.id, `${d.depositorName} (${d.date})`]));
     const rows = loans.map(l => [
       l.borrowerName, l.borrowerId, l.amount, l.installments, l.issueDate,
       LOAN_STATUSES[l.status] || l.status, fromAg(outstandingAg(l)), fromAg(totalPaidAg(l)),
-      arrears(l, today).length, (l.guarantors || []).map(g => g.name).join('; ')
+      arrears(l, today).length, (l.guarantors || []).map(g => g.name).join('; '),
+      l.collateralDepositId ? depName[l.collateralDepositId] || 'הפיקדון נמחק' : ''
     ]);
-    return { name: 'הלוואות-גמח', headers: ['לווה', 'ת.ז', 'סכום', 'תשלומים', 'תאריך הלוואה', 'סטטוס', 'נותר לפירעון', 'שולם', 'תשלומים בפיגור', 'ערבים'], rows };
+    return { name: 'הלוואות-גמח', headers: ['לווה', 'ת.ז', 'סכום', 'תשלומים', 'תאריך הלוואה', 'סטטוס', 'נותר לפירעון', 'שולם', 'תשלומים בפיגור', 'ערבים', 'פיקדון כבטוחה'], rows };
   }
   if (kind === 'deposits') {
-    const rows = deposits.map(d => [d.date, d.depositorName, d.amount, foreignLabel(d.foreign), d.notes]);
-    return { name: 'הפקדות-גמח', headers: ['תאריך', 'מפקיד', 'סכום (₪)', 'מטבע זר', 'הערות'], rows };
+    const pledged = pledgedDeposits(loans);
+    const rows = deposits.map(d => [d.date, d.depositorName, d.amount, foreignLabel(d.foreign), pledged.has(d.id) ? pledged.get(d.id).borrowerName : '', d.notes]);
+    return { name: 'הפקדות-גמח', headers: ['תאריך', 'מפקיד', 'סכום (₪)', 'מטבע זר', 'בטוחה להלוואה של', 'הערות'], rows };
   }
   if (kind === 'arrears') {
     const rows = loans.filter(l => l.status === 'active').flatMap(l =>
@@ -218,6 +242,6 @@ function exportTable(kind, loans, deposits, settings, asOf) {
 module.exports = {
   LOAN_STATUSES, DEFAULT_SETTINGS, MAX_LOANS, MAX_DEPOSITS, MAX_INSTALLMENTS, MAX_GUARANTORS,
   normalizeSettings, validateGuarantor, validateGuarantors, parseGuarantorsText, buildSchedule, validateLoanInput,
-  validateDepositInput, recordPayment, totalDueAg, totalPaidAg, outstandingAg, arrears,
+  validateDepositInput, pledgedDeposits, assertCollateral, recordPayment, totalDueAg, totalPaidAg, outstandingAg, arrears,
   loanSummary, overview, exportTable
 };
