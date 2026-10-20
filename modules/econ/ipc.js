@@ -23,6 +23,7 @@ const { PeopleService: peopleService } = require('./services/peopleService');
 const { SampleService: sampleService } = require('./services/sampleService');
 const { PrivacyService: privacyService } = require('./services/privacyService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
+const { RealtyService: realtyService } = require('./services/realtyService');
 const MR = require('./core/mortgageReport');
 // שפת העיצוב מוטמעת במסמכי PDF (חלון ה-PDF אינו טוען קבצים). בלי הקובץ (אנדרואיד) — ברירות המחדל של הדפדפן
 let tokensCache = null;
@@ -198,6 +199,7 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, relayUrl = DEFAULT
   sampleService.initialize(db);
   privacyService.initialize(db);
   mortgageAdvisorService.initialize(db);
+  realtyService.initialize(db);
   mortgageLabService.initialize(db);
   const startSettings = (await db.load()).settings || {};
   authService.setIdleMinutes(startSettings.idleMinutes);
@@ -1359,7 +1361,8 @@ function registerIpcHandlers() {
   handle('privacy:exportSubjectPdf', async (event, idNumber) => {
     const { report, html } = await privacyService.subject(idNumber, {
       canSeeConfidential: canSeeConfidential(event), sources: LG.peopleSources(licenseState()),
-      acct: !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view')
+      acct: !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view'),
+      realty: !LG.checkChannel(licenseState(), 'rlty:getOverview', 'data.view')
     });
     const r = await saveHtmlAsPdf(html, `מידע-על-${report.idNumber}.pdf`);
     if (r.ok) await auditEvent(event, 'privacy.subject.export', { idNumber: report.idNumber, records: report.count });
@@ -1545,6 +1548,28 @@ function registerIpcHandlers() {
     if (r.ok) await auditEvent(event, 'madv.report.pdf', { id });
     return r;
   });
+  // ---------- נדל"ן ותיווך (rlty ← econ.realty) ----------
+  const rltyUser = (event) => { const s = authService.getSession(event.sender.id); return s && s.id; };
+  handle('rlty:getOverview', async () => realtyService.getOverview(localDay(Date.now())));
+  handle('rlty:getMatches', async (event, kind, id, minScore) => realtyService.getMatches(kind === 'client' ? 'client' : 'property', String(id || ''), minScore));
+  for (const [kind, label] of [['Property', 'property'], ['Client', 'client'], ['Deal', 'deal']]) {
+    const withActor = kind === 'Deal';
+    handle(`rlty:create${kind}`, async (event, input) => {
+      const r = await realtyService[`create${kind}`](input || {}, withActor ? rltyUser(event) : undefined);
+      await auditEvent(event, `realty.${label}.create`, { id: r.id });
+      return r;
+    });
+    handle(`rlty:update${kind}`, async (event, id, input) => {
+      const r = await realtyService[`update${kind}`](String(id || ''), input || {}, withActor ? rltyUser(event) : undefined);
+      await auditEvent(event, `realty.${label}.update`, withActor ? { id: r.id, stage: r.stage } : { id: r.id });
+      return r;
+    });
+    handle(`rlty:delete${kind}`, async (event, id) => {
+      await realtyService[`delete${kind}`](String(id || ''));
+      await auditEvent(event, `realty.${label}.delete`, { id });
+      return true;
+    });
+  }
   handle('madv:saveSettings', async (event, input) => {
     const s = await mortgageAdvisorService.saveSettings(input || {});
     await auditEvent(event, 'madv.settings.save', s);
