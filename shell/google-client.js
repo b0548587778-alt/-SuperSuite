@@ -5,6 +5,6 @@
 'use strict';
 
 module.exports = {
-  clientId: '',
-  clientSecret: '',
+  clientId: '241570708914-lkru04aoetrl8s77mfsv15bq5pav2h5o.apps.googleusercontent.com',
+  clientSecret: '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',
 };
