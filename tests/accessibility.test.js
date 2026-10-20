@@ -9,7 +9,8 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const TOKENS = read('shell/design-tokens.css');
-const T = Object.fromEntries([...TOKENS.matchAll(/--ss-([a-z0-9-]+):\s*(#[0-9a-fA-F]{6})\s*;/g)].map(m => [m[1], m[2]]));
+// רק הבלוק הראשון (:root) — הערכה הכהה והגדרות התצוגה (7.4) נבדקות ב-tests/display.test.js
+const T = Object.fromEntries([...TOKENS.slice(0, TOKENS.indexOf('}')).matchAll(/--ss-([a-z0-9-]+):\s*(#[0-9a-fA-F]{6})\s*;/g)].map(m => [m[1], m[2]]));
 
 // יחס ניגודיות לפי WCAG 2.1
 function lum(hex) {

@@ -1,4 +1,5 @@
-const { app, BrowserWindow, WebContentsView, ipcMain, dialog, protocol, net, session, shell, Menu, safeStorage } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, dialog, protocol, net, session, shell, Menu, safeStorage, nativeTheme } = require('electron');
+const Display = require('./shell/display');
 const crypto = require('crypto');
 const BK = require('./modules/econ/core/backupCrypto');
 const AB = require('./modules/econ/core/features');
@@ -526,6 +527,46 @@ function trainerDataForEcon(senderId) {
   if (s.state !== 'encrypted') throw new Error('נתוני האימונים אינם זמינים (המחסן המוצפן של המודול לא נפתח)');
   return s.snapshot();
 }
+/* ---------- הגדרות תצוגה (PLAN.md 7.4) ----------
+   נשמרות ב-ui-settings.json → display. shell/display-preload.js מציב אותן כמאפייני data-ss-* בכל מסך,
+   והעיצוב — ב-design-tokens.css. גם ערכת המערכת (פסי גלילה, שדות תאריך) עוברת לכהה דרך nativeTheme */
+function displaySettings() { return Display.sanitize(loadJson(uiFile()).display); }
+function displayAttrs() { return Display.attrsFor(displaySettings(), !!(nativeTheme && nativeTheme.shouldUseDarkColors)); }
+function applyNativeTheme() { if (nativeTheme) nativeTheme.themeSource = displaySettings().theme; }
+function broadcastDisplay() {
+  const attrs = displayAttrs();
+  const all = [win && !win.isDestroyed() ? win.webContents : null, ...Object.values(views).map(v => v.webContents)];
+  for (const wc of all) if (wc && !wc.isDestroyed()) wc.send('display:changed', attrs);
+}
+function saveDisplay(input) {
+  const ui = loadJson(uiFile());
+  saveJson(uiFile(), { ...ui, display: Display.sanitize(input) });
+  applyNativeTheme();
+  broadcastDisplay();
+  return displaySettings();
+}
+function wireDisplay() {
+  session.defaultSession.registerPreloadScript({ type: 'frame', filePath: path.join(__dirname, 'shell', 'display-preload.js') });
+  applyNativeTheme();
+  if (nativeTheme) nativeTheme.on('updated', () => { if (displaySettings().theme === 'system') broadcastDisplay(); });
+  // קריאה בלבד — כל מסך שלנו מקבל את המאפיינים
+  ipcMain.on('display:get', (e) => { e.returnValue = displayAttrs(); });
+  ipcMain.handle('shell:get-display', (e) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return null;
+    return displaySettings();
+  });
+  ipcMain.handle('shell:save-display', (e, input) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return null;
+    return saveDisplay(input);
+  });
+  // כפתור הערכה במודול (שמאות) — רק בהיר/כהה, ורק מהמעטפת או מתצוגת מודול
+  ipcMain.handle('display:set-theme', (e, theme) => {
+    const fromShell = win && !win.isDestroyed() && e.sender.id === win.webContents.id;
+    const fromModule = Object.values(views).some(v => v.webContents.id === e.sender.id);
+    if ((!fromShell && !fromModule) || !['light', 'dark'].includes(theme)) return null;
+    return saveDisplay({ ...displaySettings(), theme });
+  });
+}
 function wireSecureStore() {
   session.defaultSession.registerPreloadScript({ type: 'frame', filePath: path.join(__dirname, 'shell', 'secure-ls-preload.js') });
   ipcMain.on('secure-store:load', (e, mod) => {
@@ -830,6 +871,7 @@ app.whenReady().then(async () => {
   if (!smoke) openSplash();
   registerProtocol();
   wireSecureStore();
+  wireDisplay();
 
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb, details) => {
     const ok = ['media', 'clipboard-read', 'clipboard-sanitized-write', 'notifications', 'fullscreen'].includes(permission);

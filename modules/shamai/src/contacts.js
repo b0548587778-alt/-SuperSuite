@@ -192,7 +192,18 @@ function setTheme(theme) {
 
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme') || 'light';
-  setTheme(current === 'dark' ? 'light' : 'dark');
+  const next = current === 'dark' ? 'light' : 'dark';
+  setTheme(next);
+  // בתוכנה (PLAN.md 7.4): הכפתור משנה את הערכה של כל התוכנה, לא רק של השמאות
+  if (window.ssDisplay && window.ssDisplay.setTheme) window.ssDisplay.setTheme(next);
+}
+
+// ערכת התוכנה (data-ss-theme על <html>, מ-display-preload.js) גוברת על הבחירה השמורה בשמאות, ומתעדכנת בלי טעינה מחדש
+function suiteTheme() { const t = document.documentElement.getAttribute('data-ss-theme'); return t === 'dark' || t === 'light' ? t : null; }
+function watchSuiteTheme(onChange) {
+  if (typeof MutationObserver === 'undefined') return;
+  new MutationObserver(() => { const t = suiteTheme(); if (t && t !== document.documentElement.getAttribute('data-theme')) onChange(t); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-ss-theme'] });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -368,8 +379,9 @@ function renderInsights() {
   }
   setTimeout(() => {
     // Theme
-    const savedTheme = localStorage.getItem('shamai_theme') || 'light';
+    const savedTheme = suiteTheme() || localStorage.getItem('shamai_theme') || 'light';
     setTheme(savedTheme);
+    watchSuiteTheme((t) => { setTheme(t); const b = $('#btn-theme'); if (b) b.textContent = t === 'light' ? '☀️' : '🌙'; });
     $('#btn-theme')?.addEventListener('click', () => {
       toggleTheme();
       const btn = $('#btn-theme');

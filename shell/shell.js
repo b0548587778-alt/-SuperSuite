@@ -371,6 +371,7 @@ function showGuide() {
 $('bk').onclick = runBackup;
 $('rs').onclick = runRestore;
 $('hp').onclick = showGuide;
+if ($('ds')) $('ds').onclick = openDisplaySettings;
 $('guideOk').onclick = () => closeDialog($('guide'));
 // דוח תקלה לתמיכה (PLAN.md 2.2) — נשמר מהתהליך הראשי, היומן בלבד
 // אודות ומדריך המשתמש (PLAN.md 5.1, 1.6) — באנדרואיד הערוצים לא קיימים, והכפתורים מוסתרים
@@ -614,4 +615,44 @@ async function loadCalendar() {
   tickShabbat();
 }
 loadCalendar();
+
+/* ---------- תצוגה (PLAN.md 7.4): ערכה, צבע הדגשה, צפיפות, טקסט, פינות, ניגודיות, תנועה ----------
+   ההגדרות נשמרות בתהליך הראשי ומגיעות לכל המסכים דרך display-preload.js. כאן — החלון, עם תצוגה מקדימה במעטפת */
+const DSP = window.SUITE_DISPLAY;
+let display = DSP ? { ...DSP.DEFAULTS } : null;
+const DS_LABELS = { theme: 'ערכת צבע', accent: 'צבע הדגשה', density: 'צפיפות', text: 'גודל טקסט', shape: 'פינות', contrast: 'ניגודיות', motion: 'אנימציות ותנועה' };
+const DS_ICONS = { classic: '🏛', night: '🌙', office: '📊', easy: '🔍', calm: '🌿' };
+// צבע הנקודה ליד כל צבע הדגשה — מתוך שפת העיצוב, דרך המאפיין עצמו
+const dsPreview = (s) => DSP.applyTo(document, DSP.attrsFor(s, matchMedia('(prefers-color-scheme: dark)').matches));
+async function loadDisplay() {
+  if (!DSP || !window.shellAPI.getDisplay) { const b = $('ds'); if (b) b.hidden = true; return; }
+  try { display = DSP.sanitize(await window.shellAPI.getDisplay()); } catch { /* נשאר ברירת המחדל */ }
+}
+function openDisplaySettings() {
+  const dlg = $('dsDlg');
+  let cur = { ...display };
+  const render = () => {
+    const presetOf = DSP.PRESETS.find(p => DSP.KEYS.every(k => DSP.applyPreset(p.id)[k] === cur[k]));
+    $('dsPresets').innerHTML = DSP.PRESETS.map(p => `<button type="button" data-preset="${esc(p.id)}" aria-pressed="${presetOf && presetOf.id === p.id}"><b>${DS_ICONS[p.id] || ''} ${esc(p.name)}</b><small>${esc(p.desc)}</small></button>`).join('');
+    $('dsGroups').innerHTML = DSP.KEYS.map(k => `<div class="ds-group" role="group" aria-label="${esc(DS_LABELS[k])}"><span>${esc(DS_LABELS[k])}</span><div class="ds-seg">${DSP.OPTIONS[k].map(o =>
+      `<button type="button" data-k="${esc(k)}" data-v="${esc(o.id)}" aria-pressed="${cur[k] === o.id}"${o.desc ? ` title="${esc(o.desc)}"` : ''}>${k === 'accent' ? `<i data-ss-swatch="${esc(o.id)}"></i>` : ''}${esc(o.name)}</button>`).join('')}</div></div>`).join('');
+    document.querySelectorAll('#dsPresets [data-preset]').forEach(b => b.onclick = () => { cur = DSP.applyPreset(b.dataset.preset); dsPreview(cur); render(); });
+    document.querySelectorAll('#dsGroups [data-k]').forEach(b => b.onclick = () => { cur = DSP.sanitize({ ...cur, [b.dataset.k]: b.dataset.v }); dsPreview(cur); render(); });
+  };
+  const done = (keep) => {
+    $('dsSave').onclick = $('dsCancel').onclick = $('dsReset').onclick = null; dlg.oncancel = null;
+    if (!keep) dsPreview(display);
+    closeDialog(dlg);
+  };
+  $('dsSave').onclick = async () => {
+    try { display = DSP.sanitize(await window.shellAPI.saveDisplay(cur)); } catch { display = cur; }
+    done(true);
+  };
+  $('dsCancel').onclick = () => done(false);
+  $('dsReset').onclick = () => { cur = { ...DSP.DEFAULTS }; dsPreview(cur); render(); };
+  dlg.oncancel = (e) => { e.preventDefault(); done(false); };
+  render();
+  showDialog(dlg);
+}
+loadDisplay();
 setInterval(() => { tickShabbat(); if (!ui.active) renderDay(Date.now()); }, 60000);

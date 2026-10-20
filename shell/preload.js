@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('shellAPI', {
   setOverlay: on => ipcRenderer.invoke('shell:overlay', !!on),
   getCatalogExtras: () => ipcRenderer.invoke('shell:catalog-extras'),
   getCalendar: () => ipcRenderer.invoke('shell:get-calendar'),
+  getDisplay: () => ipcRenderer.invoke('shell:get-display'),
+  saveDisplay: (s) => ipcRenderer.invoke('shell:save-display', s),
   saveCalendar: (s) => ipcRenderer.invoke('shell:save-calendar', s),
   onActiveView: cb => ipcRenderer.on('shell:active-view', (_e, view, mod) => cb(view, mod)),
   backupAll: (passphrase, scope) => ipcRenderer.invoke('shell:backup-all', passphrase, scope),

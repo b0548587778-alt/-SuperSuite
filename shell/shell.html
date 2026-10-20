@@ -22,7 +22,7 @@ html,body{margin:0;height:100%;overflow:hidden}
 body{font-family:var(--ss-font);display:flex;flex-direction:row;height:100%;
      background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
 .side{width:264px;flex:0 0 264px;display:flex;flex-direction:column;height:100%;user-select:none;color:var(--ink);
-      background:linear-gradient(180deg,var(--navy-2) 0%,var(--navy-1) 55%,var(--navy-0) 100%);
+      background:linear-gradient(180deg,var(--ss-side-top) 0%,var(--navy-1) 55%,var(--navy-0) 100%);
       border-inline-start:1px solid var(--line);position:relative}
 .side::before{content:"";position:absolute;inset:0;pointer-events:none;
       background:radial-gradient(420px 220px at 100% 0%,rgba(212,167,58,.14),transparent 70%)}
@@ -36,7 +36,7 @@ body{font-family:var(--ss-font);display:flex;flex-direction:row;height:100%;
 .brand{display:flex;align-items:center;gap:11px;padding:18px 16px 14px;position:relative}
 .mark{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:19px;color:var(--navy-1);
       background:linear-gradient(135deg,var(--ss-warning-line),var(--gold) 55%,var(--gold-2));box-shadow:0 4px 14px rgba(212,167,58,.35)}
-.brand b{display:block;font-size:18px;letter-spacing:.3px;font-family:var(--ss-font-title);color:var(--ss-surface)}
+.brand b{display:block;font-size:18px;letter-spacing:.3px;font-family:var(--ss-font-title);color:var(--ss-on-dark)}
 .brand small{display:block;color:var(--ink-3);font-size:11.5px;margin-top:1px}
 
 /* ---- אחורה / קדימה ---- */
@@ -64,10 +64,10 @@ nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:rgba(2
 .grp-t{font-size:10.5px;font-weight:700;letter-spacing:.6px;color:var(--ink-3);padding:0 10px 5px}
 .it{position:relative;display:flex;align-items:center;gap:10px;width:100%;padding:7px 10px;margin:1px 0;border:0;border-radius:9px;
     background:transparent;color:var(--ink-2);font:inherit;font-size:13.5px;text-align:right;cursor:pointer;transition:background .12s,color .12s}
-.it:hover{background:rgba(255,255,255,.06);color:var(--ss-surface)}
+.it:hover{background:rgba(255,255,255,.06);color:var(--ss-on-dark)}
 .it .ic{width:26px;height:26px;flex:0 0 26px;border-radius:7px;display:grid;place-items:center;font-size:14px;background:rgba(255,255,255,.06)}
 .it .nm{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.it.on{background:linear-gradient(270deg,rgba(212,167,58,.2),rgba(212,167,58,.05));color:var(--ss-surface);font-weight:600}
+.it.on{background:linear-gradient(270deg,rgba(212,167,58,.2),rgba(212,167,58,.05));color:var(--ss-on-dark);font-weight:600}
 .it.on::before{content:"";position:absolute;right:-10px;top:7px;bottom:7px;width:3px;border-radius:3px 0 0 3px;background:var(--gold)}
 .it.on .ic{background:var(--gold);color:var(--navy-1)}
 .it.home{margin-top:2px}
@@ -77,12 +77,12 @@ nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:rgba(2
 .bot{padding:10px 12px 12px;border-top:1px solid var(--line);position:relative;background:rgba(0,0,0,.12)}
 .tools{display:grid;grid-template-columns:repeat(8,1fr);gap:3px}
 .tools button{height:34px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink-2);font-size:15px;cursor:pointer;transition:.12s}
-.tools button:hover{background:rgba(255,255,255,.08);color:var(--ss-surface);border-color:var(--line)}
+.tools button:hover{background:rgba(255,255,255,.08);color:var(--ss-on-dark);border-color:var(--line)}
 .bot small{display:block;margin-top:8px;color:var(--ink-3);font-size:10.5px;text-align:center;line-height:1.4}
 
 /* ---- מסך הבית ---- */
-.hero{position:relative;padding:34px 44px 70px;color:var(--ss-surface);overflow:hidden;
-      background:linear-gradient(135deg,var(--navy-2) 0%,var(--navy-3) 60%,var(--ss-info-ink) 100%)}
+.hero{position:relative;padding:34px 44px 70px;color:var(--ss-on-dark);overflow:hidden;
+      background:linear-gradient(135deg,var(--ss-side-top) 0%,var(--navy-3) 60%,var(--ss-hero-end) 100%)}
 .hero::after{content:"";position:absolute;inset:0;pointer-events:none;
       background:radial-gradient(520px 260px at 8% 120%,rgba(212,167,58,.28),transparent 70%),
                  radial-gradient(380px 200px at 95% -30%,rgba(255,255,255,.10),transparent 70%)}
@@ -94,7 +94,7 @@ nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:rgba(2
      background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:var(--ss-border);font:inherit;font-size:14px;text-align:right;transition:.15s}
 .cta:hover{background:rgba(255,255,255,.16);border-color:rgba(212,167,58,.6)}
 .cta span{flex:1}
-.cta kbd{font:600 11px "Segoe UI",sans-serif;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:2px 7px;color:var(--ss-surface)}
+.cta kbd{font:600 11px "Segoe UI",sans-serif;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:2px 7px;color:var(--ss-on-dark)}
 .body{padding:26px 44px 48px;max-width:1280px}
 .sec{margin-bottom:28px}
 .sec h2{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-size:15px;font-weight:700;color:var(--text)}
@@ -266,6 +266,20 @@ dialog button.danger:hover{background:var(--ss-danger);filter:brightness(.92)}
 dialog input,dialog select{min-height:var(--ss-ctl-h);padding:8px 12px;border:1px solid var(--ss-border-strong);border-radius:var(--ss-ctl-radius);background:var(--ss-surface-input);color:var(--ss-text);font:400 var(--ss-fs-md)/1.4 var(--ss-font);width:100%;margin-bottom:10px}
 dialog input:focus,dialog select:focus{border-color:var(--ss-primary);box-shadow:var(--ss-focus);outline:none}
 dialog label.chk input{min-height:0;width:auto}
+/* ---- חלון "תצוגה" (PLAN.md 7.4) ---- */
+dialog.ds-dlg{width:min(640px,94vw);max-height:88vh;overflow:auto}
+.ds-presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:0 0 14px}
+dialog .ds-presets button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:start;padding:10px 12px;border-radius:var(--ss-radius)}
+.ds-presets b{font-size:14px}
+.ds-presets small{color:var(--muted);font-size:12px;line-height:1.4}
+.ds-group{margin:0 0 12px}
+.ds-group > span{display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px;font-weight:600}
+.ds-seg{display:flex;flex-wrap:wrap;gap:6px}
+dialog .ds-seg button{padding:7px 12px;border-radius:999px;font-size:13px}
+dialog .ds-seg button[aria-pressed="true"],dialog .ds-presets button[aria-pressed="true"]{border-color:var(--ss-primary);background:var(--ss-primary-soft);color:var(--ss-text);font-weight:700;box-shadow:inset 0 0 0 1px var(--ss-primary)}
+.ds-seg i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-inline-end:6px;vertical-align:-1px;border:1px solid var(--border)}
+[data-ss-swatch="blue"]{background:var(--ss-accent-blue)}[data-ss-swatch="navy"]{background:var(--ss-accent-navy)}[data-ss-swatch="teal"]{background:var(--ss-accent-teal)}[data-ss-swatch="green"]{background:var(--ss-accent-green)}[data-ss-swatch="purple"]{background:var(--ss-accent-purple)}[data-ss-swatch="burgundy"]{background:var(--ss-accent-burgundy)}[data-ss-swatch="gold"]{background:var(--ss-accent-gold)}
+.ds-note{font-size:12px;color:var(--muted);margin:4px 0 12px}
 </style>
 </head>
 <body>
@@ -295,6 +309,7 @@ dialog label.chk input{min-height:0;width:auto}
       <button id="tg" aria-label="יעד לגיבוי אוטומטי" title="יעד לגיבוי אוטומטי (למשל USB)">💾</button>
       <button id="rk" aria-label="קוד שחזור" title="קוד שחזור לגיבוי האוטומטי">🔑</button>
       <button id="dv" aria-label="מכשירים מחוברים" title="מכשירים מחוברים (סנכרון)">🔗</button>
+      <button id="ds" aria-label="תצוגה" title="תצוגה: בהיר או כהה, צבעים, גודל טקסט וצפיפות">🎨</button>
       <button id="hp" aria-label="מדריך וקיצורים" title="מדריך וקיצורים (F1)">?</button>
       <button id="qt" aria-label="יציאה מהמערכת" title="יציאה מהמערכת">⏻</button>
     </div>
@@ -445,6 +460,18 @@ dialog label.chk input{min-height:0;width:auto}
   <pre id="docText" tabindex="0"></pre>
   <div class="row"><button type="button" class="primary" id="docOk">סגירה</button></div>
 </dialog>
+<dialog id="dsDlg" class="ds-dlg" aria-labelledby="dsTitle">
+  <h3 id="dsTitle">תצוגה</h3>
+  <p>המראה של כל התוכנה — המעטפת וכל המסכים. השינוי נראה מיד; "שמירה" קובעת אותו.</p>
+  <div class="ds-group"><span>ערכות מוכנות</span><div class="ds-presets" id="dsPresets"></div></div>
+  <div id="dsGroups"></div>
+  <p class="ds-note">גם הזום (Ctrl + / Ctrl −) עובד כרגיל, בנוסף לגודל הטקסט.</p>
+  <div class="row">
+    <button type="button" class="primary" id="dsSave">שמירה</button>
+    <button type="button" id="dsCancel">ביטול</button>
+    <button type="button" id="dsReset">חזרה לברירת המחדל</button>
+  </div>
+</dialog>
 <dialog id="calDlg" aria-labelledby="calTitle">
   <form method="dialog" id="calForm">
     <h3 id="calTitle">לוח עברי וזמני שבת</h3>
@@ -482,6 +509,7 @@ dialog label.chk input{min-height:0;width:auto}
   <small>מצב שבת פעיל: התוכנה אינה מבצעת פעולות אוטומטיות. ניתן לכבות אותו בהגדרות הלוח (⚙ במסך הבית).</small>
 </div>
 <script src="ss-dialog.js"></script>
+<script src="display.js"></script>
 <script src="hebcal.js"></script>
 <script src="catalog.js"></script>
 <script src="onboarding.js"></script>
