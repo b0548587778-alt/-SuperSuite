@@ -103,7 +103,7 @@ function reListHtml(o) {
     </tr>`).join('');
   return `
     <div class="ss-page-head"><span>שמאות מקרקעין לפי עסקאות השוואה שהשמאי מקליד או מייבא מקובץ — בלי חיבור לרשת. השווי והאחריות המקצועית — של השמאי.</span>
-      <span class="ss-actions"><button class="ss-btn-primary" id="reNew">＋ תיק שומה חדש</button> <button class="ss-btn-secondary" id="reSettingsBtn">פרטי השמאי</button></span></div>
+      <span class="ss-actions"><button class="ss-btn-primary" id="reNew">＋ תיק שומה חדש</button> <button class="ss-btn-secondary" id="reSettingsBtn">פרטי השמאי</button>${(o.cases || []).length ? ' <button class="ss-btn-secondary" id="reRegister" title="כל התיקים לקובץ CSV">⬇ יומן שומות</button>' : ''}</span></div>
     <div class="ss-card">
       <label class="ss-field"><span class="ss-label">חיפוש</span><input class="ss-input" type="search" id="reFilter" value="${esc(re.filter)}" placeholder="מזמין, כתובת, גוש או מספר דוח"></label>
       ${cases.length ? `<div class="ss-scroll"><table class="ss-table">
@@ -190,8 +190,24 @@ function reResultsHtml(r, lists) {
         ${fin.ok ? Object.entries(fin.weights).map(([k, w]) => line(lists.approaches[k], Math.round(w * 100) / 100 + '%')).join('') + line('לפני עיגול', reMoney(fin.rawAg))
           + line('שווי השומה', reMoney(fin.valueAg), 'ss-row-big') + (fin.perSqmAg ? line('למ"ר', reMoney(fin.perSqmAg)) : '') : '<div class="ss-row ss-muted">אין עדיין שווי</div>'}</div>
     </div>
+    ${reSensitivityHtml(r.sensitivity, lists)}
     ${(r.warnings || []).length ? `<div class="ss-card ss-card-warning"><h4 class="ss-section-title">⚠ לתשומת לב השמאי</h4>${r.warnings.map(w => `<div class="ss-row">${esc(w)}</div>`).join('')}
       <small class="ss-muted">ספי האזהרה הם של התוכנה ולא דרישה של תקן.</small></div>` : ''}`;
+}
+
+// ניתוח רגישות — לבחינה בלבד: שווי בגישת ההכנסות לפי שיעורי היוון סביב השיעור שנבחר, וטווח לפי עסקאות ההשוואה
+function reSensitivityHtml(sens, lists) {
+  if (!sens || (!sens.income && !sens.sales)) return '';
+  const line = (l, v, cls = '') => `<div class="ss-row ${cls}"><span>${l}</span><span>${v}</span></div>`;
+  const pctTxt = (bp) => (bp / 100).toLocaleString('he-IL', { maximumFractionDigits: 2 }) + '%';
+  return `<div class="ss-card ss-card-info"><h4 class="ss-section-title">ניתוח רגישות</h4>
+    <div class="ss-grid">
+      ${sens.income ? `<div><div class="ss-hint">${esc(lists.approaches.income)} — שיעור היוון ← שווי</div>
+        ${sens.income.map(x => line(`<bdi dir="ltr">${pctTxt(x.capRateBp)}</bdi>${x.base ? ' <span class="ss-badge ss-badge-info">נבחר</span>' : ''}`, reMoney(x.valueAg), x.base ? 'ss-row-total' : '')).join('')}</div>` : ''}
+      ${sens.sales ? `<div><div class="ss-hint">${esc(lists.approaches.sales)} — טווח לפי המחיר המותאם למ"ר × השטח</div>
+        ${line('נמוך', reMoney(sens.sales.lowAg))}${line('חציון', reMoney(sens.sales.medianAg))}${line('גבוה', reMoney(sens.sales.highAg))}</div>` : ''}
+    </div>
+    <small class="ss-muted">לבחינה בלבד — לא משנה את שווי השומה. השלבים בשיעור ההיוון הם בחירה של התוכנה, לא דרישה של תקן.</small></div>`;
 }
 
 function reEditorHtml(o) {
@@ -358,6 +374,10 @@ function attachRealEstateHandlers() {
     await reOpenCase(c.id);
   }));
   on('reSettingsBtn', () => { re.tab = 'settings'; renderView('realestate'); });
+  on('reRegister', guard('שגיאה בייצוא היומן', async () => {
+    const r = await api.exportRealEstateRegister();
+    if (r && r.ok) showToast(`יומן השומות נשמר (${r.rows} תיקים)`);
+  }));
   on('reBack', guard('שגיאה', async () => {
     re.caseId = null; re.current = null; re.form = null; re.importPreview = null; re.tab = 'case';
     await switchView('realestate');

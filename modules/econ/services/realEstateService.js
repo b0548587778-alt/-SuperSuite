@@ -56,11 +56,19 @@ class RealEstateService {
     };
   }
 
+  // יומן שומות — כל התיקים לקובץ CSV (ההגנה מנוסחאות ב-Excel — ב-toCsv)
+  async getRegisterExport() {
+    const data = await this._load();
+    return R.registerExport(data.realEstate.cases.map(c => this._summary(c)), this.today());
+  }
+
   // תיק מלא עם החישוב (או העותק הנעול)
   async getCase(id) {
     const data = await this._load();
     const c = this._find(data, id);
-    const result = c.status === 'final' && c.frozen ? c.frozen : R.computeCase(c);
+    let result = c.status === 'final' && c.frozen ? c.frozen : R.computeCase(c);
+    // תיק שננעל לפני שלב 4 — בלי רגישות בעותק הנעול; מחושבת מהעותק עצמו
+    if (!result.sensitivity) result = { ...result, sensitivity: R.sensitivity(c, result) };
     return { case: c, result, problems: c.status === 'final' ? [] : R.finalizeProblems(c, this.today()), photos: this._photosOf(data, id) };
   }
 

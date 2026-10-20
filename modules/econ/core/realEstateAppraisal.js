@@ -32,6 +32,8 @@ const ADJ_FACTORS = {
 const APPROACHES = { sales: 'גישת ההשוואה', income: 'גישת היוון הכנסות', cost: 'גישת העלות' };
 // ספי אזהרה פנימיים של התוכנה — לא דרישה של תקן
 const WARN = { minComps: 3, grossAdjBp: 2500, maxAgeMonths: 24, spreadPct: 30 };
+// ניתוח רגישות: שינויים בשיעור ההיוון סביב השיעור שנבחר — בחירה של התוכנה לתצוגה, לא דרישה של תקן
+const SENS_CAP_STEPS_BP = [-100, -50, 0, 50, 100];
 
 const DEFAULT_ASSUMPTIONS = [
   'השומה נכונה למועד הקובע בלבד.',
@@ -323,10 +325,38 @@ function reconcile(cs, results) {
   return { ok: true, weights, rawAg, roundedAg, valueAg, perSqmAg: area ? Math.round(valueAg / area) : null, warnings };
 }
 
+// ניתוח רגישות — לבחינה בלבד, לא משנה את השווי: שווי בגישת ההכנסות לפי שיעורי היוון סביב השיעור שנבחר,
+// וטווח בגישת ההשוואה לפי המחיר המותאם הנמוך, החציון והגבוה × השטח לחישוב (משתי עסקאות ומעלה)
+function sensitivity(cs, r) {
+  const out = { income: null, sales: null };
+  const inc = r && r.income;
+  if (inc && inc.ok && inc.noiAg > 0 && cs.income.capRateBp > 0) {
+    out.income = SENS_CAP_STEPS_BP.map(d => cs.income.capRateBp + d).filter(c => c > 0)
+      .map(c => ({ capRateBp: c, valueAg: Math.round(inc.noiAg * 10000 / c), base: c === cs.income.capRateBp }));
+  }
+  const s = r && r.sales;
+  if (s && s.ok && s.stats && s.stats.count >= 2 && s.area) {
+    out.sales = { lowAg: Math.round(s.stats.minAg * s.area), medianAg: Math.round(s.stats.medianAg * s.area), highAg: Math.round(s.stats.maxAg * s.area) };
+  }
+  return out;
+}
+
 function computeCase(cs) {
   const results = { sales: salesApproach(cs), income: incomeApproach(cs.income), cost: costApproach(cs.cost, cs.property) };
   const final = reconcile(cs, results);
-  return { ...results, final, warnings: [...results.sales.warnings, ...results.income.warnings, ...results.cost.warnings, ...final.warnings] };
+  return { ...results, final, sensitivity: sensitivity(cs, results), warnings: [...results.sales.warnings, ...results.income.warnings, ...results.cost.warnings, ...final.warnings] };
+}
+
+// יומן שומות לקובץ CSV — תיקים ממוינים לפי מספר וגרסה; שווי בשקלים עם שתי ספרות (מאגורות)
+const STATUS_LABELS = { draft: 'טיוטה', final: 'סופי' };
+const REGISTER_HEADERS = ['מספר דוח', 'מצב', 'המועד הקובע', 'המזמין', 'כתובת', 'גוש', 'חלקה', 'מטרת השומה', 'שווי (₪)', 'עסקאות השוואה', 'אזהרות', 'עדכון אחרון'];
+function registerExport(summaries, today) {
+  const rows = [...summaries].sort((a, b) => (a.no - b.no) || ((a.rev || 0) - (b.rev || 0))).map(c => [
+    c.reportNo, STATUS_LABELS[c.status] || c.status, c.effectiveDate || '', c.client || '', c.address || '', c.block || '', c.parcel || '',
+    c.purpose || '', Number.isSafeInteger(c.valueAg) ? (c.valueAg / 100).toFixed(2) : '', c.comps, c.warnings,
+    String(c.updatedAt || '').slice(0, 10),
+  ]);
+  return { headers: REGISTER_HEADERS, rows, name: `יומן-שומות-${today}` };
 }
 
 // מה חסר לפני נעילה
@@ -482,6 +512,9 @@ const EN = {
   'השווי נקבע על ידי השמאי:': 'Value set by the appraiser:', 'שווי הנכס במועד הקובע:': 'Market value at the effective date:',
   'צילומים': 'Photographs', 'הנחות ומגבלות': 'Assumptions and limiting conditions', 'הצהרת השמאי': "Appraiser's declaration",
   'חתימת השמאי': "Appraiser's signature", 'חותמת': 'Stamp',
+  'ניתוח רגישות': 'Sensitivity analysis', 'שווי לפי גישת ההכנסות בשיעורי היוון שונים': 'Income value at alternative capitalization rates',
+  'טווח לפי עסקאות ההשוואה': 'Range from comparable sales', 'נמוך': 'Low', 'גבוה': 'High', 'השיעור שנבחר': 'Selected rate',
+  'הטבלה לבחינה בלבד ואינה חלק מקביעת השווי.': 'For review only; not part of the value conclusion.',
 };
 const VALUE_MAPS = { purposes: PURPOSES, types: PROPERTY_TYPES, rights: RIGHTS, conditions: CONDITIONS, factors: ADJ_FACTORS, approaches: APPROACHES };
 const EN_VALUES = {
@@ -497,12 +530,13 @@ const DEFAULT_DECLARATION_EN = 'I, the undersigned, have inspected the property 
 const REPORT_CSS = `
 .en { display: block; font-size: 0.78em; color: dimgray; direction: ltr; unicode-bidi: isolate; font-weight: normal; }
 .en-i { font-size: 0.85em; color: dimgray; direction: ltr; unicode-bidi: isolate; font-weight: normal; }
-h1 .en, h2 .en, .final .en { display: inline; margin-right: 12px; }
+h1 .en, h2 .en, h3 .en, .final .en { display: inline; margin-right: 12px; }
 .en-block { direction: ltr; text-align: left; color: dimgray; margin-top: 6px; }
 @page { size: A4; margin: 18mm 16mm; }
 body { font-family: 'David', 'Times New Roman', serif; color: black; line-height: 1.55; font-size: 13.5px; }
 h1 { font-size: 24px; border-bottom: 3px double black; padding-bottom: 6px; margin: 0 0 4px; }
 h2 { font-size: 17px; margin: 18px 0 6px; border-bottom: 1px solid gray; padding-bottom: 2px; page-break-after: avoid; }
+h3 { font-size: 14px; margin: 10px 0 4px; page-break-after: avoid; }
 .sub { color: dimgray; margin-bottom: 10px; }
 .draft { border: 2px dashed firebrick; color: firebrick; text-align: center; font-weight: bold; padding: 6px; margin: 8px 0; }
 table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
@@ -560,6 +594,11 @@ function renderReportHtml(cs, settings = {}, today, photos = []) {
   const fin = r.final;
   const approachRows = Object.keys(APPROACHES).filter(k => r[k].ok)
     .map(k => `<tr><td>${V('approaches', k)}</td><td class="n">${money(r[k].valueAg)}</td><td class="n">${Math.round(fin.weights[k] * 100) / 100}%</td></tr>`).join('');
+  const sens = r.sensitivity || sensitivity(cs, r);
+  const sensHtml = sens.income || sens.sales ? `<h2>${L('ניתוח רגישות')}</h2>
+  ${sens.income ? `<h3>${L('שווי לפי גישת ההכנסות בשיעורי היוון שונים')}</h3><table class="grid"><thead><tr><th>${L('שיעור היוון')}</th><th>${L('שווי')}</th></tr></thead><tbody>${sens.income.map(x => `<tr><td><bdi dir="ltr">${pct(x.capRateBp).replace('+', '')}</bdi>${x.base ? ` (${L('השיעור שנבחר')})` : ''}</td><td class="n">${money(x.valueAg)}</td></tr>`).join('')}</tbody></table>` : ''}
+  ${sens.sales ? `<h3>${L('טווח לפי עסקאות ההשוואה')}</h3><table class="kv">${row('נמוך', money(sens.sales.lowAg))}${row('חציון', money(sens.sales.medianAg))}${row('גבוה', money(sens.sales.highAg))}</table>` : ''}
+  <p class="text">${L('הטבלה לבחינה בלבד ואינה חלק מקביעת השווי.')}</p>` : '';
   const body = `
   <h1>${L('שומת מקרקעין')}</h1>
   <div class="sub">${esc([p.address, p.city].filter(Boolean).join(', '))}${gushText(p) ? ' · ' + esc(gushText(p)) : ''}</div>
@@ -621,6 +660,8 @@ function renderReportHtml(cs, settings = {}, today, photos = []) {
     ${row('מבנה אחרי פחת', money(cost.depreciatedAg))}${row('שווי לפי גישת העלות', money(cost.valueAg))}</table>
     ${cs.cost.note ? `<div class="text">${esc(cs.cost.note)}</div>` : ''}` : ''}
 
+  ${sensHtml}
+
   <h2>${L('שקלול ושומה סופית')}</h2>
   ${approachRows ? `<table class="grid"><thead><tr><th>${L('גישה')}</th><th>${L('שווי')}</th><th>${L('משקל')}</th></tr></thead><tbody>${approachRows}</tbody></table>` : ''}
   ${cs.reconcile.note ? `<div class="text">${esc(cs.reconcile.note)}</div>` : ''}
@@ -666,6 +707,7 @@ module.exports = {
   PURPOSES, PROPERTY_TYPES, RIGHTS, CONDITIONS, ADJ_FACTORS, APPROACHES, WARN, DEFAULT_ASSUMPTIONS, DEFAULT_DECLARATION, DEFAULT_DECLARATION_EN, EN, EN_VALUES,
   MAX_CASES, MAX_COMPS, PHOTO_MAX_CHARS, PHOTOS_PER_CASE, PHOTOS_TOTAL_CHARS, validatePhoto,
   toAg, toArea, pctToBp, validIsraeliId, validateCase, validateComparable, validateSettings,
-  comparableResult, salesApproach, incomeApproach, costApproach, reconcile, computeCase, finalizeProblems,
+  comparableResult, salesApproach, incomeApproach, costApproach, reconcile, computeCase, finalizeProblems, sensitivity, SENS_CAP_STEPS_BP,
+  registerExport, REGISTER_HEADERS, STATUS_LABELS,
   parseComparablesCsv, finalizeCase, reopenCase, reportNo, renderReportHtml,
 };

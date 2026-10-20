@@ -78,9 +78,11 @@
 .ss-badge-info    { background: var(--ss-info-soft);    color: var(--ss-info-ink); }
 
 /* ---------- מבנה מסך: טופס, שורות ערך, רשימה, צילומים (שמאות מקרקעין ותיק השמאות) ---------- */
-.ss-stack { display: grid; gap: var(--ss-sp-4); }
-.ss-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--ss-sp-4); align-items: start; }
-.ss-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--ss-sp-3) var(--ss-sp-4); align-items: end; }
+/* minmax(0, 1fr): טבלה רחבה גוללת בתוך .ss-scroll ולא מרחיבה את כל המסך */
+.ss-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ss-sp-4); }
+.ss-grid > *, .ss-form-grid > * { min-width: 0; }
+.ss-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: var(--ss-sp-4); align-items: start; }
+.ss-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: var(--ss-sp-3) var(--ss-sp-4); align-items: end; }
 .ss-form-grid > h3, .ss-form-grid > h4, .ss-form-grid > .ss-wide { grid-column: 1 / -1; }
 .ss-field { display: flex; flex-direction: column; min-width: 0; }
 .ss-check { display: inline-flex; align-items: center; gap: var(--ss-sp-2); font: 400 var(--ss-fs-md) var(--ss-font); color: var(--ss-text); cursor: pointer; }
@@ -112,3 +114,15 @@
 .ss-photo { margin: 0; display: flex; flex-direction: column; gap: var(--ss-sp-1); align-items: center; }
 .ss-photo img { display: block; width: 100%; height: 130px; object-fit: cover; border: 1px solid var(--ss-border); border-radius: var(--ss-radius); }
 .ss-photo figcaption { font-size: var(--ss-fs-sm); color: var(--ss-text-2); }
+
+/* ---------- מסך צר (חלון קטן או מסך שהוקטן): עמודה אחת, פעולות בשורה משלהן, שורות ערך שנשברות ---------- */
+@media (max-width: 720px) {
+  .ss-page-head { flex-direction: column; align-items: stretch; }
+  .ss-actions { margin-inline-start: 0; }
+  .ss-toolbar > .ss-push { margin-inline-start: 0; }
+  .ss-card { padding: var(--ss-sp-3); }
+  .ss-row { flex-wrap: wrap; }
+  .ss-row > span:last-child { margin-inline-start: auto; }
+  .ss-kpis { grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); }
+  .ss-photos { grid-template-columns: repeat(auto-fill, minmax(min(120px, 100%), 1fr)); }
+}

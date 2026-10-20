@@ -1501,6 +1501,11 @@ function registerIpcHandlers() {
   handle('realestate:deletePhoto', async (event, id, photoId) => realEstateService.deletePhoto(String(id || ''), String(photoId || '')));
   handle('realestate:saveSettings', async (event, input) => realEstateService.saveSettings(input || {}));
   handle('realestate:getReportHtml', async (event, id) => realEstateService.getReportHtml(String(id || '')));
+  handle('realestate:exportRegister', async (event) => {
+    const r = await saveCsv(await realEstateService.getRegisterExport());
+    if (r.ok) await auditEvent(event, 'realestate.register.export', { rows: r.rows });
+    return r;
+  });
   handle('realestate:exportReport', async (event, id) => {
     const d = await realEstateService.getReportHtml(String(id || ''));
     const r = await saveHtmlAsPdf(d.html, d.name.replace(/[\\/:*?"<>|]/g, '') + '.pdf');

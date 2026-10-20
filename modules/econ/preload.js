@@ -278,6 +278,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   // שמאות מקרקעין
   getRealEstate: () => ipcRenderer.invoke('realestate:getOverview'),
   getRealEstateCase: (id) => ipcRenderer.invoke('realestate:getCase', id),
+  exportRealEstateRegister: () => ipcRenderer.invoke('realestate:exportRegister'),
   createRealEstateCase: (input) => ipcRenderer.invoke('realestate:createCase', input),
   updateRealEstateCase: (id, input) => ipcRenderer.invoke('realestate:updateCase', id, input),
   deleteRealEstateCase: (id) => ipcRenderer.invoke('realestate:deleteCase', id),
