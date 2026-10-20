@@ -117,6 +117,9 @@ function validateClient(input) {
   out.profile = normalizeProfile({ employment: input.employment ?? p.employment, deal: input.deal ?? p.deal });
   if (feeType === 'percent') out.feePercent = Math.round(feeValue * 1000) / 1000;
   else out.feeFixedAg = toAg(feeValue);
+  const deposit = Number(input.feeDeposit || 0);
+  if (!Number.isFinite(deposit) || deposit < 0 || deposit > 1e7) throw new Error('סכום המקדמה אינו תקין');
+  out.feeDepositAg = toAg(deposit);
   return out;
 }
 
@@ -148,9 +151,10 @@ function clientStored(c) {
 // צורה שמורה ← שקלים לתצוגה (השדות שהמסך והייבוא מכירים)
 function clientView(c) {
   const s = clientStored(c);
-  const { requestedAmountAg, propertyValueAg, feePercent, feeFixedAg, approvals, ...rest } = s;
+  const { requestedAmountAg, propertyValueAg, feePercent, feeFixedAg, feeDepositAg, approvals, feePayments, ...rest } = s;
   return {
     ...rest,
+    feeDeposit: fromAg(isAg(feeDepositAg) ? feeDepositAg : 0),
     employment: s.profile.employment,
     deal: s.profile.deal,
     requestedAmount: fromAg(requestedAmountAg),
@@ -433,6 +437,70 @@ function scheduleTable(offer, clientName) {
   return { name: `לוח-סילוקין-${clientName || ''}-${offer.bank}`.replace(/[\\/:*?"<>|]/g, '_'), headers, rows };
 }
 
+// ---------- עמלות והכנסות המשרד ----------
+// תשלומי עמלה נשמרים בתיק (feePayments, באגורות כולל מע"מ). הדוח לפי תאריך התשלום (בסיס מזומן).
+const MAX_FEE_PAYMENTS = 50;
+const FEE_METHODS = { transfer: 'העברה בנקאית', check: 'המחאה', cash: 'מזומן', card: 'כרטיס אשראי', other: 'אחר' };
+
+function validateFeePayment(input) {
+  if (!input || typeof input !== 'object') throw new Error('תשלום לא תקין');
+  const date = String(input.date || '');
+  if (!isDate(date)) throw new Error('תאריך התשלום אינו תקין');
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1e7) throw new Error('סכום התשלום אינו תקין');
+  return { date, amountAg: toAg(amount), method: FEE_METHODS[input.method] ? input.method : 'transfer', note: str(input.note, 200, 'ההערה') };
+}
+
+// מצב העמלה: none (אין עמלה) / open / partial / paid. מקדמה (feeDepositAg) — הסכום שמבקשים מראש
+function feeStatus(client, vatRate) {
+  const c = clientStored(client);
+  const fee = advisoryFee(c, vatRate);
+  const paidAg = (Array.isArray(c.feePayments) ? c.feePayments : []).reduce((t, p) => t + (isAg(p.amountAg) ? p.amountAg : 0), 0);
+  const depositAg = isAg(c.feeDepositAg) ? Math.min(c.feeDepositAg, fee.totalAg) : 0;
+  const balanceAg = Math.max(0, fee.totalAg - paidAg);
+  const state = fee.totalAg === 0 ? 'none' : paidAg === 0 ? 'open' : balanceAg === 0 ? 'paid' : 'partial';
+  return { totalAg: fee.totalAg, paidAg, balanceAg, depositAg, depositDueAg: Math.max(0, depositAg - paidAg), overpaidAg: Math.max(0, paidAg - fee.totalAg), state,
+    total: fromAg(fee.totalAg), paid: fromAg(paidAg), balance: fromAg(balanceAg), deposit: fromAg(depositAg) };
+}
+
+const FEE_STATES = { none: 'אין עמלה', open: 'טרם שולם', partial: 'שולם חלקית', paid: 'שולם' };
+
+// הכנסות המשרד בשנה: התקבל לפי חודש וליועץ, יתרות פתוחות (תיקים שלא "לא התקדם"), וצפי מתיקים פתוחים
+function officeIncome(clients, { year, vatRate, advisorName = () => '' } = {}) {
+  const y = String(year || new Date().getFullYear());
+  const months = Array.from({ length: 12 }, (_, i) => ({ month: `${y}-${String(i + 1).padStart(2, '0')}`, receivedAg: 0 }));
+  const by = new Map();
+  const row = (id) => {
+    if (!by.has(id)) by.set(id, { advisorId: id, name: id ? advisorName(id) : 'ללא שיוך', receivedAg: 0, outstandingAg: 0, cases: 0, closedCases: 0 });
+    return by.get(id);
+  };
+  let outstandingAg = 0;
+  for (const raw of clients) {
+    const c = clientStored(raw);
+    const r = row(c.advisorId || '');
+    r.cases++;
+    if (c.status === 'closed') r.closedCases++;
+    for (const p of Array.isArray(c.feePayments) ? c.feePayments : []) {
+      if (!String(p.date).startsWith(y + '-')) continue;
+      months[Number(p.date.slice(5, 7)) - 1].receivedAg += p.amountAg;
+      r.receivedAg += p.amountAg;
+    }
+    if (c.status !== 'lost') {
+      const st = feeStatus(c, vatRate);
+      r.outstandingAg += st.balanceAg;
+      outstandingAg += st.balanceAg;
+    }
+  }
+  const advisors = [...by.values()].sort((a, b) => b.receivedAg - a.receivedAg);
+  const receivedAg = months.reduce((t, m) => t + m.receivedAg, 0);
+  return {
+    year: y,
+    months: months.map(m => ({ ...m, received: fromAg(m.receivedAg) })),
+    advisors: advisors.map(a => ({ ...a, received: fromAg(a.receivedAg), outstanding: fromAg(a.outstandingAg) })),
+    receivedAg, outstandingAg, received: fromAg(receivedAg), outstanding: fromAg(outstandingAg)
+  };
+}
+
 // ---------- משרד: יועצים, הרשאות וצנרת תיקים ----------
 // actor = { id, username, isManager }. בלי actor (קריאה פנימית / בדיקות) — גישה מלאה.
 
@@ -519,6 +587,7 @@ module.exports = {
   normalizeStage, normalizeSettings, canSee, resolveAdvisor, withStage, daysInStage, pipelineBoard,
   EMPLOYMENT, DEALS, normalizeProfile, setDocState, missingDocsMessage,
   MAX_APPROVALS, validateApproval, approvalView, approvalsForLab, approvalsSummary,
+  MAX_FEE_PAYMENTS, FEE_METHODS, FEE_STATES, validateFeePayment, feeStatus, officeIncome,
   validateClient, clientStored, clientView, offerStored, ltv, advisoryFee, docsProgress, toggleDoc,
   validateTrack, tracksFromForm, validateOffer, trackSchedule, offerSchedule, offerSummary,
   yearlySchedule, compareOffers, scheduleTable

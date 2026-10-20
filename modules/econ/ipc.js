@@ -23,6 +23,15 @@ const { PeopleService: peopleService } = require('./services/peopleService');
 const { SampleService: sampleService } = require('./services/sampleService');
 const { PrivacyService: privacyService } = require('./services/privacyService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
+const MR = require('./core/mortgageReport');
+// שפת העיצוב מוטמעת במסמכי PDF (חלון ה-PDF אינו טוען קבצים). בלי הקובץ (אנדרואיד) — ברירות המחדל של הדפדפן
+let tokensCache = null;
+function designTokensCss() {
+  if (tokensCache === null) {
+    try { tokensCache = fs.readFileSync(path.join(__dirname, '..', '..', 'shell', 'design-tokens.css'), 'utf8'); } catch { tokensCache = ''; }
+  }
+  return tokensCache;
+}
 const { MortgageLabService: mortgageLabService } = require('./services/mortgageLabService');
 const BK = require('./core/backupCrypto');
 const DP = require('./core/dataPorts');
@@ -219,7 +228,7 @@ function permissionFor(channel) {
   // אימות כלל רגולטורי משנה את האזהרות לכל המשתמשים — מנהל בלבד
   if (channel === 'mlab:verifyRule' || channel === 'mlab:unverifyRule') return 'users.manage';
   // הגדרות משרד הייעוץ (מי רואה אילו תיקים) — מנהל בלבד
-  if (channel === 'madv:saveSettings') return 'users.manage';
+  if (channel === 'madv:saveSettings' || channel === 'madv:saveBrand' || channel === 'madv:setBrandLogo') return 'users.manage';
   // מיפוי מאגרים ומזעור נתונים (תיקון 13) — מנהל בלבד
   if (channel.startsWith('privacy:')) return 'users.manage';
   // רישוי: התקנה, הנפקת מערכות בת והשבתתן — מנהל בלבד. מצב הרישיון — לכל משתמש מחובר
@@ -1437,7 +1446,10 @@ function registerIpcHandlers() {
     const s = authService.getSession(event.sender.id);
     return { id: s.id, username: s.username, isManager: Array.isArray(s.permissions) && s.permissions.includes('users.manage') };
   };
-  handle('madv:getOverview', async (event) => mortgageAdvisorService.getOverview(madvActor(event)));
+  handle('madv:getOverview', async (event) => ({
+    ...(await mortgageAdvisorService.getOverview(madvActor(event))),
+    canInvoice: !LG.checkChannel(licenseState(), 'acct:x', 'data.edit') && authService.hasPermission(event.sender.id, 'data.edit')
+  }));
   handle('madv:calcTracks', async (event, input) => mortgageAdvisorService.calcTracks(input || {}));
   handle('madv:createClient', async (event, input) => {
     const c = await mortgageAdvisorService.createClient(input, madvActor(event));
@@ -1477,6 +1489,61 @@ function registerIpcHandlers() {
     await mortgageAdvisorService.deleteOffer(id, madvActor(event));
     await auditEvent(event, 'madv.offer.delete', { id });
     return true;
+  });
+  // עמלות: תשלומים בתיק, וחשבונית מס/קבלה בהנהלת החשבונות — רק כשהיא ברישיון ובאישור מפורש
+  handle('madv:addFeePayment', async (event, id, input) => {
+    const r = await mortgageAdvisorService.addFeePayment(id, input || {}, madvActor(event));
+    await auditEvent(event, 'madv.fee.payment', { id, paymentId: r.payment.id, amountAg: r.payment.amountAg });
+    return r;
+  });
+  handle('madv:deleteFeePayment', async (event, id, paymentId) => {
+    const r = await mortgageAdvisorService.deleteFeePayment(id, paymentId, madvActor(event));
+    await auditEvent(event, 'madv.fee.payment.delete', { id, paymentId });
+    return r;
+  });
+  handle('madv:issueFeeInvoice', async (event, id, paymentId, opts) => {
+    const denied = LG.checkChannel(licenseState(), 'acct:x', 'data.edit');
+    if (denied) throw new Error(denied);
+    if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
+    const p = await mortgageAdvisorService.feePaymentForInvoice(id, paymentId, madvActor(event));
+    const inv = await accountingService.createAdvisoryReceipt({ ...p, exempt: opts.exempt === true });
+    await mortgageAdvisorService.linkFeeInvoice(id, paymentId, inv);
+    await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'madv', amountAg: p.grossAgorot });
+    return { id: inv.id, number: inv.number, total: inv.total };
+  });
+  handle('madv:getIncome', async (event, year) => mortgageAdvisorService.getIncome(year, madvActor(event)));
+  // מיתוג המשרד לדוח ללקוח (מנהל בלבד). הלוגו נבחר בחלון קובץ — לא מגיע מהמסך
+  handle('madv:saveBrand', async (event, input) => {
+    const b = await mortgageAdvisorService.saveBrand(input || {});
+    await auditEvent(event, 'madv.brand.save', { officeName: b.officeName });
+    return { ...b, logo: undefined, hasLogo: !!b.logo };
+  });
+  handle('madv:setBrandLogo', async (event, remove) => {
+    if (remove === true) {
+      const r = await mortgageAdvisorService.setBrandLogo('');
+      await auditEvent(event, 'madv.brand.logo', { removed: true });
+      return r;
+    }
+    const pick = await dialog.showOpenDialog({ title: 'בחירת לוגו לדוח ללקוח', properties: ['openFile'], filters: [{ name: 'תמונה', extensions: ['png', 'jpg', 'jpeg'] }] });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { canceled: true };
+    const file = pick.filePaths[0];
+    if (fs.statSync(file).size > 200 * 1024) throw new Error('קובץ הלוגו גדול מדי (עד 200KB)');
+    const ext = path.extname(file).slice(1).toLowerCase();
+    const r = await mortgageAdvisorService.setBrandLogo(`data:image/${ext === 'png' ? 'png' : 'jpeg'};base64,` + fs.readFileSync(file).toString('base64'));
+    await auditEvent(event, 'madv.brand.logo', { removed: false });
+    return r;
+  });
+  // דוח ממותג ללקוח (PDF): ההשוואה והתוצאה של האישור הנבחר — מהמנוע של המעבדה
+  handle('madv:exportClientReportPdf', async (event, id) => {
+    const d = await mortgageAdvisorService.reportData(id, madvActor(event));
+    const comparison = d.approvalsInput ? await mortgageLabService.calcApprovals(d.approvalsInput) : null;
+    const hit = comparison && d.chosen && comparison.offers.find(x => x.offer.id === d.chosen.id);
+    const asOf = localDay(Date.now());
+    const html = MR.renderClientReportHtml({ ...d, asOf, comparison, chosenResult: hit && hit.result }, designTokensCss());
+    const safe = String(d.client.name).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'לקוח';
+    const r = await saveHtmlAsPdf(html, `סיכום-ייעוץ-${safe}-${asOf}.pdf`);
+    if (r.ok) await auditEvent(event, 'madv.report.pdf', { id });
+    return r;
   });
   handle('madv:saveSettings', async (event, input) => {
     const s = await mortgageAdvisorService.saveSettings(input || {});

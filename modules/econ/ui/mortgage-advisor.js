@@ -38,6 +38,7 @@ formSchemas['mortgage-advisor'] = {
       { value: 'fixed', label: 'סכום קבוע' }
     ]},
     { name: 'feeValue', label: 'עמלה (% או ₪, לפני מע"מ)', type: 'number' },
+    { name: 'feeDeposit', label: 'מקדמה שמבקשים מראש (₪, כולל מע"מ)', type: 'number' },
     { name: 'notes', label: 'הערות', type: 'textarea' }
   ],
   create: (d) => window.systemAPI.createMortgageClient(d),
@@ -186,6 +187,60 @@ function madvOpenApprovalsInLab(c) {
   return switchView('mortgage-lab');
 }
 
+// תשלומי העמלה בתיק: מצב, יתרה, רשימה, והפקת חשבונית (רק כשהנהלת החשבונות ברישיון)
+function madvFeePaymentsHtml(c, o) {
+  const st = c.feeStatus;
+  if (!st) return '';
+  const states = (o && o.feeStates) || {};
+  const methods = (o && o.feeMethods) || {};
+  const pays = Array.isArray(c.feePayments) ? c.feePayments : [];
+  return `
+              <div class="acct-row"><span>מצב</span><span class="ss-badge${st.state === 'partial' || st.state === 'open' ? ' ss-badge-warn' : ''}">${esc(states[st.state] || st.state)}</span></div>
+              <div class="acct-row"><span>שולם</span><span>${money(st.paid)}</span></div>
+              <div class="acct-row"><span>יתרה</span><span>${money(st.balance)}</span></div>
+              ${st.deposit ? `<div class="acct-row"><span>מקדמה</span><span>${money(st.deposit)}${st.depositDueAg ? ' — טרם התקבלה במלואה' : ' ✓'}</span></div>` : ''}
+              ${pays.map(p => `<div class="acct-row"><span>${esc(p.date)} · ${esc(methods[p.method] || '')}${p.note ? ' · ' + esc(p.note) : ''}</span><span>${money(p.amount)}
+                ${p.invoiceNumber ? `<small>חשבונית ${esc(p.invoiceNumber)}</small>` : `${o && o.canInvoice ? `<button class="icon-btn" data-madv-invoice="${esc(c.id)}" data-pay="${esc(p.id)}" title="הפקת חשבונית מס/קבלה">🧾</button>` : ''}
+                <button class="icon-btn danger" data-madv-paydel="${esc(c.id)}" data-pay="${esc(p.id)}" title="מחיקת תשלום">🗑</button>`}</span></div>`).join('')}
+              ${st.state !== 'none' ? `<button class="secondary" data-madv-pay="${esc(c.id)}">＋ תשלום שהתקבל</button>` : ''}`;
+}
+
+function madvIncomeHtml(inc) {
+  if (!inc) return '<div id="madvIncomeOut"></div>';
+  const max = Math.max(1, ...inc.months.map(m => m.receivedAg));
+  return `<div id="madvIncomeOut">
+        <div class="acct-row acct-total"><span>התקבל בשנת ${esc(inc.year)}</span><span>${money(inc.received)}</span></div>
+        <div class="acct-row"><span>יתרות פתוחות בתיקים (בלי תיקים שלא התקדמו)</span><span>${money(inc.outstanding)}</span></div>
+        <div class="acct-scroll"><table class="acct-table">
+          <thead><tr><th>חודש</th><th>התקבל</th><th></th></tr></thead>
+          <tbody>${inc.months.map(m => `<tr><td>${esc(m.month)}</td><td>${money(m.received)}</td><td><progress max="${max}" value="${m.receivedAg}" aria-label="${esc(m.month)}"></progress></td></tr>`).join('')}</tbody>
+        </table></div>
+        <h4>לפי יועץ</h4>
+        <div class="acct-scroll"><table class="acct-table">
+          <thead><tr><th>יועץ</th><th>תיקים</th><th>הסתיימו</th><th>התקבל</th><th>יתרה פתוחה</th></tr></thead>
+          <tbody>${inc.advisors.map(a => `<tr><td>${esc(a.name)}</td><td>${a.cases}</td><td>${a.closedCases}</td><td>${money(a.received)}</td><td>${money(a.outstanding)}</td></tr>`).join('')}</tbody>
+        </table></div>
+      </div>`;
+}
+
+function madvBrandHtml(o) {
+  if (!o || !o.me || !o.me.isManager) return '';
+  const b = o.brand || {};
+  const f = (k, label, type = 'text') => `<label>${label} <input type="${type}" class="ss-input" id="madvBrand_${k}" value="${esc(b[k] || '')}"></label>`;
+  return `
+      <details class="card"><summary>מיתוג הדוח ללקוח</summary>
+        <p class="muted">מופיע בראש הדוח ללקוח. בלי שם משרד — שם העסק מהגדרות הנהלת החשבונות.</p>
+        ${f('officeName', 'שם המשרד')} ${f('licenseNo', 'מספר רישיון')} ${f('phone', 'טלפון')} ${f('email', 'דוא"ל', 'email')} ${f('address', 'כתובת')}
+        <label>צבע המותג <input type="color" id="madvBrand_brandColor" value="${esc(b.brandColor || '')}"></label>
+        <label>הסתייגות בתחתית הדוח <textarea class="ss-input" id="madvBrand_disclaimer" rows="2">${esc(b.disclaimer || '')}</textarea></label>
+        <div class="acct-actions">
+          <button id="madvSaveBrand">שמירת המיתוג</button>
+          <button class="secondary" id="madvLogoBtn">${b.hasLogo ? 'החלפת הלוגו' : 'בחירת לוגו'}</button>
+          ${b.hasLogo ? '<button class="secondary" id="madvLogoDel">הסרת הלוגו</button>' : ''}
+        </div>
+      </details>`;
+}
+
 function madvSettingsHtml(o) {
   if (!o || !o.me || !o.me.isManager || !o.settings) return '';
   return `
@@ -203,7 +258,12 @@ function renderMortgageAdvisor(o) {
   return `
     <div class="mortgage-advisor">
       ${clients.length ? madvBoardHtml(o.board) : ''}
+      ${clients.length ? `<details class="card"><summary>הכנסות המשרד</summary>
+        <div class="acct-actions"><label>שנה <input type="number" id="madvIncomeYear" min="2000" max="2100" value="${new Date().getFullYear()}"></label><button id="madvIncomeBtn">הצגה</button></div>
+        ${madvIncomeHtml(null)}
+      </details>` : ''}
       ${madvSettingsHtml(o)}
+      ${madvBrandHtml(o)}
       <div class="card">
         <h3>מחשבון מסלולים</h3>
         <p class="muted">הזן סכום, ריבית ותקופה לכל מסלול רלוונטי. ריבית במשתנה ובפריים מחושבת כקבועה לאורך התקופה; המדד הוא הנחה שלך.</p>
@@ -247,6 +307,7 @@ function renderMortgageAdvisor(o) {
               <div class="acct-row"><span>לפני מע"מ ${c.feeType === 'percent' ? `(${Number(c.feeValue) || 0}%)` : ''}</span><span>${money(fee.net)}</span></div>
               <div class="acct-row"><span>מע"מ</span><span>${money(fee.vat)}</span></div>
               <div class="acct-row acct-total"><span>סה"כ</span><span>${money(fee.total)}</span></div>
+              ${madvFeePaymentsHtml(c, o)}
             </div>
             <div>
               <h4>מסמכים (${docs.done}/${docs.total})${docs.profile ? ` <small class="muted">${esc((o.employment || {})[docs.profile.employment] || '')} · ${esc((o.deals || {})[docs.profile.deal] || '')}</small>` : ''}</h4>
@@ -273,6 +334,7 @@ function renderMortgageAdvisor(o) {
             ${of.summary ? madvSummaryHtml(of.summary, of.yearly) : ''}
           </details>`).join('')}`}
           ${c.notes ? `<p class="muted">${esc(c.notes)}</p>` : ''}
+          <div class="acct-actions"><button class="secondary" data-madv-report="${esc(c.id)}">📄 דוח ללקוח (PDF)</button></div>
         </div>`;
       }).join('')}
     </div>`;
@@ -362,4 +424,114 @@ function attachMadvHandlers() {
     try { await window.systemAPI.deleteMortgageOffer(btn.dataset.madvOfferDel); showToast('ההצעה נמחקה'); await switchView('mortgage-advisor'); }
     catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
   }));
+  attachMadvFeeHandlers();
+}
+
+// חלון תשלום עמלה: תאריך, סכום (ברירת מחדל — היתרה), אמצעי והערה
+function madvAskPayment(c) {
+  const o = state.data.mortgageAdvisor || {};
+  const methods = o.feeMethods || {};
+  const balance = c.feeStatus ? c.feeStatus.balance : '';
+  return openDialog((card, finish) => {
+    const h = document.createElement('h2');
+    h.textContent = 'תשלום עמלה שהתקבל — ' + c.name;
+    h.id = 'madvPayTitle';
+    card.parentNode.setAttribute('aria-labelledby', h.id);
+    const form = document.createElement('form');
+    form.className = 'modal-form';
+    form.noValidate = true;
+    const field = (label, el) => { const l = document.createElement('label'); l.textContent = label; l.appendChild(el); form.appendChild(l); return el; };
+    const mk = (type, value) => { const i = document.createElement('input'); i.type = type; i.value = value; return i; };
+    const date = field('תאריך התשלום', mk("date", madvToday()));
+    const amount = field('סכום (₪, כולל מע"מ)', mk('number', balance || ''));
+    amount.min = '0'; amount.step = '0.01';
+    const method = field('אמצעי תשלום', document.createElement('select'));
+    method.innerHTML = Object.entries(methods).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+    const note = field('הערה (לא חובה)', mk('text', ''));
+    const err = document.createElement('div');
+    err.style.color = 'var(--ss-danger)';
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'ביטול';
+    const ok = document.createElement('button');
+    ok.type = 'submit'; ok.className = 'primary'; ok.textContent = 'שמירה';
+    actions.append(cancel, ok);
+    form.append(err, actions);
+    card.append(h, form);
+    cancel.addEventListener('click', () => finish(null));
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!date.value) { err.textContent = 'יש לבחור תאריך'; date.focus(); return; }
+      if (!(Number(amount.value) > 0)) { err.textContent = 'יש להזין סכום חיובי'; amount.focus(); return; }
+      finish({ date: date.value, amount: Number(amount.value), method: method.value, note: note.value.trim() });
+    });
+    amount.focus();
+  });
+}
+
+// היום לפי השעון המקומי (לא UTC)
+function madvToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function attachMadvFeeHandlers() {
+  const madvClient = (id) => ((state.data.mortgageAdvisor || {}).clients || []).find(c => c.id === id);
+  document.querySelectorAll('[data-madv-pay]').forEach(btn => btn.addEventListener('click', async () => {
+    const c = madvClient(btn.dataset.madvPay);
+    if (!c) return;
+    const v = await madvAskPayment(c);
+    if (!v) return;
+    try { await window.systemAPI.addMortgageFeePayment(c.id, v); showToast('התשלום נרשם'); await switchView('mortgage-advisor'); }
+    catch (error) { showError('שגיאה ברישום התשלום: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-madv-paydel]').forEach(btn => btn.addEventListener('click', async () => {
+    if (!(await askConfirm('למחוק את התשלום?'))) return;
+    try { await window.systemAPI.deleteMortgageFeePayment(btn.dataset.madvPaydel, btn.dataset.pay); showToast('התשלום נמחק'); await switchView('mortgage-advisor'); }
+    catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-madv-invoice]').forEach(btn => btn.addEventListener('click', async () => {
+    if (!(await askConfirm('להפיק חשבונית מס/קבלה על התשלום הזה? החשבונית תירשם בהנהלת החשבונות ותקבל מספר.'))) return;
+    try {
+      const r = await window.systemAPI.issueMortgageFeeInvoice(btn.dataset.madvInvoice, btn.dataset.pay, { confirmed: true });
+      showToast(`הופקה חשבונית מספר ${r.number}`);
+      await switchView('mortgage-advisor');
+    } catch (error) { showError('שגיאה בהפקת החשבונית: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-madv-report]').forEach(btn => btn.addEventListener('click', async () => {
+    try { const r = await window.systemAPI.exportMortgageClientReport(btn.dataset.madvReport); if (r && r.ok) showToast('הדוח נשמר'); }
+    catch (error) { showError('שגיאה בהפקת הדוח: ' + errMsg(error)); }
+  }));
+  const incBtn = document.getElementById('madvIncomeBtn');
+  if (incBtn) incBtn.addEventListener('click', async () => {
+    try {
+      const inc = await window.systemAPI.getMortgageIncome(Number(document.getElementById('madvIncomeYear').value));
+      const out = document.getElementById('madvIncomeOut');
+      if (out) out.outerHTML = madvIncomeHtml(inc);
+    } catch (error) { showError('שגיאה בדוח ההכנסות: ' + errMsg(error)); }
+  });
+  const saveBrand = document.getElementById('madvSaveBrand');
+  if (saveBrand) saveBrand.addEventListener('click', async () => {
+    const val = (k) => (document.getElementById('madvBrand_' + k) || {}).value || '';
+    try {
+      await window.systemAPI.saveMortgageBrand({
+        officeName: val('officeName'), licenseNo: val('licenseNo'), phone: val('phone'), email: val('email'),
+        address: val('address'), disclaimer: val('disclaimer'), brandColor: val('brandColor')
+      });
+      showToast('המיתוג נשמר');
+      await switchView('mortgage-advisor');
+    } catch (error) { showError('שגיאה בשמירה: ' + errMsg(error)); }
+  });
+  const logoBtn = document.getElementById('madvLogoBtn');
+  if (logoBtn) logoBtn.addEventListener('click', async () => {
+    try { const r = await window.systemAPI.setMortgageBrandLogo(false); if (r && !r.canceled) { showToast('הלוגו נשמר'); await switchView('mortgage-advisor'); } }
+    catch (error) { showError('שגיאה בלוגו: ' + errMsg(error)); }
+  });
+  const logoDel = document.getElementById('madvLogoDel');
+  if (logoDel) logoDel.addEventListener('click', async () => {
+    if (!(await askConfirm('להסיר את הלוגו מהדוח?'))) return;
+    try { await window.systemAPI.setMortgageBrandLogo(true); showToast('הלוגו הוסר'); await switchView('mortgage-advisor'); }
+    catch (error) { showError('שגיאה בלוגו: ' + errMsg(error)); }
+  });
 }

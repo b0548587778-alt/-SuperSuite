@@ -3,6 +3,7 @@
 // actor = { id, username, isManager } מגיע מה-IPC בכל פעולה. תיק שהמשתמש לא רשאי לראות — "לא נמצא".
 const crypto = require('crypto');
 const M = require('../core/mortgageAdvisor');
+const R = require('../core/mortgageReport');
 
 const MAX_CLIENTS = 5000;
 const MAX_OFFERS = 20000;
@@ -63,6 +64,10 @@ class MortgageAdvisorService {
     return {
       me: actor ? { id: actor.id, isManager: !!actor.isManager } : { id: null, isManager: true },
       settings,
+      // בלי הלוגו עצמו (גדול) — רק אם קיים
+      brand: (() => { const b = R.normalizeBrand({}, data.mortgageAdvisor.brand || {}); const { logo, ...rest } = b; return { ...rest, hasLogo: !!logo }; })(),
+      feeStates: M.FEE_STATES,
+      feeMethods: M.FEE_METHODS,
       advisors,
       board: M.pipelineBoard(clients, { settings, advisorName: nameOf }),
       clients: clients.map(c => {
@@ -73,6 +78,8 @@ class MortgageAdvisorService {
           daysInStage: M.daysInStage(c, Date.now()),
           ltv: M.ltv(c),
           fee: M.advisoryFee(c, vat),
+          feeStatus: M.feeStatus(c, vat),
+          feePayments: (c.feePayments || []).map(p => ({ id: p.id, date: p.date, amount: p.amountAg / 100, method: p.method, note: p.note, invoiceNumber: p.invoiceNumber || null })),
           docs: M.docsProgress(c),
           approvals: M.approvalsSummary(c, new Date().toISOString().slice(0, 10)),
           offers: own.map(o => ({ ...o, summary: M.offerSummary(o), yearly: M.yearlySchedule(o) })),
@@ -220,6 +227,94 @@ class MortgageAdvisorService {
     const data = await this._load();
     const { o, c } = this._findOffer(data, offerId, actor);
     return M.scheduleTable(o, c && c.name);
+  }
+
+  // ---------- עמלות והכנסות ----------
+  async addFeePayment(clientId, input, actor) {
+    const data = await this._load();
+    const c = this._findClient(data, clientId, actor);
+    const list = Array.isArray(c.feePayments) ? c.feePayments : [];
+    if (list.length >= M.MAX_FEE_PAYMENTS) throw new Error('הגעת למספר המקסימלי של תשלומים בתיק');
+    const p = { id: crypto.randomUUID(), ...M.validateFeePayment(input), by: actor ? actor.id : null, createdAt: new Date().toISOString() };
+    c.feePayments = [...list, p];
+    c.updatedAt = p.createdAt;
+    await this.db.save(data);
+    return { payment: p, status: M.feeStatus(c, this._vatRate(data)) };
+  }
+
+  // תשלום שהופקה לו חשבונית לא נמחק — החשבונית מבוטלת במסך החשבוניות
+  async deleteFeePayment(clientId, paymentId, actor) {
+    const data = await this._load();
+    const c = this._findClient(data, clientId, actor);
+    const p = (c.feePayments || []).find(x => x.id === paymentId);
+    if (!p) throw new Error('התשלום לא נמצא');
+    if (p.invoiceId) throw new Error(`הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber}) — אי אפשר למחוק אותו`);
+    c.feePayments = c.feePayments.filter(x => x.id !== paymentId);
+    c.updatedAt = new Date().toISOString();
+    await this.db.save(data);
+    return M.feeStatus(c, this._vatRate(data));
+  }
+
+  // פרטי התשלום להפקת חשבונית (ה-IPC מפיק בשירות הנהלת החשבונות ואז קורא ל-linkFeeInvoice)
+  async feePaymentForInvoice(clientId, paymentId, actor) {
+    const data = await this._load();
+    const c = this._findClient(data, clientId, actor);
+    const p = (c.feePayments || []).find(x => x.id === paymentId);
+    if (!p) throw new Error('התשלום לא נמצא');
+    if (p.invoiceId) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber})`);
+    return { key: `madv:${c.id}:${p.id}`, customer: c.name, date: p.date, grossAgorot: p.amountAg, method: p.method, description: `עמלת ייעוץ משכנתא — ${c.name}`.slice(0, 200) };
+  }
+
+  async linkFeeInvoice(clientId, paymentId, invoice) {
+    const data = await this._load();
+    const c = data.mortgageAdvisor.clients.find(x => x.id === clientId);
+    const p = c && (c.feePayments || []).find(x => x.id === paymentId);
+    if (!p) throw new Error('התשלום לא נמצא');
+    p.invoiceId = invoice.id;
+    p.invoiceNumber = invoice.number;
+    await this.db.save(data);
+    return p;
+  }
+
+  async getIncome(year, actor) {
+    const data = await this._load();
+    const clients = this._visible(data, actor);
+    const advisors = await this._advisors();
+    const nameOf = (id) => (advisors.find(a => a.id === id) || {}).name || 'יועץ שאינו פעיל';
+    return M.officeIncome(clients, { year, vatRate: this._vatRate(data), advisorName: nameOf });
+  }
+
+  // ---------- מיתוג ודוח ללקוח ----------
+  async saveBrand(input) {
+    const data = await this._load();
+    data.mortgageAdvisor.brand = R.normalizeBrand(input, data.mortgageAdvisor.brand || {});
+    await this.db.save(data);
+    return data.mortgageAdvisor.brand;
+  }
+
+  async setBrandLogo(dataUrl) {
+    const data = await this._load();
+    const brand = R.normalizeBrand({}, data.mortgageAdvisor.brand || {});
+    brand.logo = R.validateLogo(dataUrl);
+    data.mortgageAdvisor.brand = brand;
+    await this.db.save(data);
+    return { hasLogo: !!brand.logo };
+  }
+
+  // כל מה שהדוח צריך — חוץ מהחישובים של המעבדה, שה-IPC מוסיף
+  async reportData(clientId, actor) {
+    const data = await this._load();
+    const c = this._findClient(data, clientId, actor);
+    const brand = R.normalizeBrand({}, data.mortgageAdvisor.brand || {});
+    if (!brand.officeName && data.settings && data.settings.business) brand.officeName = String(data.settings.business.name || '').slice(0, 120);
+    const chosen = (c.approvals || []).find(a => a.id === c.chosenApprovalId) || null;
+    return {
+      client: M.clientView(c),
+      brand,
+      chosen: chosen && M.approvalView(chosen),
+      approvalsInput: (c.approvals || []).length ? M.approvalsForLab(c) : null,
+      missingDocs: M.docsProgress(c).missing
+    };
   }
 
   // הגדרות המשרד (מנהל בלבד — נאכף ב-permissionFor)
