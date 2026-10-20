@@ -479,10 +479,17 @@ class Database {
       throw new Error('שם משתמש או סיסמה שגויים');
     }
 
-    await this.run(
-      'UPDATE auth_users SET failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?',
-      [new Date().toISOString(), user.id]
-    );
+    if (needsRehash(user.password_hash)) {
+      await this.run(
+        'UPDATE auth_users SET password_hash = ?, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?',
+        [hashPassword(password), new Date().toISOString(), user.id]
+      );
+    } else {
+      await this.run(
+        'UPDATE auth_users SET failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?',
+        [new Date().toISOString(), user.id]
+      );
+    }
 
     return this._sessionUser(user);
   }
@@ -662,6 +669,11 @@ class Database {
     }
 
     const data = normalizeData(backupData);
+    // מונים של מסמכים ממוספרים לא חוזרים אחורה (דוח הבדיקה, ממצא 4): גיבוי ישן לא מחזיר מספר שכבר נמסר ללקוח,
+    // דווח לרשות המסים או נשלח לבנק. מסד ריק (שחזור אחרי תקלה) — אין מה לשמור
+    let current = null;
+    try { current = await this.load(); } catch { /* מסד שלא נפתח — משחזרים כמו שהוא */ }
+    if (current) keepCounters(data, current);
     await this.save(data);
     return true;
   }
@@ -807,15 +819,25 @@ function validateCredentials(username, password) {
   }
 }
 
+// "scrypt$" — N=2^14, r=8, p=1 (משתמשים ישנים). "scrypt2$" — p=5, כמו הגיבוי (אחת החלופות השקולות של OWASP,
+// באותו זיכרון). הפרמטרים לפי התחילית בלבד — ערך שנערך במסד לא יכול לבקש חישוב כבד יותר. ישן מוחלף בכניסה הבאה.
+const PASSWORD_SCHEMES = { scrypt: { N: 16384, r: 8, p: 1 }, scrypt2: { N: 16384, r: 8, p: 5 } };
+const PASSWORD_SCHEME = 'scrypt2';
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  return `scrypt$${salt}$${crypto.scryptSync(password, salt, 64).toString('hex')}`;
+  return `${PASSWORD_SCHEME}$${salt}$${crypto.scryptSync(password, salt, 64, PASSWORD_SCHEMES[PASSWORD_SCHEME]).toString('hex')}`;
+}
+
+function needsRehash(storedHash) {
+  return !String(storedHash).startsWith(`${PASSWORD_SCHEME}$`);
 }
 
 function verifyPassword(password, storedHash) {
-  const [, salt, expected] = String(storedHash).split('$');
-  if (!salt || !expected) return false;
-  const actual = crypto.scryptSync(password, salt, 64);
+  const [scheme, salt, expected] = String(storedHash).split('$');
+  const params = Object.hasOwn(PASSWORD_SCHEMES, scheme) ? PASSWORD_SCHEMES[scheme] : null;
+  if (!params || !salt || !expected) return false;
+  const actual = crypto.scryptSync(password, salt, 64, params);
   const expectedBuffer = Buffer.from(expected, 'hex');
   return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer);
 }
@@ -870,6 +892,58 @@ function isValidData(value) {
   return true;
 }
 
+// המספר הגבוה ביותר שכבר הוקצה: הגדול מבין המונה השמור והמספרים שברשומות
+const seqInt = (v) => (Number.isSafeInteger(v) && v > 0 ? v : 0);
+const maxNumber = (list, pick) => (Array.isArray(list) ? list : []).reduce((m, x) => {
+  const n = x && typeof x === 'object' ? Number(pick(x)) : NaN;
+  return Number.isSafeInteger(n) && n > m ? n : m;
+}, 0);
+const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+
+// שחזור: כל מונה = הגדול מבין הגיבוי למה שכבר הוקצה במסד הנוכחי. משנה את next במקום.
+// חשבוניות (settings.invoiceSeq), מסמכי מכירה לפי סוג (settings.docSeq), קבלות עמותה (npo.settings.receiptSeq),
+// אסמכתאות מס"ב (npo/gemach.masav.refSeq), דרישות תשלום (payments.settings.nextNumber — המספר הבא), תיקי שומה (realEstate.seq)
+function keepCounters(next, current) {
+  const cs = obj(current.settings);
+  next.settings = { ...obj(next.settings) };
+  const inv = Math.max(seqInt(cs.invoiceSeq), maxNumber(current.invoices, i => i.number));
+  if (inv > seqInt(next.settings.invoiceSeq)) next.settings.invoiceSeq = inv;
+
+  const curDoc = obj(cs.docSeq);
+  const docs = Array.isArray(current.salesDocs) ? current.salesDocs : [];
+  const kinds = new Set([...Object.keys(curDoc), ...docs.map(d => d && d.kind)].filter(k => typeof k === 'string' && /^[a-z][a-z-]*$/.test(k)));
+  const docSeq = { ...obj(next.settings.docSeq) };
+  let docChanged = false;
+  for (const k of kinds) {
+    const v = Math.max(seqInt(curDoc[k]), maxNumber(docs.filter(d => d && d.kind === k), d => d.number));
+    if (v > seqInt(docSeq[k])) { docSeq[k] = v; docChanged = true; }
+  }
+  if (docChanged) next.settings.docSeq = docSeq;
+
+  const curNpo = obj(current.npo);
+  next.npo = { ...obj(next.npo) };
+  const receipts = Math.max(seqInt(obj(curNpo.settings).receiptSeq), maxNumber(curNpo.donations, d => (d.receipt && !d.receipt.external ? d.receipt.number : null)));
+  if (receipts > seqInt(obj(next.npo.settings).receiptSeq)) next.npo.settings = { ...obj(next.npo.settings), receiptSeq: receipts };
+
+  for (const [domain, list] of [['npo', 'standingOrders'], ['gemach', 'loans']]) {
+    const cur = obj(current[domain]);
+    const ref = Math.max(seqInt(obj(cur.masav).refSeq), maxNumber(cur[list], x => x.masavRef));
+    next[domain] = { ...obj(next[domain]) };
+    if (ref > seqInt(obj(next[domain].masav).refSeq)) next[domain].masav = { ...obj(next[domain].masav), refSeq: ref };
+  }
+
+  const curPay = obj(current.payments);
+  const nextReq = Math.max(seqInt(obj(curPay.settings).nextNumber), maxNumber(curPay.requests, r => r.number) + 1);
+  next.payments = { ...obj(next.payments) };
+  if (nextReq > seqInt(obj(next.payments.settings).nextNumber)) next.payments.settings = { ...obj(next.payments.settings), nextNumber: nextReq };
+
+  const curRe = obj(current.realEstate);
+  const cases = Math.max(seqInt(curRe.seq), maxNumber(curRe.cases, c => c.no));
+  next.realEstate = { ...obj(next.realEstate) };
+  if (cases > seqInt(next.realEstate.seq)) next.realEstate.seq = cases;
+  return next;
+}
+
 function normalizeData(value) {
   const result = {
     ...defaults,
@@ -914,4 +988,4 @@ async function initializeDatabase(userDataPath, options = {}) {
   return database;
 }
 
-module.exports = { initializeDatabase, setAsideLockedDatabase, isValidData, defaults, ROLES };
+module.exports = { initializeDatabase, setAsideLockedDatabase, isValidData, keepCounters, defaults, ROLES };

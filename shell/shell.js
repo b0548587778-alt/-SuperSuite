@@ -337,7 +337,7 @@ function askPassphrase({ title, text, optional, scopes }) {
     form.onsubmit = (e) => {
       e.preventDefault();
       const v = input.value;
-      if (!optional && v.length < 8) { err.textContent = 'הסיסמה חייבת להכיל לפחות 8 תווים'; return; }
+      if (!optional && v.length < 12) { err.textContent = 'הסיסמה חייבת להכיל לפחות 12 תווים'; return; }
       done({ pass: v, scope: scopeSel.value });
     };
     cancel.onclick = () => done(null);
@@ -349,7 +349,7 @@ function askPassphrase({ title, text, optional, scopes }) {
 }
 
 async function runBackup() {
-  const r = await askPassphrase({ title: 'גיבוי מוצפן', text: 'בחר מה לגבות והזן סיסמה. בלי הסיסמה לא ניתן לשחזר את הקובץ.', scopes: true });
+  const r = await askPassphrase({ title: 'גיבוי מוצפן', text: 'בחר מה לגבות והזן סיסמה. לפחות 12 תווים — משפט קצר שקל לזכור טוב יותר ממילה מסובכת. בלי הסיסמה לא ניתן לשחזר את הקובץ.', scopes: true });
   if (r === null) return;
   try { await window.shellAPI.backupAll(r.pass, r.scope); }
   catch (e) { await ssDialog.alert(e.message || 'שגיאה בגיבוי', { title: 'הגיבוי לא הצליח' }); }

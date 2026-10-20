@@ -11,13 +11,13 @@ test('הצפנה והפענוח מחזירים את אותו תוכן (כולל 
 });
 
 test('סיסמה שגויה נדחית, וגם שינוי של בייט אחד בקובץ נדחה', () => {
-  const enc = C.encryptBackup('{"a":1}', 'pass-word-1');
+  const enc = C.encryptBackup('{"a":1}', 'pass-word-12345');
   assert.throws(() => C.decryptBackup(enc, 'wrong-password'), /שגויה|פגום/);
   const raw = Buffer.from(enc.slice(6), 'base64').toString('utf8');
   const obj = JSON.parse(raw);
   const d = Buffer.from(obj.data, 'base64'); d[0] ^= 1; obj.data = d.toString('base64');
   const tampered = 'SSBK1:' + Buffer.from(JSON.stringify(obj)).toString('base64');
-  assert.throws(() => C.decryptBackup(tampered, 'pass-word-1'), /שגויה|פגום/);
+  assert.throws(() => C.decryptBackup(tampered, 'pass-word-12345'), /שגויה|פגום/);
 });
 
 test('סיסמה קצרה מדי נדחית, ושני הצפנות של אותו תוכן שונות (salt אקראי)', () => {

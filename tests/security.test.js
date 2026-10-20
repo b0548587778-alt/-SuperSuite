@@ -25,7 +25,7 @@ test('הרשאות לפי תפקיד: צופה לא יכול לכתוב או ל�
   AuthService.getSession(5).permissions = ['data.view'];
   assert.ok((await handlers['acct:getInvoices'](ev(5))).length === 1, 'צפייה מותרת');
   await assert.rejects(handlers['acct:createInvoice'](ev(5), { customer: 'אסור', items: [{ unitPrice: 5 }] }), /אין הרשאה/);
-  await assert.rejects(handlers['data:backupEncrypted'](ev(5), 'pass-12345'), /אין הרשאה/); // הערוץ הגלוי הוסר; הבדיקה עברה לערוץ המוצפן
+  await assert.rejects(handlers['data:backupEncrypted'](ev(5), 'pass-12345678'), /אין הרשאה/); // הערוץ הגלוי הוסר; הבדיקה עברה לערוץ המוצפן
   await assert.rejects(handlers['acct:deleteProduct'](ev(5), 'x'), /אין הרשאה/);
   assert.equal((await handlers['acct:getInvoices'](ev(5))).length, 1, 'לא נוצרה חשבונית אסורה');
   await handlers['auth:logout'](ev(5));

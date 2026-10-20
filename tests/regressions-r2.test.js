@@ -28,11 +28,11 @@ test('תיקון: מי שרק צופה (data.view) לא יכול לגבות או
   await ipc.initEcon(dir);
   await handlers['auth:setup'](ev(3), 'owner_r2', PASS);
   auth.setSession(31, { id: 'viewer', permissions: ['data.view'] });
-  await assert.rejects(handlers['data:backupEncrypted'](ev(31), 'pass-12345'), /אין הרשאה/);
-  await assert.rejects(handlers['data:restoreEncrypted'](ev(31), 'SSBK1:x', 'pass-12345'), /אין הרשאה/);
+  await assert.rejects(handlers['data:backupEncrypted'](ev(31), 'pass-12345678'), /אין הרשאה/);
+  await assert.rejects(handlers['data:restoreEncrypted'](ev(31), 'SSBK1:x', 'pass-12345678'), /אין הרשאה/);
   // ומי שיש לו data.backup כן מקבל טקסט מוצפן
   auth.setSession(32, { id: 'backuper', permissions: ['data.backup'] });
-  const text = await handlers['data:backupEncrypted'](ev(32), 'pass-12345');
+  const text = await handlers['data:backupEncrypted'](ev(32), 'pass-12345678');
   assert.ok(text.startsWith('SSBK1:'));
   assert.doesNotMatch(text, /owner_r2/, 'הטקסט הגלוי אינו נראה בקובץ');
   // assertAccess מהמעטפת: בלי כניסה נחסם, עם הרשאה לא
@@ -43,10 +43,10 @@ test('תיקון: מי שרק צופה (data.view) לא יכול לגבות או
 
 test('שחזור מוצפן: סיסמה שגויה נדחית, וגיבוי גלוי (JSON) לא מתקבל בערוץ המוצפן', async () => {
   await adminSession(40);
-  const text = await handlers['data:backupEncrypted'](ev(40), 'pass-12345');
+  const text = await handlers['data:backupEncrypted'](ev(40), 'pass-12345678');
   await assert.rejects(handlers['data:restoreEncrypted'](ev(40), text, 'wrong-pass-999'), /סיסמת הגיבוי שגויה/);
-  await assert.rejects(handlers['data:restoreEncrypted'](ev(40), '{"suite":"SuperSuite"}', 'pass-12345'), /אינו גיבוי מוצפן/);
-  assert.equal(await handlers['data:restoreEncrypted'](ev(40), text, 'pass-12345'), true);
+  await assert.rejects(handlers['data:restoreEncrypted'](ev(40), '{"suite":"SuperSuite"}', 'pass-12345678'), /אינו גיבוי מוצפן/);
+  assert.equal(await handlers['data:restoreEncrypted'](ev(40), text, 'pass-12345678'), true);
 });
 
 test('תיקון: אי אפשר לגבות חשבונית שבוטלה', async () => {

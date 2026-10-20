@@ -20,7 +20,7 @@ test('כל ערוץ מוגן דורש כניסה, ולאחר כניסה הוא �
 
   await assert.rejects(handlers['financial:calculateMetrics'](ev(7), [], [], []), /נדרשת כניסה/);
   await assert.rejects(handlers['acct:getJournal'](ev(7), {}), /נדרשת כניסה/);
-  await assert.rejects(handlers['data:backupEncrypted'](ev(7), 'pass-12345'), /נדרשת כניסה/);
+  await assert.rejects(handlers['data:backupEncrypted'](ev(7), 'pass-12345678'), /נדרשת כניסה/);
   assert.equal(ipc.isLoggedIn(), false);
 
   // ערוצי כניסה נשארים פתוחים
