@@ -236,14 +236,31 @@ function rltyClientsHtml(o) {
   </table></div>`;
 }
 
+// מצב המשכנתא בכרטיס העסקה: שלב התיק המקושר, האישור שנבחר והתראה כשהחתימה קרובה
+function rltyDealMortgageHtml(card, o) {
+  const d = (o.deals || []).find(x => x.id === card.id) || card;
+  const m = d.mortgage;
+  const canOpen = o.canMortgage && !(m && m.linked) && d.listing !== 'rent' && !['closed', 'lost'].includes(d.stage);
+  let line = '';
+  if (m && m.linked && m.missing) line = `<small class="muted">משכנתא: ${esc(m.label)}</small>`;
+  else if (m && m.linked) line = `<small>משכנתא: <span class="ss-badge${m.approved ? ' ss-badge-success' : m.lost ? ' ss-badge-danger' : ''}">${esc(m.stageLabel)}</span>${m.chosen ? ` · ${esc(m.chosen.lender)}${m.chosen.expired ? ' (פג תוקף)' : ''}` : ''}</small>
+    <button class="icon-btn" data-goto="mortgage-advisor" title="מעבר לייעוץ משכנתאות">↗</button>
+    ${o.canMortgage ? `<button class="icon-btn" data-rlty-mtg-unlink="${esc(d.id)}" title="ניתוק הקישור לתיק">⛓</button>` : ''}`;
+  else if (d.dependsOnMortgage) line = '<small>תלוי במשכנתא</small>';
+  return `${line ? '<br>' + line : ''}${m && m.alert ? `<br><small class="warn">⚠ ${esc(m.alert)}</small>` : ''}
+    ${canOpen ? `<br><button class="secondary ss-btn-sm" data-rlty-mtg-open="${esc(d.id)}">פתח תיק משכנתא</button>` : ''}`;
+}
+
 function rltyDealsHtml(o) {
   const board = o.board || [];
   const up = o.upcoming || [];
+  const alerts = (o.deals || []).filter(d => d.mortgage && d.mortgage.alert);
   if (!(o.deals || []).length) return renderEmpty('אין עסקאות עדיין — לחץ "＋ הוספת רשומה" כדי לפתוח עסקה על נכס', '🤝');
   const t = o.commissionTotals;
   return `
     ${t && t.total ? `<div class="card"><div class="acct-row"><span>עמלות בעסקאות פעילות וסגורות</span><span>${money(t.total)}</span></div>
       <div class="acct-row"><span>התקבל</span><span>${money(t.paid)}</span></div><div class="acct-row acct-total"><span>יתרה לגבייה</span><span>${money(t.balance)}</span></div></div>` : ''}
+    ${alerts.length ? `<div class="card"><h3>עסקאות שממתינות למשכנתא</h3><ul>${alerts.map(d => `<li class="warn">${esc(d.propertyTitle)} — ${esc(d.mortgage.alert)}</li>`).join('')}</ul></div>` : ''}
     ${up.length ? `<div class="card"><h3>מועדים קרובים</h3><ul>${up.map(u => `<li${u.overdue ? ' class="warn"' : ''}>${esc(u.date)} — ${esc(u.label)}${u.mortgage ? ' <span class="ss-badge ss-badge-warning">תלוי במשכנתא</span>' : ''}${u.overdue ? ' (עבר)' : ''}</li>`).join('')}</ul></div>` : ''}
     <div class="ss-board">${board.map(col => `
       <div class="ss-board-col${col.closed ? ' is-closed' : ''}">
@@ -252,7 +269,7 @@ function rltyDealsHtml(o) {
           <strong>${esc(d.propertyTitle)}</strong>
           <span>${money(d.price)}</span><br>
           <small>${esc(d.buyerName)}${d.sellerName ? ' ← ' + esc(d.sellerName) : ''}</small>
-          ${d.dependsOnMortgage ? '<br><small>תלוי במשכנתא</small>' : ''}${d.lostReason ? `<br><small>${esc(d.lostReason)}</small>` : ''}
+          ${rltyDealMortgageHtml(d, o)}${d.lostReason ? `<br><small>${esc(d.lostReason)}</small>` : ''}
           ${d.commission && d.commission.total ? `<br><small>עמלה ${money(d.commission.total)} · יתרה ${money(d.commission.balance)}</small>` : ''}
           <div><button class="icon-btn" data-rlty-deal="${esc(d.id)}" title="עמלות תיווך">₪</button>
             <button class="icon-btn" data-rlty-edit="deals" data-id="${esc(d.id)}" title="עריכת עסקה">✏</button>
@@ -407,6 +424,24 @@ function attachRealtyCommissionHandlers() {
   document.querySelectorAll('[data-rlty-order-pdf]').forEach(b => b.addEventListener('click', async () => {
     try { const r = await window.systemAPI.exportRealtyOrder(b.dataset.rltyOrderPdf); if (r && r.ok) showToast('הטופס נשמר'); }
     catch (error) { showError('שגיאה בהפקת הטופס: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-rlty-mtg-open]').forEach(b => b.addEventListener('click', async () => {
+    const d = (o.deals || []).find(x => x.id === b.dataset.rltyMtgOpen);
+    if (!d) return;
+    const v = await askFields(`תיק משכנתא ל${d.buyerName || 'קונה'}`, [
+      { name: 'requestedAmount', label: `סכום המשכנתא המבוקש (₪; מחיר העסקה ${money(d.price)})`, type: 'number' }
+    ], 'פתיחת התיק');
+    if (!v) return;
+    try {
+      await window.systemAPI.openRealtyMortgageCase(d.id, { requestedAmount: v.requestedAmount });
+      showToast('נפתח תיק משכנתא מקושר לעסקה');
+      await switchView('realty');
+    } catch (error) { showError('שגיאה בפתיחת התיק: ' + errMsg(error)); }
+  }));
+  document.querySelectorAll('[data-rlty-mtg-unlink]').forEach(b => b.addEventListener('click', async () => {
+    if (!(await askConfirm('לנתק את הקישור בין העסקה לתיק המשכנתא? התיק והעסקה נשארים.'))) return;
+    try { await window.systemAPI.unlinkRealtyMortgageCase(b.dataset.rltyMtgUnlink); showToast('הקישור נותק'); await switchView('realty'); }
+    catch (error) { showError('שגיאה: ' + errMsg(error)); }
   }));
   const set = document.getElementById('rltySaveSettings');
   if (set) set.addEventListener('click', async () => {

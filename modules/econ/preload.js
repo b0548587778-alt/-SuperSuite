@@ -314,6 +314,8 @@ contextBridge.exposeInMainWorld('systemAPI', {
   unverifyRealtyTaxTable: (id) => ipcRenderer.invoke('rlty:unverifyTaxTable', id),
   saveRealtyAnalysis: (id, input) => ipcRenderer.invoke('rlty:saveAnalysis', id, input),
   deleteRealtyAnalysis: (id) => ipcRenderer.invoke('rlty:deleteAnalysis', id),
+  openRealtyMortgageCase: (dealId, input) => ipcRenderer.invoke('rlty:openMortgageCase', dealId, input),
+  unlinkRealtyMortgageCase: (dealId) => ipcRenderer.invoke('rlty:unlinkMortgageCase', dealId),
   calcRealtyProject: (input) => ipcRenderer.invoke('rlty:calcProject', input),
   saveRealtyProject: (id, input) => ipcRenderer.invoke('rlty:saveProject', id, input),
   deleteRealtyProject: (id) => ipcRenderer.invoke('rlty:deleteProject', id),

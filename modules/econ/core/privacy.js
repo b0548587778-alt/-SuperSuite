@@ -25,6 +25,8 @@ function dataMap(data, userCounts = {}) {
     { area: 'חסד — מתנדבים', count: len(ch.volunteers), fields: 'שם, טלפון, אזור, זמינות', sensitivity: 'regular', access: all },
     { area: 'ייעוץ משכנתאות — תיקי לקוחות', count: len(data.mortgageAdvisor && data.mortgageAdvisor.clients), fields: 'פרטי לקוח, נכס והצעות משכנתא', sensitivity: 'sensitive', access: all },
     { area: 'נדל"ן ותיווך — לקוחות', count: len(data.realty && data.realty.clients), fields: 'שם, ת.ז (רשות), טלפון, דוא"ל, תקציב ודרישות', sensitivity: 'regular', access: all },
+    { area: 'נדל"ן ותיווך — הזמנות שירותי תיווך', count: len(data.realty && data.realty.orders), fields: 'לקוח (מהרשימה), כתובת הלקוח, תיאור הנכס, מחיר ועמלה', sensitivity: 'regular', access: all },
+    { area: 'נדל"ן ותיווך — עסקאות', count: len(data.realty && data.realty.deals), fields: 'קונה ומוכר (מהרשימה), מחיר, מועדים, עמלות ותשלומים; קישור לתיק משכנתא', sensitivity: 'regular', access: all },
     { area: 'אנשי קשר', count: len(data.contacts), fields: 'שם, טלפון, דוא"ל, כתובת', sensitivity: 'regular', access: all }
   ].map(r => ({ ...r, sensitivityLabel: SENSITIVITY[r.sensitivity] }));
   return {
@@ -131,7 +133,7 @@ const RETENTION_KINDS = {
   mortgageClients: { label: 'תיקי ייעוץ משכנתאות שלא עודכנו', minYears: 1,
     removes: 'טלפון והערות. נשמרים: שם הלקוח, הבנק, הסכומים וההצעות.' },
   realtyClients: { label: 'לקוחות נדל"ן שלא עודכנו (תיווך)', minYears: 1,
-    removes: 'ת.ז, טלפון, דוא"ל, הערות ודרישות החיפוש. נשמרים: השם, סוג הלקוח והעסקאות. לקוח עם עסקה פתוחה אינו נכלל.' }
+    removes: 'ת.ז, טלפון, דוא"ל, הערות ודרישות החיפוש, וכתובת הלקוח בהזמנות שירותי התיווך. נשמרים: השם, סוג הלקוח והעסקאות. לקוח עם עסקה פתוחה אינו נכלל.' }
 };
 
 function retentionKind(kind) {
@@ -239,6 +241,9 @@ function applyRetention(data, kind, ids, today, years, at) {
       const { areas, types, minRooms, maxRooms, budgetMinAg, budgetMaxAg, needsMortgage, ...rest } = c;
       return { ...rest, idNumber: '', phone: '', email: '', notes: '', active: false, privacyMinimizedAt: at };
     });
+    // כתובת הלקוח בהזמנות שירותי התיווך שלו
+    const gone = new Set(data.realty.clients.filter(c => c.privacyMinimizedAt === at && ok(c.id)).map(c => c.id));
+    data.realty.orders = (data.realty.orders || []).map(o => (gone.has(o.clientId) && o.clientAddress ? { ...o, clientAddress: '' } : o));
   } else {
     data.mortgageAdvisor.clients = data.mortgageAdvisor.clients.map(c => (ok(c.id) ? (done++, { ...c, phone: '', notes: '', privacyMinimizedAt: at }) : c));
   }

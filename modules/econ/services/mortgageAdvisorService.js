@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const M = require('../core/mortgageAdvisor');
 const R = require('../core/mortgageReport');
+const DM = require('../core/dealMortgage');
 
 const MAX_CLIENTS = 5000;
 const MAX_OFFERS = 20000;
@@ -54,9 +55,11 @@ class MortgageAdvisorService {
     return c;
   }
 
-  async getOverview(actor) {
+  async getOverview(actor, opts = {}) {
     const data = await this._load();
     const { offers, settings } = data.mortgageAdvisor;
+    const realty = data.realty && typeof data.realty === 'object' ? data.realty : {};
+    const today = opts.today || new Date().toISOString().slice(0, 10);
     const clients = this._visible(data, actor);
     const vat = this._vatRate(data);
     const advisors = await this._advisors();
@@ -83,7 +86,9 @@ class MortgageAdvisorService {
           docs: M.docsProgress(c),
           approvals: M.approvalsSummary(c, new Date().toISOString().slice(0, 10)),
           offers: own.map(o => ({ ...o, summary: M.offerSummary(o), yearly: M.yearlySchedule(o) })),
-          comparison: M.compareOffers(own)
+          comparison: M.compareOffers(own),
+          // עסקת תיווך מקושרת — רק אם תחום הנדל"ן פתוח ברישיון (opts.realty)
+          realtyDeal: opts.realty ? DM.dealForCase(c, realty.deals, realty.properties, today) : null
         };
       }).sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt))),
       statuses: M.CLIENT_STATUSES,
@@ -128,6 +133,8 @@ class MortgageAdvisorService {
     this._findClient(data, clientId, actor);
     data.mortgageAdvisor.clients = data.mortgageAdvisor.clients.filter(c => c.id !== clientId);
     data.mortgageAdvisor.offers = data.mortgageAdvisor.offers.filter(o => o.clientId !== clientId);
+    // עסקת תיווך שהייתה מקושרת לתיק — הקישור מתנתק (העסקה נשארת)
+    for (const d of (data.realty && data.realty.deals) || []) if (d.mortgageCaseId === clientId) delete d.mortgageCaseId;
     await this.db.save(data);
     return true;
   }

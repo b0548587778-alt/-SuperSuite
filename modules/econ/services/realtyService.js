@@ -6,6 +6,8 @@ const R = require('../core/realty');
 const B = require('../core/brokerage');
 const I = require('../core/realtyInvest');
 const P = require('../core/devProject');
+const M = require('../core/mortgageAdvisor');
+const DM = require('../core/dealMortgage');
 
 class RealtyService {
   constructor(db) {
@@ -56,12 +58,24 @@ class RealtyService {
     };
   }
 
-  async getOverview(today) {
+  // מצב תיק המשכנתא המקושר לעסקה. opts.mortgage — תחום הייעוץ פתוח ברישיון; opts.actor — מי רואה אילו תיקים
+  _mortgageStatus(data, d, today, opts) {
+    if (!opts.mortgage) return null;
+    if (!d.mortgageCaseId) return d.dependsOnMortgage ? { linked: false, alert: DM.alertFor(d, null, today) } : null;
+    const ma = data.mortgageAdvisor || {};
+    const c = (ma.clients || []).find(x => x.id === d.mortgageCaseId);
+    if (!c) return DM.statusForDeal(d, null, today, { visible: true });
+    // תיק של יועץ אחר (כשכל יועץ רואה רק את שלו) — בלי פרטים
+    if (!M.canSee(c, opts.actor, ma.settings)) return DM.statusForDeal(d, null, today, { visible: false });
+    return DM.statusForDeal(d, M.clientStored(c), today);
+  }
+
+  async getOverview(today, opts = {}) {
     const data = await this._load();
     const { properties, clients, deals, orders, settings } = data.realty;
     const ctx = { properties, clients, settings };
     const t = today || new Date().toISOString().slice(0, 10);
-    const outDeals = deals.map(d => this._dealOut(data, d, ctx));
+    const outDeals = deals.map(d => ({ ...this._dealOut(data, d, ctx), mortgage: this._mortgageStatus(data, d, t, opts) }));
     const open = outDeals.filter(d => d.stage !== 'lost');
     return {
       propertyTypes: R.PROPERTY_TYPES, listings: R.LISTING, propertyStatuses: R.PROPERTY_STATUS,
@@ -327,6 +341,45 @@ class RealtyService {
     // עסקה עם תשלומי עמלה לא נמחקת — הכסף והחשבוניות צריכים להישאר מקושרים
     if ((d.commissionPayments || []).length) throw new Error('בעסקה נרשמו תשלומי עמלה — אפשר לסמן אותה "בוטלה" במקום למחוק');
     data.realty.deals = data.realty.deals.filter(x => x.id !== id);
+    // תיק משכנתא שהיה מקושר — הקישור מתנתק (התיק נשאר)
+    for (const c of (data.mortgageAdvisor && data.mortgageAdvisor.clients) || []) if (c.realtyDealId === id) delete c.realtyDealId;
+    await this.db.save(data);
+    return true;
+  }
+
+  // ---------- משכנתא כחלק מהעסקה ----------
+  // קלט לתיק ייעוץ חדש מתוך העסקה (בדיקה בלבד — היצירה בשירות הייעוץ, עם שיוך היועץ)
+  async mortgageCaseInput(dealId, input) {
+    const data = await this._load();
+    const d = this._find(data.realty.deals, dealId, 'העסקה');
+    if (d.mortgageCaseId) throw new Error('לעסקה כבר יש תיק משכנתא מקושר');
+    const p = data.realty.properties.find(x => x.id === d.propertyId);
+    const buyer = data.realty.clients.find(c => c.id === d.buyerClientId);
+    return DM.caseInput(d, p, buyer, input);
+  }
+
+  // קישור בשני הצדדים. תיק שכבר מקושר לעסקה אחרת — נדחה
+  async linkMortgageCase(dealId, caseId) {
+    const data = await this._load();
+    const d = this._find(data.realty.deals, dealId, 'העסקה');
+    const c = ((data.mortgageAdvisor && data.mortgageAdvisor.clients) || []).find(x => x.id === caseId);
+    if (!c) throw new Error('תיק המשכנתא לא נמצא');
+    if (c.realtyDealId && c.realtyDealId !== dealId) throw new Error('התיק כבר מקושר לעסקה אחרת');
+    if (d.mortgageCaseId && d.mortgageCaseId !== caseId) throw new Error('לעסקה כבר יש תיק משכנתא מקושר');
+    d.mortgageCaseId = caseId;
+    d.dependsOnMortgage = true;
+    d.updatedAt = new Date().toISOString();
+    c.realtyDealId = dealId;
+    await this.db.save(data);
+    return true;
+  }
+
+  async unlinkMortgageCase(dealId) {
+    const data = await this._load();
+    const d = this._find(data.realty.deals, dealId, 'העסקה');
+    for (const c of (data.mortgageAdvisor && data.mortgageAdvisor.clients) || []) if (c.realtyDealId === dealId) delete c.realtyDealId;
+    delete d.mortgageCaseId;
+    d.updatedAt = new Date().toISOString();
     await this.db.save(data);
     return true;
   }

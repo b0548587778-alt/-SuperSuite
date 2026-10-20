@@ -5,11 +5,14 @@
 const N = require('./npo');
 const G = require('./gemach');
 const PR = require('./pricing');
+const R = require('./realty');
+const DP = require('./devProject');
 
 const KINDS = {
   npo: { label: 'עמותה — 3 תורמים ותרומות', feature: 'econ.npo' },
   gemach: { label: 'גמ"ח — הלוואה עם ערב ותשלום ראשון', feature: 'econ.gemach' },
   business: { label: 'עסק — לקוח ומחירון קצר', feature: 'econ.accounting' },
+  realty: { label: 'נדל"ן ותיווך — נכס, קונה ומוכר, עסקה ופרויקט יזמי', feature: 'econ.realestate' },
 };
 const SAMPLE_TAG = 'נתוני דוגמה';
 
@@ -47,7 +50,9 @@ function counts(data) {
     business: (Array.isArray(data.products) ? data.products : []).filter(p => p && p.sample === true).length +
       contactsList(data).filter(c => c && c.sample === true).length,
   };
-  out.total = out.npo + out.gemach + out.business;
+  const r = data.realty && typeof data.realty === 'object' ? data.realty : {};
+  out.realty = ['properties', 'clients', 'deals', 'projects'].reduce((n, k) => n + (Array.isArray(r[k]) ? r[k].filter(x => x && x.sample === true).length : 0), 0);
+  out.total = out.npo + out.gemach + out.business + out.realty;
   return out;
 }
 
@@ -94,6 +99,24 @@ function buildBusiness(uuid) {
   return { products, contact };
 }
 
+// נדל"ן: מוכר ודירה למכירה, קונה שמחפש דירה כזו, עסקה במשא ומתן ופרויקט יזמי קטן. בלי ת"ז
+function buildRealty(today, uuid) {
+  const now = new Date().toISOString();
+  const rec = (x) => ({ id: uuid(), ...x, sample: true, createdAt: now, updatedAt: now });
+  const seller = rec(R.validateClient({ name: 'שלמה רוזנברג', role: 'seller', notes: SAMPLE_TAG }));
+  const buyer = rec(R.validateClient({ name: 'מנחם גולדשטיין', role: 'buyer', areas: 'בני ברק', minRooms: 4, budgetMax: 2600000, needsMortgage: 'yes', notes: SAMPLE_TAG }));
+  const property = rec(R.validateProperty({ city: 'בני ברק', street: 'רחוב רבי עקיבא', type: 'apartment', rooms: 4, areaSqm: 95, floor: 2, asking: 2500000, ownerClientId: seller.id, notes: SAMPLE_TAG }));
+  const deal = rec(R.withDealStage({}, R.validateDeal({ propertyId: property.id, buyerClientId: buyer.id, stage: 'negotiation', price: 2450000, signDate: addDays(today, 10), dependsOnMortgage: 'yes', notes: SAMPLE_TAG },
+    {}, { properties: [property], clients: [seller, buyer] }), null, now));
+  property.status = 'negotiation';
+  const project = rec(DP.projectRecord({
+    name: 'בניין מגורים — דוגמה', startMonth: today.slice(0, 7), months: 24, deficitRate: 6, equity: 3000000, planText: ['20, 0', '40, 4', '40, 9'].join('\n'), notes: SAMPLE_TAG,
+    costs: [{ category: 'land', amount: 6000000, from: 1, spread: 1 }, { category: 'permits', amount: 400000, from: 2, spread: 4 }, { category: 'build', amount: 7200000, from: 5, spread: 18 }, { category: 'marketing', amount: 300000, from: 6, spread: 12 }],
+    sales: [{ label: 'דירת 4 חדרים', units: 6, price: 2300000, month: 8 }, { label: 'דירת 5 חדרים', units: 2, price: 2900000, month: 14 }]
+  }));
+  return { clients: [seller, buyer], properties: [property], deals: [deal], projects: [project] };
+}
+
 // מוסיף את הדוגמה לנתונים (משנה את data). kinds — מה שהמשתמש בחר, אחרי סינון לפי הרישיון
 function apply(data, kinds, { today, uuid, allowed }) {
   const want = [...new Set(Array.isArray(kinds) ? kinds : [])].filter(k => KINDS[k] && (!allowed || allowed.includes(k)));
@@ -119,6 +142,11 @@ function apply(data, kinds, { today, uuid, allowed }) {
       data.products = [...(Array.isArray(data.products) ? data.products : []), ...products];
       data.contacts = [...contactsList(data), contact];
       added.business = products.length + 1;
+    } else if (k === 'realty') {
+      data.realty = data.realty && typeof data.realty === 'object' ? data.realty : {};
+      const rows = buildRealty(today, uuid);
+      for (const [key, list] of Object.entries(rows)) data.realty[key] = [...(Array.isArray(data.realty[key]) ? data.realty[key] : []), ...list];
+      added.realty = Object.values(rows).reduce((n, l) => n + l.length, 0);
     }
   }
   return added;
@@ -131,6 +159,9 @@ function remove(data) {
   if (data.gemach && Array.isArray(data.gemach.loans)) data.gemach.loans = data.gemach.loans.filter(l => !(l && l.sample === true));
   if (Array.isArray(data.products)) data.products = data.products.filter(p => !(p && p.sample === true));
   if (contactsList(data).some(c => c && c.sample === true)) data.contacts = contactsList(data).filter(c => !(c && c.sample === true));
+  if (data.realty && typeof data.realty === 'object') {
+    for (const key of ['properties', 'clients', 'deals', 'projects']) if (Array.isArray(data.realty[key])) data.realty[key] = data.realty[key].filter(x => !(x && x.sample === true));
+  }
   return before.total;
 }
 

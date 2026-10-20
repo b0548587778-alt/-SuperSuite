@@ -56,7 +56,7 @@ test('pure: גמ"ח ועסק, וסינון לפי הרישיון', () => {
   assert.equal(data.products.length, 4);
   assert.equal(data.contacts.length, 2, 'איש הקשר האמיתי נשאר');
   assert.throws(() => SD.apply({}, ['npo'], { today: TODAY, uuid, allowed: ['gemach'] }), /לא נבחר תחום/);
-  assert.deepEqual(SD.availableKinds({ mode: 'unlicensed' }), ['npo', 'gemach', 'business']);
+  assert.deepEqual(SD.availableKinds({ mode: 'unlicensed' }), ['npo', 'gemach', 'business', 'realty']);
   assert.deepEqual(SD.availableKinds({ mode: 'licensed', features: ['econ.gemach'] }), ['gemach']);
 });
 
@@ -93,7 +93,7 @@ test('ipc: זרימה מלאה — דוגמה לא צורכת מספר קבלה,
   assert.equal(real1.receipt.number, 1);
 
   const st = await handlers['sample:getStatus'](ev(31));
-  assert.deepEqual(st.kinds.map(k => k.id), ['npo', 'gemach', 'business']);
+  assert.deepEqual(st.kinds.map(k => k.id), ['npo', 'gemach', 'business', 'realty']);
   assert.equal(st.counts.total, 0);
   const r = await handlers['sample:add'](ev(31), ['npo', 'gemach', 'business']);
   assert.equal(r.counts.total, 4 + 1 + 4);

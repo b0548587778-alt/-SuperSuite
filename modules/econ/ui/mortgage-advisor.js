@@ -251,6 +251,15 @@ function madvSettingsHtml(o) {
       </details>`;
 }
 
+// עסקת התיווך שהתיק נפתח ממנה (נדל"ן ותיווך): נכס, שלב, מועד החתימה והתראה כשהחתימה קרובה
+function madvRealtyDealHtml(r) {
+  if (!r) return '';
+  if (r.missing) return `<p class="muted">${esc(r.label)}</p>`;
+  return `<div class="acct-row"><span>עסקת תיווך: ${esc(r.propertyTitle)} · ${money(r.price)} · <span class="ss-badge">${esc(r.stageLabel)}</span>${r.signDate ? ` · חתימה ${esc(r.signDate)}` : ''}</span>
+    <button class="icon-btn" data-goto="realty" title="מעבר לנדל&quot;ן ותיווך">↗</button></div>
+    ${r.alert ? `<p class="warn">⚠ ${esc(r.alert)}</p>` : ''}`;
+}
+
 function renderMortgageAdvisor(o) {
   const clients = Array.isArray(o && o.clients) ? o.clients : [];
   madvSyncAdvisorField(o);
@@ -301,6 +310,7 @@ function renderMortgageAdvisor(o) {
               ${renderCardActions(c.id)}
             </div>
           </div>
+          ${madvRealtyDealHtml(c.realtyDeal)}
           <div class="acct-grid">
             <div>
               <h4>עמלת ייעוץ</h4>

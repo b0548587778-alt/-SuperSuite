@@ -159,7 +159,7 @@ const LABELS = {
   budgetMinAg: 'תקציב מינימלי (אגורות)', budgetMaxAg: 'תקציב מקסימלי (אגורות)', needsMortgage: 'צריך משכנתא'
 };
 // מזהים פנימיים בלבד — לא מידע על האדם
-const SKIP = new Set(['id', 'entryId', 'paymentEntryId', 'reversalEntryId', 'loanId', 'itemId', 'applicationId', 'ambassadorId', 'standingOrderId', 'chequeGroupId', 'replacesId', 'replacedBy']);
+const SKIP = new Set(['id', 'entryId', 'paymentEntryId', 'reversalEntryId', 'loanId', 'itemId', 'applicationId', 'ambassadorId', 'standingOrderId', 'chequeGroupId', 'replacesId', 'replacedBy', 'realtyDealId', 'mortgageCaseId', 'advisorId', 'buyerClientId', 'sellerClientId', 'propertyId']);
 
 function show(key, v) {
   if (v === null || v === undefined || v === '') return '';
@@ -209,7 +209,13 @@ function subjectReport(data, idNumber, opts = {}) {
   // לקוחות נדל"ן ותיווך לפי ת"ז — רק אם התחום פתוח ברישיון (opts.realty)
   if (opts.realty) {
     for (const c of (data.realty && data.realty.clients) || []) {
-      if (String(c.idNumber || '').replace(/\D/g, '').padStart(9, '0') === key) sections.push({ title: 'לקוח נדל"ן ותיווך', byName: false, fields: fieldsOf(c) });
+      if (String(c.idNumber || '').replace(/\D/g, '').padStart(9, '0') !== key) continue;
+      sections.push({ title: 'לקוח נדל"ן ותיווך', byName: false, fields: fieldsOf(c) });
+      // תיק ייעוץ משכנתאות שנפתח מעסקה שבה הלקוח קונה — מקושר, ולכן נמצא גם בלי ת"ז בתיק
+      for (const d of (data.realty.deals || []).filter(x => x.buyerClientId === c.id && x.mortgageCaseId)) {
+        const mc = ((data.mortgageAdvisor && data.mortgageAdvisor.clients) || []).find(x => x.id === d.mortgageCaseId);
+        if (mc) sections.push({ title: 'תיק ייעוץ משכנתאות (נפתח מעסקת תיווך)', byName: false, fields: fieldsOf(mc) });
+      }
     }
   }
   // חשבוניות לפי ע.מ / ח.פ של הלקוח — רק אם הנהלת החשבונות פתוחה ברישיון
@@ -221,7 +227,7 @@ function subjectReport(data, idNumber, opts = {}) {
   const names = person ? [...person.names] : [];
   return {
     idNumber: key, names, phones: person ? [...person.phones] : [], sections, count: sections.length,
-    notCovered: 'לא נכללים: רשומות שאין בהן מספר זהות ושלא שויכו לפי שם (למשל מתנדב או מפקיד ששמו מופיע אצל כמה אנשים), תיקי ייעוץ משכנתאות (אין בהם ת"ז), לקוחות נדל"ן שנרשמו בלי ת"ז, אנשי קשר, ומודולי השמאות והאימונים. יש לחפש גם לפי שם במאגר האנשים ובמודולים האלה.'
+    notCovered: 'לא נכללים: רשומות שאין בהן מספר זהות ושלא שויכו לפי שם (למשל מתנדב או מפקיד ששמו מופיע אצל כמה אנשים), תיקי ייעוץ משכנתאות (אין בהם ת"ז — נכללים רק אם נפתחו מעסקת תיווך של הלקוח), לקוחות נדל"ן שנרשמו בלי ת"ז, אנשי קשר, ומודולי השמאות והאימונים. יש לחפש גם לפי שם במאגר האנשים ובמודולים האלה.'
   };
 }
 

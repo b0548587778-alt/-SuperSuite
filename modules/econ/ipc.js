@@ -1479,7 +1479,7 @@ function registerIpcHandlers() {
     return { id: s.id, username: s.username, isManager: Array.isArray(s.permissions) && s.permissions.includes('users.manage') };
   };
   handle('madv:getOverview', async (event) => ({
-    ...(await mortgageAdvisorService.getOverview(madvActor(event))),
+    ...(await mortgageAdvisorService.getOverview(madvActor(event), { today: localDay(Date.now()), realty: !LG.checkChannel(licenseState(), 'rlty:getOverview', 'data.view') })),
     canInvoice: !LG.checkChannel(licenseState(), 'acct:x', 'data.edit') && authService.hasPermission(event.sender.id, 'data.edit')
   }));
   handle('madv:calcTracks', async (event, input) => mortgageAdvisorService.calcTracks(input || {}));
@@ -1579,8 +1579,11 @@ function registerIpcHandlers() {
   });
   // ---------- נדל"ן ותיווך (rlty ← econ.realestate) ----------
   const rltyUser = (event) => { const s = authService.getSession(event.sender.id); return s && s.id; };
+  // ייעוץ המשכנתאות פתוח ברישיון — רק אז מוצג ונפתח תיק משכנתא מתוך עסקה
+  const rltyMortgage = () => !LG.checkChannel(licenseState(), 'madv:getOverview', 'data.view');
   handle('rlty:getOverview', async (event) => ({
-    ...(await realtyService.getOverview(localDay(Date.now()))),
+    ...(await realtyService.getOverview(localDay(Date.now()), { mortgage: rltyMortgage(), actor: madvActor(event) })),
+    canMortgage: rltyMortgage() && authService.hasPermission(event.sender.id, 'data.edit'),
     canInvoice: !LG.checkChannel(licenseState(), 'acct:x', 'data.edit') && authService.hasPermission(event.sender.id, 'data.edit'),
     isManager: authService.hasPermission(event.sender.id, 'users.manage')
   }));
@@ -1685,6 +1688,21 @@ function registerIpcHandlers() {
   handle('rlty:deleteAnalysis', async (event, id) => {
     await realtyService.deleteAnalysis(String(id || ''));
     await auditEvent(event, 'realty.analysis.delete', { id });
+    return true;
+  });
+  // "פתח תיק משכנתא": תיק ייעוץ חדש לקונה (משויך למי שפתח) וקישור בשני הצדדים
+  handle('rlty:openMortgageCase', async (event, dealId, input) => {
+    if (!rltyMortgage()) throw new Error('ייעוץ המשכנתאות אינו פתוח ברישיון');
+    const caseInput = await realtyService.mortgageCaseInput(String(dealId || ''), input || {});
+    const c = await mortgageAdvisorService.createClient(caseInput, madvActor(event));
+    await realtyService.linkMortgageCase(String(dealId), c.id);
+    await auditEvent(event, 'madv.client.create', { id: c.id, advisorId: c.advisorId || null, source: 'rlty' });
+    await auditEvent(event, 'realty.deal.mortgageLink', { id: dealId, caseId: c.id });
+    return c;
+  });
+  handle('rlty:unlinkMortgageCase', async (event, dealId) => {
+    await realtyService.unlinkMortgageCase(String(dealId || ''));
+    await auditEvent(event, 'realty.deal.mortgageUnlink', { id: dealId });
     return true;
   });
   handle('rlty:calcProject', async (event, input) => realtyService.calcProject(input || {}));
