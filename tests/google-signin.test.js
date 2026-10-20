@@ -224,3 +224,61 @@ test('יצירת המנהל הראשון מחברת אותו מיד (רגרסי�
   await assert.rejects(handlers['auth:setup'](ev(78), 'second', 'a-very-long-pass-2026'), /כבר קיים מנהל/);
   assert.equal((await handlers['auth:status'](ev(78))).user, null, 'ניסיון כושל לא פותח פגישה');
 });
+
+// ---------- מזהה מובנה (PLAN.md 4.7) ----------
+test('מזהה מובנה: התקנה נקייה — כניסה עם Google פעילה בלי שום הגדרה, והגדרות המנהל גוברות', async () => {
+  const BUILT = { clientId: '555-builtinclient.apps.googleusercontent.com', clientSecret: 'GOCSPX-builtin1234' };
+  const OWN = '777-orgclient.apps.googleusercontent.com';
+  const seen = [];
+  const signIn = async (cfg) => { seen.push(cfg); return { sub: 'g-b', email: 'yosef@example.org' }; };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-google-b-'));
+  await ipc.initEcon(dir, { googleSignIn: signIn, googleClient: BUILT });
+
+  // בלי שום הגדרה — פעיל
+  assert.deepEqual((await handlers['auth:status'](ev(21))).google, { enabled: true });
+  await handlers['auth:setup'](ev(21), 'admin_b', 'a-very-long-pass-2026');
+  const cfg = await handlers['settings:getGoogle'](ev(21));
+  assert.deepEqual(cfg, { enabled: true, clientId: '', hasSecret: false, onlineRequiresGoogle: false, builtIn: true, source: 'builtin' });
+  assert.equal(JSON.stringify(cfg).includes(BUILT.clientSecret), false);
+  await handlers['auth:google-link'](ev(21));
+  assert.deepEqual(seen.at(-1), BUILT);
+
+  // מזהה ריק בשמירה = המובנה (לא נדרש מזהה)
+  const keep = await handlers['settings:saveGoogle'](ev(21), { enabled: true, clientId: '', onlineRequiresGoogle: true });
+  assert.equal(keep.source, 'builtin');
+  assert.equal(keep.onlineRequiresGoogle, true);
+  // מזהה של הארגון מחליף את המובנה, והסוד המובנה לא עובר אליו
+  const own = await handlers['settings:saveGoogle'](ev(21), { enabled: true, clientId: OWN });
+  assert.equal(own.source, 'custom');
+  assert.equal(own.clientId, OWN);
+  assert.equal(own.hasSecret, false);
+  await handlers['auth:google-link'](ev(21));
+  assert.deepEqual(seen.at(-1), { clientId: OWN, clientSecret: '' });
+  // חזרה למובנה
+  await handlers['settings:saveGoogle'](ev(21), { enabled: true, clientId: '' });
+  await handlers['auth:google-link'](ev(21));
+  assert.deepEqual(seen.at(-1), BUILT);
+  // כיבוי נשמר — גם אחרי עלייה מחדש
+  await handlers['settings:saveGoogle'](ev(21), { enabled: false, clientId: '' });
+  await ipc.initEcon(dir, { googleSignIn: signIn, googleClient: BUILT });
+  assert.deepEqual((await handlers['auth:status'](ev(22))).google, { enabled: false });
+  await assert.rejects(handlers['auth:google-login'](ev(22)), /לא הופעלה/);
+});
+
+test('מזהה מובנה ריק או פגום — כמו קודם: כבוי עד שהמנהל מגדיר מזהה', async () => {
+  for (const googleClient of [{ clientId: '', clientSecret: '' }, { clientId: 'not-a-client-id' }]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-google-e-'));
+    await ipc.initEcon(dir, { googleSignIn: async () => ({}), googleClient });
+    assert.deepEqual((await handlers['auth:status'](ev(31))).google, { enabled: false });
+    await handlers['auth:setup'](ev(31), 'admin_e', 'a-very-long-pass-2026');
+    assert.equal((await handlers['settings:getGoogle'](ev(31))).builtIn, false);
+    await assert.rejects(handlers['settings:saveGoogle'](ev(31), { enabled: true, clientId: '' }), /מזהה הלקוח/);
+  }
+});
+
+test('הקובץ shell/google-client.js: מזהה ריק או תקין, בלי מזהה אמיתי בבדיקות', () => {
+  const c = require('../shell/google-client');
+  assert.deepEqual(Object.keys(c).sort(), ['clientId', 'clientSecret']);
+  if (c.clientId) assert.doesNotThrow(() => GS.validateConfig(c));
+  else assert.equal(c.clientSecret, '');
+});
