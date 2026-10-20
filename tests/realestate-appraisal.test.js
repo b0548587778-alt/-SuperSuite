@@ -196,3 +196,17 @@ test('דוח: אחוז עם סימן עטוף בכיוון שמאל לימין',
   assert.match(html, /קומה <bdi dir="ltr">‎?-3%<\/bdi>/);
   assert.match(html, /<td class="n"><bdi dir="ltr">/, 'גם עמודת הנטו');
 });
+
+test('דוח דו-לשוני: תוויות וערכים באנגלית, פרטי שמאי והצהרה; בעברית בלבד — בלי אנגלית', () => {
+  const cs = { ...R.validateCase({ ...base(), reportLang: 'he-en' }, TODAY), id: 'x', no: 5, rev: 0, status: 'draft' };
+  assert.equal(cs.reportLang, 'he-en');
+  const html = R.renderReportHtml(cs, { name: 'ישראל ישראלי', nameEn: 'Israel Israeli', office: 'משרד', officeEn: 'Israeli Appraisals' }, TODAY);
+  for (const s of ['Real Estate Appraisal Report', 'DRAFT', 'Effective date', 'Comparable sales', 'Mortgage security', 'Sales comparison approach',
+    'Israel Israeli', 'Israeli Appraisals', R.DEFAULT_DECLARATION_EN.slice(0, 30), 'Floor']) assert.ok(html.includes(s), 'חסר: ' + s);
+  assert.match(html, /<html lang="he" dir="rtl">/);
+  const he = R.renderReportHtml({ ...cs, reportLang: 'he' }, { nameEn: 'Israel Israeli' }, TODAY);
+  assert.doesNotMatch(he, /Appraisal Report|Israel Israeli|class="en/);
+  assert.equal(R.validateCase({ ...base(), reportLang: 'xx' }, TODAY).reportLang, 'he');
+  // כל תווית בעברית בדוח שיש לה מקבילה — בלי ערכים ריקים
+  assert.ok(Object.values(R.EN).every(v => typeof v === 'string' && v.trim()));
+});

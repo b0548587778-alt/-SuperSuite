@@ -41,6 +41,7 @@ function reToForm(c) {
     reconcile: { weights: Object.fromEntries(Object.entries(c.reconcile.weights || {}).map(([k, v]) => [k, v ? String(v) : ''])),
       roundToIls: String(c.reconcile.roundToIls), override: reShekel(c.reconcile.overrideAg), overrideReason: c.reconcile.overrideReason || '', note: c.reconcile.note || '' },
     assumptions: c.assumptions || '',
+    reportLang: c.reportLang || 'he',
   };
 }
 
@@ -53,7 +54,7 @@ function reFromForm(f) {
       const { adj, ...rest } = x;
       return { ...rest, adjustments: RE_ADJ_COLS.filter(k => adj[k] && String(adj[k].pct).trim() !== '').map(k => ({ factor: k, pct: adj[k].pct, note: adj[k].note || '' })) };
     }),
-    income: f.income, cost: f.cost, reconcile: f.reconcile, assumptions: f.assumptions,
+    income: f.income, cost: f.cost, reconcile: f.reconcile, assumptions: f.assumptions, reportLang: f.reportLang,
   };
 }
 
@@ -118,6 +119,9 @@ function reSettingsHtml(o) {
     <div class="acct-header"><span>פרטי השמאי מופיעים בכל דוח שומה.</span><button class="secondary" id="reBack">→ חזרה לרשימה</button></div>
     <div class="card re-form">
       ${f('name', 'שם השמאי')} ${f('license', 'מספר רישיון')} ${f('office', 'שם המשרד')} ${f('phone', 'טלפון')} ${f('email', 'דוא"ל')} ${f('address', 'כתובת המשרד')}
+      <h3>לדוח בעברית ובאנגלית</h3>
+      ${f('nameEn', 'שם השמאי באנגלית')} ${f('officeEn', 'שם המשרד באנגלית')} ${f('addressEn', 'כתובת המשרד באנגלית')}
+      <label class="re-wide">הצהרה באנגלית (ריק — נוסח ברירת המחדל) <textarea data-re-set="declarationEn" rows="3" dir="ltr">${esc(s.declarationEn)}</textarea></label>
       <label class="re-wide">הצהרת השמאי (ריק — נוסח ברירת המחדל) <textarea data-re-set="declaration" rows="3">${esc(s.declaration)}</textarea></label>
       <div class="re-wide"><button class="primary" id="reSaveSettings">שמירה</button></div>
     </div>`;
@@ -210,6 +214,7 @@ function reEditorHtml(o) {
       ${reInput('client.address', 'כתובת המזמין')}
       ${reSelect('purpose', 'מטרת השומה', lists.purposes || {})} ${f.purpose === 'other' ? reInput('purposeOther', 'פירוט המטרה') : ''}
       ${reInput('visitDate', 'תאריך הביקור', { type: 'date' })} ${reInput('effectiveDate', 'המועד הקובע', { type: 'date' })}
+      ${reSelect('reportLang', 'שפת הדוח', { he: 'עברית', 'he-en': 'עברית ואנגלית' })}
     </div>
     <div class="card re-form"><h3>הנכס</h3>
       ${reInput('property.address', 'כתובת')} ${reInput('property.city', 'יישוב')}
@@ -243,8 +248,57 @@ function reEditorHtml(o) {
       ${reInput('reconcile.note', 'הסבר השקלול', { type: 'textarea', wide: true })}
       ${reInput('assumptions', 'הנחות והסתייגויות (שורה לכל הנחה)', { type: 'textarea', wide: true })}
     </div>
+    ${rePhotosHtml(re.current.photos || [], final)}
     ${reResultsHtml(result, lists)}
     ${(c.history || []).length ? `<details class="card"><summary>היסטוריית גרסאות (${c.history.length})</summary>${c.history.map(h => `<div class="acct-row"><span>דוח ${esc(String(c.no) + (h.rev ? '-' + h.rev : ''))}</span><span>${esc(h.reportDate || '')} · ${reMoney(h.valueAg)}</span></div>`).join('')}</details>` : ''}`;
+}
+
+// צילומים לתיק: מוקטנים בממשק (עד 1200 פיקסלים, JPEG) לפני השליחה; השרת בודק שוב סוג וגודל
+const RE_PHOTO_MAX_CHARS = 280000;
+function rePhotosHtml(photos, final) {
+  const cards = photos.map(p => `<figure class="re-photo"><img src="${esc(p.data)}" alt="${esc(p.caption || 'צילום')}">
+      <figcaption>${esc(p.caption || '')}</figcaption>
+      ${final ? '' : `<button class="secondary small" data-re-delphoto="${esc(p.id)}" title="מחיקת הצילום">✕</button>`}</figure>`).join('');
+  return `<div class="card"><div class="acct-header"><h3>צילומים (${photos.length}/6)</h3>
+      ${final || photos.length >= 6 ? '' : '<span><label>כיתוב לצילום <input type="text" id="rePhotoCaption" maxlength="120" placeholder="למשל: חזית הבניין"></label> <button class="secondary" id="reAddPhoto">＋ הוספת צילום</button></span>'}</div>
+    ${photos.length ? `<div class="re-photos">${cards}</div>` : '<p class="muted">אין צילומים. הצילומים יופיעו בדוח השומה.</p>'}</div>`;
+}
+
+function reCompressImage(file) {
+  return new Promise((resolve, reject) => {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { reject(new Error('סוג קובץ לא נתמך — JPG, PNG או WEBP')); return; }
+    if (file.size > 25 * 1024 * 1024) { reject(new Error('הקובץ גדול מדי')); return; }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('הקובץ לא נקרא'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('הקובץ אינו תמונה תקינה'));
+      img.onload = () => {
+        const scale = Math.min(1, 1200 / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        for (const q of [0.82, 0.7, 0.55, 0.4]) {
+          const out = canvas.toDataURL('image/jpeg', q);
+          if (out.length <= RE_PHOTO_MAX_CHARS) { resolve(out); return; }
+        }
+        reject(new Error('התמונה גדולה מדי גם אחרי הקטנה'));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function rePickImage() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/webp';
+    input.addEventListener('change', () => resolve((input.files && input.files[0]) || null));
+    input.click();
+  });
 }
 
 function renderRealEstate(o) {
@@ -367,6 +421,23 @@ function attachRealEstateHandlers() {
     if (r && r.ok) showToast('הדוח נשמר');
     renderView('realestate');
   }));
+  on('reAddPhoto', guard('שגיאה בהוספת הצילום', async () => {
+    const caption = (document.getElementById('rePhotoCaption') || {}).value || '';
+    const file = await rePickImage();
+    if (!file) return;
+    reCollect();
+    await reSaveCase({ quiet: true });
+    await api.addRealEstatePhoto(re.caseId, { data: await reCompressImage(file), caption });
+    showToast('הצילום נוסף');
+    await reOpenCase(re.caseId);
+  }));
+  document.querySelectorAll('[data-re-delphoto]').forEach(b => b.addEventListener('click', guard('שגיאה במחיקת הצילום', async () => {
+    if (!(await askConfirm('למחוק את הצילום מהתיק?'))) return;
+    reCollect();
+    await reSaveCase({ quiet: true });
+    await api.deleteRealEstatePhoto(re.caseId, b.dataset.reDelphoto);
+    await reOpenCase(re.caseId);
+  })));
   on('reDelete', guard('שגיאה במחיקה', async () => {
     if (!(await askConfirm('למחוק את תיק השומה וכל העסקאות שבו? הפעולה אינה ניתנת לביטול.'))) return;
     await api.deleteRealEstateCase(re.caseId);

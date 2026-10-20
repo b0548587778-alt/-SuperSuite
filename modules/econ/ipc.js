@@ -1497,6 +1497,8 @@ function registerIpcHandlers() {
     await auditEvent(event, 'realestate.case.reopen', { id: s.id, reportNo: s.reportNo });
     return s;
   });
+  handle('realestate:addPhoto', async (event, id, input) => realEstateService.addPhoto(String(id || ''), input || {}));
+  handle('realestate:deletePhoto', async (event, id, photoId) => realEstateService.deletePhoto(String(id || ''), String(photoId || '')));
   handle('realestate:saveSettings', async (event, input) => realEstateService.saveSettings(input || {}));
   handle('realestate:getReportHtml', async (event, id) => realEstateService.getReportHtml(String(id || '')));
   handle('realestate:exportReport', async (event, id) => {

@@ -17,22 +17,10 @@ const RE_TYPES = [
   { k: 'storage',   name: 'מחסן',     base: 0.40 },
 ];
 
-// Approximate ₪/m² by area (Q1 2026 estimates)
-const RE_AREAS = {
-  'tel-aviv-luxury':   55000,
-  'tel-aviv':          40000,
-  'jerusalem-haredi':  28000,
-  'jerusalem':         32000,
-  'bnei-brak':         30000,
-  'ramat-gan':         38000,
-  'herzliya':          42000,
-  'haifa':             18000,
-  'periphery':         12000,
-};
-
-// Reuse CONDITIONS for state
+// הערכה מהירה בלבד: המחיר למ"ר מוקלד על ידי המשתמש (לפי עסקאות שבדק). אין בתוכנה מחירי אזורים —
+// טבלה קבועה של מחירים הייתה מתיישנת ולא אומתה. שומה מקצועית — במסך "שמאות מקרקעין" במערכת הכלכלית.
 state.realestate = state.realestate || {
-  type: 'apartment', area: 'jerusalem-haredi', condition: 'good', size: null, rooms: 3,
+  type: 'apartment', pricePerSqm: null, condition: 'good', size: null, rooms: 3,
   floor: 2, year: null, asking: null,
   elevator: false, parking: false, balcony: false, storage: false, renovated: false, tama: false, view: false, noise: false,
 };
@@ -58,11 +46,32 @@ function renderRealEstateView() {
   recalcRealEstate();
 }
 
+// המקדמים כאן (סוג, מצב, מאפיינים, קומה) הם כללי אצבע להערכה גסה — לא נתוני שוק ולא שומה
+function reQuickEstimate(re) {
+  if (!(re.size > 0) || !(re.pricePerSqm > 0)) return null;
+  const typeMult = RE_TYPES.find(t => t.k === re.type)?.base ?? 1;
+  const condMult = CONDITIONS.find(c => c.k === re.condition)?.mult ?? 1;
+  let featuresMult = 1;
+  if (re.elevator) featuresMult *= 1.05;
+  if (re.parking) featuresMult *= 1.06;
+  if (re.balcony) featuresMult *= 1.04;
+  if (re.storage) featuresMult *= 1.02;
+  if (re.renovated) featuresMult *= 1.08;
+  if (re.tama) featuresMult *= 1.10;
+  if (re.view) featuresMult *= 1.03;
+  if (re.noise) featuresMult *= 0.95;
+  const floorMult = re.floor === 0 ? 0.95 : re.floor >= 4 ? 1.03 : 1.00;
+  const baseValue = re.size * re.pricePerSqm;
+  return { baseValue, typeMult, condMult, featuresMult, floorMult, value: baseValue * typeMult * condMult * featuresMult * floorMult };
+}
+
+const RE_PRO_NOTE = '<div class="tip-box"><div class="tip-title">⌂ הערכה גסה — לא שומה</div><div class="tip-body">לדוח שומה מקצועי עם עסקאות השוואה, התאמות ונעילה — "שמאות מקרקעין" בסרגל, בתחום "משכנתאות ונדל״ן".</div></div>';
+
 function recalcRealEstate() {
   const r = $('#re-result');
   if (!r) return;
   const re = state.realestate;
-  re.area = $('#re-area')?.value || 'jerusalem-haredi';
+  re.pricePerSqm = parseFloat(String($('#re-ppsqm')?.value || '').replace(/,/g, ''));
   re.size = parseFloat($('#re-size')?.value);
   re.rooms = parseFloat($('#re-rooms')?.value) || 3;
   re.floor = parseInt($('#re-floor')?.value) || 0;
@@ -77,37 +86,20 @@ function recalcRealEstate() {
   re.view = $('#re-view')?.checked || false;
   re.noise = $('#re-noise')?.checked || false;
 
-  if (!re.size || re.size <= 0) {
-    r.innerHTML = `<div class="tip-box"><div class="tip-title">⌂ נדרש שטח</div><div class="tip-body">הזן את שטח הנכס במ"ר כדי לחשב.</div></div>`;
+  const q = reQuickEstimate(re);
+  if (!q) {
+    r.innerHTML = `<div class="tip-box"><div class="tip-title">⌂ נדרשים שטח ומחיר למ"ר</div><div class="tip-body">הזן את שטח הנכס ואת המחיר הממוצע למ"ר באזור, לפי עסקאות שבדקת. התוכנה אינה מכירה מחירי שוק.</div></div>${RE_PRO_NOTE}`;
     $('#re-save').hidden = true;
     return;
   }
-
-  const pricePerSqm = RE_AREAS[re.area];
-  const typeMult = RE_TYPES.find(t => t.k === re.type)?.base ?? 1;
-  const condMult = CONDITIONS.find(c => c.k === re.condition)?.mult ?? 1;
-  // Apply features
-  let featuresMult = 1;
-  if (re.elevator) featuresMult *= 1.05;
-  if (re.parking) featuresMult *= 1.06;
-  if (re.balcony) featuresMult *= 1.04;
-  if (re.storage) featuresMult *= 1.02;
-  if (re.renovated) featuresMult *= 1.08;
-  if (re.tama) featuresMult *= 1.10;
-  if (re.view) featuresMult *= 1.03;
-  if (re.noise) featuresMult *= 0.95;
-  // Floor adjustment: ground floor with garden=neutral, low floors slightly less, high floors slightly more
-  const floorMult = re.floor === 0 ? 0.95 : re.floor >= 4 ? 1.03 : 1.00;
-
-  const baseValue = re.size * pricePerSqm;
-  const estValue = baseValue * typeMult * condMult * featuresMult * floorMult;
+  const { baseValue, typeMult, condMult, featuresMult, floorMult, value: estValue } = q;
 
   let html = `
     <div class="r-row big">
-      <span class="r-label">שווי שוק משוער</span>
+      <span class="r-label">הערכה גסה</span>
       <strong>₪${fmt0(estValue)}</strong>
     </div>
-    <div class="r-row sep"><span class="r-label">בסיס לפי אזור (${fmt0(pricePerSqm)} ₪/מ"ר)</span><span class="r-value">₪${fmt0(baseValue)}</span></div>
+    <div class="r-row sep"><span class="r-label">בסיס (${fmt0(re.pricePerSqm)} ₪/מ"ר שהוזן)</span><span class="r-value">₪${fmt0(baseValue)}</span></div>
     <div class="r-row"><span class="r-label">סוג נכס</span><span class="r-value">×${typeMult}</span></div>
     <div class="r-row"><span class="r-label">מצב</span><span class="r-value">×${condMult}</span></div>
     <div class="r-row"><span class="r-label">מאפיינים</span><span class="r-value">×${featuresMult.toFixed(2)}</span></div>
@@ -161,7 +153,7 @@ function recalcRealEstate() {
     </div>
   `;
 
-  r.innerHTML = html;
+  r.innerHTML = html + RE_PRO_NOTE;
   $('#re-save').hidden = !re.asking;
 }
 

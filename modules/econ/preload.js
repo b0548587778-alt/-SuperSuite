@@ -284,6 +284,8 @@ contextBridge.exposeInMainWorld('systemAPI', {
   importRealEstateComparables: (id, text, opts) => ipcRenderer.invoke('realestate:importComparables', id, text, opts),
   finalizeRealEstateCase: (id) => ipcRenderer.invoke('realestate:finalizeCase', id),
   reopenRealEstateCase: (id) => ipcRenderer.invoke('realestate:reopenCase', id),
+  addRealEstatePhoto: (id, input) => ipcRenderer.invoke('realestate:addPhoto', id, input),
+  deleteRealEstatePhoto: (id, photoId) => ipcRenderer.invoke('realestate:deletePhoto', id, photoId),
   saveRealEstateSettings: (input) => ipcRenderer.invoke('realestate:saveSettings', input),
   getRealEstateReportHtml: (id) => ipcRenderer.invoke('realestate:getReportHtml', id),
   exportRealEstateReport: (id) => ipcRenderer.invoke('realestate:exportReport', id),

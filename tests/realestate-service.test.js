@@ -214,3 +214,36 @@ test('מסך: תיק נעול — שדות מושבתים ואין כפתור ש
   assert.doesNotMatch(ed, /id="reSave"/);
   assert.match(ed, /data-re="client\.name" value="אברהם כהן" disabled/);
 });
+
+test('צילומים: הוספה, תקרה לתיק, נעילה חוסמת, בדוח, ונמחקים עם התיק', async () => {
+  const db = memDb();
+  const s = service(db);
+  const c = await s.createCase({});
+  await s.updateCase(c.id, FULL);
+  const img = 'data:image/jpeg;base64,' + 'A'.repeat(400);
+  await assert.rejects(() => s.addPhoto(c.id, { data: 'data:text/html;base64,AAAA' }), /אינו תמונה/);
+  await assert.rejects(() => s.addPhoto(c.id, { data: 'data:image/jpeg;base64,' + 'A'.repeat(R.PHOTO_MAX_CHARS) }), /גדולה מדי/);
+  const p = await s.addPhoto(c.id, { data: img, caption: 'חזית הבניין' });
+  for (let i = 0; i < R.PHOTOS_PER_CASE - 1; i++) await s.addPhoto(c.id, { data: img });
+  await assert.rejects(() => s.addPhoto(c.id, { data: img }), /עד 6 צילומים/);
+  const full = await s.getCase(c.id);
+  assert.equal(full.photos.length, R.PHOTOS_PER_CASE);
+  assert.equal(full.photos[0].caption, 'חזית הבניין');
+  assert.equal(full.case.photos, undefined, 'הצילומים לא בתוך התיק — באוסף נפרד');
+  const rep = await s.getReportHtml(c.id);
+  assert.match(rep.html, /<h2>צילומים<\/h2>/);
+  assert.match(rep.html, /<figcaption>חזית הבניין<\/figcaption>/);
+  await s.deletePhoto(c.id, p.id);
+  assert.equal((await s.getCase(c.id)).photos.length, R.PHOTOS_PER_CASE - 1);
+  await s.finalizeCase(c.id);
+  await assert.rejects(() => s.addPhoto(c.id, { data: img }), /נעול/);
+  await s.reopenCase(c.id);
+  await s.deleteCase(c.id);
+  assert.equal(db.peek().realEstatePhotos.photos.length, 0);
+});
+
+test('צילומים: תקרה כוללת לכל התיקים', async () => {
+  const s = service(memDb({ realEstatePhotos: { photos: [{ id: 'p', caseId: 'old', data: 'data:image/jpeg;base64,' + 'A'.repeat(R.PHOTOS_TOTAL_CHARS - 100) }] } }));
+  const c = await s.createCase({});
+  await assert.rejects(() => s.addPhoto(c.id, { data: 'data:image/jpeg;base64,' + 'A'.repeat(500) }), /נגמר המקום/);
+});

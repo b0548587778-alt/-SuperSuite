@@ -7,6 +7,11 @@ const X = require('./exports');
 const esc = X.esc;
 const MAX_CASES = 5000;
 const MAX_COMPS = 60;
+// צילומים: כל שמירה במסד כותבת את כל האוספים — לכן תקרה לתמונה, לתיק ולסך הכול
+const PHOTO_MAX_CHARS = 280000;   // כ-200KB אחרי הקטנה בממשק
+const PHOTOS_PER_CASE = 6;
+const PHOTOS_TOTAL_CHARS = 20000000; // כ-15MB לכל התיקים יחד
+const PHOTO_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/;
 const MAX_ADJ_BP = 5000; // התאמה בודדת: עד ±50%
 
 const PURPOSES = {
@@ -213,6 +218,7 @@ function validateCase(input = {}, today) {
     cost: validateCost(input.cost),
     reconcile: validateReconcile(input.reconcile),
     assumptions: input.assumptions === undefined ? DEFAULT_ASSUMPTIONS : txt(input.assumptions, 4000),
+    reportLang: input.reportLang === 'he-en' ? 'he-en' : 'he',
   };
 }
 
@@ -452,7 +458,47 @@ const row = (l, v) => (v === '' || v === null || v === undefined ? '' : `<tr><th
 const para = (title, body) => (body ? `<h2>${esc(title)}</h2><div class="text">${esc(body).replace(/\n/g, '<br>')}</div>` : '');
 const gushText = (p) => [p.block && `גוש ${p.block}`, p.parcel && `חלקה ${p.parcel}`, p.subParcel && `תת-חלקה ${p.subParcel}`].filter(Boolean).join(', ');
 
+// דוח דו-לשוני: אנגלית לתוויות הקבועות ולערכי הרשימות. תרגום של התוכנה — לא מינוח רשמי של תקן (לבירור)
+const EN = {
+  'שומת מקרקעין': 'Real Estate Appraisal Report', 'טיוטה — לא לשימוש': 'DRAFT — not for use',
+  'מספר דוח': 'Report No.', 'תאריך הדוח': 'Report date', 'המועד הקובע': 'Effective date', 'תאריך הביקור בנכס': 'Inspection date',
+  'גרסה מתוקנת של דוח': 'Revision of report', 'המזמין ומטרת השומה': 'Client and purpose', 'המזמין': 'Client', 'מספר זהות': 'ID No.',
+  'טלפון': 'Phone', 'מטרת השומה': 'Purpose', 'השמאי': 'Appraiser', 'שם': 'Name', 'מספר רישיון': 'License No.', 'משרד': 'Firm',
+  'כתובת': 'Address', 'דוא"ל': 'Email', 'זיהוי הנכס': 'Subject property', 'גוש / חלקה / תת-חלקה': 'Block / Parcel / Sub-parcel',
+  'סוג הנכס': 'Property type', 'הזכויות בנכס': 'Property rights', 'שטח': 'Area', 'שטח אקוויוולנטי': 'Equivalent area',
+  'שטח הקרקע': 'Land area', 'חדרים': 'Rooms', 'קומה': 'Floor', 'מתוך': 'of', 'שנת בנייה': 'Year built', 'מצב': 'Condition',
+  'חניה': 'Parking', 'מחסן': 'Storage', 'תיאור הנכס': 'Description', 'הסביבה': 'Surroundings', 'המצב התכנוני': 'Planning status',
+  'המצב המשפטי': 'Legal status', 'גורמים ושיקולים': 'Factors and considerations', 'עסקאות השוואה': 'Comparable sales',
+  'תאריך': 'Date', 'מחיר': 'Price', '₪ למ"ר': '₪ per sqm', 'התאמות': 'Adjustments', 'נטו': 'Net', '₪ למ"ר מותאם': 'Adjusted ₪ per sqm',
+  'מקור': 'Source', 'לא הוזנו עסקאות.': 'No comparables entered.', 'לא חושבה.': 'Not calculated.',
+  'מספר עסקאות בחישוב': 'Comparables used', 'טווח מחירים מותאמים למ"ר': 'Adjusted price range per sqm', 'חציון': 'Median',
+  'ממוצע משוקלל למ"ר': 'Weighted average per sqm', 'ממוצע למ"ר': 'Average per sqm', 'שטח לחישוב': 'Area used',
+  'שווי לפי גישת ההשוואה': 'Value — sales comparison', 'הכנסה שנתית ברוטו': 'Gross annual income', 'אחרי אי-תפוסה': 'After vacancy',
+  'הוצאות שנתיות': 'Annual expenses', 'הכנסה נקייה (NOI)': 'Net operating income (NOI)', 'שיעור היוון': 'Capitalization rate',
+  'שווי לפי גישת ההכנסות': 'Value — income capitalization', 'שווי הקרקע': 'Land value', 'שטח בנוי': 'Built area',
+  'עלות הקמה למ"ר': 'Construction cost per sqm', 'עלות הקמה': 'Construction cost', 'רווח יזמי': 'Entrepreneurial profit',
+  'פחת': 'Depreciation', 'מבנה אחרי פחת': 'Depreciated improvements', 'שווי לפי גישת העלות': 'Value — cost approach',
+  'שקלול ושומה סופית': 'Reconciliation and final value', 'גישה': 'Approach', 'שווי': 'Value', 'משקל': 'Weight',
+  'השווי נקבע על ידי השמאי:': 'Value set by the appraiser:', 'שווי הנכס במועד הקובע:': 'Market value at the effective date:',
+  'צילומים': 'Photographs', 'הנחות ומגבלות': 'Assumptions and limiting conditions', 'הצהרת השמאי': "Appraiser's declaration",
+  'חתימת השמאי': "Appraiser's signature", 'חותמת': 'Stamp',
+};
+const VALUE_MAPS = { purposes: PURPOSES, types: PROPERTY_TYPES, rights: RIGHTS, conditions: CONDITIONS, factors: ADJ_FACTORS, approaches: APPROACHES };
+const EN_VALUES = {
+  purposes: { sale: 'Sale or purchase', mortgage: 'Mortgage security', estate: 'Estate and inheritance', division: 'Partition of co-ownership', tax: 'Taxation', betterment: 'Betterment levy', compensation: 'Compensation and expropriation', court: 'Legal proceedings', other: 'Other' },
+  types: { apartment: 'Apartment', garden: 'Garden apartment', penthouse: 'Penthouse / roof apartment', house: 'Detached house', land: 'Land plot', shop: 'Shop', office: 'Office', industrial: 'Industrial / workshop', storage: 'Storage unit', other: 'Other' },
+  rights: { ownership: 'Freehold', lease: 'Leasehold', leaseCapitalized: 'Capitalized leasehold', other: 'Other' },
+  conditions: { new: 'New', renovated: 'Renovated', good: 'Good', fair: 'Fair', poor: 'Requires renovation' },
+  factors: { time: 'Time', location: 'Location', size: 'Size', floor: 'Floor', condition: 'Condition', age: 'Age', view: 'View and exposure', parking: 'Parking and storage', rights: 'Rights', other: 'Other' },
+  approaches: { sales: 'Sales comparison approach', income: 'Income capitalization approach', cost: 'Cost approach' },
+};
+const DEFAULT_DECLARATION_EN = 'I, the undersigned, have inspected the property and prepared this appraisal to the best of my knowledge, experience and professional judgment. I have no personal interest in the property or in the parties.';
+
 const REPORT_CSS = `
+.en { display: block; font-size: 0.78em; color: dimgray; direction: ltr; unicode-bidi: isolate; font-weight: normal; }
+.en-i { font-size: 0.85em; color: dimgray; direction: ltr; unicode-bidi: isolate; font-weight: normal; }
+h1 .en, h2 .en, .final .en { display: inline; margin-right: 12px; }
+.en-block { direction: ltr; text-align: left; color: dimgray; margin-top: 6px; }
 @page { size: A4; margin: 18mm 16mm; }
 body { font-family: 'David', 'Times New Roman', serif; color: black; line-height: 1.55; font-size: 13.5px; }
 h1 { font-size: 24px; border-bottom: 3px double black; padding-bottom: 6px; margin: 0 0 4px; }
@@ -472,11 +518,22 @@ table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
 .warn { color: firebrick; font-size: 12px; }
 .sign { margin-top: 48px; display: flex; justify-content: space-between; }
 .sign div { border-top: 1px solid black; width: 40%; text-align: center; padding-top: 4px; font-size: 12px; }
+.photos { display: flex; flex-wrap: wrap; gap: 8px; }
+.photos figure { margin: 0; width: 48%; page-break-inside: avoid; }
+.photos img { width: 100%; max-height: 300px; object-fit: contain; border: 1px solid silver; }
+.photos figcaption { font-size: 11px; color: dimgray; text-align: center; }
 .foot { margin-top: 24px; border-top: 1px solid gray; padding-top: 6px; font-size: 11px; color: dimgray; text-align: center; }
 `;
 
-// settings — פרטי השמאי (name, license, office, phone, address, email, declaration)
-function renderReportHtml(cs, settings = {}, today) {
+// settings — פרטי השמאי (name, license, office, phone, address, email, declaration); photos — [{ data, caption }] שכבר אומתו
+function renderReportHtml(cs, settings = {}, today, photos = []) {
+  const en = cs.reportLang === 'he-en';
+  // תווית: עברית, ובדוח דו-לשוני גם אנגלית מתחת (רק תוויות קבועות — מה שהשמאי הקליד נשאר כפי שהוא)
+  const L = (he) => (en && EN[he] ? `${esc(he)}<span class="en">${esc(EN[he])}</span>` : esc(he));
+  const V = (map, k) => (en && EN_VALUES[map][k] ? `${esc(VALUE_MAPS[map][k])} <span class="en-i">${esc(EN_VALUES[map][k])}</span>` : esc(VALUE_MAPS[map][k]));
+  const enOf = (v) => (en && v ? ` <span class="en-i">${esc(v)}</span>` : '');
+  const row = (l, v) => (v === '' || v === null || v === undefined ? '' : `<tr><th>${L(l)}</th><td>${v}</td></tr>`);
+  const para = (title, body) => (body ? `<h2>${L(title)}</h2><div class="text">${esc(body).replace(/\n/g, '<br>')}</div>` : '');
   const final = cs.status === 'final' && cs.frozen;
   const r = final ? cs.frozen : computeCase(cs);
   const p = cs.property, cl = cs.client, s = settings || {};
@@ -486,7 +543,7 @@ function renderReportHtml(cs, settings = {}, today) {
     return `<tr class="${c.included ? '' : 'excluded'}"><td>${i + 1}</td><td>${esc([c.address, c.city].filter(Boolean).join(', '))}${gushText(c) ? `<br><small>${esc(gushText(c))}</small>` : ''}</td>
       <td>${day(c.date)}</td><td class="n">${money(c.priceAg)}</td><td class="n">${esc(String(c.area))}</td>
       <td>${c.rooms ?? '—'}</td><td>${c.floor ?? '—'}</td><td class="n">${money(x.perSqmAg)}</td>
-      <td>${c.adjustments.map(a => `${esc(ADJ_FACTORS[a.factor])} <bdi dir="ltr">${pct(a.bp)}</bdi>${a.note ? ` (${esc(a.note)})` : ''}`).join('<br>') || '—'}</td>
+      <td>${c.adjustments.map(a => `${V('factors', a.factor)} <bdi dir="ltr">${pct(a.bp)}</bdi>${a.note ? ` (${esc(a.note)})` : ''}`).join('<br>') || '—'}</td>
       <td class="n"><bdi dir="ltr">${pct(x.netBp)}</bdi></td><td class="n">${money(x.adjustedPerSqmAg)}</td><td>${esc(c.source)}</td></tr>`;
   }).join('');
   const sales = r.sales;
@@ -498,15 +555,15 @@ function renderReportHtml(cs, settings = {}, today) {
       ${row(sales.stats.weighted ? 'ממוצע משוקלל למ"ר' : 'ממוצע למ"ר', money(sales.perSqmAg))}
       ${row('שטח לחישוב', area(sales.area))}
       ${row('שווי לפי גישת ההשוואה', money(sales.valueAg))}
-    </table>` : '<p>לא חושבה.</p>';
+    </table>` : `<p>${L('לא חושבה.')}</p>`;
   const inc = r.income, cost = r.cost;
   const fin = r.final;
   const approachRows = Object.keys(APPROACHES).filter(k => r[k].ok)
-    .map(k => `<tr><td>${esc(APPROACHES[k])}</td><td class="n">${money(r[k].valueAg)}</td><td class="n">${Math.round(fin.weights[k] * 100) / 100}%</td></tr>`).join('');
+    .map(k => `<tr><td>${V('approaches', k)}</td><td class="n">${money(r[k].valueAg)}</td><td class="n">${Math.round(fin.weights[k] * 100) / 100}%</td></tr>`).join('');
   const body = `
-  <h1>שומת מקרקעין</h1>
+  <h1>${L('שומת מקרקעין')}</h1>
   <div class="sub">${esc([p.address, p.city].filter(Boolean).join(', '))}${gushText(p) ? ' · ' + esc(gushText(p)) : ''}</div>
-  ${final ? '' : '<div class="draft">טיוטה — לא לשימוש</div>'}
+  ${final ? '' : `<div class="draft">${L('טיוטה — לא לשימוש')}</div>`}
   <table class="kv">
     ${row('מספר דוח', esc(reportNo(cs)))}
     ${row('תאריך הדוח', day(repDate))}
@@ -515,31 +572,31 @@ function renderReportHtml(cs, settings = {}, today) {
     ${cs.rev ? row('גרסה מתוקנת של דוח', esc(String(cs.no) + (cs.rev > 1 ? '-' + (cs.rev - 1) : ''))) : ''}
   </table>
 
-  <h2>המזמין ומטרת השומה</h2>
+  <h2>${L('המזמין ומטרת השומה')}</h2>
   <table class="kv">
     ${row('המזמין', esc(cl.name))}
     ${row('מספר זהות', esc(cl.idNumber))}
     ${row('טלפון', esc(cl.phone))}
-    ${row('מטרת השומה', esc(PURPOSES[cs.purpose]) + (cs.purpose === 'other' && cs.purposeOther ? ' — ' + esc(cs.purposeOther) : ''))}
+    ${row('מטרת השומה', V('purposes', cs.purpose) + (cs.purpose === 'other' && cs.purposeOther ? ' — ' + esc(cs.purposeOther) : ''))}
   </table>
 
-  <h2>השמאי</h2>
+  <h2>${L('השמאי')}</h2>
   <table class="kv">
-    ${row('שם', esc(s.name))}${row('מספר רישיון', esc(s.license))}${row('משרד', esc(s.office))}
-    ${row('טלפון', esc(s.phone))}${row('כתובת', esc(s.address))}${row('דוא"ל', esc(s.email))}
+    ${row('שם', s.name ? esc(s.name) + enOf(s.nameEn) : '')}${row('מספר רישיון', esc(s.license))}${row('משרד', s.office ? esc(s.office) + enOf(s.officeEn) : '')}
+    ${row('טלפון', esc(s.phone))}${row('כתובת', s.address ? esc(s.address) + enOf(s.addressEn) : '')}${row('דוא"ל', esc(s.email))}
   </table>
 
-  <h2>זיהוי הנכס</h2>
+  <h2>${L('זיהוי הנכס')}</h2>
   <table class="kv">
     ${row('כתובת', esc([p.address, p.city].filter(Boolean).join(', ')))}
     ${row('גוש / חלקה / תת-חלקה', esc(gushText(p)))}
-    ${row('סוג הנכס', esc(PROPERTY_TYPES[p.type]))}
-    ${row('הזכויות בנכס', esc(RIGHTS[p.rights]))}
+    ${row('סוג הנכס', V('types', p.type))}
+    ${row('הזכויות בנכס', V('rights', p.rights))}
     ${row('שטח', area(p.area))}${p.equivArea ? row('שטח אקוויוולנטי', area(p.equivArea)) : ''}${p.landArea ? row('שטח הקרקע', area(p.landArea)) : ''}
     ${row('חדרים', p.rooms === null ? '' : esc(String(p.rooms)))}
-    ${row('קומה', p.floor === null ? '' : esc(String(p.floor)) + (p.floors ? ` מתוך ${esc(String(p.floors))}` : ''))}
+    ${row('קומה', p.floor === null ? '' : esc(String(p.floor)) + (p.floors ? ` ${L('מתוך')} ${esc(String(p.floors))}` : ''))}
     ${row('שנת בנייה', p.yearBuilt ? esc(String(p.yearBuilt)) : '')}
-    ${row('מצב', esc(CONDITIONS[p.condition]))}
+    ${row('מצב', V('conditions', p.condition))}
     ${row('חניה', esc(p.parking))}${row('מחסן', esc(p.storage))}
   </table>
   ${para('תיאור הנכס', p.description)}
@@ -548,32 +605,35 @@ function renderReportHtml(cs, settings = {}, today) {
   ${para('המצב המשפטי', p.legal)}
   ${para('גורמים ושיקולים', p.considerations)}
 
-  <h2>עסקאות השוואה</h2>
-  ${cs.comparables.length ? `<table class="grid"><thead><tr><th>#</th><th>כתובת</th><th>תאריך</th><th>מחיר</th><th>שטח</th><th>חדרים</th><th>קומה</th><th>₪ למ"ר</th><th>התאמות</th><th>נטו</th><th>₪ למ"ר מותאם</th><th>מקור</th></tr></thead><tbody>${compRows}</tbody></table>` : '<p>לא הוזנו עסקאות.</p>'}
+  <h2>${L('עסקאות השוואה')}</h2>
+  ${cs.comparables.length ? `<table class="grid"><thead><tr><th>#</th>${['כתובת', 'תאריך', 'מחיר', 'שטח', 'חדרים', 'קומה', '₪ למ"ר', 'התאמות', 'נטו', '₪ למ"ר מותאם', 'מקור'].map(h => `<th>${L(h)}</th>`).join('')}</tr></thead><tbody>${compRows}</tbody></table>` : `<p>${L('לא הוזנו עסקאות.')}</p>`}
 
-  <h2>${esc(APPROACHES.sales)}</h2>
+  <h2>${V('approaches', 'sales')}</h2>
   ${salesHtml}
-  ${inc.ok ? `<h2>${esc(APPROACHES.income)}</h2><table class="kv">
+  ${inc.ok ? `<h2>${V('approaches', 'income')}</h2><table class="kv">
     ${row('הכנסה שנתית ברוטו', money(inc.grossAg))}${row('אחרי אי-תפוסה', money(inc.effectiveAg))}
     ${row('הוצאות שנתיות', money(cs.income.annualExpensesAg))}${row('הכנסה נקייה (NOI)', money(inc.noiAg))}
     ${row('שיעור היוון', pct(cs.income.capRateBp).replace('+', ''))}${row('שווי לפי גישת ההכנסות', money(inc.valueAg))}</table>
     ${cs.income.note ? `<div class="text">${esc(cs.income.note)}</div>` : ''}` : ''}
-  ${cost.ok ? `<h2>${esc(APPROACHES.cost)}</h2><table class="kv">
+  ${cost.ok ? `<h2>${V('approaches', 'cost')}</h2><table class="kv">
     ${row('שווי הקרקע', money(cost.landAg))}${row('שטח בנוי', area(cost.area))}${row('עלות הקמה למ"ר', money(cs.cost.costPerSqmAg))}
     ${row('עלות הקמה', money(cost.buildAg))}${row('רווח יזמי', pct(cs.cost.profitBp).replace('+', ''))}${row('פחת', pct(cs.cost.depreciationBp).replace('+', ''))}
     ${row('מבנה אחרי פחת', money(cost.depreciatedAg))}${row('שווי לפי גישת העלות', money(cost.valueAg))}</table>
     ${cs.cost.note ? `<div class="text">${esc(cs.cost.note)}</div>` : ''}` : ''}
 
-  <h2>שקלול ושומה סופית</h2>
-  ${approachRows ? `<table class="grid"><thead><tr><th>גישה</th><th>שווי</th><th>משקל</th></tr></thead><tbody>${approachRows}</tbody></table>` : ''}
+  <h2>${L('שקלול ושומה סופית')}</h2>
+  ${approachRows ? `<table class="grid"><thead><tr><th>${L('גישה')}</th><th>${L('שווי')}</th><th>${L('משקל')}</th></tr></thead><tbody>${approachRows}</tbody></table>` : ''}
   ${cs.reconcile.note ? `<div class="text">${esc(cs.reconcile.note)}</div>` : ''}
-  ${cs.reconcile.overrideAg !== null ? `<p>השווי נקבע על ידי השמאי: ${esc(cs.reconcile.overrideReason)}</p>` : ''}
-  <div class="final">שווי הנכס במועד הקובע: <strong>${money(fin.valueAg)}</strong>${fin.perSqmAg ? ` <small>(${money(fin.perSqmAg)} למ"ר)</small>` : ''}</div>
+  ${cs.reconcile.overrideAg !== null ? `<p>${L('השווי נקבע על ידי השמאי:')} ${esc(cs.reconcile.overrideReason)}</p>` : ''}
+  <div class="final">${L('שווי הנכס במועד הקובע:')} <strong>${money(fin.valueAg)}</strong>${fin.perSqmAg ? ` <small>(${money(fin.perSqmAg)} למ"ר)</small>` : ''}</div>
   ${final ? '' : r.warnings.map(w => `<div class="warn">⚠ ${esc(w)}</div>`).join('')}
+
+  ${photos.length ? `<h2>${L('צילומים')}</h2><div class="photos">${photos.filter(ph => PHOTO_RE.test(ph.data)).map(ph => `<figure><img src="${ph.data}" alt="${esc(ph.caption || 'צילום')}">${ph.caption ? `<figcaption>${esc(ph.caption)}</figcaption>` : ''}</figure>`).join('')}</div>` : ''}
 
   ${para('הנחות ומגבלות', cs.assumptions)}
   ${para('הצהרת השמאי', s.declaration || DEFAULT_DECLARATION)}
-  <div class="sign"><div>חתימת השמאי${s.name ? ' — ' + esc(s.name) : ''}</div><div>חותמת</div></div>
+  ${en ? `<div class="text en-block" dir="ltr">${esc(s.declarationEn || DEFAULT_DECLARATION_EN).replace(/\n/g, '<br>')}</div>` : ''}
+  <div class="sign"><div>${L('חתימת השמאי')}${s.name ? ' — ' + esc(s.name) : ''}${enOf(s.nameEn)}</div><div>${L('חותמת')}</div></div>
   <div class="foot">${esc(s.office || s.name || '')} · שומה מספר ${esc(reportNo(cs))} · ${day(repDate)}</div>`;
   return `<!doctype html>
 <html lang="he" dir="rtl">
@@ -586,16 +646,25 @@ function renderReportHtml(cs, settings = {}, today) {
 </html>`;
 }
 
+// תמונה מהממשק: רק data:image בפורמט מוכר, בגודל מוגבל; כיתוב קצר
+function validatePhoto(p = {}) {
+  const data = String(p.data || '');
+  if (!PHOTO_RE.test(data)) throw new Error('הקובץ אינו תמונה נתמכת (JPG, PNG או WEBP)');
+  if (data.length > PHOTO_MAX_CHARS) throw new Error('התמונה גדולה מדי');
+  return { data, caption: txt(p.caption, 120) };
+}
+
 function validateSettings(s = {}) {
   return {
     name: txt(s.name, 80), license: txt(s.license, 30), office: txt(s.office, 120), phone: txt(s.phone, 30),
     address: txt(s.address, 160), email: txt(s.email, 80), declaration: txt(s.declaration, 2000),
+    nameEn: txt(s.nameEn, 80), officeEn: txt(s.officeEn, 120), addressEn: txt(s.addressEn, 160), declarationEn: txt(s.declarationEn, 2000),
   };
 }
 
 module.exports = {
-  PURPOSES, PROPERTY_TYPES, RIGHTS, CONDITIONS, ADJ_FACTORS, APPROACHES, WARN, DEFAULT_ASSUMPTIONS, DEFAULT_DECLARATION,
-  MAX_CASES, MAX_COMPS,
+  PURPOSES, PROPERTY_TYPES, RIGHTS, CONDITIONS, ADJ_FACTORS, APPROACHES, WARN, DEFAULT_ASSUMPTIONS, DEFAULT_DECLARATION, DEFAULT_DECLARATION_EN, EN, EN_VALUES,
+  MAX_CASES, MAX_COMPS, PHOTO_MAX_CHARS, PHOTOS_PER_CASE, PHOTOS_TOTAL_CHARS, validatePhoto,
   toAg, toArea, pctToBp, validIsraeliId, validateCase, validateComparable, validateSettings,
   comparableResult, salesApproach, incomeApproach, costApproach, reconcile, computeCase, finalizeProblems,
   parseComparablesCsv, finalizeCase, reopenCase, reportNo, renderReportHtml,

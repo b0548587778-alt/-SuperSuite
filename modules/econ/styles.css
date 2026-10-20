@@ -1147,3 +1147,7 @@ button.small { min-height:30px; padding:0 10px; font-size:var(--ss-fs-sm); }
 .realestate .re-adj input { min-width:4rem; }
 .realestate .re-warn { border-inline-start:4px solid var(--ss-warning); }
 .realestate .re-import { border-inline-start:4px solid var(--ss-primary); margin-top:12px; }
+.realestate .re-photos { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px; }
+.realestate .re-photo { margin:0; display:flex; flex-direction:column; gap:4px; align-items:center; }
+.realestate .re-photo img { width:100%; height:140px; object-fit:cover; border:1px solid var(--ss-border); border-radius:var(--ss-radius); }
+.realestate .re-photo figcaption { font-size:var(--ss-fs-sm); color:var(--ss-text-2); }

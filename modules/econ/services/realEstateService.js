@@ -16,6 +16,8 @@ class RealEstateService {
   async _load() {
     const data = await this.db.load();
     const re = data.realEstate && typeof data.realEstate === 'object' ? data.realEstate : {};
+    const ph = data.realEstatePhotos && typeof data.realEstatePhotos === 'object' ? data.realEstatePhotos : {};
+    data.realEstatePhotos = { photos: Array.isArray(ph.photos) ? ph.photos : [] };
     data.realEstate = {
       cases: Array.isArray(re.cases) ? re.cases : [],
       seq: Number.isSafeInteger(re.seq) && re.seq > 0 ? re.seq : 0,
@@ -59,7 +61,7 @@ class RealEstateService {
     const data = await this._load();
     const c = this._find(data, id);
     const result = c.status === 'final' && c.frozen ? c.frozen : R.computeCase(c);
-    return { case: c, result, problems: c.status === 'final' ? [] : R.finalizeProblems(c, this.today()) };
+    return { case: c, result, problems: c.status === 'final' ? [] : R.finalizeProblems(c, this.today()), photos: this._photosOf(data, id) };
   }
 
   async createCase(input = {}) {
@@ -91,6 +93,7 @@ class RealEstateService {
     const before = data.realEstate.cases.length;
     data.realEstate.cases = data.realEstate.cases.filter(c => c.id !== id);
     if (data.realEstate.cases.length === before) throw new Error('התיק לא נמצא');
+    data.realEstatePhotos.photos = data.realEstatePhotos.photos.filter(p => p.caseId !== id);
     await this.db.save(data);
     return { ok: true };
   }
@@ -136,6 +139,37 @@ class RealEstateService {
     return this._summary(data.realEstate.cases[i]);
   }
 
+  _photosOf(data, caseId) {
+    return data.realEstatePhotos.photos.filter(p => p.caseId === caseId).map(({ id, data: d, caption, addedAt }) => ({ id, data: d, caption, addedAt }));
+  }
+
+  // צילום לתיק: רק בטיוטה (בתיק נעול הדוח חייב להישאר זהה), עם תקרה לתיק ולסך הכול
+  async addPhoto(caseId, input = {}) {
+    const data = await this._load();
+    const c = this._find(data, caseId);
+    if (c.status === 'final') throw new Error('התיק נעול. לשינוי — יש לפתוח גרסה מתוקנת');
+    const p = R.validatePhoto(input);
+    const all = data.realEstatePhotos.photos;
+    if (all.filter(x => x.caseId === caseId).length >= R.PHOTOS_PER_CASE) throw new Error(`עד ${R.PHOTOS_PER_CASE} צילומים בתיק`);
+    const total = all.reduce((s, x) => s + String(x.data || '').length, 0);
+    if (total + p.data.length > R.PHOTOS_TOTAL_CHARS) throw new Error('נגמר המקום לצילומים בכל התיקים יחד — יש למחוק צילומים מתיקים ישנים');
+    const photo = { id: crypto.randomUUID(), caseId, ...p, addedAt: new Date().toISOString() };
+    all.push(photo);
+    await this.db.save(data);
+    return { id: photo.id, caption: photo.caption };
+  }
+
+  async deletePhoto(caseId, photoId) {
+    const data = await this._load();
+    const c = this._find(data, caseId);
+    if (c.status === 'final') throw new Error('התיק נעול. לשינוי — יש לפתוח גרסה מתוקנת');
+    const before = data.realEstatePhotos.photos.length;
+    data.realEstatePhotos.photos = data.realEstatePhotos.photos.filter(p => !(p.caseId === caseId && p.id === photoId));
+    if (data.realEstatePhotos.photos.length === before) throw new Error('הצילום לא נמצא');
+    await this.db.save(data);
+    return { ok: true };
+  }
+
   async saveSettings(input = {}) {
     const data = await this._load();
     data.realEstate.settings = R.validateSettings(input);
@@ -147,7 +181,7 @@ class RealEstateService {
   async getReportHtml(id) {
     const data = await this._load();
     const c = this._find(data, id);
-    return { html: R.renderReportHtml(c, data.realEstate.settings, this.today()), name: `שומה-${R.reportNo(c)}`, final: c.status === 'final' };
+    return { html: R.renderReportHtml(c, data.realEstate.settings, this.today(), this._photosOf(data, id)), name: `שומה-${R.reportNo(c)}`, final: c.status === 'final' };
   }
 }
 
