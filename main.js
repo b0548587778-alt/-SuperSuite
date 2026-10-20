@@ -29,6 +29,7 @@ crash.installProcessHandlers();
 // בדיקת עלייה של הגרסה הארוזה (PLAN.md 3.5, CI בלבד): רק עם תיקיית נתונים נפרדת — לא נוגעים בנתונים אמיתיים
 const Smoke = require('./shell/smoke');
 const Splash = require('./shell/splash');
+const PrintPdf = require('./shell/print-pdf');
 const smoke = Smoke.isSmoke(process.argv)
   ? (process.argv.some(a => a.startsWith('--user-data-dir=')) ? Smoke.createSmoke({ fs, path, dir: app.getPath('userData'), dialog, exit: (c) => app.exit(c), shots: Smoke.shotsDir(process.argv) }) : (app.exit(2), null))
   : null;
@@ -910,6 +911,17 @@ app.whenReady().then(async () => {
     if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view, 'trainer');
     if (active === 'trainer') recordNav({ mod: 'trainer', view });
     return true;
+  });
+  // מודול האימונים: שמירת המסך המוצג כ-PDF (תוכנית, תזונה, תבנית, דוח למתאמן) — רק מתצוגת המודול עצמה
+  ipcMain.handle('trainer:save-pdf', async (e, name) => {
+    if (!fromView(e, 'trainer')) return { ok: false };
+    try {
+      return await PrintPdf.savePagePdf({ dialog, fs, win, wc: e.sender, name, dir: app.getPath('documents') });
+    } catch (err) {
+      // ההודעה מוצגת במסך (חלון ההודעה המשותף), כמו שאר השגיאות במודול
+      logger.error('trainer:save-pdf', err);
+      return { ok: false, error: 'שמירת הקובץ נכשלה. אפשר לנסות שוב, או לבחור תיקייה אחרת.' };
+    }
   });
   ipcMain.handle('shell:history-go', (e, delta) => {
     if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return false;

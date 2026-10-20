@@ -73,11 +73,6 @@ export function formatDateHe(date) {
   return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-// Trigger native print
-export function printPage() {
-  window.print();
-}
-
 // Download text as file
 export function downloadText(text, filename) {
   const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });

@@ -6,6 +6,7 @@ import { S, K } from './lib/db.js';
 import * as St from './lib/studio.js';
 import { whatsappShareUrl, copyToClipboard } from './lib/sharing.js';
 import { askConfirm } from './lib/dialog.js';
+import { savePdf, printNow } from './lib/print.js';
 
 // ═══════════════════════════════════════════════════════════════════
 //                      נתוני הסטודיו
@@ -862,7 +863,8 @@ export function ClientReport({ client, clients, trainer, measurements, goalLabel
         <div className="sticky top-0 bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-10 flex-wrap gap-2">
           <div className="text-sm text-slate-400">כרטיס ודוח התקדמות למתאמן — הדפסה, PDF או שליחה</div>
           <div className="flex gap-2 flex-wrap">
-            <Btn onClick={() => window.print()}>⎙ הדפסה / PDF</Btn>
+            <Btn onClick={() => savePdf(`דוח התקדמות — ${client.name || ''}`)}>⎙ שמירה כ-PDF</Btn>
+            <Btn variant="outline" onClick={printNow}>🖨 הדפסה</Btn>
             <Btn variant="success" disabled={!client.phone} title={client.phone ? '' : 'אין מספר טלפון'} onClick={() => shareWhatsApp(text, client.phone)}>וואטסאפ</Btn>
             <Btn variant="outline" onClick={async () => { if (await copyToClipboard(text)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}>{copied ? '✓ הועתק' : 'העתקת סיכום'}</Btn>
             <Btn variant="outline" onClick={onClose}>סגירה</Btn>

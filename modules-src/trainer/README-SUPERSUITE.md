@@ -25,7 +25,7 @@ npm test
 
 ## קובץ שילוב (לא חלק מהבנייה)
 נמצא ב-`modules/trainer` ונשמר בכל בנייה:
-- `preload.js` — ניווט מהסרגל האחיד ודיווח המסך הפעיל (`tests/trainer-nav.test.js`).
+- `preload.js` — ניווט מהסרגל האחיד ודיווח המסך הפעיל (`tests/trainer-nav.test.js`), ושמירה כ-PDF: `savePdf(name)` ב-`src/lib/print.js` שולח `ss:save-pdf`, וה-preload מבקש מהתוכנה (`trainer:save-pdf`). **כפתור הדפסה חדש — דרך `savePdf` / `printNow`, לא `window.print()`**.
 
 **שינוי טקסט בסרגל הפנימי של המודול** — לעדכן את `TRAINER_LABELS` ב-`shell/catalog.js`, אחרת `tests/trainer-nav.test.js` ייכשל.
 
