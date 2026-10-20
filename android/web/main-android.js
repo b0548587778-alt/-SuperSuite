@@ -119,10 +119,16 @@ function start(ctx) {
     if (!frames.exists('econ')) return false;
     try { econ.assertAccess(ctx.senderOf('econ'), 'data.view'); return true; } catch { return false; }
   }
+  // כשל בקריאת הכספים = כשל של הגיבוי כולו (כמו main.js): לא נשמר קובץ בלי הכספים שנראה כגיבוי תקין
   async function collectBackup(scope = 'all') {
     const out = { suite: 'SuperSuite', version: 2, scope, createdAt: new Date().toISOString(), econ: null, localStorage: {} };
     if (scope === 'all' || scope === 'econ') {
-      try { out.econ = await econ.getDb().backup(); } catch (e) { out.econError = String(e.message || e); }
+      try { out.econ = await econ.getDb().backup(); }
+      catch (e) {
+        const err = new Error('לא ניתן היה לקרוא את הנתונים הכספיים, ולכן הגיבוי לא נשמר. נסו שוב בעוד רגע.');
+        err.code = 'econ-read-failed';
+        throw err;
+      }
     }
     for (const id of LS_MODS) {
       if (scope !== 'all' && scope !== id) continue;

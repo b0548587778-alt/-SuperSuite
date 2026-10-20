@@ -16,14 +16,32 @@ function classifyDbError(err) {
 
 const DB_NAME = 'unified_economics.db';
 
+// קובצי הגיבוי האוטומטי בתיקייה (auto-YYYY-MM-DD.ssbk), מהישן לחדש
+function autoBackupFiles(dir) {
+  try { return fs.readdirSync(dir).filter(f => /^auto-\d{4}-\d{2}-\d{2}\.ssbk$/.test(f)).sort(); } catch { return []; }
+}
+const backupInfo = (dir, name) => ({ file: path.join(dir, name), day: name.slice(5, 15) });
+
 // הגיבוי האוטומטי האחרון בתיקייה (auto-YYYY-MM-DD.ssbk), או null
 function latestAutoBackup(dir) {
-  try {
-    const files = fs.readdirSync(dir).filter(f => /^auto-\d{4}-\d{2}-\d{2}\.ssbk$/.test(f)).sort();
-    if (!files.length) return null;
-    const name = files[files.length - 1];
-    return { file: path.join(dir, name), day: name.slice(5, 15) };
-  } catch { return null; }
+  const files = autoBackupFiles(dir);
+  return files.length ? backupInfo(dir, files[files.length - 1]) : null;
+}
+
+// הגיבוי האוטומטי החדש ביותר שמכיל את הנתונים הכספיים. גיבויים שנכתבו לפני התיקון (בדיקת הקוד 20.10.2026,
+// ממצא 1) עשויים להיות בלי הכספים (econ: null) — השחזור מהם היה נכשל. open(file) מפענח ומחזיר את התוכן או זורק.
+// מחזיר { file, day, data, skipped } (skipped — כמה גיבויים חדשים יותר דולגו). אם אף גיבוי לא מתאים —
+// האחרון בלי data (כמו קודם), כדי שהשחזור ינסה אותו ויציג את הסיבה (למשל מפתח של מחשב אחר). אין גיבוי — null
+function latestUsableAutoBackup(dir, open) {
+  const files = autoBackupFiles(dir);
+  if (!files.length) return null;
+  for (let i = files.length - 1; i >= 0; i--) {
+    const info = backupInfo(dir, files[i]);
+    let data = null;
+    try { data = open(info.file); } catch { /* לא נפתח — ממשיכים לישן יותר */ }
+    if (data && data.suite === 'SuperSuite' && data.econ) return { ...info, data, skipped: files.length - 1 - i };
+  }
+  return backupInfo(dir, files[files.length - 1]);
 }
 
 // העברת המסד הפגום הצידה (עם קבצי WAL), כדי שאפשר יהיה לפתוח מסד חדש ולשחזר לתוכו
@@ -51,10 +69,11 @@ function dialogFor(kind, backup) {
     message: 'קובץ הנתונים פגום ולא ניתן לפתוח אותו',
     detail: (backup
       ? `נמצא גיבוי אוטומטי מתאריך ${backup.day}. השחזור פותח קובץ נתונים חדש ומכניס אליו את הגיבוי. נתונים שנרשמו אחרי הגיבוי לא יחזרו.`
+        + (backup.skipped ? `\n\nגיבויים חדשים יותר (${backup.skipped}) דולגו: הם אינם מכילים את הנתונים הכספיים או שלא ניתן לפתוח אותם.` : '')
       : 'לא נמצא גיבוי אוטומטי בתיקיית הגיבוי. אם יש לכם גיבוי שנשמר בסיסמה, פנו לתמיכה או שחזרו אותו אחרי פתיחה ריקה.')
       + '\n\nהקובץ הפגום לא נמחק — הוא נשמר בצד בתיקיית הנתונים, ואפשר למסור אותו לתמיכה.\n\nלפנייה לתמיכה: "שמירת דוח תקלה" ושליחת הקובץ.',
     buttons
   };
 }
 
-module.exports = { classifyDbError, latestAutoBackup, setAsideDamaged, dialogFor, DB_NAME };
+module.exports = { classifyDbError, latestAutoBackup, latestUsableAutoBackup, setAsideDamaged, dialogFor, DB_NAME };
