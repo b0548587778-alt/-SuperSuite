@@ -23,6 +23,18 @@ const { PeopleService: peopleService } = require('./services/peopleService');
 const { SampleService: sampleService } = require('./services/sampleService');
 const { PrivacyService: privacyService } = require('./services/privacyService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
+const { RealtyService: realtyService } = require('./services/realtyService');
+const MR = require('./core/mortgageReport');
+const BR = require('./core/brokerage');
+const RI = require('./core/realtyInvest');
+// שפת העיצוב מוטמעת במסמכי PDF (חלון ה-PDF אינו טוען קבצים). בלי הקובץ (אנדרואיד) — ברירות המחדל של הדפדפן
+let tokensCache = null;
+function designTokensCss() {
+  if (tokensCache === null) {
+    try { tokensCache = fs.readFileSync(path.join(__dirname, '..', '..', 'shell', 'design-tokens.css'), 'utf8'); } catch { tokensCache = ''; }
+  }
+  return tokensCache;
+}
 const { MortgageLabService: mortgageLabService } = require('./services/mortgageLabService');
 const BK = require('./core/backupCrypto');
 const DP = require('./core/dataPorts');
@@ -190,6 +202,7 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, relayUrl = DEFAULT
   sampleService.initialize(db);
   privacyService.initialize(db);
   mortgageAdvisorService.initialize(db);
+  realtyService.initialize(db);
   mortgageLabService.initialize(db);
   const startSettings = (await db.load()).settings || {};
   authService.setIdleMinutes(startSettings.idleMinutes);
@@ -221,6 +234,13 @@ function permissionFor(channel) {
   if (channel === 'settings:getGoogle' || channel === 'settings:saveGoogle') return 'users.manage';
   // אימות כלל רגולטורי משנה את האזהרות לכל המשתמשים — מנהל בלבד
   if (channel === 'mlab:verifyRule' || channel === 'mlab:unverifyRule') return 'users.manage';
+  // הגדרות משרד הייעוץ (מי רואה אילו תיקים) — מנהל בלבד
+  if (channel === 'madv:saveSettings' || channel === 'madv:saveBrand' || channel === 'madv:setBrandLogo') return 'users.manage';
+  // פרטי המשרד בהזמנת התיווך (שם, רישיון, עוסק פטור) — מנהל בלבד
+  if (channel === 'rlty:saveSettings') return 'users.manage';
+  // אימות טבלת מס רכישה משנה את האזהרות לכל המשתמשים — מנהל בלבד (כמו אימות כללים במעבדה)
+  if (channel === 'rlty:verifyTaxTable' || channel === 'rlty:unverifyTaxTable') return 'users.manage';
+  if (channel === 'rlty:readTaxTableFile') return 'data.edit';
   // מיפוי מאגרים ומזעור נתונים (תיקון 13) — מנהל בלבד
   if (channel.startsWith('privacy:')) return 'users.manage';
   // רישוי: התקנה, הנפקת מערכות בת והשבתתן — מנהל בלבד. מצב הרישיון — לכל משתמש מחובר
@@ -1370,7 +1390,8 @@ function registerIpcHandlers() {
   handle('privacy:exportSubjectPdf', async (event, idNumber) => {
     const { report, html } = await privacyService.subject(idNumber, {
       canSeeConfidential: canSeeConfidential(event), sources: LG.peopleSources(licenseState()),
-      acct: !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view')
+      acct: !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view'),
+      realty: !LG.checkChannel(licenseState(), 'rlty:getOverview', 'data.view')
     });
     const r = await saveHtmlAsPdf(html, `מידע-על-${report.idNumber}.pdf`);
     if (r.ok) await auditEvent(event, 'privacy.subject.export', { idNumber: report.idNumber, records: report.count });
@@ -1452,43 +1473,267 @@ function registerIpcHandlers() {
     return r;
   });
 
-  // ייעוץ משכנתאות: תיקים, הצעות, השוואה, עמלה ומסמכים
-  handle('madv:getOverview', async () => mortgageAdvisorService.getOverview());
+  // ייעוץ משכנתאות: משרד עם כמה יועצים — כל פעולה מקבלת את המשתמש (madvActor), והשירות מסנן לפי ההרשאה
+  const madvActor = (event) => {
+    const s = authService.getSession(event.sender.id);
+    return { id: s.id, username: s.username, isManager: Array.isArray(s.permissions) && s.permissions.includes('users.manage') };
+  };
+  handle('madv:getOverview', async (event) => ({
+    ...(await mortgageAdvisorService.getOverview(madvActor(event), { today: localDay(Date.now()), realty: !LG.checkChannel(licenseState(), 'rlty:getOverview', 'data.view') })),
+    canInvoice: !LG.checkChannel(licenseState(), 'acct:x', 'data.edit') && authService.hasPermission(event.sender.id, 'data.edit')
+  }));
   handle('madv:calcTracks', async (event, input) => mortgageAdvisorService.calcTracks(input || {}));
   handle('madv:createClient', async (event, input) => {
-    const c = await mortgageAdvisorService.createClient(input);
-    await auditEvent(event, 'madv.client.create', { id: c.id });
+    const c = await mortgageAdvisorService.createClient(input, madvActor(event));
+    await auditEvent(event, 'madv.client.create', { id: c.id, advisorId: c.advisorId || null });
     return c;
   });
   handle('madv:updateClient', async (event, id, input) => {
-    const c = await mortgageAdvisorService.updateClient(id, input || {});
-    await auditEvent(event, 'madv.client.update', { id, status: c.status });
+    const c = await mortgageAdvisorService.updateClient(id, input || {}, madvActor(event));
+    await auditEvent(event, 'madv.client.update', { id, status: c.status, advisorId: c.advisorId || null });
     return c;
   });
   handle('madv:deleteClient', async (event, id) => {
-    await mortgageAdvisorService.deleteClient(id);
+    await mortgageAdvisorService.deleteClient(id, madvActor(event));
     await auditEvent(event, 'madv.client.delete', { id });
     return true;
   });
-  handle('madv:toggleDoc', async (event, id, key) => mortgageAdvisorService.toggleDoc(id, key));
+  handle('madv:toggleDoc', async (event, id, key, docState) => mortgageAdvisorService.toggleDoc(id, key, madvActor(event), docState));
+  handle('madv:getMissingDocsMessage', async (event, id) => mortgageAdvisorService.getMissingDocsMessage(id, madvActor(event)));
+  // אישורים עקרוניים: נשמרים בתיק, ומושווים במנוע של מעבדת התמהיל (אותה תחזית, אותו חישוב)
+  handle('madv:saveApprovals', async (event, id, list) => {
+    const r = await mortgageAdvisorService.saveApprovals(id, list, madvActor(event));
+    await auditEvent(event, 'madv.approvals.save', { id, count: r.length });
+    return r;
+  });
+  handle('madv:chooseApproval', async (event, id, approvalId) => {
+    const r = await mortgageAdvisorService.chooseApproval(id, approvalId, madvActor(event));
+    await auditEvent(event, 'madv.approvals.choose', { id, approvalId: approvalId || null });
+    return r;
+  });
+  handle('madv:calcApprovals', async (event, id) => mortgageLabService.calcApprovals(await mortgageAdvisorService.approvalsInput(id, madvActor(event))));
   handle('madv:addOffer', async (event, input) => {
-    const o = await mortgageAdvisorService.addOffer(input);
+    const o = await mortgageAdvisorService.addOffer(input, madvActor(event));
     await auditEvent(event, 'madv.offer.add', { id: o.id, clientId: o.clientId });
     return o;
   });
   handle('madv:deleteOffer', async (event, id) => {
-    await mortgageAdvisorService.deleteOffer(id);
+    await mortgageAdvisorService.deleteOffer(id, madvActor(event));
     await auditEvent(event, 'madv.offer.delete', { id });
     return true;
   });
+  // עמלות: תשלומים בתיק, וחשבונית מס/קבלה בהנהלת החשבונות — רק כשהיא ברישיון ובאישור מפורש
+  handle('madv:addFeePayment', async (event, id, input) => {
+    const r = await mortgageAdvisorService.addFeePayment(id, input || {}, madvActor(event));
+    await auditEvent(event, 'madv.fee.payment', { id, paymentId: r.payment.id, amountAg: r.payment.amountAg });
+    return r;
+  });
+  handle('madv:deleteFeePayment', async (event, id, paymentId) => {
+    const r = await mortgageAdvisorService.deleteFeePayment(id, paymentId, madvActor(event));
+    await auditEvent(event, 'madv.fee.payment.delete', { id, paymentId });
+    return r;
+  });
+  handle('madv:issueFeeInvoice', async (event, id, paymentId, opts) => {
+    const denied = LG.checkChannel(licenseState(), 'acct:x', 'data.edit');
+    if (denied) throw new Error(denied);
+    if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
+    const p = await mortgageAdvisorService.feePaymentForInvoice(id, paymentId, madvActor(event));
+    const inv = await accountingService.createAdvisoryReceipt({ ...p, exempt: opts.exempt === true });
+    await mortgageAdvisorService.linkFeeInvoice(id, paymentId, inv);
+    await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'madv', amountAg: p.grossAgorot });
+    return { id: inv.id, number: inv.number, total: inv.total };
+  });
+  handle('madv:getIncome', async (event, year) => mortgageAdvisorService.getIncome(year, madvActor(event)));
+  // מיתוג המשרד לדוח ללקוח (מנהל בלבד). הלוגו נבחר בחלון קובץ — לא מגיע מהמסך
+  handle('madv:saveBrand', async (event, input) => {
+    const b = await mortgageAdvisorService.saveBrand(input || {});
+    await auditEvent(event, 'madv.brand.save', { officeName: b.officeName });
+    return { ...b, logo: undefined, hasLogo: !!b.logo };
+  });
+  handle('madv:setBrandLogo', async (event, remove) => {
+    if (remove === true) {
+      const r = await mortgageAdvisorService.setBrandLogo('');
+      await auditEvent(event, 'madv.brand.logo', { removed: true });
+      return r;
+    }
+    const pick = await dialog.showOpenDialog({ title: 'בחירת לוגו לדוח ללקוח', properties: ['openFile'], filters: [{ name: 'תמונה', extensions: ['png', 'jpg', 'jpeg'] }] });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { canceled: true };
+    const file = pick.filePaths[0];
+    if (fs.statSync(file).size > 200 * 1024) throw new Error('קובץ הלוגו גדול מדי (עד 200KB)');
+    const ext = path.extname(file).slice(1).toLowerCase();
+    const r = await mortgageAdvisorService.setBrandLogo(`data:image/${ext === 'png' ? 'png' : 'jpeg'};base64,` + fs.readFileSync(file).toString('base64'));
+    await auditEvent(event, 'madv.brand.logo', { removed: false });
+    return r;
+  });
+  // דוח ממותג ללקוח (PDF): ההשוואה והתוצאה של האישור הנבחר — מהמנוע של המעבדה
+  handle('madv:exportClientReportPdf', async (event, id) => {
+    const d = await mortgageAdvisorService.reportData(id, madvActor(event));
+    const comparison = d.approvalsInput ? await mortgageLabService.calcApprovals(d.approvalsInput) : null;
+    const hit = comparison && d.chosen && comparison.offers.find(x => x.offer.id === d.chosen.id);
+    const asOf = localDay(Date.now());
+    const html = MR.renderClientReportHtml({ ...d, asOf, comparison, chosenResult: hit && hit.result }, designTokensCss());
+    const safe = String(d.client.name).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'לקוח';
+    const r = await saveHtmlAsPdf(html, `סיכום-ייעוץ-${safe}-${asOf}.pdf`);
+    if (r.ok) await auditEvent(event, 'madv.report.pdf', { id });
+    return r;
+  });
+  // ---------- נדל"ן ותיווך (rlty ← econ.realestate) ----------
+  const rltyUser = (event) => { const s = authService.getSession(event.sender.id); return s && s.id; };
+  // ייעוץ המשכנתאות פתוח ברישיון — רק אז מוצג ונפתח תיק משכנתא מתוך עסקה
+  const rltyMortgage = () => !LG.checkChannel(licenseState(), 'madv:getOverview', 'data.view');
+  handle('rlty:getOverview', async (event) => ({
+    ...(await realtyService.getOverview(localDay(Date.now()), { mortgage: rltyMortgage(), actor: madvActor(event) })),
+    canMortgage: rltyMortgage() && authService.hasPermission(event.sender.id, 'data.edit'),
+    canInvoice: !LG.checkChannel(licenseState(), 'acct:x', 'data.edit') && authService.hasPermission(event.sender.id, 'data.edit'),
+    isManager: authService.hasPermission(event.sender.id, 'users.manage')
+  }));
+  handle('rlty:getMatches', async (event, kind, id, minScore) => realtyService.getMatches(kind === 'client' ? 'client' : 'property', String(id || ''), minScore));
+  for (const [kind, label] of [['Property', 'property'], ['Client', 'client'], ['Deal', 'deal']]) {
+    const withActor = kind === 'Deal';
+    handle(`rlty:create${kind}`, async (event, input) => {
+      const r = await realtyService[`create${kind}`](input || {}, withActor ? rltyUser(event) : undefined);
+      await auditEvent(event, `realty.${label}.create`, { id: r.id });
+      return r;
+    });
+    handle(`rlty:update${kind}`, async (event, id, input) => {
+      const r = await realtyService[`update${kind}`](String(id || ''), input || {}, withActor ? rltyUser(event) : undefined);
+      await auditEvent(event, `realty.${label}.update`, withActor ? { id: r.id, stage: r.stage } : { id: r.id });
+      return r;
+    });
+    handle(`rlty:delete${kind}`, async (event, id) => {
+      await realtyService[`delete${kind}`](String(id || ''));
+      await auditEvent(event, `realty.${label}.delete`, { id });
+      return true;
+    });
+  }
+  // עמלות תיווך: גובה לכל צד, תשלומים, וחשבונית מס/קבלה — רק כשהנהלת החשבונות ברישיון ובאישור מפורש
+  handle('rlty:setCommissions', async (event, dealId, input) => {
+    const r = await realtyService.setCommissions(String(dealId || ''), input || {});
+    await auditEvent(event, 'realty.commission.set', { id: r.id });
+    return r;
+  });
+  handle('rlty:addCommissionPayment', async (event, dealId, input) => {
+    const r = await realtyService.addCommissionPayment(String(dealId || ''), input || {}, rltyUser(event));
+    await auditEvent(event, 'realty.commission.payment', { id: dealId, paymentId: r.payment.id, side: r.payment.side, amountAg: r.payment.amountAg });
+    return r;
+  });
+  handle('rlty:deleteCommissionPayment', async (event, dealId, paymentId) => {
+    await realtyService.deleteCommissionPayment(String(dealId || ''), String(paymentId || ''));
+    await auditEvent(event, 'realty.commission.payment.delete', { id: dealId, paymentId });
+    return true;
+  });
+  handle('rlty:issueCommissionInvoice', async (event, dealId, paymentId, opts) => {
+    const denied = LG.checkChannel(licenseState(), 'acct:x', 'data.edit');
+    if (denied) throw new Error(denied);
+    if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
+    const p = await realtyService.commissionPaymentForInvoice(String(dealId || ''), String(paymentId || ''));
+    const inv = await accountingService.createAdvisoryReceipt(p);
+    await realtyService.linkCommissionInvoice(dealId, paymentId, inv);
+    await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'rlty', amountAg: p.grossAgorot });
+    return { id: inv.id, number: inv.number, total: inv.total };
+  });
+  // הזמנת שירותי תיווך: שמירה, בדיקת "מה חסר" (בתצוגה), וטופס PDF להחתמה
+  handle('rlty:saveOrder', async (event, id, input) => {
+    const r = await realtyService.saveOrder(id ? String(id) : '', input || {});
+    await auditEvent(event, id ? 'realty.order.update' : 'realty.order.create', { id: r.id });
+    return r;
+  });
+  handle('rlty:deleteOrder', async (event, id) => {
+    await realtyService.deleteOrder(String(id || ''));
+    await auditEvent(event, 'realty.order.delete', { id });
+    return true;
+  });
+  handle('rlty:exportOrderPdf', async (event, id) => {
+    const d = await realtyService.orderDocument(String(id || ''));
+    const html = BR.renderOrderHtml(d.order, d, designTokensCss());
+    const r = await saveHtmlAsPdf(html, `הזמנת-שירותי-תיווך-${d.order.date}.pdf`);
+    if (r.ok) await auditEvent(event, 'realty.order.pdf', { id });
+    return r;
+  });
+  // כדאיות השקעה ומס רכישה: טבלאות המדרגות מוקלדות או נטענות מקובץ — אין ערכים בקוד ואין רשת
+  handle('rlty:calcInvestment', async (event, input) => realtyService.calcInvestment(input || {}));
+  handle('rlty:saveTaxTable', async (event, input) => {
+    const t = await realtyService.saveTaxTable(input || {});
+    await auditEvent(event, 'realty.taxTable.save', { id: t.id, year: t.year, kind: t.kind });
+    return t;
+  });
+  // קובץ טקסט / CSV מקומי: "עד סכום, שיעור" בכל שורה. התוכן מוחזר למסך לבדיקה לפני שמירה
+  handle('rlty:readTaxTableFile', async () => {
+    const pick = await dialog.showOpenDialog({ title: 'טבלת מדרגות מס רכישה', properties: ['openFile'], filters: [{ name: 'טבלה', extensions: ['csv', 'txt'] }] });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { canceled: true };
+    if (fs.statSync(pick.filePaths[0]).size > 64 * 1024) throw new Error('הקובץ גדול מדי לטבלת מדרגות');
+    const text = fs.readFileSync(pick.filePaths[0], 'utf8').replace(/^﻿/, '');
+    return { text: RI.bracketsText(RI.parseBrackets(text)) };
+  });
+  handle('rlty:deleteTaxTable', async (event, id) => {
+    await realtyService.deleteTaxTable(String(id || ''));
+    await auditEvent(event, 'realty.taxTable.delete', { id });
+    return true;
+  });
+  handle('rlty:verifyTaxTable', async (event, id, note) => {
+    const t = await realtyService.verifyTaxTable(String(id || ''), note, true);
+    await auditEvent(event, 'realty.taxTable.verify', { id: t.id, year: t.year, kind: t.kind, note: t.verifyNote });
+    return t;
+  });
+  handle('rlty:unverifyTaxTable', async (event, id) => {
+    const t = await realtyService.verifyTaxTable(String(id || ''), '', false);
+    await auditEvent(event, 'realty.taxTable.unverify', { id: t.id });
+    return t;
+  });
+  handle('rlty:saveAnalysis', async (event, id, input) => {
+    const a = await realtyService.saveAnalysis(id ? String(id) : '', input || {});
+    await auditEvent(event, id ? 'realty.analysis.update' : 'realty.analysis.create', { id: a.id });
+    return a;
+  });
+  handle('rlty:deleteAnalysis', async (event, id) => {
+    await realtyService.deleteAnalysis(String(id || ''));
+    await auditEvent(event, 'realty.analysis.delete', { id });
+    return true;
+  });
+  // "פתח תיק משכנתא": תיק ייעוץ חדש לקונה (משויך למי שפתח) וקישור בשני הצדדים
+  handle('rlty:openMortgageCase', async (event, dealId, input) => {
+    if (!rltyMortgage()) throw new Error('ייעוץ המשכנתאות אינו פתוח ברישיון');
+    const caseInput = await realtyService.mortgageCaseInput(String(dealId || ''), input || {});
+    const c = await mortgageAdvisorService.createClient(caseInput, madvActor(event));
+    await realtyService.linkMortgageCase(String(dealId), c.id);
+    await auditEvent(event, 'madv.client.create', { id: c.id, advisorId: c.advisorId || null, source: 'rlty' });
+    await auditEvent(event, 'realty.deal.mortgageLink', { id: dealId, caseId: c.id });
+    return c;
+  });
+  handle('rlty:unlinkMortgageCase', async (event, dealId) => {
+    await realtyService.unlinkMortgageCase(String(dealId || ''));
+    await auditEvent(event, 'realty.deal.mortgageUnlink', { id: dealId });
+    return true;
+  });
+  handle('rlty:calcProject', async (event, input) => realtyService.calcProject(input || {}));
+  handle('rlty:saveProject', async (event, id, input) => {
+    const p = await realtyService.saveProject(id ? String(id) : '', input || {});
+    await auditEvent(event, id ? 'realty.project.update' : 'realty.project.create', { id: p.id });
+    return p;
+  });
+  handle('rlty:deleteProject', async (event, id) => {
+    await realtyService.deleteProject(String(id || ''));
+    await auditEvent(event, 'realty.project.delete', { id });
+    return true;
+  });
+  handle('rlty:saveSettings', async (event, input) => {
+    const s = await realtyService.saveSettings(input || {});
+    await auditEvent(event, 'realty.settings.save', { licenseNo: s.licenseNo });
+    return s;
+  });
+  handle('madv:saveSettings', async (event, input) => {
+    const s = await mortgageAdvisorService.saveSettings(input || {});
+    await auditEvent(event, 'madv.settings.save', s);
+    return s;
+  });
   handle('madv:exportSchedule', async (event, offerId) => {
-    const r = await saveCsv(await mortgageAdvisorService.getScheduleExport(offerId));
+    const r = await saveCsv(await mortgageAdvisorService.getScheduleExport(offerId, madvActor(event)));
     if (r.ok) await auditEvent(event, 'madv.export.schedule', { offerId });
     return r;
   });
 
   // מעבדת תמהיל: מנוע התמהיל המלא, סלים אחידים, כושר החזר, מחזור, אישורים, עמלת פירעון ואופטימייזר
-  handle('mlab:getOverview', async () => mortgageLabService.getOverview());
+  handle('mlab:getOverview', async (event) => mortgageLabService.getOverview(madvActor(event)));
   handle('mlab:calcMix', async (event, input) => mortgageLabService.calcMix(input || {}));
   handle('mlab:calcBaskets', async (event, input) => mortgageLabService.calcBaskets(input || {}));
   handle('mlab:calcAffordability', async (event, input) => mortgageLabService.calcAffordability(input || {}));
@@ -1518,7 +1763,7 @@ function registerIpcHandlers() {
     return true;
   });
   handle('mlab:saveScenario', async (event, input) => {
-    const sc = await mortgageLabService.saveScenario(input || {});
+    const sc = await mortgageLabService.saveScenario(input || {}, madvActor(event));
     await auditEvent(event, 'mlab.scenario.save', { id: sc.id, clientId: sc.clientId });
     return sc;
   });

@@ -219,6 +219,26 @@ class AccountingService {
     return stored;
   }
 
+  // תשלום עמלת ייעוץ משכנתא (madv) ← חשבונית מס/קבלה, פעם אחת לכל תשלום — באותו מבנה כמו createTrainerReceipt.
+  // source.key ייחודי לתשלום; הבדיקה לכפילות באותה טעינה של המסד שבה נשמרת החדשה
+  // גם לדמי תיווך (rlty) — אותו מבנה, מפתח שונה
+  async createAdvisoryReceipt({ customer, date, grossAgorot, description, method, reference, key, exempt = false }) {
+    if (!Number.isSafeInteger(grossAgorot) || grossAgorot <= 0) throw new Error('סכום החשבונית אינו תקין');
+    const k = String(key || '');
+    if (!/^(madv|rlty):[\w-]{1,80}:[\w-]{1,80}$/.test(k)) throw new Error('חסר שיוך לתשלום בתיק');
+    const data = await this._load();
+    const prev = data.invoices.find(i => i.advisoryPayment && i.advisoryPayment.key === k && i.status !== 'cancelled');
+    if (prev) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${prev.number})`);
+    const items = [{ description, quantity: 1, unitPrice: exempt ? A.fromAg(grossAgorot) : A.netFromGross(grossAgorot, this._vatRate(data)), kind: 'service' }];
+    const stored = this._createInvoiceIn(data, exempt ? { customer, date, items, vatExempt: true } : { customer, date, grossAgorot, items });
+    if (Math.round(stored.total * 100) !== grossAgorot) throw new Error('סכום החשבונית אינו תואם לסכום ששולם');
+    this._payIn(data, stored, { date: stored.date, ...SD.validatePayment({ method, reference }), issueReceipt: exempt });
+    if (!exempt) stored.kind = 'tax-invoice-receipt';
+    stored.advisoryPayment = { key: k };
+    await this.db.save(data);
+    return stored;
+  }
+
   // גביית חשבונית: חובה בנק, זכות לקוחות — על היתרה אחרי זיכויים. מופקת קבלה (סוג 400) עם מספר משלה
   async recordPayment(invoiceId, { date, method, reference } = {}) {
     const data = await this._load();

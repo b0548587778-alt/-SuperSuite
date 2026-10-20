@@ -13,6 +13,8 @@ const ECON_SUB_FEATURES = {
   madv: 'econ.mortgage-advisor',
   mlab: 'econ.mortgage-lab',
   mortgage: 'econ.mortgage',
+  // רישיון "נדל"ן" אחד (החלטת הבעלים 20.10.2026): שמאות מקרקעין (realestate) ותיווך ויזמים (rlty)
+  rlty: 'econ.realestate',
 };
 
 // ערוצים שתמיד פתוחים, גם במערכת מושבתת: כניסה/יציאה, כדי שהמשתמש יראה את מסך הסיבה.

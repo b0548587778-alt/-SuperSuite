@@ -1087,6 +1087,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .biz-axis{stroke:var(--ss-border-strong)}
 .biz-chart .biz-in,.biz-dot.biz-in{fill:var(--ss-success);background:var(--ss-success)}
 .biz-chart .biz-out,.biz-dot.biz-out{fill:var(--ss-gold);background:var(--ss-gold)}
+.biz-chart .rlty-neg,.biz-dot.rlty-neg{fill:var(--ss-danger);background:var(--ss-danger)}
+.rlty-chart{max-height:220px;margin-top:var(--ss-sp-3)}
 .biz-legend{display:flex;gap:var(--ss-sp-3);align-items:center;font-size:var(--ss-fs-sm);color:var(--ss-muted)}
 .biz-dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-inline-end:4px}
 .biz-month h3{margin-top:0}

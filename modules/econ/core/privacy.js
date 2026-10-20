@@ -24,6 +24,9 @@ function dataMap(data, userCounts = {}) {
     { area: 'חסד — נזקקים חסויים', count: conf, fields: 'כמו נזקקים — מוסתר בשרת', sensitivity: 'high', access: 'מנהל בלבד (צפייה נרשמת ביומן הביקורת)' },
     { area: 'חסד — מתנדבים', count: len(ch.volunteers), fields: 'שם, טלפון, אזור, זמינות', sensitivity: 'regular', access: all },
     { area: 'ייעוץ משכנתאות — תיקי לקוחות', count: len(data.mortgageAdvisor && data.mortgageAdvisor.clients), fields: 'פרטי לקוח, נכס והצעות משכנתא', sensitivity: 'sensitive', access: all },
+    { area: 'נדל"ן ותיווך — לקוחות', count: len(data.realty && data.realty.clients), fields: 'שם, ת.ז (רשות), טלפון, דוא"ל, תקציב ודרישות', sensitivity: 'regular', access: all },
+    { area: 'נדל"ן ותיווך — הזמנות שירותי תיווך', count: len(data.realty && data.realty.orders), fields: 'לקוח (מהרשימה), כתובת הלקוח, תיאור הנכס, מחיר ועמלה', sensitivity: 'regular', access: all },
+    { area: 'נדל"ן ותיווך — עסקאות', count: len(data.realty && data.realty.deals), fields: 'קונה ומוכר (מהרשימה), מחיר, מועדים, עמלות ותשלומים; קישור לתיק משכנתא', sensitivity: 'regular', access: all },
     { area: 'אנשי קשר', count: len(data.contacts), fields: 'שם, טלפון, דוא"ל, כתובת', sensitivity: 'regular', access: all }
   ].map(r => ({ ...r, sensitivityLabel: SENSITIVITY[r.sensitivity] }));
   return {
@@ -128,7 +131,9 @@ const RETENTION_KINDS = {
   borrowers: { label: 'לווים בהלוואות שנפרעו או בוטלו (גמ"ח)', minYears: 1,
     removes: 'טלפון, כתובת והערות של הלווה, וטלפון הערבים. נשמרים: שמות, ת.ז, סכום ולוח התשלומים.' },
   mortgageClients: { label: 'תיקי ייעוץ משכנתאות שלא עודכנו', minYears: 1,
-    removes: 'טלפון והערות. נשמרים: שם הלקוח, הבנק, הסכומים וההצעות.' }
+    removes: 'טלפון והערות. נשמרים: שם הלקוח, הבנק, הסכומים וההצעות.' },
+  realtyClients: { label: 'לקוחות נדל"ן שלא עודכנו (תיווך)', minYears: 1,
+    removes: 'ת.ז, טלפון, דוא"ל, הערות ודרישות החיפוש, וכתובת הלקוח בהזמנות שירותי התיווך. נשמרים: השם, סוג הלקוח והעסקאות. לקוח עם עסקה פתוחה אינו נכלל.' }
 };
 
 function retentionKind(kind) {
@@ -183,6 +188,16 @@ function candidatesFor(data, kind, today, years) {
       .map(l => ({ id: l.id, label: normName(l.borrowerName), last: maxDay(l.issueDate, l.updatedAt, l.cancelledAt, ...(l.schedule || []).map(x => x.paidDate)) }))
       .filter(x => x.last && x.last < cutoff).sort((a, b) => a.last.localeCompare(b.last));
   }
+  if (k === 'realtyClients') {
+    const r = data.realty || {};
+    const deals = r.deals || [];
+    const busy = new Set(deals.filter(d => d.stage !== 'closed' && d.stage !== 'lost').flatMap(d => [d.buyerClientId, d.sellerClientId]));
+    return (r.clients || [])
+      .filter(c => !c.privacyMinimizedAt && !busy.has(c.id) && (c.idNumber || c.phone || c.email || c.notes))
+      .map(c => ({ id: c.id, label: normName(c.name),
+        last: maxDay(c.updatedAt, c.createdAt, ...deals.filter(d => d.buyerClientId === c.id || d.sellerClientId === c.id).map(d => d.updatedAt)) }))
+      .filter(x => x.last && x.last < cutoff).sort((a, b) => a.last.localeCompare(b.last));
+  }
   return ((data.mortgageAdvisor && data.mortgageAdvisor.clients) || [])
     .filter(c => !c.privacyMinimizedAt && (c.phone || c.notes))
     .map(c => ({ id: c.id, label: normName(c.name), last: maxDay(c.updatedAt, c.createdAt) }))
@@ -219,6 +234,16 @@ function applyRetention(data, kind, ids, today, years, at) {
     data.gemach.loans = data.gemach.loans.map(l => (ok(l.id)
       ? (done++, { ...withoutBank(l), borrowerPhone: '', borrowerAddress: '', notes: '', guarantors: (l.guarantors || []).map(g => ({ ...g, phone: '' })), privacyMinimizedAt: at })
       : l));
+  } else if (k === 'realtyClients') {
+    data.realty.clients = data.realty.clients.map(c => {
+      if (!ok(c.id)) return c;
+      done++;
+      const { areas, types, minRooms, maxRooms, budgetMinAg, budgetMaxAg, needsMortgage, ...rest } = c;
+      return { ...rest, idNumber: '', phone: '', email: '', notes: '', active: false, privacyMinimizedAt: at };
+    });
+    // כתובת הלקוח בהזמנות שירותי התיווך שלו
+    const gone = new Set(data.realty.clients.filter(c => c.privacyMinimizedAt === at && ok(c.id)).map(c => c.id));
+    data.realty.orders = (data.realty.orders || []).map(o => (gone.has(o.clientId) && o.clientAddress ? { ...o, clientAddress: '' } : o));
   } else {
     data.mortgageAdvisor.clients = data.mortgageAdvisor.clients.map(c => (ok(c.id) ? (done++, { ...c, phone: '', notes: '', privacyMinimizedAt: at }) : c));
   }

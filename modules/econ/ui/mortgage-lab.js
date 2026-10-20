@@ -245,6 +245,10 @@ function labTabApprovals(o, lab) {
     <h3>השוואת אישורים עקרוניים</h3>
     <p class="muted">כל הצעה מוזנת בחלקים מהסכום (%) ומחושבת על אותו סכום ואותה תחזית — כך ההשוואה ישירה.</p>
     ${labField('apAmount', 'סכום ההלוואה להשוואה (₪)')}
+    ${Array.isArray(o.clients) && o.clients.length ? `<div class="acct-actions">
+      <label>תיק לקוח <select data-lab-form="apClient"><option value="">— בלי תיק —</option>${o.clients.map(c => `<option value="${esc(c.id)}"${lab.form.apClient === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+      <button class="secondary" id="labSaveApprToClient">שמירת האישורים בתיק</button>
+    </div>` : ''}
     ${lab.approvals.map((ap, k) => `<div class="card">
       <div class="acct-actions">
         <label>בנק <input type="text" data-appr="${k}" data-f="lender" value="${esc(ap.lender)}"></label>
@@ -370,7 +374,7 @@ function labTabSettings(o, lab) {
     <div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>כלל</th><th>ערך</th><th>מקור</th><th>מצב</th><th></th></tr></thead>
       <tbody>${rules.map(r => `<tr><td>${esc(r.description)}</td><td>${fmtVal(r)}</td><td><small>${esc(r.source)}</small></td>
-        <td>${r.needsVerification ? '<span class="warn">⚠ יש לאמת</span>' : `<span class="ok">✓ אומת</span> <small>${esc(String(r.verifiedAt || '').slice(0, 10))} · ${esc(r.verifiedNote)}</small>`}</td>
+        <td>${r.needsVerification ? `<span class="warn">⚠ ${esc(r.statusLabel || 'לא מאומת')}</span>` : `<span class="ok">✓ אומת</span> <small>${esc(String(r.verifiedAt || '').slice(0, 10))} · ${esc(r.verifiedNote)}</small>`}</td>
         <td>${r.needsVerification ? `<button class="secondary" data-lab-verify="${esc(r.id)}">אימות</button>` : `<button class="icon-btn" data-lab-unverify="${esc(r.id)}" title="ביטול אימות">↺</button>`}</td></tr>`).join('')}</tbody>
     </table></div>
   </div>`;
@@ -443,6 +447,16 @@ function attachLabHandlers() {
   on('labCalcAfford', () => labRun('afford', (l) => api.calcLabAffordability({ tracks: labTracks(l.editors.afford), targetPayment: l.form.aTarget, equity: l.form.aEquity, buyerType: l.form.buyerType, basis: l.form.aBasis })));
   on('labCalcRefi', () => labRun('refi', (l) => api.calcLabRefinance({ existing: labTracks(l.editors.refiOld), proposed: labTracks(l.editors.refiNew), prepaymentFee: l.form.rFee, switchingCosts: l.form.rCosts })));
   on('labCalcAppr', () => labRun('approvals', (l) => api.calcLabApprovals({ amount: l.form.apAmount, offers: l.approvals.map((a, i) => ({ ...a, id: 'o' + i, tracks: labTracks(a.tracks) })) })));
+  // האישורים נשמרים בתיק הלקוח (מחליפים את הרשימה שבו). המזהה נשמר, כדי שהאישור הנבחר לא יאבד
+  on('labSaveApprToClient', async () => {
+    labCollect();
+    if (!lab.form.apClient) { showError('יש לבחור תיק לקוח'); return; }
+    try {
+      const saved = await api.saveMortgageApprovals(lab.form.apClient, lab.approvals.map(a => ({ id: a.id, lender: a.lender, validUntil: a.validUntil, fees: a.fees, maxAmount: a.maxAmount, tracks: labTracks(a.tracks) })));
+      saved.forEach((s, i) => { if (lab.approvals[i]) lab.approvals[i].id = s.id; });
+      showToast('האישורים נשמרו בתיק');
+    } catch (error) { showError('שגיאה בשמירה: ' + errMsg(error)); }
+  });
   on('labCalcPrepay', () => labRun('prepay', (l) => api.calcLabPrepayment({ tracks: l.editors.prepay })));
   on('labCalcOpt', () => labRun('opt', (l) => api.calcLabOptimize({ amount: l.form.oAmount, blocks: labTracks(l.editors.opt), objective: l.form.oObjective, maxMonthlyPayment: l.form.oCap, stepPct: l.form.oStep, monthlyNetIncome: l.form.monthlyNetIncome, propertyValue: l.form.propertyValue, buyerType: l.form.buyerType })));
 

@@ -5,6 +5,14 @@
 
 const RULES_VERSION = '2026.10.1';
 const UNVERIFIED = 'ערך התחלתי — טרם אומת מול נוסח ההוראה העדכני';
+// שנת התוקף שאליה מתייחס הערך שהוזן (לא תאריך התחולה של ההוראה). מוצג ליד "לא מאומת"
+const VALUE_YEAR = 2026;
+
+// תווית מצב לכלל: "לא מאומת · 2026" או "אומת"
+function statusLabel(rule) {
+  if (!rule) return '';
+  return rule.needsVerification ? `לא מאומת · ${rule.valueYear || VALUE_YEAR}` : 'אומת';
+}
 
 const TRACK_TYPES = {
   PRIME: 'פריים',
@@ -45,7 +53,7 @@ const RULE_CATALOG = [
   { id: 'prepayment.noticeDays', value: 10, effectiveFrom: '2002-01-01', source: `צו הבנקאות (עמלת פירעון מוקדם). ${UNVERIFIED}`, description: 'מספר ימי הודעה מוקדמת שפוטרים מעמלת אי-הודעה' },
   // ריק בכוונה: המדרגות לא אומתו מול הצו, ולכן לא ניתנת הנחה וההערכה נוטה למעלה.
   { id: 'prepayment.capitalizationDiscounts', value: [], effectiveFrom: '2002-01-01', source: 'צו הבנקאות (עמלת פירעון מוקדם). לא הוזנו מדרגות הנחה — יש להזין ולאמת לפי נוסח הצו.', description: 'הנחה בעמלת ההיוון לפי משך הזמן שחלף מנטילת ההלוואה' }
-].map(r => Object.freeze({ ...r, needsVerification: true }));
+].map(r => Object.freeze({ valueYear: VALUE_YEAR, ...r, needsVerification: true }));
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -86,4 +94,4 @@ class RuleSet {
 const defaultRuleSet = new RuleSet();
 const ALL_RULE_IDS = [...new Set(RULE_CATALOG.map(r => r.id))];
 
-module.exports = { RULES_VERSION, RULE_CATALOG, ALL_RULE_IDS, TRACK_TYPES, BUYER_TYPES, RuleSet, defaultRuleSet };
+module.exports = { RULES_VERSION, VALUE_YEAR, statusLabel, RULE_CATALOG, ALL_RULE_IDS, TRACK_TYPES, BUYER_TYPES, RuleSet, defaultRuleSet };

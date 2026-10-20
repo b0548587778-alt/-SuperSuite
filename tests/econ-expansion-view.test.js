@@ -171,8 +171,8 @@ test('ייעוץ משכנתאות: תיק מציג סטטוס, עמלה, מסמ�
   await goTo(h, 'mortgage-advisor');
   const html = h.elements.view.innerHTML;
   assert.match(html, /יוסף פרידמן/);
-  assert.match(html, /<option value="submitted" selected>הוגש<\/option>/);
-  assert.match(html, /אושר סופי/);
+  assert.match(html, /<option value="submitted" selected>הוגש לבנקים<\/option>/);
+  assert.match(html, /אישור סופי/);
   assert.match(html, /מימון 60%/);
   assert.match(html, /מסמכים \(1\/2\)/);
   assert.match(html, /data-madv-doc="c1" data-key="id" checked/);

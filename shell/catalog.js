@@ -39,6 +39,7 @@
         { mod: 'econ', view: 'mortgage',         icon: '🏛',  name: 'משכנתאות והלוואות',    desc: 'תרחישים ולוחות סילוקין' },
         { mod: 'econ', view: 'mortgage-advisor', icon: '🏦', name: 'ייעוץ משכנתאות',       desc: 'תיקי לקוחות ומסמכים' },
         { mod: 'econ', view: 'mortgage-lab',     icon: '🧮', name: 'מעבדת תמהיל',          desc: 'סימולטור, סלים ואופטימייזר' },
+        { mod: 'econ', view: 'realty',           icon: '🏘', name: 'נדל"ן ותיווך',         desc: 'נכסים, קונים ומוכרים ועסקאות' },
         { mod: 'shamai',                         icon: '💎', name: 'שמאות נכסים',          desc: 'הערכת שווי נכסים' }
       ]
     },

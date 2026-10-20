@@ -40,6 +40,7 @@ const collections = [
   'gemach',            // קופת גמ"ח: הלוואות ללא ריבית, ערבים, הפקדות — נפרד מהעמותה ומהיומן העסקי
   'chesed',            // חסד וחלוקות: נזקקים (כולל חסויים), מתנדבים וסבבי חלוקה
   'mortgageAdvisor',   // ייעוץ משכנתאות: תיקי לקוחות והצעות בנקים
+  'realty',            // נדל"ן ותיווך: נכסים, לקוחות ועסקאות (core/realty.js)
   'mortgageLab',       // מעבדת תמהיל: תחזית, אימותי כללים ותרחישים שמורים
   'payments',          // גבייה מלקוחות: דרישות תשלום וקישורים לחברת הסליקה של הארגון — בלי פרטי אשראי
   'privacy'            // תיקון 13: יומן בקשות עיון ותיקון של נושאי מידע
@@ -56,6 +57,7 @@ const objectCollections = new Set([
   'gemach',
   'chesed',
   'mortgageAdvisor',
+  'realty',
   'mortgageLab',
   'payments',
   'privacy'
@@ -97,6 +99,7 @@ const defaults = {
   gemach: { settings: {}, loans: [], deposits: [], applications: [], items: [], lendings: [] },
   chesed: { beneficiaries: [], volunteers: [], rounds: [] },
   mortgageAdvisor: { clients: [], offers: [] },
+  realty: { properties: [], clients: [], deals: [] },
   mortgageLab: { forecast: null, verifications: [], scenarios: [], rateConvention: 'NOMINAL' },
   payments: { settings: {}, requests: [] },
   privacy: { requests: [] },
