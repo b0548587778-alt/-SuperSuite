@@ -157,6 +157,8 @@ function investment(input, tables = []) {
       tax = purchaseTax(x.priceAg, t);
       taxSource = t.verifiedAt ? 'verified' : 'unverified';
       if (!t.verifiedAt) warnings.push(`מס הרכישה לפי טבלה שלא אומתה (לא מאומת · ${t.year}) — הערכה בלבד`);
+      // הטבלה נבחרת לפי השנה בלבד. מדרגות שהתעדכנו באמצע השנה — עסקה שלפני תאריך התחולה שייכת לטבלה הקודמת (בדיקת קוד 21.10.2026)
+      if (t.validFrom && t.validFrom > `${t.year}-01-01`) warnings.push(`טבלת מס הרכישה לשנת ${t.year} חלה מ-${t.validFrom} — לעסקה שנחתמה לפני תאריך זה חלות מדרגות אחרות. יש לבדוק את הטבלה או להזין סכום ידני`);
     }
   } else warnings.push('לא נבחרה טבלת מס רכישה — מס הרכישה לא נכלל');
 

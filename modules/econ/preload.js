@@ -334,6 +334,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   saveRealEstateSettings: (input) => ipcRenderer.invoke('realestate:saveSettings', input),
   getRealEstateReportHtml: (id) => ipcRenderer.invoke('realestate:getReportHtml', id),
   exportRealEstateReport: (id) => ipcRenderer.invoke('realestate:exportReport', id),
+  exportRealEstateRevisionReport: (id, rev) => ipcRenderer.invoke('realestate:exportRevisionReport', id, rev),
   getMortgageLab: () => ipcRenderer.invoke('mlab:getOverview'),
   calcLabMix: (input) => ipcRenderer.invoke('mlab:calcMix', input),
   calcLabBaskets: (input) => ipcRenderer.invoke('mlab:calcBaskets', input),
@@ -458,6 +459,6 @@ contextBridge.exposeInMainWorld('systemAPI', {
 
   // Backup and Restore — רק טקסט מוצפן (SSBK1:) עובר לממשק; גיבוי גלוי לא קיים
   backupEncrypted: (passphrase) => ipcRenderer.invoke('data:backupEncrypted', passphrase),
-  restoreEncrypted: (text, passphrase) => ipcRenderer.invoke('data:restoreEncrypted', text, passphrase),
-  restoreData: (backupData) => ipcRenderer.invoke('data:restore', backupData) // גיבוי ישן (JSON) בלבד
+  restoreEncrypted: (text, passphrase, opts) => ipcRenderer.invoke('data:restoreEncrypted', text, passphrase, opts),
+  restoreData: (backupData, opts) => ipcRenderer.invoke('data:restore', backupData, opts) // גיבוי ישן (JSON) בלבד
 });

@@ -135,8 +135,11 @@ test('צימוד: שני המכשירים מגיעים לאותו קוד אימ�
   const { code, pending } = Pairing.createInvite(a, { now: NOW });
   const accepted = Pairing.acceptInvite(b, code, { now: NOW + 1000 });
   const done = Pairing.completePairing(a, pending, accepted.response, { now: NOW + 2000 });
-  assert.match(done.code, /^\d{6}$/);
-  assert.equal(done.code, accepted.code);
+  // גרסה 2: המספר של A ← חשיפת המספר של B ← הקוד בשני הצדדים
+  const atB = accepted.reveal(done.nonce);
+  const atA = done.finish(atB.nonce);
+  assert.match(atA.code, /^\d{6}$/);
+  assert.equal(atA.code, atB.code);
   assert.equal(done.peer.id, b.id);
   assert.equal(accepted.peer.id, a.id);
   assert.ok(!code.includes(a.sign.d) && !code.includes(a.dh.d), 'ההזמנה בלי מפתח פרטי');
@@ -147,11 +150,13 @@ test('צימוד: הזמנה חד-פעמית, פגת תוקף, ותשובה ממ
   const { code, pending } = Pairing.createInvite(a, { now: NOW });
   assert.throws(() => Pairing.acceptInvite(b, code, { now: NOW + Pairing.INVITE_TTL_MS + 1 }), { code: 'expired' });
 
-  // תוקף שלא מכיר את הסוד מנחש אותו — ההוכחה לא עוברת, וההזמנה נשרפת
+  // תוקף שלא מכיר את הסוד מנחש אותו — ההוכחה לא עוברת. ההזמנה לא נשרפת (בדיקת קוד 22.10.2026, ממצא 6):
+  // המכשיר האמיתי עדיין מצטרף, ואחריו — היא משומשת
   const c = Identity.createIdentity('תוקף');
   const fakeInvite = Pairing.createInvite(a, { now: NOW });
   const forged = Pairing.acceptInvite(c, fakeInvite.code, { now: NOW }).response;
   assert.throws(() => Pairing.completePairing(a, pending, forged, { now: NOW }), { code: 'bad-proof' });
+  assert.equal(Pairing.completePairing(a, pending, Pairing.acceptInvite(b, code, { now: NOW }).response, { now: NOW }).peer.id, b.id);
   assert.throws(() => Pairing.completePairing(a, pending, Pairing.acceptInvite(b, code, { now: NOW }).response, { now: NOW }), { code: 'used' });
 
   // החלפת המפתח בתשובה אחרי החתימה
@@ -169,9 +174,12 @@ test('צימוד: מי שיירט את ההזמנה מקבל קוד אימות �
   const { a, b } = pair();
   const mitm = Identity.createIdentity('מתחזה');
   const { code } = Pairing.createInvite(a, { now: NOW });
-  const real = Pairing.acceptInvite(b, code, { now: NOW });
-  const fake = Pairing.acceptInvite(mitm, code, { now: NOW });
-  assert.notEqual(real.code, fake.code);
+  const { secret } = Pairing.parseInvite(code, NOW);
+  // אותם מספרים אקראיים — רק המפתחות שונים
+  const nA = crypto.randomBytes(32).toString('base64url'), nB = crypto.randomBytes(32).toString('base64url');
+  const real = Pairing.verificationCode(a, Identity.publicInfo(b), secret, nA, nB);
+  const fake = Pairing.verificationCode(a, Identity.publicInfo(mitm), secret, nA, nB);
+  assert.notEqual(real, fake);
 });
 
 test('רשימת עמיתים: עמית מבוטל אינו מהימן; צימוד חוזר מחליף ולא משכפל', () => {

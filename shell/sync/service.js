@@ -60,17 +60,37 @@ function createSyncService({ dir, safeStorage, isPaused = () => false, now = Dat
   const changed = () => svc.emit('changed');
 
   // ── אחסון מוצפן ──
+  // קובץ מצב שלא נקרא — לא נדרס בשקט בשמירה הבאה: הוא מועבר הצידה (לא נמחק), ובמסך מופיעה הודעה (ממצא 9)
+  let stateUnreadable = false;
   function loadState() {
     if (!fs.existsSync(files.state)) return;
     try { data = { ...data, ...JSON.parse(safeStorage.decryptString(fs.readFileSync(files.state))) }; }
-    catch { throw fail('state-unreadable', 'נתוני הסנכרון אינם קריאים בחשבון זה'); }
+    catch { stateUnreadable = true; throw fail('state-unreadable', 'נתוני הסנכרון אינם קריאים בחשבון זה'); }
+  }
+  const asideName = (file) => `${file}.unreadable-${new Date(now()).toISOString().replace(/[:.]/g, '-')}`;
+  // כתיבה אטומית: קובץ זמני, fsync והחלפה. הקובץ נכתב בכל הודעה, וניתוק חשמל באמצע כתיבה ישירה השאיר
+  // קובץ שבור — והמונה שאבד גרם לעמית לדחות את כל ההודעות (ממצא 3)
+  function writeAtomic(file, buf) {
+    const tmp = file + '.tmp';
+    const fd = fs.openSync(tmp, 'w', 0o600);
+    try { fs.writeSync(fd, buf); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, file);
   }
   function saveState() {
-    fs.writeFileSync(files.state, safeStorage.encryptString(JSON.stringify(data)), { mode: 0o600 });
+    if (stateUnreadable && fs.existsSync(files.state)) fs.renameSync(files.state, asideName(files.state));
+    stateUnreadable = false;
+    writeAtomic(files.state, safeStorage.encryptString(JSON.stringify(data)));
   }
 
+  // identityBroken: הזהות לא נפתחת בחשבון הזה (למשל תיקיית נתונים שהועברה למחשב אחר — מפתח DPAPI אחר).
+  // במסך — כפתור "יצירת זהות חדשה" (resetIdentity), במקום מחיקה ידנית של קובץ (ממצא 9)
+  let identityBroken = false;
   function ensureIdentity(create) {
-    if (!identity) identity = Identity.loadIdentity({ file: files.identity, safeStorage, create, name: os.hostname() });
+    if (!identity) {
+      try { identity = Identity.loadIdentity({ file: files.identity, safeStorage, create, name: os.hostname() }); }
+      catch (err) { identityBroken = err.code === 'identity-unreadable'; throw err; }
+      identityBroken = false;
+    }
     return identity;
   }
 
@@ -86,6 +106,9 @@ function createSyncService({ dir, safeStorage, isPaused = () => false, now = Dat
       onState: (s) => { data.transport = s; saveState(); },
       now,
     });
+    node.on('log', (entry) => svc.emit('log', entry));
+    // ההזמנה נוצלה (או נשרפה) — לא מציגים יותר את הקוד שלה כאילו הוא תקף (ממצא 7)
+    node.on('pairing-closed', () => { invite = null; changed(); });
     node.on('connected', (id) => { lastSeen.set(id, now()); changed(); });
     node.on('disconnected', (id) => {
       // חיבור שנסגר — בדיקות חיבור שממתינות לו נכשלות מיד, בלי לחכות לזמן הקצוב
@@ -192,7 +215,9 @@ function createSyncService({ dir, safeStorage, isPaused = () => false, now = Dat
       addresses: lanAddresses(),
       device: identity ? { id: identity.id, name: identity.name } : null,
       error: lastError,
-      pairing: invite && invite.exp > now() && node ? { code: invite.code, expiresAt: invite.exp } : null,
+      identityUnreadable: identityBroken,
+      stateUnreadable,
+      pairing: invite && invite.exp > now() && node && node.pairingOpen() ? { code: invite.code, expiresAt: invite.exp } : null,
       approvals: [...approvals].map(([reqId, a]) => ({ reqId, name: a.peer.name, deviceId: a.peer.id, code: a.code, direction: a.direction })),
       peers: data.peers.map(p => ({
         id: p.id, name: p.name, pairedAt: p.pairedAt, revoked: !!p.revoked, revokedAt: p.revokedAt || null,
@@ -212,12 +237,28 @@ function createSyncService({ dir, safeStorage, isPaused = () => false, now = Dat
     return svc.status();
   };
 
+  // זהות שאינה קריאה: הקובץ הישן מועבר הצידה (לא נמחק) ונוצרת זהות חדשה. המכשירים שצומדו לזהות הישנה
+  // לא יכירו את החדשה — הרשימה מתרוקנת, וצריך לצמד אותם מחדש. מנהל בלבד, דרך shellGuard ב-main.js
+  svc.resetIdentity = async () => {
+    if (!identityBroken) throw fail('identity-ok', 'זהות הסנכרון תקינה — אין צורך ליצור חדשה');
+    await stopNetwork();
+    if (fs.existsSync(files.identity)) fs.renameSync(files.identity, asideName(files.identity));
+    identity = null;
+    identityBroken = false;
+    ensureIdentity(true);
+    data = { ...data, peers: [], endpoints: {}, transport: null };
+    invite = null; approvals.clear(); lastError = null;
+    saveState();
+    await applyRunState();
+    return svc.status();
+  };
+
   svc.rename = (name) => {
     ensureIdentity(true);
     const clean = String(name == null ? '' : name).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 60);
     if (!clean) throw fail('bad-name', 'יש להזין שם למכשיר');
     identity.name = clean;
-    fs.writeFileSync(files.identity, safeStorage.encryptString(JSON.stringify(identity)), { mode: 0o600 });
+    writeAtomic(files.identity, safeStorage.encryptString(JSON.stringify(identity)));
     changed();
     return svc.status();
   };
@@ -267,7 +308,15 @@ function createSyncService({ dir, safeStorage, isPaused = () => false, now = Dat
     if (a.direction === 'outgoing') connectPeer(a.peer.id).catch(() => {});
     return svc.status();
   };
-  svc.reject = (reqId) => { const a = approvals.get(reqId); approvals.delete(reqId); if (a) a.reject(); changed(); return svc.status(); };
+  // דחייה: גם ההזמנה כבר נוצלה — לא מציגים את הקוד שלה (ממצא 7). במסך — "יצירת קוד חדש"
+  svc.reject = (reqId) => {
+    const a = approvals.get(reqId);
+    approvals.delete(reqId);
+    if (a) a.reject();
+    if (a && a.direction === 'incoming') invite = null;
+    changed();
+    return svc.status();
+  };
 
   svc.connect = async (peerId, endpoint) => {
     let ep;

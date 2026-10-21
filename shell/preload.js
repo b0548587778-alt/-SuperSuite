@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('shellAPI', {
     connect: (peerId, endpoint) => ipcRenderer.invoke('sync:connect', peerId, endpoint),
     ping: (peerId) => ipcRenderer.invoke('sync:ping', peerId),
     revoke: (peerId) => ipcRenderer.invoke('sync:revoke', peerId),
+    resetIdentity: () => ipcRenderer.invoke('sync:reset-identity'),
     onChanged: (cb) => ipcRenderer.on('shell:sync-changed', () => cb()),
   }
 });

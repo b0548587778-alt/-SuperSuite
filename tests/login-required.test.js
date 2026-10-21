@@ -70,7 +70,8 @@ test('main.js: ערוצי המעטפת שמחזירים נתונים או מגב
 
 test('main.js: גיבוי קורא את המחסן ישירות, ומודולים נעולים נטענים מחדש בכניסה וביציאה', () => {
   const collect = MAIN.slice(MAIN.indexOf('async function collectBackup'), MAIN.indexOf('// ensureView יוצר תצוגות'));
-  assert.match(collect, /secureStore\(id\)\.snapshot\(\)/);
+  // המחסן נקרא ישירות; מחסן נעול — שגיאה ולא גיבוי ריק (tests/backup-locked-store.test.js)
+  assert.match(collect, /const s = secureStore\(id\);[\s\S]*?s\.snapshot\(\)/);
   const fn = MAIN.slice(MAIN.indexOf('function reloadLockedViewsOnSessionChange'), MAIN.indexOf('function onEconAuthChange() {'));
   assert.match(fn, /LoginGate\.LOCKED_MODS/);
   assert.match(fn, /webContents\.reload\(\)/);

@@ -69,7 +69,9 @@ class RealEstateService {
     let result = c.status === 'final' && c.frozen ? c.frozen : R.computeCase(c);
     // תיק שננעל לפני שלב 4 — בלי רגישות בעותק הנעול; מחושבת מהעותק עצמו
     if (!result.sensitivity) result = { ...result, sensitivity: R.sensitivity(c, result) };
-    return { case: c, result, problems: c.status === 'final' ? [] : R.finalizeProblems(c, this.today()), photos: this._photosOf(data, id) };
+    // לממשק — ההיסטוריה בלי העותק המלא של כל גרסה (רק סימון שאפשר להפיק את הדוח שלה)
+    const view = { ...c, history: (c.history || []).map(({ snapshot, ...h }) => ({ ...h, hasReport: Boolean(snapshot) })) };
+    return { case: view, result, problems: c.status === 'final' ? [] : R.finalizeProblems(c, this.today()), photos: this._photosOf(data, id) };
   }
 
   async createCase(input = {}) {
@@ -120,7 +122,7 @@ class RealEstateService {
     const fresh = parsed.rows.filter(x => !have.has(key(x)));
     const take = fresh.slice(0, room);
     const out = { found: parsed.rows.length, duplicates: parsed.rows.length - fresh.length, added: take.length,
-      skipped: fresh.length - take.length, errors: parsed.errors.slice(0, 50), preview: take.slice(0, 20) };
+      skipped: fresh.length - take.length + (parsed.unread || 0), errors: parsed.errors.slice(0, 50), preview: take.slice(0, 20) };
     if (!apply) return out;
     c.comparables.push(...take.map(x => ({ ...x, id: crypto.randomUUID(), included: true })));
     c.updatedAt = new Date().toISOString();
@@ -133,7 +135,7 @@ class RealEstateService {
     const i = data.realEstate.cases.findIndex(c => c.id === id);
     if (i < 0) throw new Error('התיק לא נמצא');
     if (data.realEstate.cases[i].status === 'final') throw new Error('התיק כבר נעול');
-    data.realEstate.cases[i] = R.finalizeCase(data.realEstate.cases[i], this.today());
+    data.realEstate.cases[i] = R.finalizeCase(data.realEstate.cases[i], this.today(), data.realEstate.settings);
     await this.db.save(data);
     return this._summary(data.realEstate.cases[i]);
   }
@@ -190,6 +192,15 @@ class RealEstateService {
     const data = await this._load();
     const c = this._find(data, id);
     return { html: R.renderReportHtml(c, data.realEstate.settings, this.today(), this._photosOf(data, id)), name: `שומה-${R.reportNo(c)}`, final: c.status === 'final' };
+  }
+
+  // הדוח של גרסה קודמת, כפי שנמסר (בלי הצילומים — הם יכולים להשתנות אחרי פתיחת הגרסה המתוקנת)
+  async getRevisionReportHtml(id, rev) {
+    const data = await this._load();
+    const c = this._find(data, id);
+    const old = R.revisionCase(c, Number(rev));
+    if (!old) throw new Error('הגרסה הזו נשמרה לפני שנשמרו גרסאות מלאות — אין ממנה דוח');
+    return { html: R.renderReportHtml(old, data.realEstate.settings, this.today(), []), name: `שומה-${R.reportNo(old)}`, final: true };
   }
 }
 

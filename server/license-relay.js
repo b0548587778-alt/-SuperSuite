@@ -42,6 +42,16 @@ const MAX_STORE_BYTES = 2 * 1024 ** 3;          // כל הקבצים יחד — 
 const SYSTEM_RESERVE_BYTES = 256 * 1024 ** 2;   // מקום שמור למסירות של השרת עצמו (הרשמות ששולמו)
 const MESSAGE_TTL_MS = 60 * 24 * 60 * 60 * 1000; // הודעה שלא נקראה 60 יום נמחקת (מסירות של השרת — לא)
 const BOX_SWEEP_MS = 24 * 60 * 60 * 1000;
+// התיבה של מנהל-העל ציבורית (המזהה נגזר ממפתח השורש), ומפתח חדש לא עולה כלום (בדיקת קוד 22.10.2026, ממצאים 1–2)
+const MAX_BOX_BYTES = 20 * 1024 ** 2;          // נפח ההודעות של שולחים בתיבה אחת — לא רק מספר הודעות
+const SEND_PER_IP_TO_BOX_HOUR = 20;            // מכתובת אחת לתיבה אחת בשעה — לשולח שבעל התיבה לא כתב לו
+const MAX_UNKNOWN_IN_OWNER_BOX = 250;          // אצל מנהל-העל: שולחים שהוא לא כתב להם — לא תופסים את המקום של לקוחות
+const MAX_UNKNOWN_BYTES_IN_OWNER_BOX = 10 * 1024 ** 2;
+const FETCH_MAX_MESSAGES = 100;                // משיכה בחלקים — תיבה גדולה לא נתקעת בזמן הקצוב של הלקוח
+const FETCH_MAX_BYTES = 2 * 1024 ** 2;
+const MAX_INDEX_CACHE = 20000;                 // אינדקסים של תיבות בזיכרון
+const MAX_CONTACT_PAIRS = 200000;              // "בעל התיבה כתב לשולח" — בזיכרון
+const MAX_OWNER_CONTACTS = 100000;             // של מנהל-העל — גם בקובץ
 
 function httpError(status, message) { const e = new Error(message); e.status = status; return e; }
 
@@ -93,13 +103,78 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
 
   const boxFile = (id) => path.join(dataDir, id + '.json');
   const readBox = (id) => readJson(boxFile(id), []);
-  const writeBox = (id, msgs) => { if (msgs.length) writeJson(boxFile(id), msgs); else removeFile(boxFile(id)); };
+  // אינדקס לכל תיבה, בזיכרון: מספר ונפח ההודעות לכל שולח. שליחה שתידחה נבדקת מולו ולא קוראת את כל התיבה
+  // (ממצא 2). נבנה מהקובץ בפעם הראשונה ומתעדכן בכל כתיבה; קובץ שהשתנה מבחוץ (גודל / זמן שינוי) — נבנה מחדש
+  const indexes = new Map();
+  const stampOf = (id) => { try { const s = fs.statSync(boxFile(id)); return s.size + ':' + s.mtimeMs; } catch { return 'none'; } };
+  const msgBytes = (m) => Buffer.byteLength(JSON.stringify(m));
+  function indexAdd(ix, m, sign = 1) {
+    if (m.from === 'relay') { ix.relay += sign; if (m.free) ix.free += sign; return; }
+    const b = msgBytes(m);
+    const s = ix.senders.get(m.from) || { n: 0, bytes: 0 };
+    s.n += sign; s.bytes += sign * b;
+    if (s.n > 0) ix.senders.set(m.from, s); else ix.senders.delete(m.from);
+    ix.n += sign; ix.bytes += sign * b;
+  }
+  function indexOf(id) {
+    const stamp = stampOf(id);
+    let ix = indexes.get(id);
+    if (ix && ix.stamp === stamp) return ix;
+    ix = { stamp, relay: 0, free: 0, n: 0, bytes: 0, senders: new Map() };
+    for (const m of readBox(id)) indexAdd(ix, m);
+    indexes.delete(id);
+    if (indexes.size >= MAX_INDEX_CACHE) indexes.delete(indexes.keys().next().value);
+    indexes.set(id, ix);
+    return ix;
+  }
+  // delta: { added, removed } — עדכון האינדקס בלי לחשב מחדש את כל התיבה. בלי delta — ייבנה מחדש בגישה הבאה
+  function writeBox(id, msgs, delta = null) {
+    if (msgs.length) writeJson(boxFile(id), msgs); else removeFile(boxFile(id));
+    const ix = indexes.get(id);
+    if (!ix) return;
+    if (!delta) { indexes.delete(id); return; }
+    for (const m of delta.added || []) indexAdd(ix, m);
+    for (const m of delta.removed || []) indexAdd(ix, m, -1);
+    ix.stamp = stampOf(id);
+  }
+  // מי שבעל התיבה כתב לו — "מוכר" לה: לא כפוף למכסה לכתובת לתיבה, ואצל מנהל-העל לא נספר במכסה של שולחים
+  // לא מוכרים. בזיכרון; של מנהל-העל — גם בקובץ, כדי שהלקוחות יוכרו אחרי הפעלה מחדש של השרת
+  const ownerId = billing && billing.rootKeys && billing.rootKeys.length ? L.keyId(billing.rootKeys[0]) : null;
+  const contacts = new Map();
+  let contactPairs = 0;
+  let ownerContacts = null;
+  let ownerContactsBroken = false;
+  function ownerKnown() {
+    if (ownerContacts) return ownerContacts;
+    try { ownerContacts = new Set(readJson(path.join(dataDir, 'owner-contacts.json'), [])); }
+    catch { ownerContacts = new Set(); ownerContactsBroken = true; } // קובץ שלא נקרא — לא נדרס; הלקוחות נספרים כלא מוכרים
+    return ownerContacts;
+  }
+  const knows = (box, sender) => (box === ownerId ? ownerKnown().has(sender) : !!(contacts.get(box) && contacts.get(box).has(sender)));
+  function remember(box, targets) {
+    if (box === ownerId) {
+      const known = ownerKnown();
+      const fresh = targets.filter(t => !known.has(t)).slice(0, Math.max(0, MAX_OWNER_CONTACTS - known.size));
+      if (!fresh.length) return;
+      for (const t of fresh) known.add(t);
+      if (!ownerContactsBroken) writeJson(path.join(dataDir, 'owner-contacts.json'), [...known]);
+      return;
+    }
+    for (const t of targets) {
+      const s = contacts.get(box);
+      if (s && s.has(t)) continue;
+      if (contactPairs >= MAX_CONTACT_PAIRS) return; // מלא — השולח פשוט נשאר כפוף למכסה לכתובת
+      if (s) s.add(t); else contacts.set(box, new Set([t]));
+      contactPairs++;
+    }
+  }
   const nonces = new Map(); // nonce ← תפוגה; מונע שידור חוזר של בקשה חתומה
   // מונים לפי חלון זמן: מפתח (כתובת / מפתח שולח) ← [זמנים]
   const windows = {
     hits: { ms: 60000, map: new Map() },
     sends: { ms: 3600000, map: new Map() },
     ipSends: { ms: 3600000, map: new Map() },
+    ipBox: { ms: 3600000, map: new Map() },
     checkouts: { ms: 24 * 3600000, map: new Map() },
     frees: { ms: 24 * 3600000, map: new Map() },
   };
@@ -127,15 +202,19 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
       if (live.length !== box.length) writeBox(m[1], live);
     }
   }
-  // מכסה בחלון זמן. n — כמה פעמים לספור
-  function quota(kind, key, limit, n, message) {
-    const { ms, map } = windows[kind];
+  // מכסה בחלון זמן. n — כמה פעמים לספור. quotas — כמה מכסות יחד: נבדקות כולן, ורק אז נספרות
+  // (שליחה שנדחתה במכסה השנייה לא נספרת בראשונה)
+  function quotas(list) {
     const now = clock();
-    const list = (map.get(key) || []).filter(t => now - t < ms);
-    if (list.length + n > limit) throw httpError(429, message);
-    for (let i = 0; i < n; i++) list.push(now);
-    map.set(key, list);
+    const live = list.map(([kind, key, limit, n, message]) => {
+      const { ms, map } = windows[kind];
+      const times = (map.get(key) || []).filter(t => now - t < ms);
+      if (times.length + n > limit) throw httpError(429, message);
+      return () => { for (let i = 0; i < n; i++) times.push(now); map.set(key, times); };
+    });
+    for (const take of live) take();
   }
+  const quota = (kind, key, limit, n, message) => quotas([[kind, key, limit, n, message]]);
 
   function authenticate(req) {
     const { pub, ts, nonce, op, payload, sig } = req || {};
@@ -162,19 +241,18 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
   const writeJsonFile = (n, v) => writeJson(dataFile(n), v);
 
   // ---------- הרשמה ותשלום ----------
-  const ownerBox = () => L.keyId(billing.rootKeys[0]);
+  const ownerBox = () => ownerId;
   const needBilling = () => { if (!billing || !billing.rootKeys || !billing.rootKeys.length) throw httpError(404, 'השרת אינו מוגדר להרשמה'); };
   // מסירה מהשרת עצמו (הרשמה ששולמה): לא כפופה לתקרת התיבה של השולחים — אחרת כל אחד יכול למלא את
   // תיבת מנהל-העל (המזהה ציבורי) ולחסום מסירה של הרשמות ששולמו (סקירת אבטחה 10.2026, ממצא 1).
   // הרשמות חינם (free) — בתקרה נפרדת, כדי שלא יתפסו את המקום של הרשמות ששולמו
   function deliver(to, kind, bodyText, { free = false } = {}) {
-    const box = readBox(to);
-    const sys = box.filter(m => m.from === 'relay');
-    if (sys.length >= MAX_SYSTEM_IN_BOX) throw httpError(507, 'תיבת היעד מלאה');
-    if (free && sys.filter(m => m.free).length >= MAX_FREE_IN_BOX) throw httpError(507, 'יש יותר מדי הרשמות שממתינות לאישור — נסו שוב מאוחר יותר');
+    const ix = indexOf(to);
+    if (ix.relay >= MAX_SYSTEM_IN_BOX) throw httpError(507, 'תיבת היעד מלאה');
+    if (free && ix.free >= MAX_FREE_IN_BOX) throw httpError(507, 'יש יותר מדי הרשמות שממתינות לאישור — נסו שוב מאוחר יותר');
     const msg = { id: crypto.randomUUID(), from: 'relay', kind, body: bodyText, at: clock(), ...(free ? { free: true } : {}) };
-    assertRoom(Buffer.byteLength(JSON.stringify(msg)), !free);
-    writeBox(to, [...box, msg]);
+    assertRoom(msgBytes(msg), !free);
+    writeBox(to, [...readBox(to), msg], { added: [msg] });
   }
 
   // מנהל-העל מפרסם הצעה (חתומה במפתח השורש — רק הוא יכול)
@@ -328,27 +406,59 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
         const msg = { id: crypto.randomUUID(), from, kind: it.kind, body: it.body, at: clock() };
         byBox.set(it.to, [...(byBox.get(it.to) || []), msg]);
       }
-      // כל הבדיקות לפני כתיבה כלשהי — שליחה נכשלת כולה או מצליחה כולה
-      const boxes = new Map();
+      // כל הבדיקות לפני כתיבה כלשהי — שליחה נכשלת כולה או מצליחה כולה. התקרות נבדקות מול האינדקס,
+      // ושליחה שנדחית לא קוראת את התיבה (ממצא 2). התקרה סופרת רק הודעות של שולחים — הודעות מהשרת
+      // (הרשמות ששולמו) לא תופסות מקום של אחרים
+      const limits = [
+        ['sends', from, SEND_PER_HOUR, items.length, 'יותר מדי הודעות בשעה האחרונה — נסו מאוחר יותר'],
+        ['ipSends', ip, SEND_PER_IP_HOUR, items.length, 'יותר מדי הודעות מהכתובת הזו בשעה האחרונה — נסו מאוחר יותר'],
+      ];
+      let total = 0;
       for (const [to, msgs] of byBox) {
-        const box = readBox(to);
-        // התקרה סופרת רק הודעות של שולחים — הודעות מהשרת (הרשמות ששולמו) לא תופסות מקום של אחרים
-        if (box.filter(m => m.from !== 'relay').length + msgs.length > MAX_MAILBOX) throw httpError(507, 'תיבת היעד מלאה');
-        if (box.filter(m => m.from === from).length + msgs.length > MAX_FROM_SENDER_IN_BOX) throw httpError(429, 'יותר מדי הודעות שטרם נקראו אצל הנמען');
-        boxes.set(to, [...box, ...msgs]);
+        const ix = indexOf(to);
+        const add = msgs.reduce((t, m) => t + msgBytes(m), 0);
+        total += add + msgs.length;
+        if (ix.n + msgs.length > MAX_MAILBOX || ix.bytes + add > MAX_BOX_BYTES) throw httpError(507, 'תיבת היעד מלאה');
+        const mine = ix.senders.get(from) || { n: 0 };
+        if (mine.n + msgs.length > MAX_FROM_SENDER_IN_BOX) throw httpError(429, 'יותר מדי הודעות שטרם נקראו אצל הנמען');
+        if (knows(to, from)) continue;
+        // שולח שבעל התיבה לא כתב לו: מכסה לכתובת לתיבה (ממצא 1א), ואצל מנהל-העל — חלק מוגבל מהתיבה (1ב)
+        if (to === ownerId) {
+          let n = 0, bytes = 0;
+          for (const [s, v] of ix.senders) if (!knows(to, s)) { n += v.n; bytes += v.bytes; }
+          if (n + msgs.length > MAX_UNKNOWN_IN_OWNER_BOX || bytes + add > MAX_UNKNOWN_BYTES_IN_OWNER_BOX) throw httpError(507, 'תיבת היעד מלאה — נסו שוב מאוחר יותר');
+        }
+        limits.push(['ipBox', ip + '>' + to, SEND_PER_IP_TO_BOX_HOUR, msgs.length, 'יותר מדי הודעות לנמען הזה מהכתובת הזו בשעה האחרונה — נסו מאוחר יותר']);
       }
-      assertRoom([...byBox.values()].flat().reduce((t, m) => t + Buffer.byteLength(JSON.stringify(m)) + 1, 0));
-      quota('sends', from, SEND_PER_HOUR, items.length, 'יותר מדי הודעות בשעה האחרונה — נסו מאוחר יותר');
-      quota('ipSends', ip, SEND_PER_IP_HOUR, items.length, 'יותר מדי הודעות מהכתובת הזו בשעה האחרונה — נסו מאוחר יותר');
-      for (const [to, all] of boxes) writeBox(to, all);
+      assertRoom(total);
+      const boxes = [...byBox].map(([to, msgs]) => [to, readBox(to), msgs]); // קובץ שלא נקרא — נכשל לפני שנספר במכסות
+      quotas(limits);
+      for (const [to, box, msgs] of boxes) writeBox(to, [...box, ...msgs], { added: msgs });
+      remember(from, [...byBox.keys()]);
       return { ok: true, sent: items.length };
     }
-    if (body.op === 'fetch') return { ok: true, messages: readBox(from) };
+    // משיכה בחלקים (ממצא 1ד): עד FETCH_MAX_MESSAGES / FETCH_MAX_BYTES (לפחות הודעה אחת), אחרי ההודעה after.
+    // more — יש עוד; הלקוח ממשיך עם after = ההודעה האחרונה שקיבל. after שכבר נמחק — מההתחלה
+    if (body.op === 'fetch') {
+      const box = readBox(from);
+      const start = typeof p.after === 'string' ? box.findIndex(m => m.id === p.after) + 1 : 0;
+      const out = [];
+      let bytes = 0;
+      for (let i = start; i < box.length && out.length < FETCH_MAX_MESSAGES; i++) {
+        const b = msgBytes(box[i]);
+        if (out.length && bytes + b > FETCH_MAX_BYTES) break;
+        out.push(box[i]);
+        bytes += b;
+      }
+      return { ok: true, messages: out, more: start + out.length < box.length };
+    }
     if (body.op === 'ack') {
       const ids = new Set(Array.isArray(p.ids) ? p.ids.map(String) : []);
+      if (!ids.size) return { ok: true, removed: 0 };
       const box = readBox(from);
-      writeBox(from, box.filter(m => !ids.has(m.id)));
-      return { ok: true, removed: box.length - readBox(from).length };
+      const removed = box.filter(m => ids.has(m.id));
+      if (removed.length) writeBox(from, box.filter(m => !ids.has(m.id)), { removed });
+      return { ok: true, removed: removed.length };
     }
     throw httpError(400, 'פעולה לא מוכרת');
   }
@@ -489,4 +599,5 @@ if (require.main === module) {
   server.listen(port, host, () => console.log(`שרת הרישוי פועל ב-${host}:${port}${a.cert ? ' (HTTPS)' : ' (HTTP — יש להפעיל מאחורי TLS)'}${trustProxy ? ', מאחורי שרת קדמי' : ''}`));
 }
 
-module.exports = { createRelay, createServer, KINDS, clientAddress, assertPaymentConfig, MAX_MAILBOX };
+module.exports = { createRelay, createServer, KINDS, clientAddress, assertPaymentConfig, MAX_MAILBOX,
+  MAX_BOX_BYTES, SEND_PER_IP_TO_BOX_HOUR, MAX_UNKNOWN_IN_OWNER_BOX, FETCH_MAX_MESSAGES, FETCH_MAX_BYTES };

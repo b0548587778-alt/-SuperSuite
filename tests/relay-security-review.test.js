@@ -46,11 +46,12 @@ const pending = (dir, over = {}) => fs.writeFileSync(path.join(dir, 'payments.js
   { id: 'p1', keyId: 'k', signupId: 's1', amountAgorot: 18000, checkoutId: 'c1', status: 'pending', createdAt: Date.now(), signup: '{}', ...over }]));
 const paid = (checkoutId = 'c1') => ({ rawBody: JSON.stringify({ checkoutId, status: 'paid', amountAgorot: 18000, providerRef: 'r1' }), headers: {} });
 
-// הצפה: מפתחות חדשים מכתובות שונות ממלאים את תיבת מנהל-העל עד התקרה
+// הצפה: מפתחות חדשים מכתובות שונות ממלאים את תיבת מנהל-העל עד התקרה. מאז בדיקת הקוד של 22.10.2026 —
+// עד המכסה של שולחים שמנהל-העל לא כתב להם (MAX_UNKNOWN_IN_OWNER_BOX), ו-20 בשעה מכל כתובת
 function flood(relay) {
   let sent = 0;
-  for (let i = 0; sent < R.MAX_MAILBOX; i++) {
-    const n = Math.min(50, R.MAX_MAILBOX - sent);
+  for (let i = 0; sent < R.MAX_UNKNOWN_IN_OWNER_BOX; i++) {
+    const n = Math.min(R.SEND_PER_IP_TO_BOX_HOUR, R.MAX_UNKNOWN_IN_OWNER_BOX - sent);
     sent += relay.handle(req(L.generateKeyPair(), 'send', { items: Array.from({ length: n }, () => ({ to: ownerId, kind: 'message', body: 'x' })) }), '10.0.' + i + '.1').sent;
   }
 }
@@ -84,7 +85,7 @@ test('ממצא 1: הודעות מהשרת לא תופסות מקום של שול
   const { dir, relay } = relayWith(fakeProvider());
   for (let i = 0; i < 3; i++) { pending(dir, { id: 'p' + i, checkoutId: 'c' + i }); relay.webhook(paid('c' + i)); }
   flood(relay); // עדיין אפשר למלא עד התקרה המלאה
-  assert.equal(box(dir, ownerId).length, R.MAX_MAILBOX + 3);
+  assert.equal(box(dir, ownerId).length, R.MAX_UNKNOWN_IN_OWNER_BOX + 3);
 });
 
 test('ממצא 4: webhook בזמן ש-checkout ממתין לספק — לא נדרס', async () => {

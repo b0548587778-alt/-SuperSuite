@@ -154,6 +154,9 @@ function validateComparable(c = {}, n = 1) {
       bp: Number.isInteger(a.bp) ? pctToBp(a.bp, `${where}, התאמה ${i + 1}`) : pctToBp(a.pct, `${where}, התאמה ${i + 1}`),
       note: txt(a.note, 120),
     }));
+  // נבדק כאן ולא רק בחישוב: אחרת התיק נשמר, והטעינה שלו נכשלת עד שמתקנים אותו (בדיקה 21.10.2026, ממצא 2)
+  const netBp = adjustments.reduce((s, a) => s + a.bp, 0);
+  if (netBp <= -10000) throw new Error(`${where}: סך ההתאמות (${netBp / 100}%) מאפס את מחיר העסקה`);
   return {
     id: txt(c.id, 40) || null,
     date, priceAg, area,
@@ -238,7 +241,8 @@ function comparableResult(c) {
   const perSqmAg = Math.round(c.priceAg / c.area);
   const netBp = c.adjustments.reduce((s, a) => s + a.bp, 0);
   const grossBp = c.adjustments.reduce((s, a) => s + Math.abs(a.bp), 0);
-  if (netBp <= -10000) throw new Error('סך ההתאמות מאפס את מחיר העסקה');
+  // תיק שנשמר לפני הבדיקה ב-validateComparable: העסקה לא נכנסת לחישוב (אזהרה ב-salesApproach), והתיק נטען
+  if (netBp <= -10000) return { perSqmAg, netBp, grossBp, adjustedPerSqmAg: null, invalid: true };
   return { perSqmAg, netBp, grossBp, adjustedPerSqmAg: Math.round(perSqmAg * (10000 + netBp) / 10000) };
 }
 
@@ -252,9 +256,9 @@ const median = (arr) => {
 function salesApproach(cs) {
   const area = cs.property.equivArea || cs.property.area;
   const rows = cs.comparables.map((c, i) => ({ n: i + 1, included: c.included, ...comparableResult(c), ageMonths: monthsBetween(c.date, cs.effectiveDate) }));
-  const used = rows.filter(r => r.included);
-  const warnings = [];
-  if (!used.length) return { ok: false, rows, warnings: ['אין עסקאות השוואה בחישוב'], valueAg: null };
+  const used = rows.filter(r => r.included && !r.invalid);
+  const warnings = rows.filter(r => r.included && r.invalid).map(r => `עסקה ${r.n}: סך ההתאמות מאפס את מחיר העסקה — לא נכללה בחישוב`);
+  if (!used.length) return { ok: false, rows, warnings: [...warnings, 'אין עסקאות השוואה בחישוב'], valueAg: null };
   if (!area) return { ok: false, rows, warnings: ['חסר שטח הנכס'], valueAg: null };
   const weights = used.map(r => cs.comparables[r.n - 1].weight);
   const explicit = weights.some(w => w !== null && w > 0);
@@ -371,6 +375,7 @@ function finalizeProblems(cs, today) {
   if (cs.visitDate > today) out.push('תאריך הביקור אחרי היום');
   const r = computeCase(cs);
   if (!r.final.ok) out.push('אין שווי: יש להשלים לפחות גישה אחת');
+  for (const x of r.sales.rows) if (x.included && x.invalid) out.push(`עסקה ${x.n}: סך ההתאמות מאפס את מחיר העסקה — יש לתקן או להוציא מהחישוב`);
   if (cs.reconcile.overrideAg !== null && !cs.reconcile.overrideReason) out.push('שווי סופי שנקבע ידנית מחייב נימוק');
   return out;
 }
@@ -396,6 +401,7 @@ const CSV_COLUMNS = {
   notes: ['הערות', 'notes'],
 };
 const MAX_CSV = 2 * 1024 * 1024;
+const MAX_CSV_ROWS = 500;
 
 function splitCsvLine(line, sep) {
   const out = [];
@@ -441,7 +447,8 @@ function parseComparablesCsv(text, { source = '' } = {}) {
   const missing = ['date', 'price', 'area'].filter(k => col[k] === undefined);
   if (missing.length) throw new Error('לא נמצאו עמודות חובה בקובץ: ' + missing.map(k => ({ date: 'תאריך', price: 'מחיר', area: 'שטח' })[k]).join(', '));
   const rows = [], errors = [];
-  for (let i = 1; i < lines.length && rows.length < 500; i++) {
+  let i = 1;
+  for (; i < lines.length && rows.length < MAX_CSV_ROWS; i++) {
     const cells = splitCsvLine(lines[i], sep);
     const get = (k) => (col[k] === undefined ? '' : cells[col[k]] || '');
     let block = get('block'), parcel = get('parcel'), subParcel = get('subParcel');
@@ -454,24 +461,38 @@ function parseComparablesCsv(text, { source = '' } = {}) {
     try { rows.push(validateComparable(input, i + 1)); }
     catch (e) { errors.push(`שורה ${i + 1}: ${String(e.message).replace(/^עסקה \d+: /, '')}`); }
   }
-  return { rows, errors, columns: Object.keys(col) };
+  // שורות אחרי התקרה לא נקראות — נספרות, כדי שיוצגו כ"מעבר למגבלה" ולא ייעלמו בשקט (בדיקת קוד 21.10.2026)
+  return { rows, errors, unread: lines.length - i, columns: Object.keys(col) };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  נעילה וגרסאות
 // ─────────────────────────────────────────────────────────────────────────────
 
-function finalizeCase(cs, today) {
+// settings — פרטי השמאי בזמן הנעילה: נשמרים בתיק, כדי שהדוח שנמסר לא ישתנה כששם המשרד / הרישיון / ההצהרה משתנים
+function finalizeCase(cs, today, settings = {}) {
   const problems = finalizeProblems(cs, today);
   if (problems.length) throw new Error(problems.join('\n'));
-  return { ...cs, status: 'final', reportDate: today, finalizedAt: new Date().toISOString(), frozen: computeCase(cs) };
+  return { ...cs, status: 'final', reportDate: today, finalizedAt: new Date().toISOString(), frozen: computeCase(cs), frozenSettings: validateSettings(settings) };
 }
 
+// גרסאות קודמות ששמורות במלואן (הדוח שנמסר אפשר להפיק שוב). ישנות יותר — רק תקציר
+const MAX_FULL_REVISIONS = 10;
+
+// הגרסה הנעולה עוברת להיסטוריה במלואה — הערכים, העסקאות, החישוב הנעול ופרטי השמאי (בדיקה 21.10.2026, ממצא 5)
 function reopenCase(cs) {
   if (cs.status !== 'final') throw new Error('התיק אינו נעול');
-  const history = [...(cs.history || []), { rev: cs.rev || 0, reportDate: cs.reportDate, valueAg: cs.frozen.final.valueAg }];
-  const { frozen, reportDate, finalizedAt, ...rest } = cs;
+  const { history: _h, ...snapshot } = cs;
+  const prev = (cs.history || []).map((h, i, all) => (i < all.length - (MAX_FULL_REVISIONS - 1) ? (({ snapshot: _s, ...short }) => short)(h) : h));
+  const history = [...prev, { rev: cs.rev || 0, reportDate: cs.reportDate, valueAg: cs.frozen.final.valueAg, finalizedAt: cs.finalizedAt, snapshot }];
+  const { frozen, reportDate, finalizedAt, frozenSettings, ...rest } = cs;
   return { ...rest, status: 'draft', rev: (cs.rev || 0) + 1, history };
+}
+
+// הגרסה שנמסרה, כפי שהייתה בנעילה — לדוח מחדש. null = גרסה ישנה שלא נשמרה במלואה
+function revisionCase(cs, rev) {
+  const h = (cs.history || []).find(x => x.rev === rev);
+  return h && h.snapshot ? { ...h.snapshot, history: [] } : null;
 }
 
 const reportNo = (cs) => String(cs.no) + (cs.rev ? '-' + cs.rev : '');
@@ -570,7 +591,8 @@ function renderReportHtml(cs, settings = {}, today, photos = []) {
   const para = (title, body) => (body ? `<h2>${L(title)}</h2><div class="text">${esc(body).replace(/\n/g, '<br>')}</div>` : '');
   const final = cs.status === 'final' && cs.frozen;
   const r = final ? cs.frozen : computeCase(cs);
-  const p = cs.property, cl = cs.client, s = settings || {};
+  // דוח נעול — פרטי השמאי מהנעילה (תיק שננעל לפני 21.10.2026 — הפרטים הנוכחיים, אין אחרים)
+  const p = cs.property, cl = cs.client, s = (final && cs.frozenSettings) || settings || {};
   const repDate = final ? cs.reportDate : today;
   const compRows = cs.comparables.map((c, i) => {
     const x = r.sales.rows[i];
@@ -709,5 +731,5 @@ module.exports = {
   toAg, toArea, pctToBp, validIsraeliId, validateCase, validateComparable, validateSettings,
   comparableResult, salesApproach, incomeApproach, costApproach, reconcile, computeCase, finalizeProblems, sensitivity, SENS_CAP_STEPS_BP,
   registerExport, REGISTER_HEADERS, STATUS_LABELS,
-  parseComparablesCsv, finalizeCase, reopenCase, reportNo, renderReportHtml,
+  parseComparablesCsv, MAX_CSV_ROWS, finalizeCase, reopenCase, revisionCase, MAX_FULL_REVISIONS, reportNo, renderReportHtml,
 };

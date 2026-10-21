@@ -200,7 +200,7 @@ function madvFeePaymentsHtml(c, o) {
               <div class="acct-row"><span>יתרה</span><span>${money(st.balance)}</span></div>
               ${st.deposit ? `<div class="acct-row"><span>מקדמה</span><span>${money(st.deposit)}${st.depositDueAg ? ' — טרם התקבלה במלואה' : ' ✓'}</span></div>` : ''}
               ${pays.map(p => `<div class="acct-row"><span>${esc(p.date)} · ${esc(methods[p.method] || '')}${p.note ? ' · ' + esc(p.note) : ''}</span><span>${money(p.amount)}
-                ${p.invoiceNumber ? `<small>חשבונית ${esc(p.invoiceNumber)}</small>` : `${o && o.canInvoice ? `<button class="icon-btn" data-madv-invoice="${esc(c.id)}" data-pay="${esc(p.id)}" title="הפקת חשבונית מס/קבלה">🧾</button>` : ''}
+                ${p.invoiceNumber ? `<small>חשבונית ${esc(p.invoiceNumber)}</small>` : `${p.cancelledInvoice ? `<small class="muted">חשבונית ${esc(p.cancelledInvoice)} בוטלה</small>` : ''}${o && o.canInvoice ? `<button class="icon-btn" data-madv-invoice="${esc(c.id)}" data-pay="${esc(p.id)}" title="הפקת חשבונית מס/קבלה">🧾</button>` : ''}
                 <button class="icon-btn danger" data-madv-paydel="${esc(c.id)}" data-pay="${esc(p.id)}" title="מחיקת תשלום">🗑</button>`}</span></div>`).join('')}
               ${st.state !== 'none' ? `<button class="secondary" data-madv-pay="${esc(c.id)}">＋ תשלום שהתקבל</button>` : ''}`;
 }

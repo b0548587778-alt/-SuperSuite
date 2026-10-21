@@ -25,7 +25,12 @@ function loadAutoBackupKey({ file, safeStorage, create }) {
     throw err;
   }
   const k = require('crypto').randomBytes(32).toString('base64');
-  fs.writeFileSync(file, safeStorage.encryptString(k));
+  // כתיבה אטומית (קובץ זמני, fsync והחלפה): ניתוק חשמל באמצע כתיבה ישירה השאיר מפתח שבור,
+  // ואז "key-unreadable" — הנתונים לא הוצפנו (בדיקת קוד 22.10.2026, הערה בבדיקה החוזרת)
+  const tmp = file + '.tmp';
+  const fd = fs.openSync(tmp, 'w');
+  try { fs.writeSync(fd, safeStorage.encryptString(k)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  fs.renameSync(tmp, file);
   return k;
 }
 

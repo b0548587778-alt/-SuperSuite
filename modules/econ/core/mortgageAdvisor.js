@@ -332,11 +332,17 @@ function validateOffer(input, clients) {
   const raw = Array.isArray(input.tracks) ? input.tracks : tracksFromForm(input);
   if (raw.length === 0) throw new Error('יש להזין לפחות מסלול אחד (סכום, ריבית ותקופה)');
   const tracks = raw.map(validateTrack);
-  const cpi = Number(input.cpi === '' || input.cpi == null ? 0 : input.cpi);
-  if (!Number.isFinite(cpi) || cpi < -5 || cpi > 20) throw new Error('הנחת המדד השנתית אינה תקינה');
+  const cpi = validateCpi(input.cpi);
   const date = input.date || new Date().toISOString().slice(0, 10);
   if (!isDate(date)) throw new Error('תאריך לא תקין');
-  return { clientId: client.id, bank, date, tracks, cpi: Math.round(cpi * 100) / 100, notes: str(input.notes, 1000, 'ההערות') };
+  return { clientId: client.id, bank, date, tracks, cpi, notes: str(input.notes, 1000, 'ההערות') };
+}
+
+// הנחת מדד שנתית באחוזים: ריק = 0, בין −5 ל-20, עד שתי ספרות אחרי הנקודה. משותף להצעה ולמחשבון
+function validateCpi(value) {
+  const cpi = Number(value === '' || value == null ? 0 : value);
+  if (!Number.isFinite(cpi) || cpi < -5 || cpi > 20) throw new Error('הנחת המדד השנתית אינה תקינה (בין −5% ל-20%)');
+  return Math.round(cpi * 100) / 100;
 }
 
 // הצעה שמורה (או ישנה בשקלים) ← מסלולים באגורות
@@ -589,6 +595,6 @@ module.exports = {
   MAX_APPROVALS, validateApproval, approvalView, approvalsForLab, approvalsSummary,
   MAX_FEE_PAYMENTS, FEE_METHODS, FEE_STATES, validateFeePayment, feeStatus, officeIncome,
   validateClient, clientStored, clientView, offerStored, ltv, advisoryFee, docsProgress, toggleDoc,
-  validateTrack, tracksFromForm, validateOffer, trackSchedule, offerSchedule, offerSummary,
+  validateTrack, tracksFromForm, validateOffer, validateCpi, trackSchedule, offerSchedule, offerSummary,
   yearlySchedule, compareOffers, scheduleTable
 };

@@ -55,7 +55,7 @@ test('זכות עיון: תיק משכנתא שנפתח מעסקה נמצא לפ
     realty: { clients: [{ id: 'k', name: 'קונה', role: 'buyer', idNumber: '000000018' }], deals: [{ id: 'd1', buyerClientId: 'k', mortgageCaseId: 'c1' }], orders: [] },
     mortgageAdvisor: { clients: [{ id: 'c1', name: 'קונה', phone: '050', realtyDealId: 'd1', advisorId: 'u1' }] }
   };
-  const r = PD.subjectReport(data, '000000018', { realty: true });
+  const r = PD.subjectReport(data, '000000018', { realty: true, madv: true });
   const mc = r.sections.find(s => /תיק ייעוץ משכנתאות/.test(s.title));
   assert.ok(mc);
   assert.ok(!mc.fields.some(f => /realtyDealId|advisorId/.test(f.label)));

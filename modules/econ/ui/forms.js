@@ -307,12 +307,20 @@ async function handleRestore() {
       try {
         const text = await file.text();
         if (!(await askConfirm('השחזור יחליף את כל הנתונים הכלכליים הקיימים. להמשיך?'))) return;
+        let run;
         if (text.startsWith('SSBK1:')) {
           const f = await askFields('שחזור מגיבוי מוצפן', [{ name: 'pass', label: 'סיסמת הגיבוי', type: 'password' }], 'שחזר');
           if (!f) return;
-          await window.systemAPI.restoreEncrypted(text, f.pass);
+          run = (opts) => window.systemAPI.restoreEncrypted(text, f.pass, opts);
         } else {
-          await window.systemAPI.restoreData(JSON.parse(text));
+          const data = JSON.parse(text);
+          run = (opts) => window.systemAPI.restoreData(data, opts);
+        }
+        // גיבוי ישן מהמסמך האחרון שהופק — השרת מחזיר אזהרה ולא משחזר עד אישור נוסף
+        const r = await run();
+        if (r && r.needsConfirm) {
+          if (!(await askConfirm(`⚠ ${r.message}\n\nלשחזר בכל זאת?`))) return;
+          await run({ confirmedOld: true });
         }
         showToast('השחזור הושלם בהצלחה');
         await switchView(state.currentView);

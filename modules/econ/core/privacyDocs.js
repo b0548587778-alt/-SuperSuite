@@ -156,7 +156,8 @@ const LABELS = {
   privacyMinimizedAt: 'מוזער', minimizedAt: 'מוזער', reportStatus: 'דיווח לרשות המסים', campaignId: 'קמפיין', availability: 'זמינות',
   cheques: 'המחאות', receivedDate: 'ההמחאות התקבלו', bouncedCheque: 'המחאה שחזרה', replacesReceipt: 'מחליפה את קבלה', bank: 'בנק', branch: 'סניף',
   role: 'סוג לקוח', email: 'דוא"ל', areas: 'אזורים מבוקשים', types: 'סוגי נכס מבוקשים', minRooms: 'חדרים — מינימום', maxRooms: 'חדרים — מקסימום',
-  budgetMinAg: 'תקציב מינימלי (אגורות)', budgetMaxAg: 'תקציב מקסימלי (אגורות)', needsMortgage: 'צריך משכנתא'
+  budgetMinAg: 'תקציב מינימלי (אגורות)', budgetMaxAg: 'תקציב מקסימלי (אגורות)', needsMortgage: 'צריך משכנתא',
+  propertyAddress: 'כתובת הנכס', effectiveDate: 'מועד קובע', caseStatus: 'מצב התיק'
 };
 // מזהים פנימיים בלבד — לא מידע על האדם
 const SKIP = new Set(['id', 'entryId', 'paymentEntryId', 'reversalEntryId', 'loanId', 'itemId', 'applicationId', 'ambassadorId', 'standingOrderId', 'chequeGroupId', 'replacesId', 'replacedBy', 'realtyDealId', 'mortgageCaseId', 'advisorId', 'buyerClientId', 'sellerClientId', 'propertyId']);
@@ -211,11 +212,26 @@ function subjectReport(data, idNumber, opts = {}) {
     for (const c of (data.realty && data.realty.clients) || []) {
       if (String(c.idNumber || '').replace(/\D/g, '').padStart(9, '0') !== key) continue;
       sections.push({ title: 'לקוח נדל"ן ותיווך', byName: false, fields: fieldsOf(c) });
-      // תיק ייעוץ משכנתאות שנפתח מעסקה שבה הלקוח קונה — מקושר, ולכן נמצא גם בלי ת"ז בתיק
-      for (const d of (data.realty.deals || []).filter(x => x.buyerClientId === c.id && x.mortgageCaseId)) {
+      // תיק ייעוץ משכנתאות שנפתח מעסקה שבה הלקוח קונה — מקושר, ולכן נמצא גם בלי ת"ז בתיק.
+      // רק כשגם ייעוץ המשכנתאות פתוח ברישיון (opts.madv) — אחרת הדוח עוקף את הרישיון של תחום סגור
+      for (const d of (opts.madv ? data.realty.deals || [] : []).filter(x => x.buyerClientId === c.id && x.mortgageCaseId)) {
         const mc = ((data.mortgageAdvisor && data.mortgageAdvisor.clients) || []).find(x => x.id === d.mortgageCaseId);
         if (mc) sections.push({ title: 'תיק ייעוץ משכנתאות (נפתח מעסקת תיווך)', byName: false, fields: fieldsOf(mc) });
       }
+    }
+  }
+  // תיקי שמאות מקרקעין לפי ת"ז המזמין — רק אם התחום פתוח ברישיון (opts.realestate). פרטי המזמין והנכס
+  // בלבד; החישובים ועסקאות ההשוואה אינם מידע על האדם
+  if (opts.realestate) {
+    for (const cs of (data.realEstate && data.realEstate.cases) || []) {
+      const cl = cs.client || {};
+      if (String(cl.idNumber || '').replace(/\D/g, '').padStart(9, '0') !== key) continue;
+      const p = cs.property || {};
+      sections.push({ title: `תיק שמאות מקרקעין ${cs.no}${cs.rev ? '-' + cs.rev : ''}`, byName: false, fields: fieldsOf({
+        name: cl.name, idNumber: cl.idNumber, phone: cl.phone, email: cl.email, address: cl.address,
+        propertyAddress: [p.address, p.city].filter(Boolean).join(', '), effectiveDate: cs.effectiveDate,
+        caseStatus: cs.status === 'final' ? 'נעול' : 'טיוטה', createdAt: cs.createdAt,
+      }) });
     }
   }
   // חשבוניות לפי ע.מ / ח.פ של הלקוח — רק אם הנהלת החשבונות פתוחה ברישיון
@@ -227,7 +243,7 @@ function subjectReport(data, idNumber, opts = {}) {
   const names = person ? [...person.names] : [];
   return {
     idNumber: key, names, phones: person ? [...person.phones] : [], sections, count: sections.length,
-    notCovered: 'לא נכללים: רשומות שאין בהן מספר זהות ושלא שויכו לפי שם (למשל מתנדב או מפקיד ששמו מופיע אצל כמה אנשים), תיקי ייעוץ משכנתאות (אין בהם ת"ז — נכללים רק אם נפתחו מעסקת תיווך של הלקוח), לקוחות נדל"ן שנרשמו בלי ת"ז, אנשי קשר, ומודולי השמאות והאימונים. יש לחפש גם לפי שם במאגר האנשים ובמודולים האלה.'
+    notCovered: 'לא נכללים: רשומות שאין בהן מספר זהות ושלא שויכו לפי שם (למשל מתנדב או מפקיד ששמו מופיע אצל כמה אנשים), תיקי ייעוץ משכנתאות (אין בהם ת"ז — נכללים רק אם נפתחו מעסקת תיווך של הלקוח והייעוץ פתוח ברישיון), לקוחות נדל"ן ומזמיני שומה שנרשמו בלי ת"ז, אנשי קשר, ומודולי השמאות והאימונים. יש לחפש גם לפי שם במאגר האנשים ובמודולים האלה.'
   };
 }
 

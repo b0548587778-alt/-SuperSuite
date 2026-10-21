@@ -3,6 +3,7 @@
 **תאריך:** 21.10.2026 · **ענף:** `fix/relay-and-test-cleanup` (`1f08340`)
 **מצב:** בדיקה בלבד, לא שונה שום קובץ קוד. סקריפטי האימות רצו מתיקייה זמנית מחוץ למאגר (`%TEMP%\ss-review-s3`).
 **בדיקות קיימות:** 1,337 מתוך 1,337 עוברות (`npm test`).
+**סטטוס תיקון:** כל הממצאים תוקנו, וגם שלוש ההערות הקטנות. בדיקות רגרסיה: `tests/mortgage-realty-audit-fixes.test.js`, `tests/mortgage-lab-actor.test.js`, `tests/mortgage-optimizer-grid.test.js`; ההערות — `tests/mortgage-realty-notes.test.js` (CSV ומס רכישה) ו-`tests/advisory-invoice-cancel.test.js` (חשבונית שבוטלה).
 
 ---
 

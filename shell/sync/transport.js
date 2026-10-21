@@ -14,8 +14,14 @@ const { selfSignedCert, certPublicJwk, sameTlsKey } = require('./cert');
 
 const ALPN = 'supersuite-sync/1';
 const MAX_FRAME = 9 * 1024 * 1024;
+// חיבור צימוד (מכשיר שעוד לא מצומד): בקשה אמיתית קטנה מ-4KB. מסגרת גדולה יותר — ניתוק מיד (בדיקת קוד 22.10.2026, ממצא 4)
+const PAIRING_MAX_FRAME = 16 * 1024;
 const REPLAY_WINDOW = 1024;
 const LIMITS = { handshakeMs: 10000, pairingMs: 30000, idleMs: 120000, maxConnections: 64 };
+// שני המכשירים חייגו זה לזה כמעט באותו רגע (שמעו את המשואה יחד) — נשאר החיבור שיזם בעל המזהה הנמוך (ממצא 8)
+const SIMULTANEOUS_MS = 10000;
+// התעודה לא נושאת את מזהה המכשיר: כל מי שמתחבר לפורט רואה אותה לפני כל אימות (ממצא 10)
+const CERT_NAME = 'SuperSuite';
 
 function fail(code, message) {
   const err = new Error(message);
@@ -31,20 +37,52 @@ function encodeFrame(obj) {
   head.writeUInt32BE(body.length);
   return Buffer.concat([head, body]);
 }
-function frameReader(onFrame, onError) {
-  let buf = Buffer.alloc(0);
+// החלקים נאספים לרשימה ומחוברים פעם אחת, כשהמסגרת שלמה. חיבור מחדש של כל המאגר בכל חלק היה ריבועי:
+// מסגרת של 9MB ב-576 חלקים — 3.4 שניות של עבודה רצופה בתהליך הראשי (ממצא 4). אחרי שגיאה — לא ממשיכים
+function frameReader(onFrame, onError, maxFrame = MAX_FRAME) {
+  let chunks = [];
+  let have = 0;
+  let dead = false;
+  // מוציא n בתים מתחילת הרשימה
+  const take = (n) => {
+    if (chunks[0].length >= n) {
+      const out = chunks[0].subarray(0, n);
+      if (chunks[0].length === n) chunks.shift(); else chunks[0] = chunks[0].subarray(n);
+      have -= n;
+      return out;
+    }
+    const out = Buffer.allocUnsafe(n);
+    let off = 0;
+    while (off < n) {
+      const c = chunks[0];
+      const k = Math.min(c.length, n - off);
+      c.copy(out, off, 0, k);
+      off += k;
+      if (k === c.length) chunks.shift(); else chunks[0] = c.subarray(k);
+    }
+    have -= n;
+    return out;
+  };
+  const stop = (err) => { dead = true; chunks = []; have = 0; onError(err); };
+  let need = null; // אורך המסגרת הנוכחית, אחרי שנקראה הכותרת
   return (chunk) => {
-    buf = Buffer.concat([buf, chunk]);
-    while (buf.length >= 4) {
-      const n = buf.readUInt32BE(0);
-      if (n === 0 || n > MAX_FRAME) { buf = Buffer.alloc(0); return onError(fail('frame-size', 'מסגרת בגודל לא חוקי')); }
-      if (buf.length < 4 + n) return;
-      const body = buf.subarray(4, 4 + n);
-      buf = buf.subarray(4 + n);
+    if (dead) return;
+    chunks.push(chunk);
+    have += chunk.length;
+    for (;;) {
+      if (need === null) {
+        if (have < 4) return;
+        need = take(4).readUInt32BE(0);
+        if (need === 0 || need > maxFrame) return stop(fail('frame-size', 'מסגרת בגודל לא חוקי'));
+      }
+      if (have < need) return;
+      const body = take(need);
+      need = null;
       let obj;
-      try { obj = JSON.parse(body.toString('utf8')); } catch { return onError(fail('frame-json', 'מסגרת לא תקינה')); }
-      if (!obj || typeof obj !== 'object' || typeof obj.t !== 'string') return onError(fail('frame-json', 'מסגרת לא תקינה'));
+      try { obj = JSON.parse(body.toString('utf8')); } catch { return stop(fail('frame-json', 'מסגרת לא תקינה')); }
+      if (!obj || typeof obj !== 'object' || typeof obj.t !== 'string') return stop(fail('frame-json', 'מסגרת לא תקינה'));
       onFrame(obj);
+      if (dead) return;
     }
   };
 }
@@ -63,9 +101,25 @@ function replayAccept(w, seq) {
 function createPeerNode({ identity, getPeers, savePeers, state, onState = () => {}, now = Date.now, limits = {} }) {
   const lim = { ...LIMITS, ...limits };
   const node = new EventEmitter();
-  const { cert, key } = selfSignedCert(identity.tls, { commonName: identity.id });
+  const { cert, key } = selfSignedCert(identity.tls, { commonName: CERT_NAME });
   const sessions = new Map(); // peerId → session
-  const st = { outSeq: 0, replay: {}, ...(state || {}) };
+  // בלי מצב שמור (מכשיר חדש, או קובץ שאבד / לא נקרא) המונה מתחיל מהשעון, ולא מ-0: העמית זוכר את המספר
+  // הגבוה שראה, ומונה שהתחיל מחדש נדחה כשידור חוזר כמעט לתמיד (ממצא 3). מיליון לשנייה — עדיין מספר שלם בטוח
+  const st = { replay: {}, ...(state || {}) };
+  if (!Number.isSafeInteger(st.outSeq) || st.outSeq < 0) st.outSeq = now() * 1000;
+  // שמירת המצב נכשלה (דיסק מלא, אנטי-וירוס נועל את הקובץ) — נרשם ביומן, והקורא מחליט; לא חריגה שלא נתפסה
+  // מתוך מאזין של חיבור, שהקפיצה את חלון הקריסה בכל הודעה (ממצא 5)
+  function persist() {
+    try { onState({ ...st }); return true; }
+    catch (err) { log('error', 'שמירת מצב הסנכרון נכשלה', { code: err && err.code }); return false; }
+  }
+  // צימוד מחדש של מכשיר: החלון שלו מתאפס — אחרת מכשיר שהמונה שלו התחיל מחדש נדחה גם אחרי הצימוד
+  function resetReplay(peerId) {
+    if (!st.replay[peerId]) return;
+    const { [peerId]: _gone, ...rest } = st.replay;
+    st.replay = rest;
+    persist();
+  }
   let pending = null; // הזמנת צימוד פתוחה אחת בלבד; הזמנה חדשה מחליפה את הקודמת
   let server = null;
   const sockets = new Set(); // כל החיבורים הפתוחים — לסגירה מלאה
@@ -86,17 +140,26 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
   }
 
   // ── סשן מאומת מול עמית מצומד ──
-  function startSession(socket, peer) {
+  // initiator — מזהה המכשיר שיזם את החיבור (אני, או העמית)
+  function startSession(socket, peer, initiator) {
     const old = sessions.get(peer.id);
+    if (old && !old.closed && old.initiator !== initiator && now() - old.startedAt < SIMULTANEOUS_MS) {
+      // חיוג בו-זמני משני הצדדים: שני הצדדים מכריעים באותו כלל, ולכן נשאר אותו חיבור אצל שניהם
+      const keeper = identity.id < peer.id ? identity.id : peer.id;
+      if (old.initiator === keeper) { socket.destroy(); return old; }
+    }
     if (old) old.close('הוחלף בחיבור חדש');
     socket.setTimeout(lim.idleMs, () => session.close('זמן סרק'));
     const session = {
       peerId: peer.id,
+      initiator,
+      startedAt: now(),
       send(body) {
         const p = trusted(peer.id);
         if (!p) throw fail('not-paired', 'המכשיר אינו מצומד');
         st.outSeq += 1;
-        onState({ ...st });
+        // מספר שלא נשמר עלול לחזור אחרי הפעלה מחדש — ואז העמית ידחה אותו. לא שולחים בלי שמירה
+        if (!persist()) throw fail('state-save', 'לא ניתן לשמור את מצב הסנכרון בדיסק — ההודעה לא נשלחה');
         socket.write(encodeFrame({ t: 'env', env: Envelope.seal({ identity, peer: p, seq: st.outSeq, body, now: now() }) }));
       },
       close(reason) {
@@ -120,7 +183,8 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
         return session.close(err.message);
       }
       st.replay = { ...st.replay, [peer.id]: replayAccept(w, msg.seq) };
-      onState({ ...st });
+      // בלי שמירה, אחרי הפעלה מחדש אותה הודעה הייתה מתקבלת שוב — לא מעבירים אותה, וסוגרים בצורה מסודרת
+      if (!persist()) return session.close('לא ניתן לשמור את מצב הסנכרון בדיסק');
       node.emit('message', peer.id, msg.body);
     }, (err) => { log('warn', 'מסגרת נדחתה', { peerId: peer.id, code: err.code }); session.close(err.message); }));
     socket.on('close', () => session.close());
@@ -137,38 +201,55 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
     const k = presentedKey(socket);
     if (!k || socket.alpnProtocol !== ALPN) return socket.destroy();
     const peer = peerByTlsKey(k);
-    if (peer) return startSession(socket, peer);
+    if (peer) return startSession(socket, peer, peer.id);
     if (pending && !pending.used && now() <= pending.exp) return handlePairingConnection(socket, k);
     socket.destroy(); // לא מצומד ואין צימוד פתוח — בלי שום תשובה
   }
 
-  // מכשיר שאינו מצומד, כשיש הזמנה פתוחה: מסגרת אחת בלבד, ואז ניתוק
+  // מכשיר שאינו מצומד, כשיש הזמנה פתוחה: בקשה (עם התחייבות) ← המספר שלי ← החשיפה של המספר שלו ← ניתוק.
+  // מסגרות קטנות בלבד (PAIRING_MAX_FRAME)
   function handlePairingConnection(socket, presented) {
     socket.setTimeout(lim.pairingMs, () => socket.destroy());
-    let done = false;
-    const reply = (obj) => { socket.end(encodeFrame(obj)); };
+    let stage = 'request';
+    let result = null;
+    const failReply = (err) => {
+      stage = 'done';
+      log('warn', 'צימוד נדחה', { code: err.code });
+      socket.end(encodeFrame({ t: 'pair-fail', code: err.code || 'error' }));
+    };
     socket.on('data', frameReader((frame) => {
-      if (done) return;
-      done = true;
-      const inv = pending;
-      try {
-        if (frame.t !== 'pair' || !inv) throw fail('bad-response', 'בקשת צימוד לא תקינה');
-        const result = Pairing.completePairing(identity, inv, frame.response, { now: now() });
-        // המפתח שהוצג ב-TLS חייב להיות המפתח שבתשובה החתומה — אחרת מישהו "השאיל" תשובה של אחר
-        if (!sameTlsKey(result.peer.tls, presented)) throw fail('tls-mismatch', 'מפתח החיבור אינו תואם את בקשת הצימוד');
-        if (pending === inv) pending = null;
-        reply({ t: 'pair-ok' });
-        node.emit('pair-request', {
-          peer: result.peer, code: result.code,
-          approve: () => savePeers(Pairing.addPeer(getPeers(), result.peer, { now: now() })),
-          reject: () => {},
-        });
-      } catch (err) {
-        if (pending === inv && inv && inv.used) pending = null;
-        log('warn', 'צימוד נדחה', { code: err.code });
-        reply({ t: 'pair-fail', code: err.code || 'error' });
+      if (stage === 'request') {
+        const inv = pending;
+        try {
+          if (frame.t !== 'pair' || !inv) throw fail('bad-response', 'בקשת צימוד לא תקינה');
+          result = Pairing.completePairing(identity, inv, frame.response, { now: now() });
+          // המפתח שהוצג ב-TLS חייב להיות המפתח שבתשובה החתומה — אחרת מישהו "השאיל" תשובה של אחר
+          if (!sameTlsKey(result.peer.tls, presented)) throw fail('tls-mismatch', 'מפתח החיבור אינו תואם את בקשת הצימוד');
+        } catch (err) {
+          // ההזמנה נשרפת רק אחרי הוכחה תקינה (completePairing מסמן used) — זר שלא מכיר את הסוד לא שורף אותה
+          if (pending === inv && inv && inv.used) { pending = null; node.emit('pairing-closed'); }
+          return failReply(err);
+        }
+        if (pending === inv) { pending = null; node.emit('pairing-closed'); }
+        stage = 'reveal';
+        socket.write(encodeFrame({ t: 'pair-nonce', nonce: result.nonce }));
+        return;
       }
-    }, () => socket.destroy()));
+      if (stage !== 'reveal') return;
+      let code;
+      try {
+        if (frame.t !== 'pair-reveal') throw fail('bad-response', 'בקשת צימוד לא תקינה');
+        ({ code } = result.finish(frame.nonce));
+      } catch (err) { return failReply(err); }
+      stage = 'done';
+      socket.end(encodeFrame({ t: 'pair-ok' }));
+      const peer = result.peer;
+      node.emit('pair-request', {
+        peer, code,
+        approve: () => { resetReplay(peer.id); savePeers(Pairing.addPeer(getPeers(), peer, { now: now() })); },
+        reject: () => {},
+      });
+    }, () => socket.destroy(), PAIRING_MAX_FRAME));
   }
 
   node.listen = ({ host = '0.0.0.0', port = 0 } = {}) => new Promise((resolve, reject) => {
@@ -200,7 +281,7 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
     if (!peer) throw fail('not-paired', 'המכשיר אינו מצומד');
     const socket = await dial(endpoint, peer.tls);
     socket.on('error', () => {});
-    return startSession(socket, peer);
+    return startSession(socket, peer, identity.id);
   };
 
   node.send = (peerId, body) => {
@@ -218,6 +299,8 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
     return code;
   };
   node.cancelPairing = () => { pending = null; };
+  // יש הזמנה שעדיין אפשר להשתמש בה (לא נוצלה, לא בוטלה, לא פגה)
+  node.pairingOpen = () => !!(pending && !pending.used && now() <= pending.exp);
 
   // במכשיר המצטרף: מתחבר לכתובת שבהזמנה (או לזו שהמשתמש הזין), ומחזיר את קוד האימות להשוואה
   node.joinPairing = async (code, { endpoint } = {}) => {
@@ -226,18 +309,30 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
     if (!target) throw fail('no-endpoint', 'בקוד הצימוד אין כתובת — הזינו את כתובת המכשיר השני');
     const accepted = Pairing.acceptInvite(identity, code, { now: now() });
     const socket = await dial(target, inv.peer.tls);
-    const answer = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { socket.destroy(); reject(fail('timeout', 'המכשיר השני אינו עונה')); }, lim.pairingMs);
-      socket.on('data', frameReader((f) => { clearTimeout(timer); socket.destroy(); resolve(f); },
-        (e) => { clearTimeout(timer); socket.destroy(); reject(e); }));
+    const refused = (f) => fail(f.code || 'pair-failed', f.code === 'old-version'
+      ? 'המכשיר השני משתמש בגרסה אחרת של התוכנה — עדכנו את שני המכשירים'
+      : 'המכשיר השני דחה את הצימוד — צרו קוד חדש ונסו שוב');
+    // בקשה (עם התחייבות) ← המספר של המזמין ← חשיפת המספר שלי ← אישור
+    const shown = await new Promise((resolve, reject) => {
+      let mine = null;
+      const end = (fn) => { clearTimeout(timer); socket.destroy(); fn(); };
+      const timer = setTimeout(() => end(() => reject(fail('timeout', 'המכשיר השני אינו עונה'))), lim.pairingMs);
+      socket.on('data', frameReader((f) => {
+        if (!mine) {
+          if (f.t !== 'pair-nonce') return end(() => reject(refused(f)));
+          try { mine = accepted.reveal(f.nonce); } catch (e) { return end(() => reject(e)); }
+          socket.write(encodeFrame({ t: 'pair-reveal', nonce: mine.nonce }));
+          return;
+        }
+        end(() => (f.t === 'pair-ok' ? resolve(mine.code) : reject(refused(f))));
+      }, (e) => end(() => reject(e)), PAIRING_MAX_FRAME));
       socket.on('error', () => {});
       socket.on('close', () => { clearTimeout(timer); reject(fail('closed', 'המכשיר השני סגר את החיבור — ייתכן שקוד הצימוד כבר נוצל או בוטל. צרו קוד חדש')); });
       socket.write(encodeFrame({ t: 'pair', response: accepted.response }));
     });
-    if (answer.t !== 'pair-ok') throw fail(answer.code || 'pair-failed', 'המכשיר השני דחה את הצימוד — צרו קוד חדש ונסו שוב');
     return {
-      peer: accepted.peer, code: accepted.code,
-      approve: () => savePeers(Pairing.addPeer(getPeers(), accepted.peer, { now: now() })),
+      peer: accepted.peer, code: shown,
+      approve: () => { resetReplay(accepted.peer.id); savePeers(Pairing.addPeer(getPeers(), accepted.peer, { now: now() })); },
       reject: () => {},
     };
   };
@@ -261,4 +356,4 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
   return node;
 }
 
-module.exports = { createPeerNode, encodeFrame, frameReader, replayAccept, replaySeen, ALPN, MAX_FRAME, REPLAY_WINDOW };
+module.exports = { createPeerNode, encodeFrame, frameReader, replayAccept, replaySeen, ALPN, MAX_FRAME, PAIRING_MAX_FRAME, REPLAY_WINDOW, CERT_NAME };

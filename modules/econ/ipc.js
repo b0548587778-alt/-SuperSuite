@@ -2,7 +2,8 @@
 const { ipcMain, dialog, BrowserWindow, safeStorage } = require('electron');
 const fs = require('fs');
 const X = require('./core/exports');
-const { initializeDatabase, defaults: DB_DEFAULTS } = require('./core/database');
+const { initializeDatabase, issuedAfter, defaults: DB_DEFAULTS } = require('./core/database');
+const ModCounters = require('../../shell/module-counters');
 const { AuthService: authService } = require('./services/authService');
 const { FinancialService: financialService } = require('./services/financialService');
 const { MarketIntelService: marketIntelService } = require('./services/marketIntelService');
@@ -240,6 +241,8 @@ function permissionFor(channel) {
   if (channel === 'madv:saveSettings' || channel === 'madv:saveBrand' || channel === 'madv:setBrandLogo') return 'users.manage';
   // פרטי המשרד בהזמנת התיווך (שם, רישיון, עוסק פטור) — מנהל בלבד
   if (channel === 'rlty:saveSettings') return 'users.manage';
+  // פרטי השמאי והצהרתו בכל דוח שומה — מנהל בלבד
+  if (channel === 'realestate:saveSettings') return 'users.manage';
   // אימות טבלת מס רכישה משנה את האזהרות לכל המשתמשים — מנהל בלבד (כמו אימות כללים במעבדה)
   if (channel === 'rlty:verifyTaxTable' || channel === 'rlty:unverifyTaxTable') return 'users.manage';
   if (channel === 'rlty:readTaxTableFile') return 'data.edit';
@@ -1427,7 +1430,9 @@ function registerIpcHandlers() {
     const { report, html } = await privacyService.subject(idNumber, {
       canSeeConfidential: canSeeConfidential(event), sources: LG.peopleSources(licenseState()),
       acct: !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view'),
-      realty: !LG.checkChannel(licenseState(), 'rlty:getOverview', 'data.view')
+      realty: !LG.checkChannel(licenseState(), 'rlty:getOverview', 'data.view'),
+      madv: !LG.checkChannel(licenseState(), 'madv:getOverview', 'data.view'),
+      realestate: !LG.checkChannel(licenseState(), 'realestate:getOverview', 'data.view')
     });
     const r = await saveHtmlAsPdf(html, `מידע-על-${report.idNumber}.pdf`);
     if (r.ok) await auditEvent(event, 'privacy.subject.export', { idNumber: report.idNumber, records: report.count });
@@ -1737,7 +1742,7 @@ function registerIpcHandlers() {
     return c;
   });
   handle('rlty:unlinkMortgageCase', async (event, dealId) => {
-    await realtyService.unlinkMortgageCase(String(dealId || ''));
+    await realtyService.unlinkMortgageCase(String(dealId || ''), madvActor(event));
     await auditEvent(event, 'realty.deal.mortgageUnlink', { id: dealId });
     return true;
   });
@@ -1769,7 +1774,8 @@ function registerIpcHandlers() {
   });
 
   // שמאות מקרקעין: תיק שומה, עסקאות השוואה (הקלדה או קובץ — בלי רשת), שלוש גישות, נעילה ודוח
-  handle('realestate:getOverview', async () => realEstateService.getOverview());
+  // isManager — פרטי השמאי (בכל דוח) משתנים רק בידי מנהל
+  handle('realestate:getOverview', async (event) => ({ ...(await realEstateService.getOverview()), isManager: authService.hasPermission(event.sender.id, 'users.manage') }));
   handle('realestate:getCase', async (event, id) => realEstateService.getCase(String(id || '')));
   handle('realestate:createCase', async (event, input) => {
     const c = await realEstateService.createCase(input || {});
@@ -1813,6 +1819,13 @@ function registerIpcHandlers() {
     if (r && r.ok) await auditEvent(event, 'realestate.report.export', { id, final: d.final });
     return r;
   });
+  // הדוח של גרסה קודמת שנמסרה (לפני גרסה מתוקנת)
+  handle('realestate:exportRevisionReport', async (event, id, rev) => {
+    const d = await realEstateService.getRevisionReportHtml(String(id || ''), Number(rev));
+    const r = await saveHtmlAsPdf(d.html, d.name.replace(/[\\/:*?"<>|]/g, '') + '.pdf');
+    if (r && r.ok) await auditEvent(event, 'realestate.report.export', { id, rev: Number(rev), final: true });
+    return r;
+  });
 
   // מעבדת תמהיל: מנוע התמהיל המלא, סלים אחידים, כושר החזר, מחזור, אישורים, עמלת פירעון ואופטימייזר
   handle('mlab:getOverview', async (event) => mortgageLabService.getOverview(madvActor(event)));
@@ -1850,12 +1863,12 @@ function registerIpcHandlers() {
     return sc;
   });
   handle('mlab:deleteScenario', async (event, id) => {
-    await mortgageLabService.deleteScenario(id);
+    await mortgageLabService.deleteScenario(id, madvActor(event));
     await auditEvent(event, 'mlab.scenario.delete', { id });
     return true;
   });
   handle('mlab:exportScenario', async (event, id) => {
-    const r = await saveCsv(await mortgageLabService.getScenarioExport(id));
+    const r = await saveCsv(await mortgageLabService.getScenarioExport(id, madvActor(event)));
     if (r.ok) await auditEvent(event, 'mlab.export.schedule', { id });
     return r;
   });
@@ -2488,21 +2501,26 @@ function registerIpcHandlers() {
     await auditEvent(event, 'data.backup', { encrypted: true });
     return out;
   });
-  handle('data:restoreEncrypted', async (event, text, passphrase) => {
+  // גיבוי ישן מהמסמך האחרון שהופק (בדיקת קוד 22.10.2026, ממצא 5): בלי opts.confirmedOld — לא משחזרים,
+  // ומחזירים { needsConfirm, message } לאישור נוסף. אחרי האישור — אותה קריאה עם confirmedOld: true
+  const restoreEcon = async (event, econData, opts, encrypted) => {
+    if (!(opts && opts.confirmedOld === true)) {
+      const missing = ModCounters.issuedAfterText(issuedAfter(econData, await db.load()));
+      if (missing) return { needsConfirm: true, message: missing };
+    }
+    await db.restore(econData);
+    await auditEvent(event, 'data.restore', { encrypted });
+    return true;
+  };
+  handle('data:restoreEncrypted', async (event, text, passphrase, opts) => {
     if (!BK.isEncryptedBackup(text)) throw new Error('הקובץ אינו גיבוי מוצפן של המערכת');
     const plain = BK.decryptBackup(text, passphrase);
     let data;
     try { data = JSON.parse(plain); } catch { throw new Error('קובץ הגיבוי פגום'); }
-    await db.restore(econFromBackup(data));
-    await auditEvent(event, 'data.restore', { encrypted: true });
-    return true;
+    return restoreEcon(event, econFromBackup(data), opts, true);
   });
   // ערוץ גיבוי גלוי הוסר: גיבוי לא מוצפן לא יוצא מהמערכת. השחזור מקובץ JSON ישן נשאר (המסך הראשי מקבל רק קובץ של התוכנה כולה)
-  handle('data:restore', async (event, backupData) => {
-    await db.restore(econFromBackup(backupData));
-    await auditEvent(event, 'data.restore', { encrypted: false });
-    return true;
-  });
+  handle('data:restore', async (event, backupData, opts) => restoreEcon(event, econFromBackup(backupData), opts, false));
 }
 // קבלת הודעות אוטומטית (כדי שהודעות פתיחה והיעדרות יישלחו גם כשאיש לא לוחץ "קבלת הודעות").
 // רק כשהמנהל הפעיל זאת בהגדרות, יש שרת מוגדר, ולא בשבת וביום טוב. תיבת מנהל-העל — רק כשהמצב פתוח

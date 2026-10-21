@@ -301,7 +301,7 @@ function printCatalog(filter = 'all') {
     const cat = OPP_CATEGORIES.find(c => c.k === o.category)?.name || '';
     return `
     <div class="item">
-      <div class="item-photo">${o.photo ? `<img src="${o.photo}" />` : '📷'}</div>
+      <div class="item-photo">${isImageData(o.photo, IMAGE_LEGACY_MAX_CHARS) ? `<img src="${escapeHtml(o.photo)}" alt="" />` : '📷'}</div>
       <div class="item-body">
         <div class="item-name">${escapeHtml(o.name || '—')}</div>
         <div class="item-meta">

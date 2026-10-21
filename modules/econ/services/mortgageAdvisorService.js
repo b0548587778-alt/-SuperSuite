@@ -82,7 +82,11 @@ class MortgageAdvisorService {
           ltv: M.ltv(c),
           fee: M.advisoryFee(c, vat),
           feeStatus: M.feeStatus(c, vat),
-          feePayments: (c.feePayments || []).map(p => ({ id: p.id, date: p.date, amount: p.amountAg / 100, method: p.method, note: p.note, invoiceNumber: p.invoiceNumber || null })),
+          feePayments: (c.feePayments || []).map(p => {
+            const live = this._liveInvoice(data, p);
+            return { id: p.id, date: p.date, amount: p.amountAg / 100, method: p.method, note: p.note,
+              invoiceNumber: live ? p.invoiceNumber || null : null, cancelledInvoice: p.invoiceId && !live ? p.invoiceNumber || null : null };
+          }),
           docs: M.docsProgress(c),
           approvals: M.approvalsSummary(c, new Date().toISOString().slice(0, 10)),
           offers: own.map(o => ({ ...o, summary: M.offerSummary(o), yearly: M.yearlySchedule(o) })),
@@ -226,7 +230,7 @@ class MortgageAdvisorService {
   async calcTracks(input) {
     const tracks = (Array.isArray(input && input.tracks) ? input.tracks : M.tracksFromForm(input || {})).map(M.validateTrack);
     if (tracks.length === 0) throw new Error('יש להזין לפחות מסלול אחד');
-    const offer = { tracks, cpi: Number(input.cpi) || 0 };
+    const offer = { tracks, cpi: M.validateCpi(input && input.cpi) };
     return { summary: M.offerSummary(offer), yearly: M.yearlySchedule(offer) };
   }
 
@@ -255,7 +259,7 @@ class MortgageAdvisorService {
     const c = this._findClient(data, clientId, actor);
     const p = (c.feePayments || []).find(x => x.id === paymentId);
     if (!p) throw new Error('התשלום לא נמצא');
-    if (p.invoiceId) throw new Error(`הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber}) — אי אפשר למחוק אותו`);
+    if (this._liveInvoice(data, p)) throw new Error(`הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber}) — אי אפשר למחוק אותו`);
     c.feePayments = c.feePayments.filter(x => x.id !== paymentId);
     c.updatedAt = new Date().toISOString();
     await this.db.save(data);
@@ -268,8 +272,14 @@ class MortgageAdvisorService {
     const c = this._findClient(data, clientId, actor);
     const p = (c.feePayments || []).find(x => x.id === paymentId);
     if (!p) throw new Error('התשלום לא נמצא');
-    if (p.invoiceId) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber})`);
+    if (this._liveInvoice(data, p)) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber})`);
     return { key: `madv:${c.id}:${p.id}`, customer: c.name, date: p.date, grossAgorot: p.amountAg, method: p.method, description: `עמלת ייעוץ משכנתא — ${c.name}`.slice(0, 200) };
+  }
+
+  // החשבונית שהופקה לתשלום — רק אם עדיין בתוקף (כמו _liveInvoice בתיווך): חשבונית שבוטלה לא חוסמת
+  _liveInvoice(data, p) {
+    if (!p || !p.invoiceId) return null;
+    return (data.invoices || []).find(i => i.id === p.invoiceId && i.status !== 'cancelled') || null;
   }
 
   async linkFeeInvoice(clientId, paymentId, invoice) {

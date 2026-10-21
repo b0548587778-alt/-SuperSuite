@@ -143,6 +143,17 @@ class MortgageLabService {
     return ma.map(MA.clientView).map(c => ({ id: c.id, name: c.name, requestedAmount: c.requestedAmount, propertyValue: c.propertyValue, status: c.status }));
   }
 
+  // תרחיש של תיק שהמשתמש לא רואה — מוסתר (תרחיש בלי תיק, או של תיק שנמחק — גלוי לכולם, כמו קודם)
+  _visibleScenario(s, allIds, visibleIds) { return !s.clientId || !allIds.has(s.clientId) || visibleIds.has(s.clientId); }
+  // תרחיש לפי מזהה — רק אם המשתמש רשאי לראות את התיק שלו; אחרת "לא נמצא" (לא מגלים שהוא קיים)
+  _scenarioFor(data, id, actor) {
+    const allIds = new Set(((data.mortgageAdvisor && data.mortgageAdvisor.clients) || []).map(c => c.id));
+    const visibleIds = new Set(this._clients(data, actor).map(c => c.id));
+    const s = data.mortgageLab.scenarios.find(x => x.id === id);
+    if (!s || !this._visibleScenario(s, allIds, visibleIds)) throw new Error('התרחיש לא נמצא');
+    return s;
+  }
+
   async getOverview(actor) {
     const data = await this._load();
     const ml = data.mortgageLab;
@@ -152,7 +163,7 @@ class MortgageLabService {
     // תרחיש של תיק שהמשתמש לא רואה — מוסתר גם הוא
     const allIds = new Set(((data.mortgageAdvisor && data.mortgageAdvisor.clients) || []).map(c => c.id));
     const visibleIds = new Set(clients.map(c => c.id));
-    const scenarios = ml.scenarios.filter(s => !s.clientId || !allIds.has(s.clientId) || visibleIds.has(s.clientId));
+    const scenarios = ml.scenarios.filter(s => this._visibleScenario(s, allIds, visibleIds));
     const verifiedAt = new Map(ml.verifications.filter(v => v.rulesVersion === R.RULES_VERSION).map(v => [v.ruleId, v]));
     return {
       forecast: {
@@ -369,20 +380,18 @@ class MortgageLabService {
     return scenario;
   }
 
-  async deleteScenario(id) {
+  async deleteScenario(id, actor) {
     const data = await this._load();
-    const before = data.mortgageLab.scenarios.length;
-    data.mortgageLab.scenarios = data.mortgageLab.scenarios.filter(s => s.id !== id);
-    if (data.mortgageLab.scenarios.length === before) throw new Error('התרחיש לא נמצא');
+    const target = this._scenarioFor(data, id, actor);
+    data.mortgageLab.scenarios = data.mortgageLab.scenarios.filter(s => s !== target);
     await this.db.save(data);
     return true;
   }
 
   // לוח סילוקין חודשי מלא לתרחיש — לייצוא CSV
-  async getScenarioExport(id) {
+  async getScenarioExport(id, actor) {
     const data = await this._load();
-    const s = data.mortgageLab.scenarios.find(x => x.id === id);
-    if (!s) throw new Error('התרחיש לא נמצא');
+    const s = this._scenarioFor(data, id, actor);
     const r = E.calculateMix(uiTracks(s.tracks), this._ctx(data));
     const ag = (a) => Math.round(a) / 100;
     const headers = ['חודש', 'יתרת פתיחה', 'הצמדה', 'ריבית', 'קרן', 'תשלום', 'יתרת סגירה'];

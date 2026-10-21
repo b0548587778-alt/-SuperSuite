@@ -7,7 +7,13 @@ const ID = require('./israeliId');
 const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
 const isAg = (v) => Number.isSafeInteger(v) && v >= 0;
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+// תאריך אמיתי בלבד: 2026-02-30 נדחה (Date.parse מגלגל אותו ל-2.3)
+const isDate = (s) => {
+  const m = typeof s === 'string' && s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+};
 const str = (v, max, label) => {
   const s = String(v ?? '').trim();
   if (s.length > max) throw new Error(`${label} ארוך מדי (עד ${max} תווים)`);
@@ -235,8 +241,9 @@ function upcoming(deals, today, days = 14) {
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// בלי mortgageCaseId: מזהה תיק הייעוץ יוצא רק במצב המשכנתא, עם הרישיון וההרשאה לראות אותו (realtyService._mortgageStatus)
 function dealView(d, { properties = [], clients = [] } = {}) {
-  const { priceAg, ...rest } = d;
+  const { priceAg, mortgageCaseId: _caseId, ...rest } = d;
   const p = properties.find(x => x.id === d.propertyId);
   const name = (id) => (clients.find(c => c.id === id) || {}).name || '';
   return { ...rest, price: fromAg(priceAg || 0), stageLabel: DEAL_STAGES[d.stage], propertyTitle: p ? propertyTitle(p) : 'נכס שנמחק', listing: p ? p.listing : 'sale', buyerName: name(d.buyerClientId), sellerName: name(d.sellerClientId) };

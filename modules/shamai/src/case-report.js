@@ -110,7 +110,9 @@ function caseItemHtml(it, v, n, bi, photos) {
       <td>${caseName(CASE_ID_METHODS[s.idMethod], bi)}${s.idMethod === 'lab' && (s.lab || s.certNo) ? `<div class="sub">${caseEsc([s.lab, s.certNo].filter(Boolean).join(' '))}</div>` : ''}</td>
       <td>${caseMoney(s.price, s.currency)} ${caseLabel(s.pricing === 'perPiece' ? 'perPiece' : 'perCarat', bi)}</td>
       <td>${caseMoney(s.valueAg)}</td></tr>`).join('')}</tbody></table>` : '';
-  const pics = photos.length ? `<div class="photos">${photos.map((p, i) => `<img src="${p}" alt="${caseEsc(CASE_L.item[0] + ' ' + n + ' — ' + (i + 1))}" />`).join('')}</div>` : '';
+  // רק data:image תקינה, גם כשהקורא שכח לסנן (ערך עם מירכאות מגיבוי ששוחזר היה פורץ מהמאפיין)
+  const ok = (photos || []).filter(caseIsPhoto);
+  const pics = ok.length ? `<div class="photos">${ok.map((p, i) => `<img src="${caseEsc(p)}" alt="${caseEsc(CASE_L.item[0] + ' ' + n + ' — ' + (i + 1))}" />`).join('')}</div>` : '';
   return `<section class="item">
     <h3>${caseLabel('item', bi)} ${n}: ${caseEsc(it.desc)}${bi && it.descEn ? ` <span class="en">/ ${caseEsc(it.descEn)}</span>` : ''}</h3>
     ${caseRow(caseLabel('category', bi), caseName(CASE_CATEGORIES[it.category], bi))}

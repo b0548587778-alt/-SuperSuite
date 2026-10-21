@@ -85,6 +85,17 @@
     else line = 'הסנכרון אינו פעיל כרגע.';
     box.append(el('div', 'state' + (st.enabled && st.listening ? ' on' : ''), line));
     if (st.error) box.append(el('p', 'warn', st.error));
+    if (st.stateUnreadable) {
+      box.append(el('p', 'warn', 'רשימת המכשירים המצומדים לא נקראה בחשבון זה (למשל אחרי העברת התוכנה למחשב אחר). בהפעלה הבאה תתחיל רשימה חדשה, והקובץ הישן יישמר בצד בתיקיית הנתונים — לא יימחק.'));
+    }
+    if (st.identityUnreadable) {
+      box.append(el('p', 'warn', 'זהות הסנכרון של המכשיר הזה לא נפתחת בחשבון זה. אפשר ליצור זהות חדשה: הקובץ הישן יישמר בצד, וכל המכשירים יצטרכו צימוד מחדש.'));
+      box.append(btn('יצירת זהות חדשה', 'danger', async () => {
+        if (!(await ssDialog.confirm('יצירת זהות סנכרון חדשה למכשיר הזה.\nהמכשירים שצומדו קודם לא יכירו אותו, ויש לצמד אותם מחדש (ולבטל אצלם את המכשיר הישן).\n\nלהמשיך?', { danger: true, okText: 'יצירה' }))) return;
+        await api.resetIdentity();
+        refresh();
+      }));
+    }
 
     if (st.device) {
       const nameRow = el('div', 'inline');

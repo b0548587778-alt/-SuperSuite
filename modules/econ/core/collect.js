@@ -3,7 +3,7 @@
 // התוכנה לא נוגעת בפרטי אשראי ולא פונה לרשת: הקישור נבנה מתבנית שהארגון קיבל מחברת הסליקה,
 // והתשלומים שהתקבלו נקלטים מקובץ הדוח של החברה (התאמה לפי מספר הדרישה, או לפי סכום ושם).
 const { parseCsv } = require('./features');
-const { parseDate, parseAmount } = require('./donationImport');
+const { parseDate, parseAmount, amountCurrency } = require('./donationImport');
 
 const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
@@ -159,6 +159,12 @@ function previewImport(csvText, settings) {
 }
 
 const nameKey = (s) => String(s || '').replace(/[\s"'`׳״.\-]/g, '').toLowerCase();
+// היום המקומי שבו נוצרה הדרישה (createdAt נשמר ב-UTC). דרישה ישנה בלי תאריך — '' (לא מסננת)
+const localDayOf = (iso) => {
+  const d = new Date(iso);
+  if (!iso || Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 /* התאמת שורות הדוח לדרישות פתוחות:
    1. מספר הדרישה (P00012) מופיע באסמכתא / בהערה — התאמה ודאית, אם הסכום זהה.
@@ -185,6 +191,8 @@ function matchReport(csvText, mapping, requests) {
     const date = parseDate(get('date'));
     const amount = parseAmount(get('amount'));
     if (!date || amount === null) { errors.push({ line, message: !date ? `תאריך לא מזוהה: "${get('date')}"` : `סכום לא תקין: "${get('amount')}"` }); return; }
+    // הדרישות בשקלים: סכום במטבע זר לא מותאם (parseAmount מסיר את הסימן — 100$ היה נקלט כ-100 ₪)
+    if (amountCurrency(get('amount'))) { errors.push({ line, message: `סכום במטבע זר (${amountCurrency(get('amount'))}): "${get('amount')}" — הגבייה בשקלים בלבד` }); return; }
     const amountAg = toAg(amount);
     const txId = get('txId').slice(0, 80);
     if (txId && seenTx.has(txId)) { skipped++; return; }
@@ -211,7 +219,13 @@ function matchReport(csvText, mapping, requests) {
       return;
     }
     if (!req && row.name) {
-      const cands = open.filter(q => !taken.has(q.ref) && q.amountAg === amountAg && nameKey(q.payerName) === nameKey(row.name));
+      // דוח שחופף לתקופה של דוח קודם: אותו תאריך, שם וסכום כבר נרשמו לדרישה אחרת (ואין מספר עסקה שמבדיל ביניהם)
+      const same = requests.find(q => q.status === 'paid' && q.payment && q.payment.date === date && q.amountAg === amountAg
+        && nameKey(q.payment.name || q.payerName) === nameKey(row.name) && !(txId && q.payment.txId && q.payment.txId !== txId));
+      if (same) { unmatched.push({ ...row, reason: `ייתכן שהתשלום כבר נקלט (${same.ref}, ${date}) — יש לבדוק ולשייך ידנית` }); return; }
+      // תשלום מלפני היום שבו נוצרה הדרישה אינו התשלום שלה
+      const cands = open.filter(q => !taken.has(q.ref) && q.amountAg === amountAg && nameKey(q.payerName) === nameKey(row.name)
+        && !(localDayOf(q.createdAt) > date));
       if (cands.length === 1) { req = cands[0]; how = 'name'; }
       else if (cands.length > 1) { unmatched.push({ ...row, reason: `${cands.length} דרישות פתוחות באותו שם וסכום — יש לשייך ידנית` }); return; }
     }

@@ -298,10 +298,10 @@ function rltyCommissionHtml(o) {
     <div class="acct-actions"><button id="rltyFeeSave">שמירת העמלות</button></div>
     ${c.sides.length ? `<div class="acct-scroll"><table class="acct-table"><thead><tr><th>צד</th><th>עמלה</th><th>סה"כ</th><th>שולם</th><th>יתרה</th><th>מצב</th></tr></thead>
       <tbody>${c.sides.map(s => `<tr><td>${esc(s.label)}</td><td>${esc(s.feeText)}</td><td>${money(s.total)}</td><td>${money(s.paid)}</td><td>${money(s.balance)}</td>
-        <td><span class="ss-badge${s.state === 'paid' ? '' : ' ss-badge-warning'}">${esc(states[s.state] || s.state)}</span></td></tr>`).join('')}</tbody></table></div>
+        <td><span class="ss-badge${s.state === 'paid' ? '' : ' ss-badge-warning'}">${esc(states[s.state] || s.state)}${s.overpaid ? ` (${money(s.overpaid)})` : ''}</span></td></tr>`).join('')}</tbody></table></div>
       <h4>תשלומים</h4>
       ${(d.commissionPayments || []).map(p => `<div class="acct-row"><span>${esc(p.date)} · ${esc(sides[p.side] || '')} · ${esc(methods[p.method] || '')}${p.note ? ' · ' + esc(p.note) : ''}</span><span>${money(p.amount)}
-        ${p.invoiceNumber ? `<small>חשבונית ${esc(p.invoiceNumber)}</small>` : `${o.canInvoice ? `<button class="icon-btn" data-rlty-invoice="${esc(p.id)}" title="הפקת חשבונית מס/קבלה">🧾</button>` : ''}
+        ${p.invoiceNumber ? `<small>חשבונית ${esc(p.invoiceNumber)}</small>` : `${p.cancelledInvoice ? `<small class="muted">חשבונית ${esc(p.cancelledInvoice)} בוטלה</small>` : ''}${o.canInvoice ? `<button class="icon-btn" data-rlty-invoice="${esc(p.id)}" title="הפקת חשבונית מס/קבלה">🧾</button>` : ''}
         <button class="icon-btn danger" data-rlty-paydel="${esc(p.id)}" title="מחיקת תשלום">🗑</button>`}</span></div>`).join('') || '<p class="muted">עוד לא נרשמו תשלומים.</p>'}
       <div class="acct-actions"><button class="secondary" id="rltyPayAdd">＋ תשלום שהתקבל</button></div>` : '<p class="muted">הזינו עמלה לפחות לצד אחד כדי לעקוב אחרי הגבייה.</p>'}
   </div>`;

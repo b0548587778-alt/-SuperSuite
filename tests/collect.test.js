@@ -8,6 +8,8 @@ const path = require('path');
 const P = require('../modules/econ/core/collect');
 const { initializeDatabase } = require('../modules/econ/core/database');
 
+// היום (מקומי) בתבנית של דוח הסליקה: התאמה לפי שם רק לשורה מיום יצירת הדרישה ואילך
+const todayDmy = () => { const d = new Date(); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; };
 const settings = (over = {}) => P.normalizeSettings({ linkTemplate: 'https://pay.example.co.il/p?sum={amount}&ref={ref}&n={name}', ...over });
 
 test('תבנית הקישור: https בלבד, בלי פרטי כניסה, רק משתנים מוכרים; ערכים מקודדים', () => {
@@ -45,7 +47,8 @@ test('דרישה: סכום, שם ושיוך נבדקים; המספור רץ', ()
 test('התאמת דוח: לפי מספר הדרישה, אחרת לפי שם וסכום ייחודיים; נכשלו וכפולים מדולגים', () => {
   const s = settings();
   const reqs = [];
-  const add = (input) => { const r = P.createRequest(input, s, reqs.length); s.nextNumber = r.settings.nextNumber; reqs.push(r.req); };
+  // createdAt לפני התאריכים שבדוח — שורה מלפני הדרישה לא מותאמת לפי שם
+  const add = (input) => { const r = P.createRequest(input, s, reqs.length); s.nextNumber = r.settings.nextNumber; r.req.createdAt = '2026-10-01T08:00:00.000Z'; reqs.push(r.req); };
   add({ kind: 'other', amount: 100, payerName: 'משה כהן' });     // P00001
   add({ kind: 'other', amount: 50, payerName: 'יעקב לוי' });     // P00002
   add({ kind: 'other', amount: 50, payerName: 'יעקב לוי' });     // P00003 — אותו שם וסכום
@@ -103,7 +106,7 @@ test('מסלול מלא: חשבונית, תרומה וגמ"ח — דוח אחד 
   assert.match(r1.link, /sum=118\.00&ref=P00001$/);
 
   const csv = 'תאריך,סכום,שם,הערה,מספר עסקה\n'
-    + `15/10/2026,${inv.total},משה כהן,${r1.ref},T1\n15/10/2026,180,יעקב לוי,,T2\n15/10/2026,100,אברהם שטרן,${r3.ref},T3\n`;
+    + `15/10/2026,${inv.total},משה כהן,${r1.ref},T1\n${todayDmy()},180,יעקב לוי,,T2\n15/10/2026,100,אברהם שטרן,${r3.ref},T3\n`;
   const pv = await col.previewImport(csv);
   assert.equal(pv.match.matched.length, 3);
   const res = await col.importReport(csv, pv.mapping);

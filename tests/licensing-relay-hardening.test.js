@@ -20,17 +20,17 @@ const items = (to, n) => Array.from({ length: n }, () => ({ to, kind: 'message',
 test('שולח אחד לא ממלא תיבה של אחר; שליחה שנדחתה לא נכתבת בחלקה', () => {
   const relay = newRelay();
   const a = L.generateKeyPair(), b = L.generateKeyPair(), c = L.generateKeyPair(), eve = L.generateKeyPair();
-  relay.handle(signed(eve, 'send', { items: items(b.keyId, 50) }));
-  relay.handle(signed(eve, 'send', { items: items(b.keyId, 50) }));
+  // מכתובות שונות — מכתובת אחת לתיבה אחת יש מכסה נמוכה יותר (relay-owner-box.test.js)
+  for (let i = 0; i < 5; i++) relay.handle(signed(eve, 'send', { items: items(b.keyId, 20) }), '10.0.0.' + i);
   // מכסת שולח בתיבה מלאה — וגם ההודעה ל-c באותה בקשה לא נשלחה
-  assert.throws(() => relay.handle(signed(eve, 'send', { items: [{ to: c.keyId, kind: 'message', body: 'x' }, ...items(b.keyId, 1)] })), /שטרם נקראו/);
+  assert.throws(() => relay.handle(signed(eve, 'send', { items: [{ to: c.keyId, kind: 'message', body: 'x' }, ...items(b.keyId, 1)] }), '10.0.0.9'), /שטרם נקראו/);
   assert.equal(relay.handle(signed(c, 'fetch', {})).messages.length, 0, 'אין כתיבה חלקית');
   // שולח אחר עדיין מגיע לנמען
   assert.equal(relay.handle(signed(a, 'send', { items: items(b.keyId, 1) })).sent, 1);
   // אחרי שהנמען קרא ומחק — אפשר שוב
   const got = relay.handle(signed(b, 'fetch', {})).messages;
   relay.handle(signed(b, 'ack', { ids: got.map(m => m.id) }));
-  assert.equal(relay.handle(signed(eve, 'send', { items: items(b.keyId, 1) })).sent, 1);
+  assert.equal(relay.handle(signed(eve, 'send', { items: items(b.keyId, 1) }), '10.0.0.8').sent, 1);
   // שליחה לעצמי — לא
   assert.throws(() => relay.handle(signed(a, 'send', { items: items(a.keyId, 1) })), /לא תקינה/);
 });
@@ -40,8 +40,8 @@ test('מכסת הודעות לשעה למפתח שולח', () => {
   const relay = newRelay({ clock: () => t });
   const eve = L.generateKeyPair();
   const targets = Array.from({ length: 6 }, () => L.generateKeyPair().keyId);
-  for (let i = 0; i < 10; i++) relay.handle(signed(eve, 'send', { items: items(targets[i % 5], 50) }, t));
-  assert.throws(() => relay.handle(signed(eve, 'send', { items: items(targets[5], 1) }, t)), /בשעה האחרונה/);
+  for (let i = 0; i < 25; i++) relay.handle(signed(eve, 'send', { items: items(targets[i % 5], 20) }, t), '10.1.0.' + i);
+  assert.throws(() => relay.handle(signed(eve, 'send', { items: items(targets[5], 1) }, t), '10.1.1.1'), /בשעה האחרונה/);
   t += 61 * 60 * 1000;
   assert.equal(relay.handle(signed(eve, 'send', { items: items(targets[5], 1) }, t)).sent, 1, 'מתאפס אחרי שעה');
 });

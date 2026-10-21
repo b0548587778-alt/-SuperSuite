@@ -944,6 +944,32 @@ function keepCounters(next, current) {
   return next;
 }
 
+// מסמכים ממוספרים שהופקו אחרי הגיבוי (במסד הנוכחי, ומספרם גבוה מכל מה שבגיבוי) — לאזהרה לפני שחזור.
+// מחזיר [{ label, count, last }]. קריאה בלבד
+const DOC_KIND_LABELS = { receipt: 'קבלות', credit: 'חשבוניות זיכוי', order: 'הזמנות', delivery: 'תעודות משלוח', quote: 'הצעות מחיר' };
+function issuedAfter(backup, current) {
+  const b = obj(backup), c = obj(current);
+  const out = [];
+  const add = (label, list, pick, backupMax) => {
+    const newer = (Array.isArray(list) ? list : []).map(x => (x && typeof x === 'object' ? Number(pick(x)) : NaN)).filter(n => Number.isSafeInteger(n) && n > backupMax);
+    if (newer.length) out.push({ label, count: newer.length, last: Math.max(...newer) });
+  };
+  const bs = obj(b.settings);
+  add('חשבוניות', c.invoices, i => i.number, Math.max(seqInt(bs.invoiceSeq), maxNumber(b.invoices, i => i.number)));
+  const docs = Array.isArray(c.salesDocs) ? c.salesDocs : [];
+  const bDocs = Array.isArray(b.salesDocs) ? b.salesDocs : [];
+  for (const k of new Set(docs.map(d => d && d.kind).filter(k => typeof k === 'string'))) {
+    add(DOC_KIND_LABELS[k] || 'מסמכים', docs.filter(d => d && d.kind === k), d => d.number,
+      Math.max(seqInt(obj(bs.docSeq)[k]), maxNumber(bDocs.filter(d => d && d.kind === k), d => d.number)));
+  }
+  const bNpo = obj(b.npo);
+  const receiptNo = (d) => (d.receipt && !d.receipt.external ? d.receipt.number : null);
+  add('קבלות תרומה', obj(c.npo).donations, receiptNo, Math.max(seqInt(obj(bNpo.settings).receiptSeq), maxNumber(bNpo.donations, receiptNo)));
+  const bRe = obj(b.realEstate);
+  add('תיקי שומה', obj(c.realEstate).cases, x => x.no, Math.max(seqInt(bRe.seq), maxNumber(bRe.cases, x => x.no)));
+  return out;
+}
+
 function normalizeData(value) {
   const result = {
     ...defaults,
@@ -988,4 +1014,4 @@ async function initializeDatabase(userDataPath, options = {}) {
   return database;
 }
 
-module.exports = { initializeDatabase, setAsideLockedDatabase, isValidData, keepCounters, defaults, ROLES };
+module.exports = { initializeDatabase, setAsideLockedDatabase, isValidData, keepCounters, issuedAfter, defaults, ROLES };

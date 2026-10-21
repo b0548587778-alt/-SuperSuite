@@ -474,6 +474,8 @@ function renderNpo(o) {
 
 // ייבוא תרומות מקובץ של ערוץ חיצוני. קבצים מאקסל בעברית שמורים לעתים ב-windows-1255 — מזהים לפי תקינות UTF-8
 const NPO_IMPORT_SOURCES = { nedarim: 'נדרים פלוס', kehilot: 'קהילות', charidy: 'Charidy', causematch: 'CauseMatch', bank: 'דף בנק', other: 'אחר' };
+// שער לשורות במטבע זר בלי עמודת שער — ההמרה בשרת (core/donationImport.js)
+const NPO_IMPORT_RATES = { USD: 'דולר', EUR: 'אירו', GBP: 'לירה שטרלינג' };
 
 function pickCsvAnyEncoding() {
   return new Promise((resolve) => {
@@ -502,6 +504,7 @@ async function importNpoDonations() {
   try { pv = await window.systemAPI.previewNpoImport(text, source); }
   catch (error) { return showError('לא ניתן לקרוא את הקובץ: ' + errMsg(error)); }
   const funds = ((state.data.npo && state.data.npo.funds) || []).filter(fd => !fd.archived);
+  const rates = {};
 
   const options = await openDialog((card, finish) => {
     card.style.maxWidth = '760px';
@@ -522,6 +525,9 @@ async function importNpoDonations() {
             <label>${esc(fd.label)}${fd.required ? ' *' : ''}<select name="map_${esc(k)}">
               ${opt('', '— ללא —', !pv.mapping[k])}${pv.headers.map(h => opt(h, h, pv.mapping[k] === h)).join('')}
             </select></label>`).join('')}</div>
+          <p class="muted">תרומה במטבע זר (עמודת מטבע, או $ / € / £ בסכום) נרשמת בשקלים לפי השער. אם אין בקובץ עמודת שער — יש להזין כאן את השער מהבנק:</p>
+          <div class="acct-grid">${Object.entries(NPO_IMPORT_RATES).map(([c, he]) => `
+            <label>שער ${esc(he)} (₪ ל-1)<input name="rate_${c}" type="text" inputmode="decimal" value="${esc(rates[c] || '')}"></label>`).join('')}</div>
           <div class="acct-scroll"><table class="acct-table">
             <thead><tr>${pv.headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
             <tbody>${pv.sample.map(r => `<tr>${pv.headers.map((h, i) => `<td>${esc(r[i] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody>
@@ -532,6 +538,7 @@ async function importNpoDonations() {
       const form = card.querySelector('form');
       const err = card.querySelector('.npo-import-err');
       form.querySelector('[data-act="cancel"]').addEventListener('click', () => finish(null));
+      for (const c of Object.keys(NPO_IMPORT_RATES)) form.elements['rate_' + c].addEventListener('input', (e) => { rates[c] = e.target.value; });
       form.elements.source.addEventListener('change', async () => {
         source = form.elements.source.value;
         try { pv = await window.systemAPI.previewNpoImport(text, source); draw(); }
@@ -543,7 +550,7 @@ async function importNpoDonations() {
         for (const k of Object.keys(pv.fields)) mapping[k] = form.elements['map_' + k].value;
         const missing = Object.entries(pv.fields).find(([k, fd]) => fd.required && !mapping[k]);
         if (missing) { err.textContent = 'יש לבחור עמודה עבור: ' + missing[1].label; return; }
-        finish({ source, mapping, receipts: form.elements.receipts.value, fundId: form.elements.fundId.value, campaignId: form.elements.campaignId.value });
+        finish({ source, mapping, receipts: form.elements.receipts.value, fundId: form.elements.fundId.value, campaignId: form.elements.campaignId.value, rates: { ...rates } });
       });
     };
     draw();

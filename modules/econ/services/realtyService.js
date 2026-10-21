@@ -47,15 +47,27 @@ class RealtyService {
   }
 
   // עסקה לתצוגה: בלי שדות האגורות הפנימיים של העמלה, עם מצב גבייה בשקלים
+  // mortgageCaseId לא יוצא: מזהה התיק מוצג רק דרך mortgage (_mortgageStatus) — עם הרישיון וההרשאה לראות את התיק
   _dealOut(data, d, ctx) {
-    const { commissions, commissionPayments, ...rest } = d;
+    const { commissions, commissionPayments, mortgageCaseId: _caseId, ...rest } = d;
     const st = B.commissionStatus(d, this._vatRate(data), data.realty.settings.vatExempt);
     return {
       ...R.dealView(rest, ctx),
-      commission: { ...st, sides: st.sides.map(s => ({ side: s.side, label: s.label, feeText: s.feeText, state: s.state, total: s.total, paid: s.paid, balance: s.balance })) },
+      commission: { ...st, sides: st.sides.map(s => ({ side: s.side, label: s.label, feeText: s.feeText, state: s.state, total: s.total, paid: s.paid, balance: s.balance, overpaid: s.overpaid })) },
       commissionFees: Object.fromEntries(Object.entries(commissions || {}).map(([k, f]) => [k, { type: f.type, value: f.type === 'percent' ? f.bp / 100 : f.fixedAg / 100 }])),
-      commissionPayments: (commissionPayments || []).map(p => ({ id: p.id, side: p.side, date: p.date, amount: p.amountAg / 100, method: p.method, note: p.note, invoiceNumber: p.invoiceNumber || null }))
+      commissionPayments: (commissionPayments || []).map(p => {
+        const live = this._liveInvoice(data, p);
+        return { id: p.id, side: p.side, date: p.date, amount: p.amountAg / 100, method: p.method, note: p.note,
+          invoiceNumber: live ? p.invoiceNumber || null : null, cancelledInvoice: p.invoiceId && !live ? p.invoiceNumber || null : null };
+      })
     };
+  }
+
+  // החשבונית שהופקה לתשלום — רק אם עדיין בתוקף. חשבונית שבוטלה בהנהלת החשבונות (עוסק פטור: ביטול הגבייה
+  // ואז ביטול החשבונית) לא חוסמת הפקה מחדש ומחיקה של התשלום (בדיקת קוד 21.10.2026, הערה בדוח המשכנתאות והנדל"ן)
+  _liveInvoice(data, p) {
+    if (!p || !p.invoiceId) return null;
+    return (data.invoices || []).find(i => i.id === p.invoiceId && i.status !== 'cancelled') || null;
   }
 
   // מצב תיק המשכנתא המקושר לעסקה. opts.mortgage — תחום הייעוץ פתוח ברישיון; opts.actor — מי רואה אילו תיקים
@@ -120,7 +132,9 @@ class RealtyService {
     const d = this._find(data.realty.deals, dealId, 'העסקה');
     const list = Array.isArray(d.commissionPayments) ? d.commissionPayments : [];
     if (list.length >= B.MAX_PAYMENTS) throw new Error('הגעת למספר המקסימלי של תשלומים בעסקה');
-    const p = { id: crypto.randomUUID(), ...B.validatePayment(input, Object.keys(d.commissions || {})), by: actorId || null, createdAt: new Date().toISOString() };
+    const st = B.commissionStatus(d, this._vatRate(data), data.realty.settings.vatExempt);
+    const balances = Object.fromEntries(st.sides.map(s => [s.side, s.balanceAg]));
+    const p = { id: crypto.randomUUID(), ...B.validatePayment(input, Object.keys(d.commissions || {}), balances), by: actorId || null, createdAt: new Date().toISOString() };
     d.commissionPayments = [...list, p];
     d.updatedAt = p.createdAt;
     await this.db.save(data);
@@ -132,7 +146,7 @@ class RealtyService {
     const d = this._find(data.realty.deals, dealId, 'העסקה');
     const p = (d.commissionPayments || []).find(x => x.id === paymentId);
     if (!p) throw new Error('התשלום לא נמצא');
-    if (p.invoiceId) throw new Error(`הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber}) — אי אפשר למחוק אותו`);
+    if (this._liveInvoice(data, p)) throw new Error(`הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber}) — אי אפשר למחוק אותו`);
     d.commissionPayments = d.commissionPayments.filter(x => x.id !== paymentId);
     d.updatedAt = new Date().toISOString();
     await this.db.save(data);
@@ -145,7 +159,7 @@ class RealtyService {
     const d = this._find(data.realty.deals, dealId, 'העסקה');
     const p = (d.commissionPayments || []).find(x => x.id === paymentId);
     if (!p) throw new Error('התשלום לא נמצא');
-    if (p.invoiceId) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber})`);
+    if (this._liveInvoice(data, p)) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber})`);
     const clientId = p.side === 'buyer' ? d.buyerClientId : d.sellerClientId;
     const c = data.realty.clients.find(x => x.id === clientId);
     if (!c) throw new Error('הלקוח של הצד הזה לא נמצא — יש לבחור מוכר בעסקה');
@@ -374,9 +388,13 @@ class RealtyService {
     return true;
   }
 
-  async unlinkMortgageCase(dealId) {
+  // ניתוק משנה גם את תיק הייעוץ — רק מי שרואה את התיק (היועץ שלו / מנהל, M.canSee). actor חסר — הכול (בדיקות ישנות)
+  async unlinkMortgageCase(dealId, actor) {
     const data = await this._load();
     const d = this._find(data.realty.deals, dealId, 'העסקה');
+    const ma = data.mortgageAdvisor || {};
+    const linked = d.mortgageCaseId && (ma.clients || []).find(x => x.id === d.mortgageCaseId);
+    if (linked && !M.canSee(linked, actor, ma.settings)) throw new Error('תיק המשכנתא שייך ליועץ אחר — רק הוא או מנהל יכולים לנתק את הקישור');
     for (const c of (data.mortgageAdvisor && data.mortgageAdvisor.clients) || []) if (c.realtyDealId === dealId) delete c.realtyDealId;
     delete d.mortgageCaseId;
     d.updatedAt = new Date().toISOString();

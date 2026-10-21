@@ -19,8 +19,39 @@ const FIELDS = {
   donorPhone:      { label: 'טלפון', required: false, hints: ['טלפון', 'נייד', 'פלאפון', 'phone', 'mobile', 'tel'] },
   donorAddress:    { label: 'כתובת', required: false, hints: ['כתובת', 'עיר', 'address', 'city'] },
   ambassador:      { label: 'שגריר (קוד או שם)', required: false, hints: ['שגריר', 'קודשגריר', 'מתרים', 'ambassador', 'fundraiser', 'team', 'referral'] },
-  purpose:         { label: 'ייעוד / הערה', required: false, hints: ['ייעוד', 'הערה', 'הערות', 'הקדשה', 'purpose', 'note', 'notes', 'comment', 'dedication'] }
+  purpose:         { label: 'ייעוד / הערה', required: false, hints: ['ייעוד', 'הערה', 'הערות', 'הקדשה', 'purpose', 'note', 'notes', 'comment', 'dedication'] },
+  // מטבע זר (בדיקה 22.10.2026, ממצא 3): CauseMatch ו-Charidy בדרך כלל בדולרים. הסכום נשמר בשקלים לפי השער
+  currency:        { label: 'מטבע', required: false, hints: ['מטבע', 'currency', 'curr', 'currencycode'] },
+  rate:            { label: 'שער (₪ ל-1 יחידה)', required: false, hints: ['שער', 'שערהמרה', 'שערחליפין', 'rate', 'exchangerate', 'fxrate'] }
 };
+
+// מטבע מתוך עמודת המטבע או מתוך הסימן בסכום ("$1,000", "1000 USD"). '' = לא צוין (שקלים)
+const CURRENCY_WORDS = [
+  ['ILS', /^(ils|nis|₪|ש"?ח|ש״ח|שקל|שקלים|שח)$/i],
+  ['USD', /^(usd|us\$|\$|דולר|דולרים)$/i],
+  ['EUR', /^(eur|€|euro|אירו|יורו)$/i],
+  ['GBP', /^(gbp|£|לירה|לירות|ליש"?ט|ליש״ט|לירהשטרלינג)$/i],
+];
+function currencyOf(text) {
+  const s = String(text ?? '').trim().replace(/\s+/g, '');
+  if (!s) return '';
+  const hit = CURRENCY_WORDS.find(([, re]) => re.test(s));
+  return hit ? hit[0] : null;
+}
+// שער בטקסט ← מספר. שער תקין קטן מ-100 (currency.js), ולכן פסיק בלי נקודה הוא פסיק עשרוני: "3,7" = 3.7.
+// קודם הפסיק נמחק, "3,7" נקרא 37, ותרומה של 100$ נרשמה כ-3,700 ₪ בשקט. פסיק עם נקודה — מפריד אלפים
+function rateText(v) {
+  const t = String(v ?? '').replace(/\s/g, '');
+  return t.includes('.') ? t.replace(/,/g, '') : t.replace(',', '.');
+}
+// הסימן שבתוך הסכום עצמו
+function amountCurrency(v) {
+  const s = String(v ?? '');
+  if (/\$|usd/i.test(s)) return 'USD';
+  if (/€|eur/i.test(s)) return 'EUR';
+  if (/£|gbp/i.test(s)) return 'GBP';
+  return '';
+}
 
 const norm = (h) => String(h ?? '').replace(/^﻿/, '').toLowerCase().replace(/[\s"'`׳״.\-_:()/\\]/g, '');
 
@@ -53,8 +84,9 @@ function parseDate(v) {
   return !isNaN(t) && t.toISOString().slice(0, 10) === iso ? iso : null;
 }
 
+// המספר בלבד — המטבע נבדק בנפרד (amountCurrency), ולכן גם הסימנים של מטבע זר מוסרים כאן
 function parseAmount(v) {
-  const s = String(v ?? '').replace(/[₪$,\s]|ש"ח|ש״ח|NIS|ILS/gi, '');
+  const s = String(v ?? '').replace(/[₪$€£,\s]|ש"ח|ש״ח|NIS|ILS|USD|EUR|GBP/gi, '');
   const n = Number(s);
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
 }
@@ -88,6 +120,8 @@ const dupKeyOf = (d) => d.import && d.import.externalId
    מחזיר { records, errors, skipped } — records עדיין בלי מזהה וקבלה (השירות משלים בשמירה). */
 function buildRecords(csvText, options, existing, settings) {
   const { source, mapping = {}, receipts = 'external', fundId, campaign } = options || {};
+  // rates — שער לכל מטבע, לשורות בלי עמודת שער: { USD: '3.7', ... }
+  const rates = options && options.rates && typeof options.rates === 'object' ? options.rates : {};
   if (!SOURCES[source]) throw new Error('ערוץ לא מוכר');
   if (receipts !== 'external' && receipts !== 'issue') throw new Error('יש לבחור מי מפיק את הקבלות');
   const { headers, rows } = readFile(csvText);
@@ -107,6 +141,18 @@ function buildRecords(csvText, options, existing, settings) {
       if (!date) throw new Error(`תאריך לא מזוהה: "${get('date')}"`);
       const amount = parseAmount(get('amount'));
       if (amount === null) throw new Error(`סכום לא תקין: "${get('amount')}"`);
+      // מטבע: עמודת המטבע או הסימן בסכום. לפני התיקון $ הוסר בשקט והתרומה נרשמה כשקלים
+      const byColumn = currencyOf(get('currency'));
+      if (byColumn === null) throw new Error(`מטבע לא מוכר: "${get('currency').slice(0, 20)}"`);
+      const bySign = amountCurrency(get('amount'));
+      if (byColumn && bySign && byColumn !== bySign) throw new Error(`המטבע בעמודה (${byColumn}) שונה מהסימן בסכום (${bySign})`);
+      const currency = byColumn || bySign || 'ILS';
+      let money = { amount };
+      if (currency !== 'ILS') {
+        const rate = get('rate') || String(rates[currency] ?? '').trim();
+        if (!rate) throw new Error(`תרומה במטבע זר (${currency}) — יש לבחור עמודת שער או להזין שער ל-${currency}`);
+        money = { currency, foreignAmount: amount, rate: rateText(rate) };
+      }
       if (campaign) CMP.assertCanAssign(campaign, date);
       const externalId = get('externalId').slice(0, 80);
       // ת.ז שגויה מהערוץ לא חוסמת את הייבוא — נשמרת ריקה, והשורה מסומנת לבדיקה
@@ -124,7 +170,7 @@ function buildRecords(csvText, options, existing, settings) {
         catch { note = `ת.ז "${donorId}" שגויה — לא נשמרה`; donorId = ''; }
       }
       const clean = N.validateDonation({
-        date, amount, donorId, fundId, campaignId: campaign ? campaign.id : '', ambassadorId, method: source === 'bank' ? 'transfer' : 'card',
+        date, ...money, donorId, fundId, campaignId: campaign ? campaign.id : '', ambassadorId, method: source === 'bank' ? 'transfer' : 'card',
         donorName: get('donorName'), donorPhone: get('donorPhone').slice(0, 30), donorAddress: get('donorAddress').slice(0, 300),
         purpose: get('purpose').slice(0, 300), reference: externalId.slice(0, 60)
       }, settings);
@@ -156,4 +202,4 @@ function externalReceipt(rec, settings) {
   };
 }
 
-module.exports = { SOURCES, FIELDS, MAX_ROWS, norm, guessMapping, parseDate, parseAmount, preview, buildRecords, externalReceipt, dupKeyOf };
+module.exports = { SOURCES, FIELDS, MAX_ROWS, norm, guessMapping, parseDate, parseAmount, amountCurrency, currencyOf, preview, buildRecords, externalReceipt, dupKeyOf };

@@ -5,6 +5,8 @@ const L = require('./license');
 const C = require('./crypto-lite');
 
 const TIMEOUT_MS = 15000;
+// השרת מחזיר את התיבה בחלקים (more). עד כאן בסבב אחד — השאר בסנכרון הבא
+const FETCH_MAX_PAGES = 25;
 
 // כתובת מותרת: https בלבד, או http ל-localhost (פיתוח ובדיקות)
 function validateUrl(url) {
@@ -50,7 +52,22 @@ function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now }) {
   return {
     origin,
     send: (signer, items) => call(signer, 'send', { items }),
-    fetch: async (signer) => (await call(signer, 'fetch', {})).messages || [],
+    // כל חלק בזמן קצוב משלו, כך שתיבה גדולה לא נתקעת (בדיקת קוד 22.10.2026, ממצא 1ד). חלק שנכשל אחרי
+    // הראשון — מטפלים במה שכבר הגיע. שרת ישן מחזיר הכול בלי more
+    fetch: async (signer) => {
+      const all = [];
+      const seen = new Set();
+      let after = null;
+      for (let page = 0; page < FETCH_MAX_PAGES; page++) {
+        let r;
+        try { r = await call(signer, 'fetch', after ? { after } : {}); } catch (e) { if (!page) throw e; break; }
+        const msgs = Array.isArray(r.messages) ? r.messages : [];
+        for (const m of msgs) if (m && !seen.has(m.id)) { seen.add(m.id); all.push(m); }
+        if (r.more !== true || !msgs.length) break;
+        after = msgs[msgs.length - 1].id;
+      }
+      return all;
+    },
     ack: (signer, ids) => (ids.length ? call(signer, 'ack', { ids }) : Promise.resolve({ ok: true })),
     setOffer: (signer, offer) => call(signer, 'setOffer', { offer }),
     setPrekey: (signer, bundle) => call(signer, 'setPrekey', { bundle }),

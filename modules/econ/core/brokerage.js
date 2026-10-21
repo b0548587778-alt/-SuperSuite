@@ -9,7 +9,13 @@ const UNVERIFIED = `לא מאומת · ${VALUE_YEAR}`;
 const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
 const isAg = (v) => Number.isSafeInteger(v) && v >= 0;
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+// תאריך אמיתי בלבד: 2026-02-30 נדחה (Date.parse מגלגל אותו ל-2.3)
+const isDate = (s) => {
+  const m = typeof s === 'string' && s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+};
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 
 // ---------- עמלה לצד בעסקה ----------
@@ -43,7 +49,9 @@ function feeAmount(fee, priceAg, vatRate, exempt = false) {
   return { netAg, vatAg, totalAg: netAg + vatAg };
 }
 
-function validatePayment(input, sides) {
+// balances — { [side]: יתרה באגורות } (מ-commissionStatus). תשלום מעל היתרה של הצד נדחה: יתרת הגבייה
+// הייתה "0" בשקט, והחשבונית על התשלום הייתה מופקת על סכום שלא היה חוב
+function validatePayment(input, sides, balances = null) {
   if (!input || typeof input !== 'object') throw new Error('תשלום לא תקין');
   const side = SIDES[input.side] ? input.side : '';
   if (!side) throw new Error('יש לבחור מאיזה צד התקבל התשלום');
@@ -51,7 +59,11 @@ function validatePayment(input, sides) {
   if (!isDate(String(input.date || ''))) throw new Error('תאריך התשלום אינו תקין');
   const amount = Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1e8) throw new Error('סכום התשלום אינו תקין');
-  return { side, date: input.date, amountAg: toAg(amount), method: METHODS[input.method] ? input.method : 'transfer', note: clip(input.note, 200) };
+  const amountAg = toAg(amount);
+  if (balances && amountAg > (balances[side] || 0)) {
+    throw new Error(`הסכום (${fromAg(amountAg)} ₪) גבוה מהיתרה לגבייה מצד ה${SIDES[side]} (${fromAg(balances[side] || 0)} ₪)`);
+  }
+  return { side, date: input.date, amountAg, method: METHODS[input.method] ? input.method : 'transfer', note: clip(input.note, 200) };
 }
 
 // מצב הגבייה לכל צד ולעסקה כולה
@@ -62,8 +74,11 @@ function commissionStatus(deal, vatRate, exempt = false) {
     const amt = feeAmount(fees[s], deal.priceAg, vatRate, exempt);
     const paidAg = pays.filter(p => p.side === s).reduce((t, p) => t + (isAg(p.amountAg) ? p.amountAg : 0), 0);
     const balanceAg = Math.max(0, amt.totalAg - paidAg);
-    return { side: s, label: SIDES[s], ...amt, paidAg, balanceAg, state: paidAg === 0 ? 'open' : balanceAg === 0 ? 'paid' : 'partial',
-      total: fromAg(amt.totalAg), paid: fromAg(paidAg), balance: fromAg(balanceAg),
+    // שולם ביתר — למשל אחרי הורדת העמלה או המחיר. מוצג, לא נבלע ביתרה 0
+    const overpaidAg = Math.max(0, paidAg - amt.totalAg);
+    const state = paidAg === 0 ? 'open' : overpaidAg > 0 ? 'overpaid' : balanceAg === 0 ? 'paid' : 'partial';
+    return { side: s, label: SIDES[s], ...amt, paidAg, balanceAg, overpaidAg, state,
+      total: fromAg(amt.totalAg), paid: fromAg(paidAg), balance: fromAg(balanceAg), overpaid: fromAg(overpaidAg),
       feeText: fees[s].type === 'percent' ? `${fees[s].bp / 100}% + מע"מ` : `${fromAg(fees[s].fixedAg)} ₪ + מע"מ` };
   });
   const totalAg = sides.reduce((t, s) => t + s.totalAg, 0);
@@ -71,7 +86,7 @@ function commissionStatus(deal, vatRate, exempt = false) {
   return { sides, totalAg, paidAg, balanceAg: Math.max(0, totalAg - paidAg), total: fromAg(totalAg), paid: fromAg(paidAg), balance: fromAg(Math.max(0, totalAg - paidAg)) };
 }
 
-const PAY_STATES = { open: 'טרם שולם', partial: 'שולם חלקית', paid: 'שולם' };
+const PAY_STATES = { open: 'טרם שולם', partial: 'שולם חלקית', paid: 'שולם', overpaid: 'שולם ביתר' };
 
 // ---------- הזמנת שירותי תיווך ----------
 // כל שדה: מזהה, תווית, ומאיפה נבדק (get). unverified — עד שעורך דין יבדוק את הרשימה מול התקנות
@@ -104,10 +119,20 @@ const ALL_RULE_IDS = [...ORDER_FIELDS.map(f => f.id), EXCLUSIVE_RULES.id, ...EXC
 const TRANSACTIONS = { sale: 'מכירה', purchase: 'קנייה', rentOut: 'השכרה', rentIn: 'שכירות' };
 const MAX_ORDERS = 10000;
 
+// הוספת חודשים ליום, עם עיגול לסוף החודש: 31.8 + 6 = 28.2 (לא 3.3 — setUTCMonth גולש לחודש הבא)
 function addMonths(day, n) {
-  const d = new Date(day + 'T00:00:00Z');
-  d.setUTCMonth(d.getUTCMonth() + n);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = day.split('-').map(Number);
+  const first = new Date(Date.UTC(y, m - 1 + n, 1));
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  first.setUTCDate(Math.min(d, last));
+  return first.toISOString().slice(0, 10);
+}
+
+// מחיר בהזמנה: אותה תקרה כמו מחיר נכס ועסקה (money ב-realty.js) — מספר עצום היה נשמר ומוצג כ-Infinity
+function orderPriceAg(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 1e10) throw new Error('המחיר בהזמנה אינו תקין');
+  return toAg(n);
 }
 
 function validateOrder(input, prev = {}, { clients = [], properties = [] } = {}) {
@@ -124,7 +149,7 @@ function validateOrder(input, prev = {}, { clients = [], properties = [] } = {})
     transaction: TRANSACTIONS[x.transaction] ? x.transaction : '',
     clientAddress: clip(x.clientAddress, 200),
     propertyDescription: clip(x.propertyDescription, 300),
-    priceAg: input.price !== undefined && input.price !== '' ? toAg(Math.max(0, Number(input.price) || 0)) : (isAg(prev.priceAg) ? prev.priceAg : 0),
+    priceAg: input.price !== undefined && input.price !== '' ? orderPriceAg(input.price) : (isAg(prev.priceAg) ? prev.priceAg : 0),
     fee: input.feeValue !== undefined ? validateFee({ type: input.feeType, value: input.feeValue }) : (prev.fee || null),
     exclusive: x.exclusive === true || x.exclusive === 'yes',
     exclusiveUntil: '',

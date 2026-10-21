@@ -114,16 +114,18 @@ function reListHtml(o) {
 
 function reSettingsHtml(o) {
   const s = o.settings || {};
-  const f = (k, l) => `<label class="ss-field"><span class="ss-label">${esc(l)}</span><input class="ss-input" type="text" data-re-set="${k}" value="${esc(s[k])}"></label>`;
+  // פרטי השמאי בכל דוח — רק מנהל משנה (השרת בודק users.manage)
+  const ro = o.isManager ? '' : ' disabled';
+  const f = (k, l) => `<label class="ss-field"><span class="ss-label">${esc(l)}</span><input class="ss-input" type="text" data-re-set="${k}" value="${esc(s[k])}"${ro}></label>`;
   return `
-    <div class="ss-page-head"><span>פרטי השמאי מופיעים בכל דוח שומה.</span><button class="ss-btn-secondary" id="reBack">→ חזרה לרשימה</button></div>
+    <div class="ss-page-head"><span>פרטי השמאי מופיעים בכל דוח שומה.${o.isManager ? '' : ' רק מנהל יכול לשנות אותם.'} דוח שננעל שומר את הפרטים מיום הנעילה.</span><button class="ss-btn-secondary" id="reBack">→ חזרה לרשימה</button></div>
     <div class="ss-card ss-form-grid">
       ${f('name', 'שם השמאי')} ${f('license', 'מספר רישיון')} ${f('office', 'שם המשרד')} ${f('phone', 'טלפון')} ${f('email', 'דוא"ל')} ${f('address', 'כתובת המשרד')}
       <h3 class="ss-section-title">לדוח בעברית ובאנגלית</h3>
       ${f('nameEn', 'שם השמאי באנגלית')} ${f('officeEn', 'שם המשרד באנגלית')} ${f('addressEn', 'כתובת המשרד באנגלית')}
-      <label class="ss-field ss-wide"><span class="ss-label">הצהרה באנגלית (ריק — נוסח ברירת המחדל)</span><textarea class="ss-input" data-re-set="declarationEn" rows="3" dir="ltr">${esc(s.declarationEn)}</textarea></label>
-      <label class="ss-field ss-wide"><span class="ss-label">הצהרת השמאי (ריק — נוסח ברירת המחדל)</span><textarea class="ss-input" data-re-set="declaration" rows="3">${esc(s.declaration)}</textarea></label>
-      <div class="ss-wide"><button class="ss-btn-primary" id="reSaveSettings">שמירה</button></div>
+      <label class="ss-field ss-wide"><span class="ss-label">הצהרה באנגלית (ריק — נוסח ברירת המחדל)</span><textarea class="ss-input" data-re-set="declarationEn" rows="3" dir="ltr"${ro}>${esc(s.declarationEn)}</textarea></label>
+      <label class="ss-field ss-wide"><span class="ss-label">הצהרת השמאי (ריק — נוסח ברירת המחדל)</span><textarea class="ss-input" data-re-set="declaration" rows="3"${ro}>${esc(s.declaration)}</textarea></label>
+      ${o.isManager ? '<div class="ss-wide"><button class="ss-btn-primary" id="reSaveSettings">שמירה</button></div>' : ''}
     </div>`;
 }
 
@@ -266,7 +268,7 @@ function reEditorHtml(o) {
     </div>
     ${rePhotosHtml(re.current.photos || [], final)}
     ${reResultsHtml(result, lists)}
-    ${(c.history || []).length ? `<details class="ss-card"><summary>היסטוריית גרסאות (${c.history.length})</summary>${c.history.map(h => `<div class="ss-row"><span>דוח ${esc(String(c.no) + (h.rev ? '-' + h.rev : ''))}</span><span>${esc(h.reportDate || '')} · ${reMoney(h.valueAg)}</span></div>`).join('')}</details>` : ''}`;
+    ${(c.history || []).length ? `<details class="ss-card"><summary>היסטוריית גרסאות (${c.history.length})</summary>${c.history.map(h => `<div class="ss-row"><span>דוח ${esc(String(c.no) + (h.rev ? '-' + h.rev : ''))}</span><span>${esc(h.reportDate || '')} · ${reMoney(h.valueAg)}${h.hasReport ? ` <button class="ss-btn-ghost ss-btn-sm" data-re-revpdf="${esc(String(h.rev))}" title="הדוח כפי שנמסר (בלי הצילומים)">⬇ PDF</button>` : ''}</span></div>`).join('')}</details>` : ''}`;
 }
 
 // צילומים לתיק: מוקטנים בממשק (עד 1200 פיקסלים, JPEG) לפני השליחה; השרת בודק שוב סוג וגודל
@@ -441,6 +443,10 @@ function attachRealEstateHandlers() {
     if (r && r.ok) showToast('הדוח נשמר');
     renderView('realestate');
   }));
+  document.querySelectorAll('[data-re-revpdf]').forEach(b => b.addEventListener('click', guard('שגיאה ביצירת הדוח', async () => {
+    const r = await api.exportRealEstateRevisionReport(re.caseId, Number(b.dataset.reRevpdf));
+    if (r && r.ok) showToast('הדוח של הגרסה הקודמת נשמר');
+  })));
   on('reAddPhoto', guard('שגיאה בהוספת הצילום', async () => {
     const caption = (document.getElementById('rePhotoCaption') || {}).value || '';
     const file = await rePickImage();

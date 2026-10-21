@@ -9,6 +9,8 @@ const NavHistory = require('../../shell/history');
 const { canShellNavigate, canModuleOpen } = require('../../shell/nav-guard');
 const LoginGate = require('../../shell/login-gate');
 const TrainerCheck = require('../../shell/trainer-backup-check');
+const ModCounters = require('../../shell/module-counters');
+const { issuedAfter } = require('../../modules/econ/core/database');
 
 const MODS = ['econ', 'shamai', 'trainer', 'tools'];
 const LS_MODS = ['shamai', 'trainer', 'tools'];
@@ -198,16 +200,20 @@ function start(ctx) {
       trainerItems = t.clean;
     }
     const scopeText = data.legacy ? '(גיבוי ישן של ניהול האימונים)' : data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
-    if (!ctx.confirm('השחזור יחליף את הנתונים הקיימים ' + scopeText + '\nמומלץ לבצע גיבוי לפני כן. להמשיך?')) return { ok: false };
-    // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע מחזיר הכול למצב שלפני (כמו main.js)
+    // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע מחזיר הכול למצב שלפני (כמו main.js).
+    // נקרא לפני האישור — גם לאזהרה על מסמכים שהופקו אחרי הגיבוי (בדיקת קוד 22.10.2026, ממצא 5)
     const mods = LS_MODS.filter(id => restoreItems(data, id, trainerItems));
     let before;
     try {
       before = { econ: data.econ ? await econ.getDb().backup() : null, localStorage: {} };
       for (const id of mods) { frames.ensure(id, ENTRY[id]); before.localStorage[id] = await frames.request(id, 'ls-dump'); }
     } catch (e) { ctx.alert('שגיאה: לא ניתן לשמור את המצב הנוכחי לפני השחזור, ולכן לא שוחזר דבר.'); return { ok: false }; }
+    const missingItems = data.econ && before.econ ? issuedAfter(data.econ, before.econ) : [];
+    for (const id of mods) missingItems.push(...ModCounters.moduleIssuedAfter(id, restoreItems(data, id, trainerItems), before.localStorage[id]));
+    const missing = ModCounters.issuedAfterText(missingItems);
+    if (!ctx.confirm('השחזור יחליף את הנתונים הקיימים ' + scopeText + (missing ? '\n⚠ ' + missing : '') + '\nמומלץ לבצע גיבוי לפני כן. להמשיך?')) return { ok: false };
     try {
-      await applyRestore(data.econ, mods.map(id => [id, restoreItems(data, id, trainerItems)]));
+      await applyRestore(data.econ, mods.map(id => [id, ModCounters.keepModuleCounters(id, restoreItems(data, id, trainerItems), before.localStorage[id])]));
     } catch (e) {
       let back = 'הנתונים הוחזרו למצב שלפני השחזור.';
       try { await applyRestore(before.econ, mods.map(id => [id, before.localStorage[id] || {}])); }

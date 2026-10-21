@@ -12,6 +12,8 @@ const DbRecovery = require('./shell/db-recovery');
 const DbKey = require('./shell/db-key');
 const SecureStore = require('./shell/secure-store');
 const TrainerCheck = require('./shell/trainer-backup-check');
+const ModCounters = require('./shell/module-counters');
+const { issuedAfter } = require('./modules/econ/core/database');
 const CodeGuard = require('./shell/code-guard');
 const PlainBk = require('./shell/plain-backups');
 const Catalog = require('./shell/catalog');
@@ -449,9 +451,11 @@ function waitLoaded(wc) {
 // כשל בקריאת הכספים = כשל של הגיבוי כולו (code: 'econ-read-failed'): קודם נכתב גיבוי בלי הכספים, הסטטוס
 // הראה "הצליח", והסבב האוטומטי מחק בגללו את הגיבוי התקין הישן ביותר. עכשיו לא נכתב דבר ולא נמחק דבר
 // כך גם כשל בקריאת מודול (code: 'module-read-failed') — קודם נשמר {} בשקט, והגיבוי נראה שלם בלי נתוני המודול
-function moduleReadError(id, cause) {
+function moduleReadError(id, cause, locked = false) {
   logger.error('backup-module-read', cause);
-  const err = new Error(`לא ניתן היה לקרוא את נתוני ${MODULE_NAMES[id] || id}, ולכן הגיבוי לא נשמר. נסו שוב בעוד רגע; אם התקלה חוזרת — שמרו דוח תקלה (F1) ופנו לתמיכה.`);
+  const err = new Error(locked
+    ? `הנתונים המוצפנים של ${MODULE_NAMES[id] || id} לא נפתחו (קובץ פגום או מפתח שאינו מתאים), ולכן הגיבוי לא נשמר — כדי שהגיבויים הקודמים, שבהם הנתונים קיימים, לא יימחקו. שמרו דוח תקלה (F1) ופנו לתמיכה.`
+    : `לא ניתן היה לקרוא את נתוני ${MODULE_NAMES[id] || id}, ולכן הגיבוי לא נשמר. נסו שוב בעוד רגע; אם התקלה חוזרת — שמרו דוח תקלה (F1) ופנו לתמיכה.`);
   err.code = 'module-read-failed';
   return err;
 }
@@ -469,8 +473,13 @@ async function collectBackup(scope = 'all') {
   const DUMP = 'JSON.stringify(Object.fromEntries(Object.entries(localStorage)))';
   for (const id of LS_MODS) {
     if (scope !== 'all' && scope !== id) continue;
-    // מחסן מוצפן: קוראים ממנו ישירות — בלי לפתוח את המודול (שבלי כניסה מקבל אחסון ריק)
-    if (SecureStore.MODULES.includes(id) && secureStore(id).state === 'encrypted') { out.localStorage[id] = secureStore(id).snapshot(); continue; }
+    // מחסן מוצפן: קוראים ממנו ישירות — בלי לפתוח את המודול (שבלי כניסה מקבל אחסון ריק).
+    // מחסן נעול (קובץ שלא נפתח): העמוד מקבל אחסון ריק, והגיבוי היה נשמר עם {} ומוחק בסבב את הגיבויים הטובים
+    if (SecureStore.MODULES.includes(id)) {
+      const s = secureStore(id);
+      if (s.state === 'locked') throw moduleReadError(id, new Error(`secure store locked: ${id}`), true);
+      if (s.state === 'encrypted') { out.localStorage[id] = s.snapshot(); continue; }
+    }
     const v = ensureView(id);
     await waitLoaded(v.webContents);
     try { out.localStorage[id] = JSON.parse(await v.webContents.executeJavaScript(DUMP)); }
@@ -815,15 +824,25 @@ async function restoreAll(passphrase) {
     trainerItems = t.clean;
   }
   const scopeText = data.legacy ? '(גיבוי ישן של ניהול האימונים)' : data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
-  const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: 'מומלץ לבצע גיבוי לפני כן.' });
+  const mods = LS_MODS.filter(id => restoreItems(data, id, trainerItems));
+  // גיבוי ישן מהמסמך האחרון שהופק — אזהרה בחלון האישור (בדיקת קוד 22.10.2026, ממצא 5). קריאה בלבד; כשל — בלי אזהרה
+  let missing = '';
+  try {
+    const items = data.econ ? issuedAfter(data.econ, await econ.getDb().load()) : [];
+    for (const id of mods.filter(m => ModCounters.MODULE_COUNTERS[m])) {
+      items.push(...ModCounters.moduleIssuedAfter(id, restoreItems(data, id, trainerItems), (await snapshotFor(false, [id])).localStorage[id]));
+    }
+    missing = ModCounters.issuedAfterText(items);
+  } catch (e) { logger.error('restore-missing-docs', e); }
+  const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: (missing ? '⚠ ' + missing + '\n\n' : '') + 'מומלץ לבצע גיבוי לפני כן.' });
   if (c.response !== 0) return { ok: false };
   // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע (למשל הכספים שוחזרו ומודול אחר נכשל) מחזיר הכול למצב שלפני
-  const mods = LS_MODS.filter(id => restoreItems(data, id, trainerItems));
   let before;
   try { before = await snapshotFor(!!data.econ, mods); }
   catch (e) { dialog.showErrorBox('שגיאה', 'לא ניתן לשמור את המצב הנוכחי לפני השחזור, ולכן לא שוחזר דבר. ' + (e.message || '')); return { ok: false }; }
   try {
-    await applyRestore(data.econ, mods.map(id => [id, restoreItems(data, id, trainerItems)]));
+    // מוני המסמכים במודולים (שטרי קנייה, תיקים ודוחות בשמאות) לא חוזרים אחורה — כמו keepCounters בכספים
+    await applyRestore(data.econ, mods.map(id => [id, ModCounters.keepModuleCounters(id, restoreItems(data, id, trainerItems), before.localStorage[id])]));
   } catch (e) {
     let back = '';
     try { await applyRestore(before.econ, mods.map(id => [id, before.localStorage[id] || {}])); back = 'הנתונים הוחזרו למצב שלפני השחזור.'; }
@@ -886,6 +905,9 @@ function registerSyncHandlers() {
   h('sync:connect', (peerId, endpoint) => sync.connect(str(peerId), str(endpoint)));
   h('sync:ping', (peerId) => sync.ping(str(peerId)));
   h('sync:revoke', (peerId) => sync.revoke(str(peerId)));
+  h('sync:reset-identity', () => sync.resetIdentity());
+  // שגיאות של שכבת החיבור (למשל שמירת מצב שנכשלה) — ליומן התקלות, ולא חריגה שמקפיצה חלון קריסה
+  sync.on('log', (entry) => { if (entry && entry.level === 'error') logger.error('sync', String(entry.msg || '') + (entry.code ? ' (' + entry.code + ')' : '')); });
   sync.init().catch((err) => logger.error('sync-init', err));
 }
 app.on('will-quit', () => { if (sync) sync.close().catch(() => {}); for (const s of Object.values(secureStores)) s.flush(); });
@@ -1088,6 +1110,10 @@ app.whenReady().then(async () => {
     // בלי קוד שחזור רשום, תקלה במחשב = אובדן כל הגיבויים האוטומטיים — מזכירים עד שנרשם
     const parts = [text];
     if (dbAtRest.status !== 'encrypted' && dbAtRest.status !== 'plain') parts.push(AT_REST_WARNINGS[dbAtRest.status] || '');
+    // מחסן מוצפן שלא נפתח: המודול נראה ריק, והגיבוי לא נשמר עד שהתקלה מטופלת — מזכירים כאן ולא רק ביומן
+    for (const mod of SecureStore.MODULES) {
+      if (secureStore(mod).state === 'locked') parts.push(`⚠ הנתונים המוצפנים של ${MODULE_NAMES[mod] || mod} לא נפתחו — פנו לתמיכה עם דוח תקלה (F1)`);
+    }
     if (!s.recoveryCodeSavedAt && safeStorage.isEncryptionAvailable()) parts.push('⚠ טרם נרשם קוד שחזור (🔑)');
     return parts.filter(Boolean).join(' · ');
   });

@@ -591,11 +591,32 @@ function estimatePrepaymentFee(tracks, prules) {
 const BLOCKING = new Set(['VARIABLE_SHARE', 'SHORT_RESET_SHARE', 'TERM', 'PTI_MAX', 'LTV']);
 const MAX_CANDIDATES = 5000;
 
-function shareGrid(n, units) {
-  if (n === 1) return [[units]];
+// ranges: [[lo, hi], ...] ביחידות של צעד, לכל אבן בניין. הגבולות נאכפים בתוך הרקורסיה —
+// בלי זה נוצרו כל החלוקות (6 אבנים בצעד 1% = 96 מיליון) לפני הסינון, והתהליך נגמר מזיכרון
+function shareGrid(n, units, ranges = null) {
+  const lo = (i) => (ranges ? ranges[i][0] : 0);
+  const hi = (i) => (ranges ? ranges[i][1] : units);
   const out = [];
-  for (let first = units; first >= 0; first--) for (const rest of shareGrid(n - 1, units - first)) out.push([first, ...rest]);
+  const walk = (i, left, acc) => {
+    if (i === n - 1) { if (left >= lo(i) && left <= hi(i)) out.push([...acc, left]); return; }
+    for (let x = Math.min(left, hi(i)); x >= lo(i); x--) walk(i + 1, left - x, [...acc, x]);
+  };
+  walk(0, units, []);
   return out;
+}
+
+// מספר החלוקות בגבולות — בלי ליצור אותן (תכנון דינמי, לכל היותר 6 × 101 × 101)
+function countShareGrid(n, units, ranges) {
+  let ways = Array.from({ length: units + 1 }, (_, s) => (s === 0 ? 1 : 0));
+  for (let i = 0; i < n; i++) {
+    const next = new Array(units + 1).fill(0);
+    for (let s = 0; s <= units; s++) {
+      if (!ways[s]) continue;
+      for (let x = ranges[i][0]; x <= ranges[i][1] && s + x <= units; x++) next[s + x] += ways[s];
+    }
+    ways = next;
+  }
+  return ways[units];
 }
 
 function optimizeMix(input, ctx) {
@@ -612,8 +633,13 @@ function optimizeMix(input, ctx) {
   if (objective === 'TOTAL_COST_WITH_PAYMENT_CAP' && !hasCap) throw new EngineInputError('maxMonthlyPayment', 'יש להזין תקרת החזר חודשי');
   const capAg = hasCap ? toAg(num(input.maxMonthlyPayment, 'maxMonthlyPayment', 'תקרת החזר')) : null;
   const bounds = blocks.map(b => ({ min: b.minShare === undefined || b.minShare === '' ? 0 : Number(b.minShare), max: b.maxShare === undefined || b.maxShare === '' ? 1 : Number(b.maxShare) }));
-  const grid = shareGrid(n, u).filter(g => g.every((x, i) => x / u >= bounds[i].min - 1e-9 && x / u <= bounds[i].max + 1e-9));
-  if (grid.length > MAX_CANDIDATES) throw new EngineInputError('step', `יותר מדי מועמדים (${grid.length}) — הגדל את הצעד או הפחת אבני בניין`);
+  // הגבולות ביחידות של צעד (x / u בין min ל-max, באותה סבילות כמו קודם). גבול לא מספרי — אין מועמדים
+  const ranges = bounds.map(b => (Number.isFinite(b.min) && Number.isFinite(b.max)
+    ? [Math.max(0, Math.ceil(b.min * u - 1e-9 * u)), Math.min(u, Math.floor(b.max * u + 1e-9 * u))]
+    : [1, 0]));
+  const count = countShareGrid(n, u, ranges);
+  if (count > MAX_CANDIDATES) throw new EngineInputError('step', `יותר מדי מועמדים (${count}) — הגדל את הצעד או הפחת אבני בניין`);
+  const grid = shareGrid(n, u, ranges);
 
   const checkCtx = { ...(input.checks || {}), asOf: ctx.asOf, rules: ctx.rules };
   const accepted = [];
@@ -651,5 +677,5 @@ module.exports = {
   createForecast, compoundedInflation, annualToMonthlyInflation, normalizeTrack, annualRateForMonth, monthlyRate, annuityPayment,
   amortizeTrack, irrAnnual, calculateMix, checkMix, splitAg, buildUniformBasket, calculateUniformBaskets,
   maxLoanForPayment, compareRefinance, approvalToTracks, compareApprovals, discountFor, prepaymentRulesFrom, estimatePrepaymentFee,
-  shareGrid, optimizeMix
+  shareGrid, countShareGrid, optimizeMix
 };

@@ -38,6 +38,7 @@ function requestsOf(list) {
   for (const input of list) {
     const r = P.createRequest(input, s, reqs.length);
     s.nextNumber = r.settings.nextNumber;
+    r.req.createdAt = '2026-10-01T08:00:00.000Z'; // לפני התאריכים שבדוחות (שורה מלפני הדרישה לא מותאמת לפי שם)
     reqs.push(r.req);
   }
   return reqs;
@@ -340,4 +341,46 @@ test('ממצא 13: ביטול חשבונית, רשומת ההיפוך וסימו
   assert.equal(out.local, '2026-8-1 1:30', 'השעון הקפוא בשעון ישראל');
   assert.deepEqual(out, { local: out.local, cancelledAt: '2026-08-01', reversalDate: '2026-08-01',
     invoiceDate: '2026-08-01', paidAt: '2026-08-01', markPaidDate: '2026-08-01' });
+});
+
+// בדיקה חוזרת 21.10.2026 (audit-recheck-fixes.md, ממצא 2): דוח של "30 הימים האחרונים" חופף לדוח הקודם.
+// שורה בלי מספר דרישה ובלי מספר עסקה, שכבר נרשמה לפי שם, הותאמה שוב לדרישה החדשה של אותו לווה
+test('בדיקה חוזרת 2: תשלום שכבר נקלט לפי שם לא נרשם שוב לדרישה חדשה באותו שם וסכום', () => {
+  const map = { date: 'תאריך', amount: 'סכום', name: 'שם' };
+  const reqs = requestsOf([
+    { kind: 'other', amount: 500, payerName: 'אברהם גולדברג' }, // P00001 — שולם בספטמבר
+    { kind: 'other', amount: 500, payerName: 'אברהם גולדברג' }, // P00002 — התשלום של אוקטובר
+  ]);
+  reqs[0].createdAt = '2026-09-01T08:00:00.000Z';
+  reqs[0].status = 'paid';
+  reqs[0].payment = { date: '2026-09-05', source: 'report', how: 'name', name: 'אברהם גולדברג', txId: '' };
+  const csv = 'תאריך,סכום,שם\n05/09/2026,500,אברהם גולדברג\n';
+  const m = P.matchReport(csv, map, reqs);
+  assert.deepEqual(m.matched, [], 'השורה של 5.9 לא משויכת ל-P00002');
+  assert.equal(m.unmatched.length, 1);
+  assert.match(m.unmatched[0].reason, /ייתכן שהתשלום כבר נקלט \(P00001/);
+  // התשלום האמיתי של אוקטובר — עדיין מותאם
+  const oct = P.matchReport('תאריך,סכום,שם\n05/10/2026,500,אברהם גולדברג\n', map, reqs);
+  assert.deepEqual(oct.matched.map(x => `${x.ref}:${x.how}`), ['P00002:name']);
+  // מספרי עסקה שונים — שני תשלומים שונים באותו יום, לא חשד
+  reqs[0].payment.txId = 'T1';
+  const other = P.matchReport('תאריך,סכום,שם,מספר עסקה\n05/09/2026,500,אברהם גולדברג,T2\n', { ...map, txId: 'מספר עסקה' }, reqs);
+  assert.deepEqual(other.unmatched.map(u => u.reason).filter(r => /כבר נקלט/.test(r)), []);
+});
+
+test('בדיקה חוזרת 2: שורה מתאריך שלפני יצירת הדרישה לא מותאמת לה לפי שם', () => {
+  const map = { date: 'תאריך', amount: 'סכום', name: 'שם' };
+  const reqs = requestsOf([{ kind: 'other', amount: 500, payerName: 'אברהם גולדברג' }]);
+  reqs[0].createdAt = '2026-10-01T08:00:00.000Z';
+  const m = P.matchReport('תאריך,סכום,שם\n05/09/2026,500,אברהם גולדברג\n30/09/2026,500,אברהם גולדברג\n', map, reqs);
+  assert.deepEqual(m.matched, [], 'תשלומים מספטמבר אינם של דרישה מ-1.10');
+  assert.equal(m.unmatched.length, 2);
+  // אותו יום — כן (הקישור נשלח והלקוח שילם מיד). 01:30 בלילה בישראל = 22:30 UTC ביום הקודם
+  reqs[0].createdAt = '2026-09-30T22:30:00.000Z';
+  const sameDay = P.matchReport('תאריך,סכום,שם\n01/10/2026,500,אברהם גולדברג\n', map, reqs);
+  assert.deepEqual(sameDay.matched.map(x => x.ref), ['P00001']);
+  // מספר הדרישה בשורה גובר על התאריך (שיוך מפורש)
+  reqs[0].createdAt = '2026-10-01T08:00:00.000Z';
+  const byRef = P.matchReport('תאריך,סכום,שם,הערה\n30/09/2026,500,אברהם גולדברג,P00001\n', { ...map, ref: 'הערה' }, reqs);
+  assert.deepEqual(byRef.matched.map(x => `${x.ref}:${x.how}`), ['P00001:ref']);
 });
