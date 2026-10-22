@@ -171,43 +171,52 @@ jobs:
       actions: write
       checks: read
     steps:
-      # מצב כל משימה וכל צעד, והודעות השגיאה של GitHub (למשל "Set up job" שנכשל) — גם כשמשימה נפלה לפני שכתבה יומן.
-      # דף ה-Actions וה-API חסומים ב-NetFree, ולכן זה נכתב ל-ci-status (jobs.txt)
-      - name: jobs summary
+      # מצב כל משימה וכל צעד, הודעות השגיאה של GitHub, נפח ה-artifacts וניקוי ישנים — צעד אחד, עוזר API אחד.
+      # דף ה-Actions וה-API חסומים ב-NetFree, ולכן הכול נכתב ל-ci-status (jobs.txt)
+      - name: jobs summary and artifact cleanup
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # בלי -e: שגיאת API בפקודה אחת לא קוטעת את שאר הדוח
+          set +e
           mkdir -p logs
-          api() { curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/$1"; }
-          api "actions/runs/$GITHUB_RUN_ID/jobs?per_page=50" > jobs.json
-          jq -r '.jobs[] | "\(.name): \(.conclusion // .status)", (.steps[]? | "  \(.number). \(.name): \(.conclusion // .status)")' jobs.json > logs/jobs.txt
-          # נפח האחסון של ה-artifacts במאגר — העלאה שנכשלת בגלל מכסה מלאה
-          api "actions/artifacts?per_page=100" | jq -r '"--- artifacts: \(.total_count), MB: \(([.artifacts[]?.size_in_bytes] | add // 0) / 1048576 | floor)"' >> logs/jobs.txt
-          # הודעות השגיאה לכל משימה שאינה "success" (גם כשהיא עוד נסגרת בזמן שהדוח נכתב)
-          for id in $(jq -r '.jobs[] | select(.name != "report" and .conclusion != "success" and .conclusion != "skipped") | .id' jobs.json); do
-            echo "--- annotations: job $id" >> logs/jobs.txt
-            api "check-runs/$id/annotations" | jq -r '.[]? | "\(.annotation_level): \(.message)"' >> logs/jobs.txt
-          done
-      # מחיקת ה-artifacts של ריצות קודמות (החלטת הבעלים 22.10.2026): 202 קבצים / 4.3GB מילאו את המכסה,
-      # וכל העלאה חדשה נכשלה. הם משמשים רק להעברה בין משימות באותה ריצה; גרסאות שפורסמו — ב-Releases.
-      # של הריצה הנוכחית לא נמחקים. GitHub מחשב את הנפח מחדש רק אחרי כמה שעות
-      - name: cleanup old artifacts
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p logs
+          out=logs/jobs.txt
+          repo="https://api.github.com/repos/$GITHUB_REPOSITORY"
           api() { curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
-          base="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts"
-          deleted=0
-          # תמיד עמוד 1: אחרי מחיקה הרשימה זזה. תקרה — 30 סבבים (3,000 קבצים)
-          for round in $(seq 1 30); do
-            ids=$(api "$base?per_page=100" | jq -r --arg run "$GITHUB_RUN_ID" '.artifacts[]? | select((.workflow_run.id | tostring) != $run) | .id')
-            [ -z "$ids" ] && break
-            for id in $ids; do api -X DELETE "$base/$id" -o /dev/null && deleted=$((deleted + 1)); done
+          api "$repo/actions/runs/$GITHUB_RUN_ID/jobs?per_page=50" > jobs.json
+          jq -r '.jobs[]? | "\(.name): \(.conclusion // .status)", (.steps[]? | "  \(.number). \(.name): \(.conclusion // .status)")' jobs.json > "$out" \
+            || echo "--- jobs: API error: $(head -c 300 jobs.json)" >> "$out"
+          # הודעות השגיאה לכל משימה שאינה "success" (גם כשהיא עוד נסגרת בזמן שהדוח נכתב)
+          for id in $(jq -r '.jobs[]? | select(.name != "report" and .conclusion != "success" and .conclusion != "skipped") | .id' jobs.json 2>/dev/null); do
+            echo "--- annotations: job $id" >> "$out"
+            api "$repo/check-runs/$id/annotations" | jq -r '.[]? | "\(.annotation_level): \(.message)"' >> "$out"
           done
-          echo "--- cleanup: deleted $deleted old artifacts" >> logs/jobs.txt
+          # כל ה-artifacts, בכל העמודים (עד 3,000): מזהה, גודל, זמן יצירה, ריצה
+          : > artifacts.tsv
+          for page in $(seq 1 30); do
+            api "$repo/actions/artifacts?per_page=100&page=$page" > page.json
+            n=$(jq '.artifacts | length' page.json 2>/dev/null)
+            [ "${n:-0}" -gt 0 ] || break
+            jq -r '.artifacts[] | [.id, .size_in_bytes, .created_at, (.workflow_run.id | tostring)] | @tsv' page.json >> artifacts.tsv
+          done
+          echo "--- artifacts: $(wc -l < artifacts.tsv), MB: $(awk -F'\t' '{ s += $2 } END { print int(s / 1048576) }' artifacts.tsv)" >> "$out"
+          # ניקוי (החלטת הבעלים 22.10.2026): 202 קבצים / 4.3GB מילאו את המכסה. נמחקים רק artifacts בני יותר מ-6 שעות
+          # שאינם של הריצה הזו — כך ריצה אחרת שרצה במקביל לא מאבדת את הקבצים שלה. מאז retention-days: 2
+          # כמעט אין כאלה, והצעד לא עושה כלום. גרסאות שפורסמו — ב-Releases. GitHub מחשב את הנפח מחדש רק אחרי כמה שעות
+          cutoff=$(date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          deleted=0; failed=0
+          while IFS=$'\t' read -r id size created run; do
+            [ "$run" = "$GITHUB_RUN_ID" ] && continue
+            [[ "$created" < "$cutoff" ]] || continue
+            if api --fail -X DELETE "$repo/actions/artifacts/$id" -o /dev/null; then deleted=$((deleted + 1))
+            else
+              failed=$((failed + 1))
+              # אין הרשאה / שגיאה קבועה — לא ממשיכים לשלוח מאות בקשות שנכשלות
+              [ "$deleted" -eq 0 ] && [ "$failed" -ge 5 ] && break
+            fi
+          done < artifacts.tsv
+          echo "--- cleanup: deleted $deleted, failed $failed (older than $cutoff)" >> "$out"
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:

@@ -354,4 +354,15 @@ test('כרטיס המודל המקומי — לפי הרישיון והמצב; �
   assert.deepEqual(calls, ['install', 'verify', 'remove']);
   assert.equal(els.aiModelRemove.disabled, false, 'הכפתור חוזר לפעול');
   assert.ok(toasts.some(t => t.includes('דיקטה')));
+
+  // שגיאה בהתקנה: ההודעה מוצגת, והתווית הזמנית חוזרת למקור
+  const errors = [];
+  ctx.showError = (m) => errors.push(m);
+  ctx.errMsg = (e) => e.message;
+  ctx.systemAPI.aiModelInstall = async () => { throw new Error('החתימה אינה תקינה'); };
+  els.aiModelInstall.textContent = 'התקנת מודל מקובץ';
+  await els.aiModelInstall._l[0]();
+  assert.deepEqual(errors, ['החתימה אינה תקינה']);
+  assert.equal(els.aiModelInstall.textContent, 'התקנת מודל מקובץ', 'לא נשאר „מתקין…”');
+  assert.equal(els.aiModelInstall.disabled, false);
 });

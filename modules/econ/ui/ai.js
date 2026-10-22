@@ -147,8 +147,10 @@ function attachAiModelHandlers(root) {
     const b = root.querySelector('#' + id);
     if (!b) return;
     b.addEventListener('click', async () => {
+      // התווית הזמנית („מתקין…”) חוזרת גם אחרי שגיאה — אחרת הכפתור נראה כאילו הפעולה עוד רצה
+      const label = b.textContent;
       b.disabled = true;
-      try { await fn(b); } catch (e) { showError(errMsg(e)); } finally { b.disabled = false; }
+      try { await fn(b); } catch (e) { showError(errMsg(e)); } finally { b.disabled = false; b.textContent = label; }
     });
   };
   bind('aiModelInstall', async (b) => {

@@ -2395,28 +2395,42 @@ function registerIpcHandlers() {
     return { ok: true, version: payload.version, platform: payload.platform, path: relPath, sha256: payload.sha256 };
   });
   // מנהל-העל: חתימת מודל AI מקומי — בוחרים קובץ GGUF, מחושבת תמצית (בזרימה, בלי לטעון 1GB לזיכרון),
-  // ונשמרת לידו תעודה ‎.ssmodel. אותו מסלול אמון כמו שחרור גרסה: המפתח הפרטי נשאר בתוך ownerCore
-  handle('owner:modelSign', async (event, input = {}) => {
-    const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ המודל (‎.gguf)', properties: ['openFile'],
-      filters: [{ name: 'קובץ מודל', extensions: ['gguf'] }] });
-    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { ok: false };
-    const file = pick.filePaths[0];
-    const st = fs.statSync(file);
-    if (st.size > MP.MAX_SIZE) throw new Error('קובץ המודל גדול מ-3GB');
-    const fd = fs.openSync(file, 'r');
-    const head = Buffer.alloc(4);
-    try { fs.readSync(fd, head, 0, 4, 0); } finally { fs.closeSync(fd); }
-    if (head.toString('latin1') !== MP.GGUF_MAGIC) throw new Error('הקובץ אינו מודל GGUF');
-    const x = input || {};
-    const text = MP.createModelManifest(ownerCore.rootSigner(), {
-      id: x.id, name: x.name, license: x.license, quant: x.quant, contextSize: x.contextSize,
-      fileName: path.basename(file), size: st.size, sha256: await MP.hashFile(fs, file),
-    }, { issuedAt: clockNow() });
-    const p = MP.verifyModelManifest(text, [ownerCore.pubkey()]);
-    const out = file.replace(/\.gguf$/i, '') + '.ssmodel';
-    fs.writeFileSync(out, text, 'utf8');
-    await ownerAudit(event, 'model.sign', { id: p.id, sha256: p.sha256, size: p.size });
-    return { ok: true, id: p.id, name: p.name, size: p.size, path: out };
+  // ונשמרת לידו תעודה ‎.ssmodel. אותו מסלול אמון כמו שחרור גרסה: המפתח הפרטי נשאר בתוך ownerCore.
+  // כמו handleGoogle: השומר (כניסה, הרשאה, מצב מנהל-על פתוח) בתור; חלון הבחירה וחישוב התמצית (עד דקה) — מחוץ לתור,
+  // כדי שלא כל פעולה אחרת במערכת תמתין להם; החתימה והרישום ביומן — שוב בתור, אחרי בדיקה חוזרת
+  let modelSignBusy = false;
+  const ownerSignGuard = (event, fn) => enqueue(() => runGuarded('owner:modelSign', async (ev) => { ownerCore.rootSigner(); return fn(ev); }, event, []));
+  ipcMain.handle('owner:modelSign', async (event, input = {}) => {
+    try {
+      if (modelSignBusy) throw new Error('חתימת מודל כבר מתבצעת — המתינו לסיומה');
+      modelSignBusy = true;
+      try {
+        await ownerSignGuard(event, async () => true);
+        const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ המודל (‎.gguf)', properties: ['openFile'],
+          filters: [{ name: 'קובץ מודל', extensions: ['gguf'] }] });
+        if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { ok: false };
+        const file = pick.filePaths[0];
+        const st = fs.statSync(file);
+        if (st.size > MP.MAX_SIZE) throw new Error('קובץ המודל גדול מ-3GB');
+        const fd = fs.openSync(file, 'r');
+        const head = Buffer.alloc(4);
+        try { fs.readSync(fd, head, 0, 4, 0); } finally { fs.closeSync(fd); }
+        if (head.toString('latin1') !== MP.GGUF_MAGIC) throw new Error('הקובץ אינו מודל GGUF');
+        const sha256 = await MP.hashFile(fs, file);
+        const x = input || {};
+        return await ownerSignGuard(event, async (ev) => {
+          const text = MP.createModelManifest(ownerCore.rootSigner(), {
+            id: x.id, name: x.name, license: x.license, quant: x.quant, contextSize: x.contextSize,
+            fileName: path.basename(file), size: st.size, sha256,
+          }, { issuedAt: clockNow() });
+          const p = MP.verifyModelManifest(text, [ownerCore.pubkey()]);
+          const out = file.replace(/\.gguf$/i, '') + '.ssmodel';
+          fs.writeFileSync(out, text, 'utf8');
+          await ownerAudit(ev, 'model.sign', { id: p.id, sha256: p.sha256, size: p.size });
+          return { ok: true, id: p.id, name: p.name, size: p.size, path: out };
+        });
+      } finally { modelSignBusy = false; }
+    } catch (e) { throw toUserError(e); }
   });
   handle('owner:releases', async () => ownerCore.releases().map(({ text, ...r }) => r));
   handle('owner:releasePublish', async (event, version, platform) => {
