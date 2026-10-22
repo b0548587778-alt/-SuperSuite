@@ -21,12 +21,23 @@ function electronFork() {
 // runtimeAvailable — האם node-llama-cpp ארוז בהתקנה הזו (בלי לטעון אותו).
 // לא require.resolve: החבילה היא ESM בלבד, ואם ב-exports שלה אין תנאי require — הוא נכשל גם כשהיא ארוזה,
 // והמודל היה „לא זמין” תמיד. בודקים שקובץ ה-package.json קיים באחת מתיקיות node_modules של החיפוש
-// (גם בתוך app.asar: הקבצים שב-asarUnpack רשומים באינדקס, ו-fs של Electron מכיר אותם)
-function runtimeAvailable(searchPaths = module.paths) {
+// (גם בתוך app.asar: הקבצים שב-asarUnpack רשומים באינדקס, ו-fs של Electron מכיר אותם).
+// וגם הרכיב המוכן למעבד של המחשב הזה (‎@node-llama-cpp/win-x64): בלעדיו getLlama({ build: 'never', gpu: false })
+// נכשל בכל שאלה, והמסך היה מציג „מוכן”. גרסאות CUDA / Vulkan לא נארזות — ולא נחשבות
+const PLATFORM_PREFIX = { win32: 'win', darwin: 'mac', linux: 'linux' };
+function runtimeAvailable(searchPaths = module.paths, { platform = process.platform, arch = process.arch } = {}) {
   let fs;
   try { fs = require('fs'); } catch { return false; }
+  const prefix = (PLATFORM_PREFIX[platform] || platform) + '-' + arch;
+  const hasBinary = (scope) => {
+    try { return fs.readdirSync(scope).some((n) => n.startsWith(prefix) && !/cuda|vulkan/i.test(n)); } catch { return false; }
+  };
   return (searchPaths || []).some((dir) => {
-    try { return fs.existsSync(path.join(dir, 'node-llama-cpp', 'package.json')); } catch { return false; }
+    try {
+      if (!fs.existsSync(path.join(dir, 'node-llama-cpp', 'package.json'))) return false;
+      // npm מציב את הרכיב לצד החבילה, או בתוכה כשאין אפשרות להעלות אותו
+      return hasBinary(path.join(dir, '@node-llama-cpp')) || hasBinary(path.join(dir, 'node-llama-cpp', 'node_modules', '@node-llama-cpp'));
+    } catch { return false; }
   });
 }
 

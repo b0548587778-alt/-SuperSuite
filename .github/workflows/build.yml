@@ -19,16 +19,19 @@ on:
     tags: ['v*']
 # יומני הבנייה נכתבים גם לענף ci-status (משימת report): דף היומנים של GitHub Actions חסום ב-NetFree,
 # וכך אפשר לקרוא את התוצאה ב-git fetch origin ci-status.
+# ריצה אחת בכל פעם: כל ריצה דורסת את ci-status, ושתי ריצות חופפות היו מוחקות זו לזו את היומנים
+concurrency:
+  group: ci-status
+  cancel-in-progress: false
 jobs:
   # משימה אחת: מודול האימונים מקוד המקור (modules-src/trainer; vite חסום ב-NetFree), הבדיקות, האריזה ובדיקת העלייה.
   # בלי artifacts בין משימות: כשמכסת האחסון של המאגר מלאה (ריצות #54–#59) העברת קבצים בין משימות נכשלה,
-  # וכל הבנייה נעצרה אף שהבדיקות עברו. היומנים והמודול הבנוי נדחפים ישירות לענף ci-status (צעד אחרון, תמיד)
+  # וכל הבנייה נעצרה אף שהבדיקות עברו. היומנים (ובפרסום — המתקין) עוברים ב-actions/cache, שאינו במכסה הזו.
+  # קריאה בלבד: כאן רץ קוד של צד שלישי (npm install, electron-builder) — בלי טוקן כתיבה למאגר ובלי טוקן הפרסום
   build:
     runs-on: windows-latest
     permissions:
-      contents: write
-    outputs:
-      publish: ${{ steps.publish.outcome }}
+      contents: read
     env:
       LOG: ${{ github.workspace }}/ci-logs/build.log
     defaults:
@@ -36,11 +39,16 @@ jobs:
         shell: bash
     steps:
       # היסטוריה מלאה: tests/at-rest.test.js קורא את database.js של 3.10.0 מ-git (בדיקת שדרוג)
+      # persist-credentials: false — הטוקן לא נשאר ב-.git/config, שסקריפט התקנה של חבילה יכול לקרוא
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: 0, persist-credentials: false }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: mkdir -p ci-logs
+      # "גרסה להפצה" — ראשון: לא תלוי בחבילות, ונכשל בתוך שניות ולא אחרי ההתקנות והבדיקות
+      - name: Release check
+        if: ${{ inputs.release }}
+        run: set -o pipefail; { echo "== release-check"; node tools/release-check.js 2>&1; } | tee -a "$LOG"
       # עם קובץ נעילה — אותן גרסאות בדיוק בכל בנייה (npm ci); בלעדיו — npm install, והקובץ שנוצר נשמר ב-ci-status
       - name: npm install (trainer)
         working-directory: modules-src/trainer
@@ -67,11 +75,8 @@ jobs:
       # הבדיקות רצות על הקוד המקורי, לפני הכיווץ
       - name: npm test
         run: set -o pipefail; { echo "== npm test"; npm test 2>&1; } | tee -a "$LOG"
-      - name: Release check
-        if: ${{ inputs.release }}
-        run: set -o pipefail; { echo "== release-check"; node tools/release-check.js 2>&1; } | tee -a "$LOG"
       # --publish never: בלי זה electron-builder מזהה CI ומנסה לפרסם ל-GitHub Releases (ונכשל בלי GH_TOKEN).
-      # פרסום גרסאות — הצעד publish למטה (PLAN.md 1.1), למאגר ההורדות הציבורי.
+      # פרסום גרסאות — משימת publish למטה (PLAN.md 1.1), למאגר ההורדות הציבורי.
       # חתימת קוד — רק אם הוגדרו סודות במאגר (docs/CODE-SIGNING.md). בלי סודות: בנייה לא חתומה, כמו קודם.
       # טוקן USB אינו זמין בשרת של GitHub — כאן אפשר רק PFX או Azure Trusted Signing.
       - name: Build
@@ -98,13 +103,47 @@ jobs:
         env:
           SMOKE_LOG: ${{ github.workspace }}/ci-logs/smoke.log
         run: set -o pipefail; { echo "== smoke"; node tools/smoke-packaged.js 2>&1; } | tee -a "$LOG"
-      # פרסום למאגר ההורדות הציבורי (PLAN.md 1.1) — רק מתגית גרסה או בהפעלה ידנית עם publish, ורק אחרי בנייה ובדיקת עלייה שעברו
-      # (צעד שאחריהם — לא רץ אם אחד מהם נכשל). המאגר הזה פרטי; ההורדות במאגר ציבורי נפרד (משתנה SS_DOWNLOADS_REPO,
-      # למשל owner/SuperSuite-Downloads), עם טוקן שמורשה לכתוב רק אליו (סוד SS_DOWNLOADS_TOKEN). מדריך: docs/DOWNLOADS.md.
-      # קישור קבוע לגרסה האחרונה: https://github.com/<מאגר>/releases/latest/download/SuperSuite-Setup.exe
-      - name: GitHub Release
-        id: publish
+      # המתקין למשימת publish — רק כשמפרסמים, ורק אחרי בנייה ובדיקת עלייה שעברו (צעד בלי always())
+      - name: installer for publish
         if: ${{ inputs.publish || startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            dist/SuperSuite-Setup.exe
+            dist/SuperSuite-Portable.exe
+          key: installer-${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: true
+      # היומנים והמודול הבנוי למשימת report — תמיד, גם אחרי כישלון
+      - name: logs for report
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ci-logs
+          key: ci-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: true
+  # פרסום למאגר ההורדות הציבורי (PLAN.md 1.1) — רק מתגית גרסה או בהפעלה ידנית עם publish, ורק אחרי בנייה ובדיקת עלייה שעברו.
+  # משימה נפרדת על מכונה נקייה: טוקן הפרסום לא נמצא במכונה שהריצה קוד של חבילות npm.
+  # המאגר הזה פרטי; ההורדות במאגר ציבורי נפרד (משתנה SS_DOWNLOADS_REPO, למשל owner/SuperSuite-Downloads),
+  # עם טוקן שמורשה לכתוב רק אליו (סוד SS_DOWNLOADS_TOKEN). מדריך: docs/DOWNLOADS.md.
+  # קישור קבוע לגרסה האחרונה: https://github.com/<מאגר>/releases/latest/download/SuperSuite-Setup.exe
+  publish:
+    needs: [build]
+    if: ${{ (inputs.publish || startsWith(github.ref, 'refs/tags/v')) && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: package.json, sparse-checkout-cone-mode: false, persist-credentials: false }
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            dist/SuperSuite-Setup.exe
+            dist/SuperSuite-Portable.exe
+          key: installer-${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+      - name: GitHub Release
         env:
           GH_TOKEN: ${{ secrets.SS_DOWNLOADS_TOKEN }}
           REPO: ${{ vars.SS_DOWNLOADS_REPO }}
@@ -124,33 +163,26 @@ jobs:
           fi
           gh release create "v$V" --repo "$REPO" --title "SuperSuite $V" --latest --notes "SuperSuite גרסה $V" dist/SuperSuite-Setup.exe dist/SuperSuite-Portable.exe
           echo "פורסם: https://github.com/$REPO/releases/latest/download/SuperSuite-Setup.exe"
-      # היומנים והמודול הבנוי לענף ci-status — תמיד, גם אחרי כישלון. משימת report מוסיפה עליהם את מצב המשימות
-      - name: logs to ci-status
-        if: always()
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cd ci-logs
-          git init -q
-          git config user.name "ci"
-          git config user.email "ci@users.noreply.github.com"
-          git checkout -q -b ci-status
-          git add -A
-          git commit -qm "CI #$GITHUB_RUN_NUMBER $GITHUB_SHA (build)"
-          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-status
-  # סיכום לענף ci-status, מעל היומנים שמשימת build דחפה (קומיט אחד לריצה, נדרס בכל ריצה). הענף לא מפעיל בנייה
+  # היומנים, המודול הבנוי והסיכום לענף ci-status (קומיט אחד לריצה, נדרס בכל ריצה). הענף לא מפעיל בנייה.
+  # רק כאן יש הרשאת כתיבה, ואין כאן קוד של צד שלישי
   report:
-    needs: [build]
+    needs: [build, publish]
     if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write
+      actions: read
       checks: read
     steps:
-      # מצב כל משימה וכל צעד, הודעות השגיאה של GitHub, נפח ה-artifacts וניקוי ישנים — צעד אחד, עוזר API אחד.
+      - uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: ci-logs
+          key: ci-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: true
+      # מצב כל משימה וכל צעד והודעות השגיאה של GitHub — צעד אחד, עוזר API אחד.
       # דף ה-Actions וה-API חסומים ב-NetFree, ולכן הכול נכתב ל-ci-status (jobs.txt)
-      - name: jobs summary and artifact cleanup
+      - name: jobs summary
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -176,50 +208,19 @@ jobs:
             echo "--- annotations: job $id" >> "$out"
             api "$repo/check-runs/$id/annotations" | jq -r '.[]? | "\(.annotation_level): \(.message)"' >> "$out"
           done
-          # כל ה-artifacts, בכל העמודים (עד 3,000): מזהה, גודל, זמן יצירה, ריצה.
-          # בלי אלה שפג תוקפם (expired): הם כבר לא נספרים במכסה, ואין מה למחוק בהם
-          : > artifacts.tsv
-          for page in $(seq 1 30); do
-            api "$repo/actions/artifacts?per_page=100&page=$page" > page.json
-            n=$(jq '.artifacts | length' page.json 2>/dev/null)
-            [ "${n:-0}" -gt 0 ] || break
-            jq -r '.artifacts[] | select(.expired != true) | [.id, .size_in_bytes, .created_at, (.workflow_run.id | tostring)] | @tsv' page.json >> artifacts.tsv
-          done
-          echo "--- artifacts: $(wc -l < artifacts.tsv), MB: $(awk -F'\t' '{ s += $2 } END { print int(s / 1048576) }' artifacts.tsv)" >> "$out"
-          # ניקוי (החלטת הבעלים 22.10.2026): 202 קבצים / 4.3GB מילאו את המכסה. נמחקים רק artifacts בני יותר מ-6 שעות
-          # שאינם של הריצה הזו — כך ריצה אחרת שרצה במקביל לא מאבדת את הקבצים שלה. מאז retention-days: 2
-          # כמעט אין כאלה, והצעד לא עושה כלום. גרסאות שפורסמו — ב-Releases. GitHub מחשב את הנפח מחדש רק אחרי כמה שעות
-          cutoff=$(date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ)
-          deleted=0; failed=0
-          while IFS=$'\t' read -r id size created run; do
-            [ "$run" = "$GITHUB_RUN_ID" ] && continue
-            [[ "$created" < "$cutoff" ]] || continue
-            if api --fail -X DELETE "$repo/actions/artifacts/$id" -o /dev/null; then deleted=$((deleted + 1))
-            else
-              failed=$((failed + 1))
-              # אין הרשאה / שגיאה קבועה — לא ממשיכים לשלוח מאות בקשות שנכשלות
-              [ "$deleted" -eq 0 ] && [ "$failed" -ge 5 ] && break
-            fi
-          done < artifacts.tsv
-          echo "--- cleanup: deleted $deleted, failed $failed (older than $cutoff)" >> "$out"
       - name: push ci-status
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          remote="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          mkdir -p logs ci && cd ci
+          # היומנים והמודול ממשימת build; אם היא נפלה לפני שמירתם — רק הסיכום
+          mkdir -p ci-logs logs && cd ci-logs
           git init -q
           git config user.name "ci"
           git config user.email "ci@users.noreply.github.com"
-          # היומנים והמודול שמשימת build דחפה בריצה הזו; אם לא הגיעה לשם (נפלה לפני הצעד) — מתחילים מענף ריק
-          if git fetch -q --depth 1 "$remote" ci-status && git log -1 --format=%s FETCH_HEAD | grep -q "^CI #$GITHUB_RUN_NUMBER "; then
-            git checkout -q -b ci-status FETCH_HEAD
-          else
-            git checkout -q -b ci-status
-          fi
-          cp ../logs/jobs.txt . 2>/dev/null
+          git checkout -q -b ci-status
+          cp ../logs/jobs.txt . 2>/dev/null || true
           printf 'run: %s (#%s)\nsha: %s\nbuild: %s\npublish: %s\n' \
-            "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "${{ needs.build.result }}" "${{ needs.build.outputs.publish || 'skipped' }}" > summary.txt
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "${{ needs.build.result }}" "${{ needs.publish.result }}" > summary.txt
           git add -A
           git commit -qm "CI #$GITHUB_RUN_NUMBER $GITHUB_SHA"
-          git push -qf "$remote" ci-status
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-status

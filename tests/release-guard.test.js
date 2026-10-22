@@ -62,6 +62,8 @@ test('CI: "גרסה להפצה" היא בחירה ידנית, והבדיקה ר�
   assert.match(build.slice(i, i + 200), /if: \$\{\{ inputs\.release \}\}/);
   assert.match(build.slice(i, i + 300), /node tools\/release-check\.js/);
   assert.ok(i < build.indexOf('- name: Build'), 'לפני electron-builder');
+  // לא תלויה בחבילות — ראשונה, ונכשלת בתוך שניות ולא אחרי ההתקנות והבדיקות
+  assert.ok(i < build.indexOf('- name: npm install'), 'לפני ההתקנות');
 });
 
 test('מקצה לקצה: מפתח בתוכנה ← התקנה נקייה בניסיון ← רישיון ← פעיל', () => {

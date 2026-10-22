@@ -106,10 +106,12 @@ for (const [name, file] of [['main.js', ['main.js']], ['אנדרואיד', ['and
 
 test('CI: המודול הבנוי נשלח לענף ci-status (הורדת artifact חסומה ב-NetFree)', () => {
   const yml = read('.github', 'workflows', 'build.yml');
-  const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  report:'));
+  const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  publish:'));
   assert.match(build, /cp -r modules\/trainer ci-logs\/trainer-module/);
-  const i = build.indexOf('- name: logs to ci-status');
-  assert.ok(i > 0 && /git push -qf .*ci-status/.test(build.slice(i)));
+  assert.match(build, /- name: logs for report[\s\S]*path: ci-logs/);
+  const report = yml.slice(yml.indexOf('\n  report:'));
+  const i = report.indexOf('- name: push ci-status');
+  assert.ok(i > 0 && /cd ci-logs[\s\S]*git push -qf .*ci-status/.test(report.slice(i)));
 });
 
 test('ניהול סטודיו (9.11): מפתחות המנויים והיומן נשמרים, וערך שאינו רשימה נפסל', () => {

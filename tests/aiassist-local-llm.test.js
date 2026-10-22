@@ -295,7 +295,20 @@ test('runtimeAvailable: מזהה את node-llama-cpp לפי הקובץ — גם 
   const nm = path.join(tmp('ai-nm-'), 'node_modules');
   fs.mkdirSync(path.join(nm, 'node-llama-cpp'), { recursive: true });
   fs.writeFileSync(path.join(nm, 'node-llama-cpp', 'package.json'), JSON.stringify({ name: 'node-llama-cpp', type: 'module', exports: { '.': { import: './dist/index.js' } } }));
-  assert.equal(runtimeAvailable([path.join(tmp('ai-nm-'), 'node_modules'), nm]), true);
-  assert.equal(runtimeAvailable([path.join(tmp('ai-nm-'), 'node_modules')]), false, 'בלי החבילה — לא זמין');
+  const win = { platform: 'win32', arch: 'x64' };
+  // בלי הרכיב המוכן למעבד — לא זמין (אחרת המסך מציג „מוכן” וכל שאלה נכשלת בטעינה)
+  assert.equal(runtimeAvailable([nm], win), false, 'החבילה בלי הרכיב הבינארי');
+  fs.mkdirSync(path.join(nm, '@node-llama-cpp', 'win-x64-cuda'), { recursive: true });
+  fs.mkdirSync(path.join(nm, '@node-llama-cpp', 'win-x64-vulkan'), { recursive: true });
+  assert.equal(runtimeAvailable([nm], win), false, 'CUDA / Vulkan לא נארזים — לא נחשבים');
+  fs.mkdirSync(path.join(nm, '@node-llama-cpp', 'win-x64'), { recursive: true });
+  assert.equal(runtimeAvailable([path.join(tmp('ai-nm-'), 'node_modules'), nm], win), true);
+  assert.equal(runtimeAvailable([nm], { platform: 'linux', arch: 'x64' }), false, 'רכיב של מערכת אחרת');
+  // הרכיב בתוך החבילה (כש-npm לא העלה אותו)
+  const nested = path.join(tmp('ai-nm-'), 'node_modules');
+  fs.mkdirSync(path.join(nested, 'node-llama-cpp', 'node_modules', '@node-llama-cpp', 'win-x64'), { recursive: true });
+  fs.writeFileSync(path.join(nested, 'node-llama-cpp', 'package.json'), '{}');
+  assert.equal(runtimeAvailable([nested], win), true);
+  assert.equal(runtimeAvailable([path.join(tmp('ai-nm-'), 'node_modules')], win), false, 'בלי החבילה — לא זמין');
   assert.equal(runtimeAvailable([]), false);
 });
