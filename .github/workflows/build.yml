@@ -51,11 +51,13 @@ jobs:
         run: set -o pipefail; { echo "== npm test"; npm test 2>&1; } | tee -a "$LOG"
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 2
           name: trainer-module
           path: modules/trainer
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          retention-days: 2
           name: ci-logs-trainer
           path: ci-logs
   # המתקין אורז את מודול האימונים שנבנה מהמקור באותה ריצה (PLAN.md 6.1), לא את העותק שבמאגר
@@ -113,6 +115,7 @@ jobs:
         run: set -o pipefail; { echo "== smoke"; node tools/smoke-packaged.js 2>&1; } | tee -a "$LOG"
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 2
           name: SuperSuite-Windows
           path: |
             dist/SuperSuite-Setup.exe
@@ -120,6 +123,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          retention-days: 2
           name: ci-logs-build
           path: ci-logs
   # פרסום למאגר ההורדות הציבורי (PLAN.md 1.1) — רק בהפעלה ידנית עם publish, ורק אחרי בנייה ובדיקת עלייה שעברו.
@@ -178,7 +182,10 @@ jobs:
           api() { curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/$1"; }
           api "actions/runs/$GITHUB_RUN_ID/jobs?per_page=50" > jobs.json
           jq -r '.jobs[] | "\(.name): \(.conclusion // .status)", (.steps[]? | "  \(.number). \(.name): \(.conclusion // .status)")' jobs.json > logs/jobs.txt
-          for id in $(jq -r '.jobs[] | select(.conclusion == "failure") | .id' jobs.json); do
+          # נפח האחסון של ה-artifacts במאגר — העלאה שנכשלת בגלל מכסה מלאה
+          api "actions/artifacts?per_page=100" | jq -r '"--- artifacts: \(.total_count), MB: \(([.artifacts[]?.size_in_bytes] | add // 0) / 1048576 | floor)"' >> logs/jobs.txt
+          # הודעות השגיאה לכל משימה שאינה "success" (גם כשהיא עוד נסגרת בזמן שהדוח נכתב)
+          for id in $(jq -r '.jobs[] | select(.name != "report" and .conclusion != "success" and .conclusion != "skipped") | .id' jobs.json); do
             echo "--- annotations: job $id" >> logs/jobs.txt
             api "check-runs/$id/annotations" | jq -r '.[]? | "\(.annotation_level): \(.message)"' >> logs/jobs.txt
           done
