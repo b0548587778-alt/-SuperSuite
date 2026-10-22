@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 // רכיב ההרצה של המודל המקומי (node-llama-cpp) למחשב בסביבה מסוננת — NetFree חוסם את ההורדה מ-npm.
-// ב-CI ההתקנה מצליחה; הסקריפט אורז את החבילה ואת כל התלויות שלה לתיקייה אחת ב-ci-status,
+// ב-CI ההתקנה מצליחה; הסקריפט אורז את החבילה עם כל התלויות שלה לתיקייה אחת ב-ci-status,
 // ובמחשב מעתיק אותה ל-node_modules, כך ש-build-local.js אורז אותה במתקין.
 //
-//   node tools/llm-runtime.js pack <תיקייה>   — ב-CI, אחרי npm install (קורא את package-lock.json)
+//   node tools/llm-runtime.js pack <תיקייה>   — ב-CI, אחרי npm install (אותה גרסה כמו בקובץ הנעילה)
 //   node tools/llm-runtime.js fetch            — במחשב: git fetch של ci-status והתקנה
 //   node tools/llm-runtime.js install <תיקייה> — במחשב: התקנה מתיקייה שכבר קיימת
 //
-// המבנה: הכול בתוך node_modules/node-llama-cpp — התלויות ב-node_modules שלה. Node מחפש תלות קודם
-// בתיקייה הזו, ולכן גרסה אחרת של אותה חבילה בשורש הפרויקט לא מתנגשת, ושום דבר מחוץ לחבילה לא נדרס.
-// גרסאות CUDA / Vulkan לא נארזות (כמו ב-package.json), וגם לא רכיבים של מערכות אחרות שלא הותקנו.
+// המבנה: הכול בתוך node_modules/node-llama-cpp — התלויות ב-node_modules שלה, ושום חבילה של הפרויקט לא נדרסת.
+// את הסידור עושה npm עצמו: התקנה בתיקייה נפרדת עם --install-strategy=shallow (רק החבילה בשורש,
+// כל התלויות מתחתיה). העתקה "שטוחה" מקובץ הנעילה של הפרויקט נכשלה בריצה #62: אותה חבילה בשתי גרסאות
+// (ansi-regex בשורש ובתוך node-llama-cpp) הייתה צריכה את אותו מקום.
+// גרסאות CUDA / Vulkan לא נארזות (כמו ב-package.json).
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -19,70 +21,62 @@ const ROOT_PKG = 'node-llama-cpp';
 const MANIFEST = 'llm-runtime.json';
 const SKIP = /cuda|vulkan/i;
 
-// המיקום של התלות `dep` כפי ש-Node יחפש אותה מ-`from` (נתיב בקובץ הנעילה), או null
-function resolveDep(packages, from, dep) {
-  let base = from;
-  for (;;) {
-    const cand = (base ? base + '/' : '') + 'node_modules/' + dep;
-    if (packages[cand]) return cand;
-    if (!base) return null;
-    const i = base.lastIndexOf('/node_modules/');
-    base = i < 0 ? '' : base.slice(0, i);
+// ההתקנה בתיקייה הנפרדת — ברירת המחדל: npm. בבדיקות מוחלפת
+function npmInstall(dir) {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  execFileSync(npm, ['install', '--install-strategy=shallow', '--omit=dev', '--no-audit', '--no-fund'], {
+    cwd: dir, stdio: 'inherit', shell: process.platform === 'win32',
+    env: { ...process.env, NODE_LLAMA_CPP_SKIP_DOWNLOAD: 'true' },
+  });
+}
+
+function lockedVersion(projectDir) {
+  try {
+    const lock = JSON.parse(fs.readFileSync(path.join(projectDir, 'package-lock.json'), 'utf8'));
+    const info = lock.packages && lock.packages['node_modules/' + ROOT_PKG];
+    return info && info.version || null;
+  } catch { return null; }
+}
+
+// רכיבי @node-llama-cpp שנארזו (בלי CUDA / Vulkan — נמחקים)
+function pruneBinaries(pkgDir) {
+  const scope = path.join(pkgDir, 'node_modules', '@node-llama-cpp');
+  if (!fs.existsSync(scope)) return [];
+  const kept = [];
+  for (const name of fs.readdirSync(scope)) {
+    if (SKIP.test(name)) fs.rmSync(path.join(scope, name), { recursive: true, force: true });
+    else kept.push(name);
   }
+  return kept.sort();
 }
 
-// כל הנתיבים בקובץ הנעילה שהחבילה צריכה בזמן ריצה (תלויות ותלויות אופציונליות), רק כאלה שהותקנו בפועל
-function closure(lock, exists = () => true) {
-  const packages = (lock && lock.packages) || {};
-  const start = 'node_modules/' + ROOT_PKG;
-  if (!packages[start] || !exists(start)) return [];
-  const seen = new Set([start]);
-  const queue = [start];
-  while (queue.length) {
-    const cur = queue.shift();
-    const info = packages[cur] || {};
-    const deps = { ...(info.dependencies || {}), ...(info.optionalDependencies || {}) };
-    for (const dep of Object.keys(deps)) {
-      if (SKIP.test(dep)) continue;
-      const at = resolveDep(packages, cur, dep);
-      if (!at || seen.has(at) || packages[at].link || !exists(at)) continue;
-      seen.add(at);
-      queue.push(at);
-    }
+function pack(projectDir, outDir, { installer = npmInstall } = {}) {
+  const version = lockedVersion(projectDir);
+  if (!version || !fs.existsSync(path.join(projectDir, 'node_modules', ROOT_PKG, 'package.json'))) {
+    return { packed: false, reason: ROOT_PKG + ' לא הותקן' };
   }
-  return [...seen].sort();
-}
-
-// נתיב בקובץ הנעילה ← מיקום בתוך node_modules/node-llama-cpp
-function targetOf(lockPath) {
-  const prefix = 'node_modules/' + ROOT_PKG;
-  if (lockPath === prefix || lockPath.startsWith(prefix + '/')) return lockPath;
-  return prefix + '/' + lockPath;
-}
-
-function copyPackage(src, dest) {
-  // בלי node_modules הפנימית — מה שנדרש ממנה נמצא ב-closure ומועתק בנפרד
-  const own = path.join(src, 'node_modules');
-  fs.cpSync(src, dest, { recursive: true, dereference: true, filter: (p) => p !== own && !p.startsWith(own + path.sep) });
-}
-
-function pack(projectDir, outDir) {
-  const lockFile = path.join(projectDir, 'package-lock.json');
-  const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
-  const list = closure(lock, (p) => fs.existsSync(path.join(projectDir, p, 'package.json')));
-  if (!list.length) return { packed: false, reason: ROOT_PKG + ' לא הותקן' };
-  const targets = new Map();
-  for (const p of list) {
-    const t = targetOf(p);
-    if (targets.has(t)) throw new Error(`שתי גרסאות לאותו מיקום: ${targets.get(t)} ו-${p}`);
-    targets.set(t, p);
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-llm-pack-'));
+  try {
+    fs.writeFileSync(path.join(work, 'package.json'), JSON.stringify({ name: 'ss-llm-runtime', private: true, dependencies: { [ROOT_PKG]: version } }));
+    installer(work);
+    const top = path.join(work, 'node_modules');
+    // shallow: בשורש רק החבילה עצמה — כל דבר אחר שם לא היה נארז, והחבילה לא הייתה עובדת במחשב
+    const extra = fs.readdirSync(top).filter((n) => n !== ROOT_PKG && !n.startsWith('.'));
+    if (extra.length) throw new Error('בשורש ההתקנה יש חבילות נוספות: ' + extra.join(', '));
+    const src = path.join(top, ROOT_PKG);
+    const got = JSON.parse(fs.readFileSync(path.join(src, 'package.json'), 'utf8')).version;
+    if (got !== version) throw new Error(`הותקנה גרסה ${got} במקום ${version}`);
+    fs.rmSync(outDir, { recursive: true, force: true });
+    const dest = path.join(outDir, 'node_modules', ROOT_PKG);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.cpSync(src, dest, { recursive: true, dereference: true, filter: (p) => !p.includes(path.sep + '.bin') });
+    const binaries = pruneBinaries(dest);
+    if (!binaries.length) throw new Error('לא הותקן רכיב מוכן למעבד (@node-llama-cpp)');
+    fs.writeFileSync(path.join(outDir, MANIFEST), JSON.stringify({ package: ROOT_PKG, version, binaries }, null, 2) + '\n');
+    return { packed: true, version, binaries };
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
   }
-  fs.rmSync(outDir, { recursive: true, force: true });
-  for (const [t, p] of targets) copyPackage(path.join(projectDir, p), path.join(outDir, t));
-  const version = lock.packages['node_modules/' + ROOT_PKG].version;
-  const binaries = list.filter((p) => p.includes('@node-llama-cpp/')).map((p) => p.split('/').pop());
-  fs.writeFileSync(path.join(outDir, MANIFEST), JSON.stringify({ package: ROOT_PKG, version, binaries, packages: list.length }, null, 2) + '\n');
-  return { packed: true, version, binaries, packages: list.length };
 }
 
 function install(srcDir, projectDir) {
@@ -117,7 +111,7 @@ if (require.main === module) {
   try {
     if (cmd === 'pack' && arg) {
       const r = pack(projectDir, path.resolve(arg));
-      console.log(r.packed ? `נארז ${ROOT_PKG} ${r.version}: ${r.packages} חבילות, רכיבים: ${r.binaries.join(', ') || 'אין'}` : 'לא נארז: ' + r.reason);
+      console.log(r.packed ? `נארז ${ROOT_PKG} ${r.version}, רכיבים: ${r.binaries.join(', ')}` : 'לא נארז: ' + r.reason);
     } else if (cmd === 'install' && arg) {
       const m = install(path.resolve(arg), projectDir);
       console.log(`הותקן ${ROOT_PKG} ${m.version}. עכשיו: node build-local.js`);
@@ -134,4 +128,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { closure, resolveDep, targetOf, pack, install };
+module.exports = { pack, install, pruneBinaries };
