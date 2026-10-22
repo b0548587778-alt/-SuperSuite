@@ -9,11 +9,14 @@ export const S = {
       return r?.value ? JSON.parse(r.value) : null;
     } catch { return null; }
   },
+  // true — נשמר; false — לא נשמר (אחסון מלא, או שגיאה). פעם הכישלון נבלע, והמסך הציג תשלום או ניכוי
+  // שנעלמו בטעינה הבאה (בדיקת קוד 23.10.2026). lib/storage.js מחזיר null כשהשמירה נכשלה
   async set(key, value) {
     try {
-      if (!window.storage) return;
-      await window.storage.set(key, JSON.stringify(value));
-    } catch (e) { console.error('set failed', key, e); }
+      if (!window.storage) return false;
+      const r = await window.storage.set(key, JSON.stringify(value));
+      return r !== null && r !== undefined;
+    } catch (e) { console.error('set failed', key, e); return false; }
   },
   async del(key) {
     try {

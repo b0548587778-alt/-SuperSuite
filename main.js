@@ -54,6 +54,7 @@ const history = NavHistory.create();
 let replaying = false;
 const MODS = ['econ', 'shamai', 'trainer', 'tools'];
 const LS_MODS = ['shamai', 'trainer', 'tools'];
+const BACKUP_SCOPES = ['all', ...MODS];
 const ENTRY = {
   // embedded=1: הסרגל הפנימי של המודול מוסתר — הניווט כולו בסרגל האחיד של המעטפת
   econ: 'app://econ/views/index.html?embedded=1',
@@ -687,7 +688,15 @@ async function recoverDatabase(firstErr) {
 
 /* גיבוי אוטומטי יומי — מוצפן בלבד. יעד: כונן חיצוני (USB) שהוגדר, ואם לא הוגדר — Documents\SuperSuite-Backups.
    אם הכונן לא מחובר — מדלגים (לא כותבים למקום אחר בשקט). הסטטוס נשמר ומוצג במעטפת. */
+// גיבוי ושחזור לא רצים יחד: גיבוי אוטומטי באמצע שחזור שמר תערובת של נתונים ישנים וחדשים כגיבוי היום,
+// והסבב מחק גיבוי טוב ישן (בדיקת קוד 23.10.2026)
+let backupBusy = null; // 'backup' | 'restore' | null
 async function autoBackup() {
+  if (backupBusy) return { ok: false, reason: 'busy', at: new Date().toISOString() };
+  backupBusy = 'backup';
+  try { return await autoBackupRun(); } finally { backupBusy = null; }
+}
+async function autoBackupRun() {
   let status;
   // בשבת וביום טוב התוכנה לא מבצעת פעולות אוטומטיות; הגיבוי יתבצע בסבב הבא אחרי הצאת
   const cal = calendarSettings();
@@ -715,12 +724,22 @@ async function autoBackup() {
 
 async function backupAll(passphrase, scope = 'all') {
   if (typeof passphrase !== 'string' || passphrase.length < BK.MIN_PASSPHRASE) throw new Error(`סיסמת הגיבוי חייבת להכיל לפחות ${BK.MIN_PASSPHRASE} תווים`);
+  // סוג לא מוכר יצר גיבוי ריק (בלי נתונים כספיים ובלי מודולים) שדווח "נשמר" (בדיקת קוד 23.10.2026)
+  if (!BACKUP_SCOPES.includes(scope)) throw new Error('סוג הגיבוי אינו מוכר — הגיבוי לא נשמר');
   const out = await collectBackup(scope);
   const stamp = new Date().toISOString().slice(0, 10);
   const r = await dialog.showSaveDialog(win, { title: 'שמירת גיבוי מוצפן', defaultPath: `SuperSuite-${scope}-${stamp}.ssbk`, filters: [{ name: 'גיבוי SuperSuite', extensions: ['ssbk'] }] });
   if (r.canceled || !r.filePath) return { ok: false };
-  try { fs.writeFileSync(r.filePath, BK.encryptBackup(JSON.stringify(out), passphrase), 'utf8'); }
-  catch (e) { throw new Error('שמירת הגיבוי נכשלה — ייתכן שהכונן מלא, מוגן מפני כתיבה או נותק (' + (e.code || 'שגיאה') + ')'); }
+  // קובץ זמני, fsync והחלפה: כתיבה ישירה שנכשלה באמצע (דיסק-און-קי מלא או נותק) כבר דרסה את הגיבוי הקודם באותו שם
+  const tmp = r.filePath + '.tmp';
+  try {
+    const fd = fs.openSync(tmp, 'w');
+    try { fs.writeSync(fd, BK.encryptBackup(JSON.stringify(out), passphrase), null, 'utf8'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, r.filePath);
+  } catch (e) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* הכונן נותק */ }
+    throw new Error('שמירת הגיבוי נכשלה, והגיבוי הקודם (אם היה) לא נפגע — ייתכן שהכונן מלא, מוגן מפני כתיבה או נותק (' + (e.code || 'שגיאה') + ')');
+  }
   dialog.showMessageBox(win, { type: 'info', message: 'הגיבוי נשמר ומוצפן', detail: r.filePath });
   return { ok: true };
 }
@@ -810,6 +829,11 @@ async function applyRestore(econData, modItems) {
 }
 
 async function restoreAll(passphrase) {
+  if (backupBusy) throw new Error('גיבוי רץ כרגע — נסו לשחזר שוב בעוד דקה');
+  backupBusy = 'restore';
+  try { return await restoreAllRun(passphrase); } finally { backupBusy = null; }
+}
+async function restoreAllRun(passphrase) {
   const r = await dialog.showOpenDialog(win, { title: 'בחירת קובץ גיבוי', properties: ['openFile'], filters: [{ name: 'גיבוי SuperSuite', extensions: ['ssbk', 'json'] }] });
   if (r.canceled || !r.filePaths[0]) return { ok: false };
   let data, text;

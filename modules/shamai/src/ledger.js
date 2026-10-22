@@ -206,12 +206,12 @@ function renderOppCard(o) {
   }
 
   return `
-    <div class="opp-card ${o.status}" data-id="${o.id}" data-has-photo="${!!o.hasPhoto}">
+    <div class="opp-card ${escapeHtml(o.status)}" data-id="${escapeHtml(o.id)}" data-has-photo="${!!o.hasPhoto}">
       <div class="opp-photo ${!o.hasPhoto ? 'empty' : ''}">${!o.hasPhoto ? '📷' : ''}</div>
       <div class="opp-body">
         <div class="opp-row1">
           <div class="opp-name">${escapeHtml(o.name)}</div>
-          <span class="status-pill ${o.status}">${{watching:'במעקב',bought:'נקנה',sold:'נמכר'}[o.status]}</span>
+          <span class="status-pill ${escapeHtml(o.status)}">${{watching:'במעקב',bought:'נקנה',sold:'נמכר'}[o.status]}</span>
         </div>
         <div class="opp-meta">${cat.name} · ${shortDate(o.created)} ${o.seller ? '· ' + escapeHtml(o.seller) : ''}</div>
         <div class="opp-prices">${pricesHtml}</div>

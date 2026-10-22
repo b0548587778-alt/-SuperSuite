@@ -31,7 +31,9 @@ const SEND_PER_HOUR = 500;            // הודעות שמפתח אחד שולח
 const MAX_NONCES = 200000;            // זיכרון — מעבר לזה השרת עמוס
 const MAX_PREKEYS = 100000;           // מפתחות זמניים שמורים
 const MAX_PENDING_PAYMENTS = 5;            // תשלומים פתוחים למכשיר
-const PAYMENT_TTL_MS = 24 * 60 * 60 * 1000; // תשלום שלא הושלם — פג
+const PAYMENT_TTL_MS = 24 * 60 * 60 * 1000; // תשלום שלא הושלם — פג (expired)
+const PAYMENT_KEEP_MS = 30 * 24 * 60 * 60 * 1000; // תשלום שפג — נשמר לתשלום מאוחר, ואז נמחק
+const PREKEY_MAX_BYTES = 1024;        // חבילת מפתח זמני אחת (בפועל כ-300 בתים)
 // מפתח חדש לא עולה כלום, ולכן מכסה לפי מפתח לבדה לא עוצרת הצפה — יש גם מכסות לפי כתובת (בדיקת אבטחה 21.10.2026)
 const SEND_PER_IP_HOUR = 1000;        // הודעות מכתובת אחת בשעה
 const CHECKOUT_PER_IP_DAY = 20;       // דפי תשלום שנפתחים מכתובת אחת ביום (כל אחד נפתח גם אצל ספק הסליקה)
@@ -99,6 +101,23 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
   // system: מסירה של השרת עצמו — מותר לה להשתמש במקום השמור
   function assertRoom(extra, system = false) {
     if (usedBytes() + extra > maxStoreBytes + (system ? SYSTEM_RESERVE_BYTES : 0)) throw httpError(507, 'השרת מלא — נסו שוב מאוחר יותר');
+  }
+
+  // מפתחות זמניים — קובץ קטן לכל מערכת. פעם הכול היה ב-prekeys.json אחד, שנקרא ונכתב במלואו בכל בקשה,
+  // ויכול היה לגדול לכ-200MB ולחסום את השרת (בדיקת קוד 23.10.2026). קובץ ישן מפוצל פעם אחת
+  const prekeyDir = path.join(dataDir, 'prekeys');
+  const prekeyFile = (id) => path.join(prekeyDir, id + '.json');
+  let prekeyCount = null;
+  function prekeysReady() {
+    if (prekeyCount !== null) return;
+    fs.mkdirSync(prekeyDir, { recursive: true });
+    const legacy = path.join(dataDir, 'prekeys.json');
+    const old = readJson(legacy, null);
+    if (old && typeof old === 'object') {
+      for (const [id, b] of Object.entries(old)) if (ID_RE.test(id) && !fs.existsSync(prekeyFile(id))) writeJson(prekeyFile(id), b);
+      removeFile(legacy);
+    }
+    prekeyCount = fs.readdirSync(prekeyDir).filter(n => n.endsWith('.json')).length;
   }
 
   const boxFile = (id) => path.join(dataDir, id + '.json');
@@ -274,10 +293,13 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
   // כך הקובץ המשותף נשאר קטן. רשומה ישנה עם signup בתוכה — עדיין נקראת
   const signupFile = (paymentId) => path.join(signupDir, paymentId + '.json');
   const signupOf = (x) => (x.signup !== undefined ? x.signup : readJson(signupFile(x.id), null));
-  // תשלום פתוח שפג — נמחק יחד עם חבילת ההרשמה שלו
+  // תשלום פתוח שפג — מסומן "expired" (לא נספר במכסות, הלקוח יכול לפתוח תשלום חדש), אבל נשמר יחד עם חבילת
+  // ההרשמה עוד PAYMENT_KEEP_MS: לקוח ששילם למחרת, או ניסיון חוזר של הספק אחרי שהשרת היה למטה, עדיין מקבל רישיון.
+  // פעם הרשומה נמחקה אחרי 24 שעות — והכרטיס חויב בלי שהרישיון נמסר (בדיקת קוד 23.10.2026)
   function livePayments(list, now) {
     return list.filter(x => {
-      if (x.status !== 'pending' || now - x.createdAt < PAYMENT_TTL_MS) return true;
+      if (x.status === 'pending' && now - x.createdAt >= PAYMENT_TTL_MS) { x.status = 'expired'; x.expiredAt = now; }
+      if (x.status !== 'expired' || now - x.createdAt < PAYMENT_KEEP_MS) return true;
       if (x.signup === undefined) removeFile(signupFile(x.id));
       return false;
     });
@@ -344,7 +366,10 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
     const all = readJsonFile('payments.json', []);
     const x = all.find(y => y.checkoutId === ev.checkoutId);
     if (!x) throw httpError(404, 'התשלום לא נמצא');
-    if (x.status !== 'pending') return { ok: true, duplicate: true }; // הודעה כפולה מהספק
+    // תשלום שפג ("expired") עדיין מתקבל — הלקוח שילם, והרישיון חייב להימסר
+    if (x.status !== 'pending' && x.status !== 'expired') return { ok: true, duplicate: true }; // הודעה כפולה מהספק
+    // תשלום שפג ואז נכשל — אין שינוי (הוא כבר לא פתוח)
+    if (x.status === 'expired' && ev.status !== 'paid') return { ok: true };
     if (ev.status === 'paid' && ev.amountAgorot !== x.amountAgorot) throw httpError(400, 'הסכום ששולם אינו תואם');
     const at = clock();
     // קודם מוסרים, ורק אז מסמנים "שולם": אם המסירה נכשלה, התשלום נשאר pending והספק ינסה שוב.
@@ -375,18 +400,22 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
       const b = p.bundle;
       const { sig, ...payload } = b || {};
       if (!b || payload.owner !== from || typeof sig !== 'string' || !L.verifyObject(payload, sig, body.pub)) throw httpError(400, 'מפתח זמני לא תקין');
-      if (JSON.stringify(b).length > 2048 || typeof payload.id !== 'string' || !Number.isSafeInteger(payload.createdAt)
-        || !/^[A-Za-z0-9_-]{43}$/.test(String(payload.pub))) throw httpError(400, 'מפתח זמני לא תקין');
-      const all = readJsonFile('prekeys.json', {}) || {};
-      if (!all[from] && Object.keys(all).length >= MAX_PREKEYS) throw httpError(507, 'השרת מלא');
-      if (!all[from]) assertRoom(2048 + 30);
-      all[from] = b;
-      writeJsonFile('prekeys.json', all);
+      // מזהה קצר בלבד: מזהה ארוך שימש לריפוד חבילות עד התקרה (בדיקת קוד 23.10.2026)
+      if (JSON.stringify(b).length > PREKEY_MAX_BYTES || typeof payload.id !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(payload.id)
+        || !Number.isSafeInteger(payload.createdAt) || !/^[A-Za-z0-9_-]{43}$/.test(String(payload.pub))) throw httpError(400, 'מפתח זמני לא תקין');
+      prekeysReady();
+      const f = prekeyFile(from);
+      const isNew = !fs.existsSync(f);
+      if (isNew && prekeyCount >= MAX_PREKEYS) throw httpError(507, 'השרת מלא');
+      if (isNew) assertRoom(PREKEY_MAX_BYTES + 30);
+      writeJson(f, b);
+      if (isNew) prekeyCount += 1;
       return { ok: true };
     }
     if (body.op === 'getPrekey') {
       if (!ID_RE.test(String(p.id))) throw httpError(400, 'מזהה לא תקין');
-      return { ok: true, bundle: (readJsonFile('prekeys.json', {}) || {})[p.id] || null };
+      prekeysReady();
+      return { ok: true, bundle: readJson(prekeyFile(p.id), null) };
     }
     if (body.op === 'setOffer') return setOffer(from, p);
     if (body.op === 'getOffer') return getOffer();

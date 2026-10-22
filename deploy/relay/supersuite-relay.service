@@ -14,7 +14,7 @@ StateDirectory=supersuite-relay
 WorkingDirectory=/opt/supersuite-relay
 Environment=NODE_ENV=production
 # מאזין רק ל-localhost; Caddy שעל אותו שרת מספק את ה-HTTPS
-ExecStart=/usr/bin/node server/license-relay.js --port 8443 --data /var/lib/supersuite-relay --trust-proxy 1
+ExecStart=/usr/bin/node server/license-relay.js --host 127.0.0.1 --port 8443 --data /var/lib/supersuite-relay --trust-proxy 1
 Restart=on-failure
 RestartSec=5
 

@@ -58,7 +58,9 @@ function createSecureStore({ fs, dir, mod, getBackupKey, onError = () => {}, sch
     const body = cipher.seal(JSON.stringify({ v: 1, migrated, items: Object.fromEntries(data) }));
     const tmp = file + '.tmp';
     try {
-      fs.writeFileSync(tmp, body, 'utf8');
+      // fsync לפני ההחלפה: בלעדיו, אחרי הפסקת חשמל NTFS יכול להשאיר את הקובץ ריק או חלקי — והמודול ננעל
+      const fd = fs.openSync(tmp, 'w');
+      try { fs.writeSync(fd, body, null, 'utf8'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
       fs.renameSync(tmp, file);
     } catch (e) {
       dirty = true; // ננסה שוב בכתיבה הבאה

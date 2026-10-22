@@ -106,7 +106,7 @@ const reportId = (d) => REPORT_IDS[donorType(d)] || (d && d.donorId) || '';
 function validateDonation(input, settings, count = 0) {
   if (!input || typeof input !== 'object') throw new Error('תרומה לא תקינה');
   if (count >= MAX_DONATIONS) throw new Error('הגעת למספר המקסימלי של תרומות');
-  const date = input.date || new Date().toISOString().slice(0, 10);
+  const date = input.date || localToday();
   if (!isDate(date)) throw new Error('תאריך לא תקין (YYYY-MM-DD)');
   const donorName = str(input.donorName, 200, 'שם התורם');
   if (!donorName) throw new Error('שם התורם חובה');
@@ -491,7 +491,7 @@ function taxStatus(d) {
 // רישום דיווח: לתרומה פעילה — מספר הרישום שהתקבל; לתרומה שבוטלה — אישור שהביטול דווח
 function recordTaxReport(d, input = {}, today) {
   const st = taxStatus(d);
-  const date = today || new Date().toISOString().slice(0, 10);
+  const date = today || localToday();
   if (st === 'pending') {
     const reg = str(input.registrationNumber, 30, 'מספר הרישום');
     if (!/^[0-9A-Za-z-]{3,30}$/.test(reg)) throw new Error('מספר הרישום מרשות המסים אינו תקין');

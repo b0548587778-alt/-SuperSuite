@@ -555,8 +555,18 @@ class Database {
 
   async changePassword(userId, currentPassword, newPassword) {
     validateCredentials('valid-user', newPassword);
-    const rows = await this.all('SELECT password_hash FROM auth_users WHERE id = ? AND active = 1', [userId]);
-    if (!rows[0] || !verifyPassword(currentPassword, rows[0].password_hash)) {
+    const rows = await this.all('SELECT password_hash, failed_attempts, locked_until FROM auth_users WHERE id = ? AND active = 1', [userId]);
+    if (!rows[0]) throw new Error('הסיסמה הנוכחית שגויה');
+    // אותה נעילה כמו בכניסה: בלעדיה, מי שמצא מחשב עם כניסה פתוחה יכול היה לנחש את הסיסמה בלי הגבלה
+    // (בדיקת קוד 23.10.2026)
+    if (rows[0].locked_until && new Date(rows[0].locked_until) > new Date()) {
+      throw new Error('החשבון ננעל זמנית עקב ניסיונות כושלים — נסה שוב בעוד 15 דקות');
+    }
+    if (!verifyPassword(currentPassword, rows[0].password_hash)) {
+      const failedAttempts = (rows[0].failed_attempts || 0) + 1;
+      const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? new Date(Date.now() + LOCKOUT_MS).toISOString() : null;
+      await this.run('UPDATE auth_users SET failed_attempts = ?, locked_until = ?, updated_at = ? WHERE id = ?',
+        [failedAttempts, lockedUntil, new Date().toISOString(), userId]);
       throw new Error('הסיסמה הנוכחית שגויה');
     }
 

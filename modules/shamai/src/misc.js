@@ -220,7 +220,7 @@ async function generateBackupQR() {
     });
   } catch (e) {
     container.hidden = false;
-    container.innerHTML = `<div class="qr-warning">שגיאה ביצירת QR: ${e.message}</div>`;
+    container.innerHTML = `<div class="qr-warning">שגיאה ביצירת QR: ${escapeHtml(e && e.message)}</div>`;
   }
 }
 
@@ -300,7 +300,7 @@ async function scanBackupQR() {
     container.hidden = false;
     container.innerHTML = `
       <div class="qr-warning">
-        לא ניתן לגשת למצלמה: ${e.message}
+        לא ניתן לגשת למצלמה: ${escapeHtml(e && e.message)}
         <br><br>
         אפשרויות חלופיות:
         <br>• השתמש ב"גיבוי בענן"
@@ -318,7 +318,8 @@ async function restoreFromCode(code) {
     if (!data.opps || !Array.isArray(data.opps)) throw new Error('פורמט לא תקין');
     if (!(await ssDialog.confirm(`לטעון ${data.opps.length} פריטים? פעולה זו תחליף את הנתונים הנוכחיים.`, { danger: true }))) return;
     state.opportunities = data.opps;
-    if (data.prices) state.prices = { ...state.prices, ...data.prices };
+    // מחירים — רק דרך prices.js (בדיקת טווח ותאריך), לא כתיבה ישירה מהגיבוי
+    if (data.prices && typeof data.prices === 'object') state.prices = restorePrices(state.prices, data.prices).prices;
     Storage.save('opportunities', state.opportunities);
     Storage.save('prices', state.prices);
     renderHeader();

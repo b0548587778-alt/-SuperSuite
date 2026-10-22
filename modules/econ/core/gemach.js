@@ -6,6 +6,9 @@
 const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
 const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+// "היום" לפי השעון המקומי: toISOString הוא UTC, ובישראל רשומה בין חצות ל-03:00 קיבלה את התאריך של אתמול
+// (בדיקת קוד 23.10.2026)
+const localToday = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
 const { assertIsraeliId } = require('./israeliId');
 const { parseForeign, stored: storedForeign, foreignLabel } = require('./currency');
 const str = (v, max, label) => {
@@ -90,7 +93,7 @@ function validateLoanInput(input, count = 0) {
   if (!Number.isInteger(installments) || installments < 1 || installments > MAX_INSTALLMENTS) {
     throw new Error(`מספר התשלומים חייב להיות שלם בין 1 ל-${MAX_INSTALLMENTS}`);
   }
-  const issueDate = input.issueDate || new Date().toISOString().slice(0, 10);
+  const issueDate = input.issueDate || localToday();
   if (!isDate(issueDate)) throw new Error('תאריך מתן ההלוואה אינו תקין (YYYY-MM-DD)');
   const guarantorsRaw = Array.isArray(input.guarantors) ? input.guarantors : parseGuarantorsText(input.guarantorsText);
   const guarantors = validateGuarantors(guarantorsRaw);
@@ -109,7 +112,7 @@ function validateLoanInput(input, count = 0) {
 function validateDepositInput(input, count = 0) {
   if (!input || typeof input !== 'object') throw new Error('הפקדה לא תקינה');
   if (count >= MAX_DEPOSITS) throw new Error('הגעת למספר המקסימלי של הפקדות');
-  const date = input.date || new Date().toISOString().slice(0, 10);
+  const date = input.date || localToday();
   if (!isDate(date)) throw new Error('תאריך לא תקין (YYYY-MM-DD)');
   const depositorName = str(input.depositorName, 200, 'שם המפקיד');
   if (!depositorName) throw new Error('שם המפקיד חובה');
@@ -153,7 +156,9 @@ function recordPayment(loan, seq, input = {}) {
   const amountAg = toAg(amount);
   if (!Number.isFinite(amountAg) || amountAg <= 0) throw new Error('סכום התשלום אינו תקין');
   if (amountAg > remaining) throw new Error(`הסכום גבוה מהנותר לתשלום זה (${fromAg(remaining)} ₪)`);
-  const date = input.date && isDate(input.date) ? input.date : new Date().toISOString().slice(0, 10);
+  // תאריך שהוקלד ואינו תקין — שגיאה, ולא "היום" בשקט
+  if (input.date && !isDate(input.date)) throw new Error('תאריך התשלום אינו תקין (YYYY-MM-DD)');
+  const date = input.date || localToday();
   const updatedSchedule = loan.schedule.map(s => s.seq === item.seq
     ? { ...s, paidAg: s.paidAg + amountAg, paidDate: date, status: s.paidAg + amountAg >= s.amountAg ? 'paid' : 'partial' }
     : s);
@@ -189,7 +194,7 @@ function loanSummary(loan, asOf) {
 // סקירה כוללת: יתרת קופה, הלוואות פעילות, סכום בפיגור, ורמת רישוי לפי חוק הגמ"חים (להערכה בלבד)
 function overview(loans, deposits, settings, asOf) {
   const s = normalizeSettings(settings);
-  const today = asOf || new Date().toISOString().slice(0, 10);
+  const today = asOf || localToday();
   const live = loans.filter(l => l.status !== 'cancelled');
   const depositsTotalAg = deposits.reduce((t, d) => t + toAg(d.amount), 0);
   const outstandingTotalAg = live.reduce((t, l) => t + outstandingAg(l), 0);
@@ -217,7 +222,7 @@ function overview(loans, deposits, settings, asOf) {
 
 // טבלאות לייצוא CSV (הכותרות בעברית)
 function exportTable(kind, loans, deposits, settings, asOf) {
-  const today = asOf || new Date().toISOString().slice(0, 10);
+  const today = asOf || localToday();
   if (kind === 'loans') {
     const depName = Object.fromEntries(deposits.map(d => [d.id, `${d.depositorName} (${d.date})`]));
     const rows = loans.map(l => [

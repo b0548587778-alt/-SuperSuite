@@ -83,6 +83,25 @@ function checkPrice(k, raw) {
   return v;
 }
 
+// מחירים מגיבוי (QR / קובץ) — כל מחיר דרך applyPriceUpdate: בדיקת טווח, ותאריך מהגיבוי רק אם הוא תקין ולא עתידי.
+// פעם המחירים נכתבו כמו שהם, כולל "עודכן היום" מזויף (בדיקת קוד 23.10.2026). מחזיר { prices, changed, skipped }
+function restorePrices(prices, incoming, { today = localToday() } = {}) {
+  let next = prices;
+  const changed = [], skipped = [];
+  const meta = (incoming && incoming.meta) || {};
+  for (const f of PRICE_FIELDS) {
+    const raw = incoming && incoming[f.k];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const d = meta[f.k] && meta[f.k].date;
+    try {
+      const r = applyPriceUpdate(next, { [f.k]: raw }, { date: isDay(d) && d <= today ? d : today, source: 'file', note: 'שחזור מגיבוי', today });
+      next = r.prices;
+      changed.push(...r.changed);
+    } catch { skipped.push(f.k); }
+  }
+  return { prices: next, changed, skipped };
+}
+
 // עדכון מחירים: מחזיר עותק חדש עם הערך, התאריך והמקור של כל מחיר שעודכן. תאריך עתידי נדחה
 function applyPriceUpdate(prices, values, { date, source = 'manual', note = '', today = localToday() } = {}) {
   const day = date || today;

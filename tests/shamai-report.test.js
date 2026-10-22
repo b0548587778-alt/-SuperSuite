@@ -40,15 +40,36 @@ test('פיצול: אין const/let/class כפולים ברמה העליונה ב
 
 // פונקציה בשם זהה בשני קבצים לא נכשלת בטעינה — האחרונה דורסת בשקט. כך importJSON מ-navigation.js
 // (החלפה של כל הפריטים בלי אישור) דרסה את הגרסה עם האישור ב-tools.js
-test('פיצול: אין function באותו שם בשני קבצים שונים', () => {
+test('פיצול: אין function באותו שם פעמיים — לא בשני קבצים ולא באותו קובץ', () => {
   const seen = new Map();
   for (const f of shamaiFiles()) {
-    const names = new Set([...fs.readFileSync(path.join(DIR, f), 'utf8').matchAll(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]));
-    for (const n of names) {
-      assert.ok(!seen.has(n), `${n} מוגדרת גם ב-${seen.get(n)} וגם ב-${f}`);
-      seen.set(n, f);
+    for (const m of fs.readFileSync(path.join(DIR, f), 'utf8').matchAll(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm)) {
+      assert.ok(!seen.has(m[1]), `${m[1]} מוגדרת גם ב-${seen.get(m[1])} וגם ב-${f}`);
+      seen.set(m[1], f);
     }
   }
+});
+
+test('שחזור מ-QR: מחירים רק דרך prices.js — מחוץ לטווח נדחה, תאריך עתידי לא נלקח', () => {
+  const s = loadShamai(['core', 'prices']);
+  const today = '2026-10-23';
+  s.run(`var R = restorePrices({ gold: 4000, meta: { gold: { date: '2026-10-01', source: 'manual' } } },
+    { gold: 99999, silver: 'abc', usdIls: 3.7, meta: { usdIls: { date: '2027-01-01' } } }, { today: '${today}' });`);
+  assert.equal(s.run('R.prices.gold'), 4000, 'זהב מחוץ לטווח — לא נכתב');
+  assert.deepEqual(JSON.parse(s.run('JSON.stringify(R.skipped)')).sort(), ['gold', 'silver']);
+  assert.equal(s.run('R.prices.usdIls'), 3.7);
+  assert.equal(s.run('R.prices.meta.usdIls.date'), today, 'תאריך עתידי מהגיבוי — לא "עודכן ב-2027"');
+  const misc = fs.readFileSync(path.join(DIR, 'src', 'misc.js'), 'utf8');
+  assert.doesNotMatch(misc, /state\.prices = \{ \.\.\.state\.prices, \.\.\.data\.prices \}/);
+});
+
+test('שמאי: שדות מיובאים ושגיאות עוברים escapeHtml לפני innerHTML', () => {
+  const ledger = fs.readFileSync(path.join(DIR, 'src', 'ledger.js'), 'utf8');
+  const analytics = fs.readFileSync(path.join(DIR, 'src', 'analytics.js'), 'utf8');
+  const misc = fs.readFileSync(path.join(DIR, 'src', 'misc.js'), 'utf8');
+  assert.doesNotMatch(ledger, /\$\{o\.(status|id)\}/);
+  assert.doesNotMatch(analytics, /\$\{o\.id\}|bar-name">\$\{name\}/);
+  assert.doesNotMatch(misc, /\$\{e\.message\}/);
 });
 
 test('ייבוא JSON בשמאי שואל לפני החלפה, ולא דורס בלי אישור', () => {

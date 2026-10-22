@@ -79,7 +79,7 @@ function renderAnalytics() {
     const pct = (d.count / maxCount) * 100;
     return `
       <div class="bar-row">
-        <div class="bar-name">${name}</div>
+        <div class="bar-name">${escapeHtml(name)}</div>
         <div class="bar-track">
           <div class="bar-fill" style="width:${pct}%"></div>
           <div class="bar-text">${d.count} פריטים · ₪${fmt0(d.value)}${d.profit !== 0 ? ` · רווח: ${d.profit >= 0 ? '+' : ''}₪${fmt0(d.profit)}` : ''}</div>
@@ -159,7 +159,7 @@ function renderCompare() {
         const disabled = !checked && state.compareSelection.length >= 3;
         return `
           <label class="compare-pick ${checked ? 'active' : ''} ${disabled ? 'disabled' : ''}">
-            <input type="checkbox" data-cmp="${o.id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
+            <input type="checkbox" data-cmp="${escapeHtml(o.id)}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
             <span class="cmp-name">${escapeHtml(o.name || '')}</span>
             <span class="cmp-cat">${OPP_CATEGORIES.find(c => c.k === o.category)?.name || ''}</span>
           </label>

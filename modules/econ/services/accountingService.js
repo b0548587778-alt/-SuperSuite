@@ -108,7 +108,10 @@ class AccountingService {
     const doc = (data.salesDocs || []).find(d => d.entryId === original.id && d.kind === 'credit');
     if (doc) throw new Error(`הרשומה שייכת לחשבונית זיכוי ${doc.number} — לא ניתן לבטל אותה ידנית`);
     this._assertOpen(data, original.date);
-    const today = localDay();
+    // תאריך הביטול: היום, אבל לא לפני הרשומה המקורית (חשבונית עם תאריך עתידי). גם הוא חייב להיות בתקופה
+    // פתוחה — אחרת ביטול נרשם לתוך תקופת מע"מ שכבר דווחה (בדיקת קוד 23.10.2026)
+    const today = localDay() > original.date ? localDay() : original.date;
+    this._assertOpen(data, today);
     const reversal = {
       id: crypto.randomUUID(),
       date: today,

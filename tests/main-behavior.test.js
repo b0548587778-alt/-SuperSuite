@@ -186,6 +186,46 @@ test('גיבוי ידני ליעד שנכשל בכתיבה (USB מלא/מנות�
   dialogPlan.save = { canceled: true };
 });
 
+// בדיקת קוד 23.10.2026: סוג גיבוי לא מוכר יצר גיבוי ריק שדווח "נשמר"; כתיבה ישירה שנכשלה דרסה את הגיבוי הקודם
+test('גיבוי ידני: סוג לא מוכר נדחה, וכתיבה שנכשלה לא פוגעת בגיבוי הקודם באותו שם', async () => {
+  await boot();
+  const econView = created.views[0];
+  const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
+  AuthService.getSession(econView.id).permissions = ['data.view', 'data.backup'];
+  await assert.rejects(handlers['shell:backup-all'](shellSender(), 'long-pass-123', 'everything'), /סוג הגיבוי אינו מוכר/);
+  // הקובץ הקודם קיים, ובמקום הקובץ הזמני יש תיקייה — הכתיבה נכשלת לפני ההחלפה
+  const target = path.join(userData, 'prev-backup.ssbk');
+  fs.writeFileSync(target, 'SSBK1:previous-good-backup');
+  fs.mkdirSync(target + '.tmp', { recursive: true });
+  dialogPlan.save = { canceled: false, filePath: target };
+  try {
+    await assert.rejects(handlers['shell:backup-all'](shellSender(), 'long-pass-123', 'econ'), /הגיבוי הקודם \(אם היה\) לא נפגע/);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'SSBK1:previous-good-backup');
+  } finally {
+    dialogPlan.save = { canceled: true };
+    fs.rmSync(target + '.tmp', { recursive: true, force: true });
+  }
+});
+
+test('שחזור וגיבוי אוטומטי לא רצים יחד: שחזור שני בזמן שחזור — נדחה; הגיבוי האוטומטי מדלג', async () => {
+  await boot();
+  const econView = created.views[0];
+  const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
+  AuthService.getSession(econView.id).permissions = ['data.view', 'data.restore'];
+  let release;
+  dialogPlan.open = new Promise((r) => { release = () => r({ canceled: true, filePaths: [] }); });
+  const first = handlers['shell:restore-all'](shellSender(), '');
+  await assert.rejects(handlers['shell:restore-all'](shellSender(), ''), /גיבוי רץ כרגע/);
+  release();
+  assert.deepEqual(await first, { ok: false });
+  dialogPlan.open = { canceled: true, filePaths: [] };
+  // אחרי השחזור הנעילה משתחררת
+  assert.deepEqual(await handlers['shell:restore-all'](shellSender(), ''), { ok: false });
+  const src = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+  const auto = src.slice(src.indexOf('async function autoBackup()'), src.indexOf('async function autoBackupRun()'));
+  assert.match(auto, /if \(backupBusy\) return \{ ok: false, reason: 'busy'/);
+});
+
 test('shell:open: פותח פריט מהקטלוג האחיד ומאמת מודול ותצוגה', async () => {
   await boot();
   const econView = created.views[0];

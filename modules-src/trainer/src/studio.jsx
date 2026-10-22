@@ -5,7 +5,7 @@ import { Btn, Card, Field, Input, Textarea, Badge, Modal, Toggle, PageHeader, FO
 import { S, K } from './lib/db.js';
 import * as St from './lib/studio.js';
 import { whatsappShareUrl, copyToClipboard } from './lib/sharing.js';
-import { askConfirm } from './lib/dialog.js';
+import { askConfirm, showMessage } from './lib/dialog.js';
 import { savePdf, printNow } from './lib/print.js';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -37,25 +37,37 @@ export function useStudio(clients) {
 
   useEffect(() => { load(); }, [load]);
 
-  const savePlans = async (list) => { await S.set(K.plans, list); setPlans(list); };
-  const saveSchedule = async (list) => { await S.set(K.schedule, list); setSchedule(list); };
+  // שמירה שנכשלה — הודעה, והמסך לא מתעדכן (אחרת הוא מציג נתונים שלא נשמרו). מחזירות true / false
+  const saveFailed = () => {
+    showMessage('השמירה נכשלה — השינוי לא נשמר. ייתכן שהאחסון מלא או שהכניסה למערכת פגה. נסו שוב.');
+    return false;
+  };
+  const savePlans = async (list) => { if (!(await S.set(K.plans, list))) return saveFailed(); setPlans(list); return true; };
+  const saveSchedule = async (list) => { if (!(await S.set(K.schedule, list))) return saveFailed(); setSchedule(list); return true; };
   const saveMemberships = async (clientId, list) => {
-    await S.set(K.memberships(clientId), list);
+    if (!(await S.set(K.memberships(clientId), list))) return saveFailed();
     setMemberships((prev) => ({ ...prev, [clientId]: list }));
+    return true;
   };
 
-  // שינוי נוכחות: "הגיע" מנכה אימון מהמנוי הפעיל (פעם אחת לכל פגישה), שינוי חזרה — מחזיר אותו
+  // שינוי נוכחות: "הגיע" מנכה אימון מהמנוי הפעיל (פעם אחת לכל פגישה), שינוי חזרה — מחזיר אותו.
+  // היומן והמנוי נשמרים יחד: אם שמירת המנוי נכשלה, היומן חוזר למצב הקודם (אחרת "הגיע" בלי ניכוי)
   const changeAttendance = async (appt, clientId, status) => {
     const prev = appt.participants.find((p) => p.clientId === clientId)?.status;
-    await saveSchedule(St.setAttendance(schedule, appt.id, clientId, status));
+    const before = schedule;
+    if (!(await saveSchedule(St.setAttendance(schedule, appt.id, clientId, status)))) return { failed: true };
+    const rollback = async () => { if (await S.set(K.schedule, before)) setSchedule(before); return { failed: true }; };
     const ref = St.attendanceRef(appt.id, clientId);
     const list = memberships[clientId] || [];
     if (status === 'attended' && prev !== 'attended') {
       const r = St.recordUse(list, { date: appt.date, ref, source: 'schedule' }, appt.date);
-      if (r.membership) { await saveMemberships(clientId, r.list); return { deducted: r.membership }; }
+      if (r.membership) {
+        if (!(await saveMemberships(clientId, r.list))) return rollback();
+        return { deducted: r.membership };
+      }
       return { deducted: null, already: r.already };
     }
-    if (prev === 'attended' && status !== 'attended') await saveMemberships(clientId, St.removeUseByRef(list, ref));
+    if (prev === 'attended' && status !== 'attended' && !(await saveMemberships(clientId, St.removeUseByRef(list, ref)))) return rollback();
     return {};
   };
 
@@ -275,6 +287,7 @@ function AppointmentDetail({ appt, clients, studio, onClose, onNotice, setView }
 
   const mark = async (clientId, status) => {
     const r = await studio.changeAttendance(appt, clientId, status);
+    if (r.failed) return; // ההודעה כבר הוצגה
     if (status === 'attended') {
       if (r.deducted) {
         const st = St.membershipStatus(r.deducted, appt.date);

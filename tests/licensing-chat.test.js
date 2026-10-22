@@ -114,7 +114,9 @@ test('שיחה מלאה דרך שרת אמיתי: מנהל-העל ↔ לקוח �
     await K.sync.chatSend(parentId, { subject: 'דוח חודשי', text: 'הדוח החודשי מוכן לעיון' });
     assert.equal(K.chat.thread(parentId)[0].status, 'delivered');
     // השרת מחזיק רק טקסט מוצפן
-    const onDisk = fs.readdirSync(dataDir).map(f => fs.readFileSync(path.join(dataDir, f), 'utf8')).join('');
+    // כולל תיקיות משנה (prekeys/, signups/)
+    const onDisk = fs.readdirSync(dataDir, { recursive: true }).map(f => path.join(dataDir, f)).filter(f => fs.statSync(f).isFile())
+      .map(f => fs.readFileSync(f, 'utf8')).join('');
     assert.doesNotMatch(onDisk, /הדוח החודשי|דוח חודשי/);
 
     await T.sync.receive();

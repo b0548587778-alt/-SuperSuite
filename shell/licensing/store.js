@@ -48,33 +48,46 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     const key = v2 ? o.key : o;
     L.keyId(key); // תקינות
     const g = v2 && o.guard && typeof o.guard === 'object' ? o.guard : null;
+    const hashes = g && g.hashes && typeof g.hashes === 'object' ? Object.fromEntries(Object.entries(g.hashes).filter(([, h]) => typeof h === 'string')) : {};
     const guard = g ? { lastSeen: Number.isSafeInteger(g.lastSeen) ? g.lastSeen : 0, notices: Array.isArray(g.notices) ? g.notices.filter(x => typeof x === 'string') : [],
-      ...(Number.isSafeInteger(g.trialStart) && g.trialStart > 0 ? { trialStart: g.trialStart } : {}), ...(g.hadLicense === true ? { hadLicense: true } : {}) } : null;
+      hashes,
+      ...(Number.isSafeInteger(g.trialStart) && g.trialStart > 0 ? { trialStart: g.trialStart } : {}), ...(g.hadLicense === true ? { hadLicense: true } : {}),
+      ...(Number.isSafeInteger(g.lastSync) && g.lastSync > 0 ? { lastSync: g.lastSync } : {}) } : null;
     return { key, guard };
   }
+  // טביעת אצבע של הודעה: שינוי של תו אחד בהודעה (שמבטל את החתימה, וכך "מעלים" השעיה) מתגלה מול השומר
+  const noticeHash = (n) => L.sha256Hex(L.canonical({ payload: n.payload, sig: n.sig }));
   const writeSecret = (key, guard) => secret.write(JSON.stringify({ v: 2, key, guard: guard || { lastSeen: 0, notices: [] } }));
 
   // עדכון השומר אחרי כל שמירה: איחוד מזהי ההודעות, והזמן — רק קדימה. רק הודעות שקובעות את המצב של
   // המערכת הזו (לכולם / לשרשרת שלה) — לא הודעות שהיא הוציאה למערכות הבת שלה
-  function guardFrom(d, prev) {
+  // lastSync — רק מסנכרון אמיתי (setRemoteSettings), לא מהקובץ הגלוי: עריכת הקובץ לא "מחדשת" את החיבור לשרת
+  function guardFrom(d, prev, { lastSync } = {}) {
     const ids = new Set(prev ? prev.notices : []);
+    // טביעה נרשמת פעם אחת, כשההודעה נקלטת — ולא מתעדכנת מהקובץ אחר כך
+    const hashes = { ...((prev && prev.hashes) || {}) };
     const chainIds = new Set((Array.isArray(d.chain) ? d.chain : []).map(l => l && l.payload && l.payload.id));
     for (const n of d.notices || []) {
       const p = n && n.payload;
-      if (p && typeof p.id === 'string' && (p.target === S.ALL || chainIds.has(p.target))) ids.add(p.id);
+      if (p && typeof p.id === 'string' && (p.target === S.ALL || chainIds.has(p.target))) {
+        ids.add(p.id);
+        if (!hashes[p.id]) hashes[p.id] = noticeHash(n);
+      }
     }
+    const syncAt = Math.max((prev && prev.lastSync) || 0, Number.isSafeInteger(lastSync) ? lastSync : 0);
     // תחילת הניסיון: המוקדמת מבין השומר והקובץ — מחיקה או שינוי של הקובץ לא מאריכים אותו
     const starts = [prev && prev.trialStart, d.trialStart].filter(x => Number.isSafeInteger(x) && x > 0);
-    return { lastSeen: Math.max(prev ? prev.lastSeen : 0, Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0), notices: [...ids],
+    return { lastSeen: Math.max(prev ? prev.lastSeen : 0, Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0), notices: [...ids], hashes,
       ...(starts.length ? { trialStart: Math.min(...starts) } : {}),
+      ...(syncAt > 0 ? { lastSync: syncAt } : {}),
       // הותקן כאן רישיון פעם — מחיקת הקובץ לא מחזירה לתקופת ניסיון
       ...((prev && prev.hadLicense) || Array.isArray(d.chain) ? { hadLicense: true } : {}) };
   }
-  function syncGuard(d) {
+  function syncGuard(d, opts) {
     const sec = readSecret();
-    if (sec) writeSecret(sec.key, guardFrom(d, sec.guard));
+    if (sec) writeSecret(sec.key, guardFrom(d, sec.guard, opts));
   }
-  const save = (d) => { storage.write(JSON.stringify(d)); cached = null; syncGuard(d); };
+  const save = (d, opts) => { storage.write(JSON.stringify(d)); cached = null; syncGuard(d, opts); };
 
   function nodeKey(create) {
     const sec = readSecret();
@@ -92,7 +105,9 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
   function trialState(d) {
     const now = clock();
     let sec = null;
-    try { sec = readSecret(); } catch { sec = null; }
+    // קובץ המפתח קיים ולא נקרא — נעול, ולא תקופת ניסיון חדשה: אחרת השחתת הקובץ ומחיקת קובץ הרישוי
+    // החזירו כל התקנה לניסיון של 30 יום, שוב ושוב (בדיקת קוד 23.10.2026)
+    try { sec = readSecret(); } catch { return lockedState('לא ניתן לקרוא את מפתח המערכת (הצפנת המערכת אינה זמינה או שהקובץ פגום) — יש לפנות לספק הרישיון'); }
     if (sec && sec.guard && sec.guard.hadLicense) return lockedState('קובץ הרישוי חסר — יש להתקין שוב את קובץ הרישיון מהספק');
     if (!sec) { try { nodeKey(true); sec = readSecret(); } catch { sec = null; } }
     const fromFile = d && Number.isSafeInteger(d.trialStart) && d.trialStart > 0 ? d.trialStart : 0;
@@ -134,9 +149,17 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
       sec.guard = { ...sec.guard, hadLicense: true };
       try { writeSecret(sec.key, sec.guard); } catch { /* ינוסה שוב בפעם הבאה */ }
     }
-    const have = new Set((d.notices || []).map(n => n && n.payload && n.payload.id));
+    const have = new Map((d.notices || []).filter(n => n && n.payload).map(n => [n.payload.id, n]));
     const missing = sec.guard.notices.filter(id => !have.has(id)).length;
     if (missing) return lockedState(`קובץ הרישוי שונה מחוץ לתוכנה: חסרות ${missing} הודעות סטטוס. יש לייבא שוב את קובץ ההודעות מהספק (או לסנכרן)`);
+    // הודעה ששונתה: החתימה נפסלת וההודעה נזרקת בשקט — כך "נעלמה" השעיה. מול הטביעה בשומר — נעול
+    const altered = sec.guard.notices.filter(id => sec.guard.hashes[id] && noticeHash(have.get(id)) !== sec.guard.hashes[id]).length;
+    if (altered) return lockedState(`קובץ הרישוי שונה מחוץ לתוכנה: ${altered} הודעות סטטוס שונו. יש לייבא שוב את קובץ ההודעות מהספק (או לסנכרן)`);
+    // שומר מגרסה קודמת, בלי טביעות — נרשמות עכשיו
+    if (sec.guard.notices.some(id => !sec.guard.hashes[id])) {
+      sec.guard = guardFrom(d, sec.guard);
+      try { writeSecret(sec.key, sec.guard); } catch { /* ינוסה שוב בפעם הבאה */ }
+    }
     const lastSeen = Math.max(Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0, sec.guard.lastSeen);
     const r = S.effectiveStatus({ chain: d.chain, notices: d.notices || [], rootKeys, now: clock(), lastSeen });
     // הזמן המאוחר ביותר שנצפה נשמר — הגנה מהחזרת שעון גם בין הפעלות (בקובץ ובשומר)
@@ -191,6 +214,10 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     if (!key || L.keyId(key) !== leaf.id) throw new Error('הרישיון הונפק למכשיר אחר. יש להפיק בקשת רישיון מהמכשיר הזה');
     const d = load();
     const base = d && !d.corrupt ? { ...blank(), ...d } : blank();
+    // רישיון ישן מהמותקן נדחה: התקנה חוזרת של קובץ ישן החזירה תחומים שהוסרו בחידוש, ושרת הממסר (לא מהימן)
+    // יכול היה לשלוח שוב רישיון ישן ולקצר רישיון שחודש (בדיקת קוד 23.10.2026)
+    const cur = Array.isArray(base.chain) && base.chain.length ? base.chain[base.chain.length - 1].payload : null;
+    if (cur && cur.id === leaf.id && Number(leaf.issuedAt) < Number(cur.issuedAt)) throw new Error('הרישיון בקובץ ישן מהרישיון המותקן — יש להתקין את הרישיון העדכני מהספק');
     const { notices } = mergeNotices(base.notices, pkg.notices);
     save({ ...base, chain: pkg.chain, notices });
     return { nodeId: leaf.id, name: leaf.name, expiresAt: leaf.expiresAt };
@@ -319,7 +346,15 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
   function setRemoteSettings(r) {
     const d = load();
     const base = d && !d.corrupt ? { ...blank(), ...d } : blank();
-    save({ ...base, remote: { ...(base.remote || {}), ...r } });
+    save({ ...base, remote: { ...(base.remote || {}), ...r } }, { lastSync: r && r.lastSync });
+  }
+  // זמן הסנכרון האחרון לתנאי ההפעלה: מהשומר המוצפן כשנרשם בו (אחרי הסנכרון הראשון בגרסה הזו), אחרת מהקובץ.
+  // בקובץ הגלוי בלבד — כל אחד יכול היה לכתוב "היום" פעם בחודש ולהישאר מנותק לתמיד (בדיקת קוד 23.10.2026)
+  function lastSyncTime() {
+    let sec = null;
+    try { sec = readSecret(); } catch { return 0; }
+    if (sec && sec.guard && sec.guard.lastSync) return sec.guard.lastSync;
+    return Number(getRemoteSettings().lastSync) || 0;
   }
 
   // תנאי ההפעלה (activation.js): הרישיון של המערכת, וזמן הכניסה האחרונה עם Google
@@ -333,15 +368,28 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     if (!(Number(r.lastGoogle) >= at)) setRemoteSettings({ lastGoogle: at });
   }
 
-  return { current, invalidate() { cached = null; }, leafPayload, markGoogleSignIn, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
+  return { current, invalidate() { cached = null; }, leafPayload, lastSyncTime, markGoogleSignIn, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
     syncKey, syncInfo, noticesForChild, getRemoteSettings, setRemoteSettings };
+}
+
+// כתיבה אטומית: קובץ זמני, fsync (כשקיים — לא בתחליף של אנדרואיד) והחלפה. כתיבה ישירה שנקטעה
+// (הפסקת חשמל) השאירה את העותק היחיד של מפתח המערכת חתוך — והמערכת ננעלה לצמיתות (בדיקת קוד 23.10.2026)
+function durableWrite(fs, file, body) {
+  const tmp = file + '.tmp';
+  if (typeof fs.openSync === 'function' && typeof fs.fsyncSync === 'function') {
+    const fd = fs.openSync(tmp, 'w');
+    try { fs.writeSync(fd, body); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  } else {
+    fs.writeFileSync(tmp, body);
+  }
+  fs.renameSync(tmp, file);
 }
 
 // אחסון בקבצים (שולחן העבודה). fs מוזרק כדי לא לתלות את הקוד באנדרואיד
 function fileStorage(fs, file) {
   return {
     read() { try { return fs.readFileSync(file, 'utf8'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } },
-    write(text) { const tmp = file + '.tmp'; fs.writeFileSync(tmp, text); fs.renameSync(tmp, file); },
+    write(text) { durableWrite(fs, file, text); },
   };
 }
 
@@ -356,7 +404,7 @@ function encryptedFileSecret(fs, file, safeStorage) {
     write(text) {
       if (!safeStorage || !safeStorage.isEncryptionAvailable()) throw new Error('הצפנת המערכת (DPAPI) אינה זמינה — לא ניתן לשמור את מפתח המערכת בבטחה');
       fs.mkdirSync(file.replace(/[\\/][^\\/]*$/, ''), { recursive: true }); // התיקייה (למשל owner/) אולי עוד לא קיימת
-      fs.writeFileSync(file, safeStorage.encryptString(text));
+      durableWrite(fs, file, safeStorage.encryptString(text));
     },
   };
 }

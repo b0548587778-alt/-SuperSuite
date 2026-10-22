@@ -343,7 +343,9 @@ export function lastTrainingDate(schedule, sessions, clientId) {
     if (a.participants.some((p) => p.clientId === clientId && p.status === 'attended') && (!last || a.date > last)) last = a.date;
   }
   for (const s of sessions || []) {
-    const d = s.completedAt ? todayStr(new Date(s.completedAt)) : null;
+    // תאריך פגום (נתונים מיובאים) — מדולג: "NaN-NaN-NaN" גדול מכל תאריך אמיתי, והתזכורת הציגה NaN ימים
+    const t = s.completedAt ? new Date(s.completedAt) : null;
+    const d = t && !isNaN(t.getTime()) ? todayStr(t) : null;
     if (d && (!last || d > last)) last = d;
   }
   return last;
