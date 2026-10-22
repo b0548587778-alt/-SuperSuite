@@ -466,3 +466,28 @@ test('שחזור: כשל באמצע מחזיר את הכספים למצב שלפ
   assert.ok(err && /המודול לא נטען.*הוחזרו למצב שלפני/.test(err[1]), JSON.stringify(dialogLog));
   assert.ok(!dialogLog.some(d => d[1] === 'השחזור הושלם'));
 });
+
+// מסך הבית: מדדים ושאלה לעוזר — רק מהמעטפת, בשם המודול הכלכלי, ובלי כניסה אין נתונים
+test('מסך הבית: shell:get-home-summary ו-shell:ai-ask — מהמעטפת בלבד, ובלי כניסה לא יוצא דבר', async () => {
+  await boot();
+  const econView = created.views[0];
+  const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
+  for (const ch of ['shell:get-home-summary', 'shell:ai-ask']) {
+    assert.throws(() => handlers[ch](viewSender(econView), 'שאלה'), /מתוך המעטפת בלבד/, ch + ': תצוגת מודול');
+    assert.throws(() => handlers[ch]({ sender: { id: 999 } }, 'שאלה'), /מתוך המעטפת בלבד/, ch + ': שולח זר');
+  }
+  AuthService.sessions.delete(econView.id);
+  assert.equal(await handlers['shell:get-home-summary'](shellSender()), null, 'בלי כניסה — אין נתונים');
+  assert.throws(() => handlers['shell:ai-ask'](shellSender(), 'כמה גביתי החודש?'), /להיכנס למערכת הכספים/);
+
+  await handlers['auth:login'](viewSender(econView), 'restore_viewer', 'viewer-pass-long-1');
+  const s = await handlers['shell:get-home-summary'](shellSender());
+  assert.ok(s && typeof s.kpis === 'object', 'עם כניסה — הנתונים מהמודול הכלכלי');
+  const r = await handlers['shell:ai-ask'](shellSender(), 'כמה גביתי החודש?');
+  assert.equal(typeof r.text, 'string');
+  // בלי הרשאת עריכה (שאלה לעוזר = data.edit) — השומר של המודול חוסם גם מהמעטפת
+  const perms = AuthService.getSession(econView.id).permissions;
+  AuthService.getSession(econView.id).permissions = ['data.view'];
+  await assert.rejects(handlers['shell:ai-ask'](shellSender(), 'כמה גביתי החודש?'), /אין הרשאה/);
+  AuthService.getSession(econView.id).permissions = perms;
+});

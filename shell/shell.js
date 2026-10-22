@@ -476,7 +476,9 @@ async function ask(raw) {
     const r = await window.shellAPI.aiAsk(q);
     askOut(head(r && r.engineLabel ? 'ענה: ' + r.engineLabel : 'תשובה') + `<p class="a-text ss-pre">${esc((r && r.text) || 'אין תשובה')}</p>`);
   } catch (e) {
-    askOut(head('לא נענה') + `<p class="a-text">${esc((e && e.message) || 'העוזר אינו זמין כרגע')}</p>`);
+    // Electron מוסיף לשגיאת IPC קידומת אנגלית — מציגים רק את העברית (כמו ב-devices.js)
+    const msg = String((e && e.message) || '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    askOut(head('לא נענה') + `<p class="a-text">${esc(msg || 'העוזר אינו זמין כרגע')}</p>`);
   } finally { $('askGo').disabled = false; }
 }
 

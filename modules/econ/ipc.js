@@ -42,6 +42,7 @@ const { RealEstateService: realEstateService } = require('./services/realEstateS
 const BK = require('./core/backupCrypto');
 const DP = require('./core/dataPorts');
 const MB = require('./core/dashboard');
+const HS = require('./core/homeSummary');
 const { IDLE_MIN_RANGE } = require('./services/authService');
 const path = require('path');
 const LG = require('../../shell/licensing/gate');
@@ -106,6 +107,9 @@ let trainerSource = null;
 // עוזר ה-AI (shell/ai): { status, prefsGet, prefsSave, run, explain } — נבנה ב-initEcon, ושומר את העדפותיו
 let aiAssistant = null;
 let aiOptions = null;
+// הפונקציות של הערוצים dashboard:getHomeSummary ו-ai:run — המעטפת קוראת להן דרך shellCall (אותו שומר בדיוק)
+let homeSummaryFn = null;
+let aiRunFn = null;
 // רשימת המודולים לכניסה בעוזר — מוגבלת לרישיון ההתקנה (ופה אין את לקוח השרת) — בלי פונקציה (אנדרואיד, בדיקות) המודול סגור
 let moduleLicensed = null;
 // הקשר זמני לעוזר ה-AI (מקום אחד לכל חלון): { shamai, trainer } — נמחק אחרי כל שאלה ואינו נשמר לדיסק
@@ -328,6 +332,22 @@ function toUserError(e) {
   if (HEBREW.test(msg)) return e instanceof Error ? e : new Error(msg);
   try { errorLogger('econ', e); } catch { /* היומן לא מפיל פעולה */ }
   return new Error('הפעולה נכשלה עקב שגיאה פנימית. אם התקלה חוזרת — יש לבצע גיבוי ולפנות לתמיכה.');
+}
+
+// ערוצים שהמעטפת רשאית להפעיל בשם המודול הכלכלי — רשימה סגורה, קריאה בלבד או שאלה לעוזר
+const SHELL_CHANNELS = {
+  'dashboard:getHomeSummary': () => homeSummaryFn,
+  'ai:run': () => aiRunFn,
+};
+function shellCall(channel, senderId, ...args) {
+  const get = SHELL_CHANNELS[channel];
+  const fn = get && get();
+  if (!fn) return Promise.reject(new Error('הפעולה אינה זמינה מהמעטפת'));
+  const event = { sender: { id: senderId } };
+  return enqueue(async () => {
+    try { return await runGuarded(channel, fn, event, args); }
+    catch (e) { throw toUserError(e); }
+  });
 }
 
 function handle(channel, fn) {
@@ -1452,6 +1472,18 @@ function registerIpcHandlers() {
     const acct = !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view');
     return MB.morningBrief(await db.load(), localDay(Date.now()), { sources: sources || MB.SOURCES, acct });
   });
+  // מסך הבית של המעטפת: מדדים ומשימות להיום. קריאה בלבד, ורק תחומים שפתוחים ברישיון
+  homeSummaryFn = async () => {
+    const state = licenseState();
+    const sources = LG.peopleSources(state) || MB.SOURCES;
+    const open = {
+      acct: !LG.checkChannel(state, 'acct:getInvoices', 'data.view'),
+      npo: sources.includes('npo'),
+      gemach: sources.includes('gemach'),
+    };
+    return HS.homeSummary(await db.load(), localDay(clockNow()), open);
+  };
+  handle('dashboard:getHomeSummary', homeSummaryFn);
   handle('chesed:getOverview', async (event) => {
     const o = await chesedService.getOverview(canSeeConfidential(event));
     const shown = o.beneficiaries.filter(b => b.tier === 'confidential' && !b.masked).length;
@@ -2720,7 +2752,7 @@ function registerIpcHandlers() {
     return { ok: true };
   });
   // שאלה — נתוני קריאה בלבד. חוסר הרשאה לתחום אינו שגיאה: עונים בשפה פשוטה שהתחום סגור (runRules)
-  handle('ai:run', async (event, question, extra = {}) => {
+  aiRunFn = async (event, question, extra = {}) => {
     const q = String(question || '');
     if (!q.trim()) throw new Error('כתבו שאלה');
     if (q.length > 500) throw new Error('השאלה ארוכה מדי — עד 500 תווים');
@@ -2742,7 +2774,8 @@ function registerIpcHandlers() {
     // קשר השמאות/האימונים נשרף בכל שאלה — גם כשהוא לא נוצל (בלי כשירות לאימות/canRead) — והוא לא נשמר
     aiContextBySender.delete(event.sender.id);
     return result;
-  });
+  };
+  handle('ai:run', aiRunFn);
   handle('ai:explain', async (event, payload) => aiAssistant.explain(payload || {}));
   // העוזר מצביע על המסך שבו אפשר לראות את הנתונים. רשימת יעדים סגורה — בלי ניווט חופשי
   const AI_VIEW_TARGETS = new Set(['acct-invoices', 'acct-reports', 'npo', 'realestate', 'trainer']);
@@ -2788,4 +2821,6 @@ module.exports = { toUserError, setErrorLogger, initEcon, chatAutoFetch, permiss
   // מודולים שדורשים כניסה: בדיקה שקטה, רישום פעילות (עבודה במודול כזה מונעת ניתוק), ואירוע כניסה/יציאה
   hasSession: (senderId) => authService.peekSession(senderId),
   touchSession: (senderId) => { authService.getSession(senderId); },
+  // המעטפת (main.js) בשם המודול הכלכלי: אותו ערוץ, אותו תור ואותו שומר (כניסה, הרשאה, רישיון) — כמו קריאה מהמודול
+  shellCall,
   onAuthChange: (fn) => { authListeners.push(fn); } };

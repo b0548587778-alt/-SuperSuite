@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('shellAPI', {
   isLoggedIn: () => ipcRenderer.invoke('shell:is-logged-in'),
   getBackupTarget: () => ipcRenderer.invoke('shell:get-backup-target'),
   getBackupStatus: () => ipcRenderer.invoke('shell:get-backup-status'),
+  getHomeSummary: () => ipcRenderer.invoke('shell:get-home-summary'),
+  aiAsk: (question) => ipcRenderer.invoke('shell:ai-ask', question),
   getRecoveryCode: () => ipcRenderer.invoke('shell:get-recovery-code'),
   recoveryCodeSaved: () => ipcRenderer.invoke('shell:recovery-code-saved'),
   plainBackups: () => ipcRenderer.invoke('shell:plain-backups'),

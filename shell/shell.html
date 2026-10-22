@@ -164,18 +164,20 @@ nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:var(--
 .panel > header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .panel > header h2{margin:0;font-size:17px;font-weight:800;letter-spacing:-.01em;color:var(--text)}
 .panel > header .ss-badge{font-weight:600}
-.today-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+/* עמודות לפי הרוחב של הפאנל עצמו (לא של החלון): כשאין מקום לשלוש — פחות עמודות, ולא טקסט חתוך */
+.today-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:14px 18px}
 .t-col h3{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:13px;font-weight:700;color:var(--ss-text-2)}
 .t-col h3 .t-ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:var(--hue);background:color-mix(in srgb,var(--hue) 12%,var(--ss-surface))}
 .t-col h3 .t-ic .ss-icon{width:15px;height:15px}
 .t-col h3 .n{margin-inline-start:auto;font-size:12px;color:var(--muted);font-weight:600}
 .t-list{display:grid;gap:4px}
-.t-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:12px;border:1px solid transparent;background:var(--ss-surface-2);
+.t-item{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;width:100%;padding:9px 10px;border-radius:12px;border:1px solid transparent;background:var(--ss-surface-2);
      text-align:start;font:inherit;color:inherit;cursor:pointer;transition:background-color var(--ss-dur-fast),border-color var(--ss-dur-fast)}
 .t-item:hover{background:var(--surface);border-color:var(--ss-border-strong)}
-.t-item .t-txt{flex:1 1 auto;min-width:0}
-.t-item b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.t-item small{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-item .t-txt{flex:1 1 150px;min-width:0}
+/* שם וסכום נשברים לשורה נוספת — לא נחתכים (סכום חתוך = המשתמש לא יודע כמה) */
+.t-item b{display:block;font-size:13.5px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+.t-item small{display:block;font-size:12px;line-height:1.4;color:var(--muted);overflow-wrap:anywhere}
 .t-item .ss-badge{flex:0 0 auto;font-size:11.5px;padding:1px 8px}
 .t-none{font-size:12.5px;color:var(--muted);padding:10px;border:1px dashed var(--border);border-radius:12px;text-align:center}
 .t-empty{grid-column:1/-1;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:16px;border-radius:14px;background:var(--ss-surface-2);color:var(--ss-text-2);font-size:13.5px}

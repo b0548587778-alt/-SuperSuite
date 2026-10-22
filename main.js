@@ -1151,6 +1151,18 @@ app.whenReady().then(async () => {
     shellGuard(e, 'data.backup');
     return AutoBk.recoveryCodeFromKey(autoBackupKey(true));
   });
+  // מסך הבית: מדדים ומשימות להיום, ושאלה לעוזר — בשם המודול הכלכלי, דרך אותו שומר (כניסה, הרשאה, רישיון).
+  // בלי כניסה — null (המסך מציג "—"), בלי לרשום פעילות בפגישה שפגה
+  ipcMain.handle('shell:get-home-summary', (e) => {
+    if (!win || e.sender.id !== win.webContents.id) throw new Error('הפעולה מותרת מתוך המעטפת בלבד');
+    if (!econ || !econ.hasSession(econSenderId())) return null;
+    return econ.shellCall('dashboard:getHomeSummary', econSenderId());
+  });
+  ipcMain.handle('shell:ai-ask', (e, question) => {
+    if (!win || e.sender.id !== win.webContents.id) throw new Error('הפעולה מותרת מתוך המעטפת בלבד');
+    if (!econ || !econ.hasSession(econSenderId())) throw new Error('כדי לשאול את העוזר יש להיכנס למערכת הכספים');
+    return econ.shellCall('ai:run', econSenderId(), String(question || ''));
+  });
   ipcMain.handle('shell:recovery-code-saved', (e) => {
     shellGuard(e, 'data.backup');
     saveJson(backupSettingsFile(), { ...loadJson(backupSettingsFile()), recoveryCodeSavedAt: new Date().toISOString() });
