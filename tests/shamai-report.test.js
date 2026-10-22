@@ -9,7 +9,7 @@ const { DIR, shamaiFiles, loadShamai } = require('./helpers/shamai-src');
 const html = fs.readFileSync(path.join(DIR, 'index.html'), 'utf8');
 
 function fresh() {
-  const s = loadShamai(['core', 'calc', 'appraise-metals', 'appraise-gems', 'appraise-judaica', 'ledger', 'report']);
+  const s = loadShamai(['core', 'calc', 'explain', 'appraise-metals', 'appraise-gems', 'appraise-judaica', 'ledger', 'report']);
   s.run("state.prices = { ...state.prices, gold: 3110.35, silver: 31.1035, usdIls: 4 }; var toast = () => {};");
   return s;
 }

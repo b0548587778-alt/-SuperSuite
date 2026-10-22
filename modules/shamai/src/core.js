@@ -305,6 +305,7 @@ const state = {
   subView: null,         // current sub-view inside appraisal/tools
   prices: { ...DEFAULT_PRICES, lastUpdate: null, source: 'default' },
   loading: false,
+  explainOpen: false,    // פאנל "מאין הסכום?" — נשאר פתוח בין חישובים (src/explain.js)
 
   // Per-domain working state
   gold:    { metal: 'gold', purity: 0.750, weight: 10, unit: 'g', asking: null, scrap: false },

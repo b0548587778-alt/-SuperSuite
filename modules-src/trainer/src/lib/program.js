@@ -126,6 +126,21 @@ export function getMedicalWarnings(client) {
     .map((c) => ({ condition: c.label, warning: c.warning }));
 }
 
+// למה תרגיל לא מתאים למתאמן הזה — רשימת סיבות בעברית, תחת אותו תנאי של filterExercises.
+// למסך התוכנית: תרגיל שנשאר בתוכנית ישנה אחרי שינוי מצב רפואי מסומן, לא מוסר לבד
+export function exclusionReasons(client, ex) {
+  if (!ex) return [];
+  const reasons = [];
+  const hit = (ex.contra || []).filter((id) => client.medical?.includes(id));
+  for (const id of hit) {
+    const cond = MEDICAL_CONDITIONS.find((c) => c.id === id);
+    reasons.push(`מגבלה רפואית: ${cond?.label || id}`);
+  }
+  if (!(ex.eq || []).some((eq) => client.equipment?.includes(eq))) reasons.push('אין ציוד מתאים');
+  if (client.level === 'beginner' && ex.lvl === 'advanced') reasons.push('רמה גבוהה מדי למתחיל');
+  return reasons;
+}
+
 // טווחים סבירים לכרטיס המתאמן (גובה בס"מ, משקל בק"ג)
 export const CLIENT_LIMITS = {
   age: { min: 5, max: 120, label: 'גיל', unit: '' },

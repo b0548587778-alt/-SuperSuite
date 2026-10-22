@@ -107,6 +107,9 @@ function recalcGold() {
     html += verdictHTML(profit, margin);
   }
 
+  // "מאין הסכום?" — מספרים מתוך אותו v שממנו נבנתה התוצאה
+  html += explainGold(g, v, asking && asking > 0 ? asking : null);
+
   html += `
     <div class="tip-box">
       <div class="tip-title">◆ טיפ סוחרים</div>
@@ -117,5 +120,6 @@ function recalcGold() {
   `;
 
   r.innerHTML = html;
+  explainAttach('#g-result');
   $('#g-save').hidden = !asking;
 }

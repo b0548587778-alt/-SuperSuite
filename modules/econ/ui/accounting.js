@@ -325,7 +325,9 @@ function renderAcctJournal(d) {
   const entries = Array.isArray(d?.entries) ? d.entries : [];
   const names = Object.fromEntries((d?.chart || []).map(a => [a.code, a.name]));
   return `
-    <div class="acct-header"><h3>רשומות יומן (${entries.length})</h3><button class="secondary" id="acctCsvJournal">ייצוא יומן ל-Excel</button></div>
+    <div class="acct-header"><h3>רשומות יומן (${entries.length})</h3><div class="acct-actions">
+      <button class="secondary" id="acctCaptureBtn">🧾 קליטת חשבונית ספק</button>
+      <button class="secondary" id="acctCsvJournal">ייצוא יומן ל-Excel</button></div></div>
     ${entries.length === 0 ? renderEmpty('אין רשומות יומן עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל') : ''}
     ${entries.map(e => `
       <div class="card ${e.reversedBy || e.reversalOf ? 'muted-card' : ''}">
@@ -669,6 +671,114 @@ async function handlePdf(id) {
   } catch (error) {
     showError('שגיאה בהפקת PDF: ' + errMsg(error));
   }
+}
+
+// ---------- קליטת חשבונית ספק (שלבים 2–3): הקלדה → טיוטת פקודת יומן לאישור ----------
+// החישוב כולו בשרת (core/invoiceCapture.js; מע"מ = סה"כ פחות נטו). הטיוטה אינה נשמרת —
+// "רישום ביומן" הוא הקריאה הרגילה createEntry, עם כל הבדיקות שלה.
+const CAPTURE_FIELDS = [
+  { name: 'supplierName', label: 'שם הספק', type: 'text' },
+  { name: 'supplierTaxId', label: 'ע.מ / ח.פ של הספק (לדוח המע"מ המפורט)', type: 'text' },
+  { name: 'docNumber', label: 'מספר החשבונית', type: 'text' },
+  { name: 'date', label: 'תאריך החשבונית', type: 'date' },
+  { name: 'gross', label: 'סה"כ לתשלום — כולל מע"מ (₪)', type: 'text' },
+  { name: 'net', label: 'סכום לפני מע"מ (₪) — ריק: מחושב מהסכום הכולל', type: 'text' },
+  { name: 'vat', label: 'מע"מ (₪) — ריק: סה"כ פחות נטו', type: 'text' },
+  { name: 'exempt', label: 'פטור ממע"מ', type: 'select', options: [{ value: '', label: 'לא' }, { value: 'yes', label: 'כן — אין מע"מ' }] },
+  { name: 'expenseAccount', label: 'חשבון ההוצאה', type: 'select', options: [] },
+  { name: 'allocation', label: 'מספר הקצאה — אם רשות המסים הנפיקה (אופציונלי)', type: 'text' },
+  { name: 'memo', label: 'תיאור ברשומה (אופציונלי)', type: 'text' }
+];
+
+function captureInput() {
+  const read = (name) => {
+    const el = document.getElementById('f_' + name);
+    return el ? el.value.trim() : '';
+  };
+  const input = {};
+  for (const name of ['supplierName', 'supplierTaxId', 'docNumber', 'date', 'gross', 'net', 'vat', 'allocation', 'memo']) {
+    const v = read(name);
+    if (v !== '') input[name] = v;
+  }
+  input.exempt = read('exempt') === 'yes';
+  input.expenseAccount = read('expenseAccount');
+  return input;
+}
+
+async function openCaptureInvoice() {
+  const fields = CAPTURE_FIELDS.map(f => ({ ...f }));
+  fields.find(f => f.name === 'date').value = today();
+  try {
+    // רשימת חשבונות ההוצאה — מתוכנית החשבונות, כמו בשאר הטפסים (קריאה בלבד, בלי ערוץ חדש)
+    const chart = await window.systemAPI.getChart();
+    const expense = (chart || []).filter(a => a && a.type === 'expense' && /^\d{4,6}$/.test(String(a.code)));
+    if (expense.length === 0) {
+      showError('אין בחשבון הוצאות בתוכנית החשבונות — יש להוסיף חשבון הוצאה לפני קליטת חשבונית');
+      return;
+    }
+    fields.find(f => f.name === 'expenseAccount').options =
+      [{ value: '', label: '— בחירה —' }, ...accountOptions(expense)];
+  } catch (error) {
+    showError('שגיאה בטעינת תוכנית החשבונות: ' + errMsg(error));
+    return;
+  }
+  state.subForm = null;
+  showModal('קליטת חשבונית ספק', buildFormHtml(fields) + `<div class="acct-actions">
+      <button type="button" class="primary" id="captureDraftBtn">הכנת הטיוטה</button>
+    </div>
+    <p class="muted">הסכומים מחושבים באגורות; המע"מ = סה"כ פחות נטו. הטיוטה מוצגת לאישור ואינה נשמרת — הרישום רק בלחיצה על "רישום ביומן".</p>`);
+  const btn = document.getElementById('captureDraftBtn');
+  if (btn) btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const result = await window.systemAPI.captureInvoice(captureInput());
+      showCapturePreview(result);
+    } catch (error) { showError('שגיאה בהכנת הטיוטה: ' + errMsg(error)); }
+    finally { btn.disabled = false; }
+  });
+}
+
+function showCapturePreview(result) {
+  const entry = result && result.entry;
+  if (!entry) { showError('לא התקבלה טיוטה'); return; }
+  const amt = result.amountsAg || {};
+  const linesHtml = (entry.lines || []).map(l => `<div class="acct-row"><span>${esc(l.account)} ${esc(l.memo || '')}</span>
+      <span>${l.debit ? 'חובה ' + money(l.debit) : 'זכות ' + money(l.credit)}</span></div>`).join('');
+  const warnings = (result.warnings || []).map(w => `<li>${esc(w)}</li>`).join('');
+  const suggestion = result.suggestion
+    ? `<p>חשבון ההוצאה שהיה בשימוש לאחרונה אצל ספק זה: ${esc(result.suggestion.account)}${result.suggestion.times > 1 ? ` (${result.suggestion.times} פעמים)` : ''}</p>`
+    : '';
+  showModal('טיוטת פקודת יומן — לאישור', `
+    <h4>${esc(entry.description)}</h4>
+    <small>${esc(entry.date)} · נטו ${agMoney(amt.net)} · מע"מ ${agMoney(amt.vat)} · סה"כ ${agMoney(amt.gross)}</small>
+    <div class="acct-lines">${linesHtml}</div>
+    ${suggestion}
+    ${warnings ? `<div class="card-warning"><b>יש לבדוק לפני הרישום:</b><ul>${warnings}</ul></div>` : ''}
+    ${entry.vatDoc ? '<p class="muted">פרטי החשבונית יירשמו גם לדוח המע"מ המפורט (PCN874).</p>'
+      : '<p class="muted">בלי ע.מ/ח"פ של הספק (9 ספרות) החשבונית לא תיכנס לדוח המע"מ המפורט.</p>'}
+    <div class="acct-actions">
+      <button type="button" class="primary" id="captureSaveBtn">רישום ביומן</button>
+    </div>
+    <p class="muted">הרישום עובר את אותה בדיקה של רשומת יומן רגילה (מאזן, חשבונות, תקופה נעולה).</p>`);
+  const save = document.getElementById('captureSaveBtn');
+  if (save) save.addEventListener('click', async () => {
+    if (!(await askConfirm('לרשום את החשבונית ביומן? הסכומים נלקחים מהטיוטה שהוצגה.'))) return;
+    save.disabled = true;
+    try {
+      await window.systemAPI.createEntry(entry);
+      closeModal();
+      showToast('החשבונית נרשמה ביומן');
+      await switchView('acct-journal');
+    } catch (error) {
+      showError('שגיאה ברישום: ' + errMsg(error));
+      save.disabled = false;
+    }
+  });
+}
+
+async function handleCaptureInvoice() {
+  try { await openCaptureInvoice(); }
+  catch (error) { showError('שגיאה בקליטת החשבונית: ' + errMsg(error)); }
 }
 
 async function fillAccountSelects(schema) {

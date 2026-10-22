@@ -4,7 +4,10 @@ import { GOALS } from '../data/constants.js';
 import { S, K } from '../lib/db.js';
 import { TodayPanel } from '../studio.jsx';
 import * as St from '../lib/studio.js';
+import * as At from '../lib/attendance.js';
+import { copyToClipboard } from '../lib/sharing.js';
 import { FONT_HEADING, FONT_BODY, Btn, Card, Field, Input, Textarea } from '../components/legacy-ui.jsx';
+import { Modal } from '../components/ui.jsx';
 import { askConfirm } from '../lib/dialog.js';
 
 
@@ -76,8 +79,11 @@ export function TrainerSetup({ onSave }) {
 
 export function Dashboard({ clients, trainer, setView }) {
   const [stats, setStats] = useState({ sessionsWeek: 0, sessionsMonth: 0, inactive: [] });
+  const [att, setAtt] = useState({ ready: false, rows: [], atRisk: [], dropped: [], avgRate: null });
+  const [draft, setDraft] = useState(null);
 
-  // נוכחות ביומן + רישום ביצוע בתוכנית (lib/studio.js → trainingOverview), לפי היום המקומי
+  // נוכחות ביומן + רישום ביצוע בתוכנית (lib/studio.js → trainingOverview), לפי היום המקומי.
+  // מאותו יומן נגזר גם דוח הנוכחות והנטישה (lib/attendance.js) — בלי קריאה נוספת
   useEffect(() => {
     (async () => {
       const schedule = await S.get(K.schedule);
@@ -86,10 +92,15 @@ export function Dashboard({ clients, trainer, setView }) {
         const sess = await S.get(K.sessions(c.id));
         sessionsByClient[c.id] = Array.isArray(sess) ? sess : [];
       }
-      const r = St.trainingOverview({ clients, schedule: Array.isArray(schedule) ? schedule : [], sessionsByClient, today: St.todayStr() });
+      const list = Array.isArray(schedule) ? schedule : [];
+      const today = St.todayStr();
+      const r = St.trainingOverview({ clients, schedule: list, sessionsByClient, today });
       setStats({ ...r, inactive: r.inactive.slice(0, 5) });
+      setAtt({ ready: true, ...At.attendanceSummary({ clients, schedule: list, sessionsByClient, today }) });
     })();
   }, [clients]);
+
+  const attention = [...att.atRisk, ...att.dropped].slice(0, 5);
 
   const goalCounts = useMemo(() => {
     const counts = {};
@@ -171,6 +182,59 @@ export function Dashboard({ clients, trainer, setView }) {
           )}
         </Card>
       </div>
+
+      {/* נוכחות ונטישה — שלוש היעדרויות רצופות / שלושה שבועות בלי אימון, עם הודעה מוכנה */}
+      <Card className="mb-6 md:mb-8">
+        <div className="flex items-baseline justify-between gap-3 flex-wrap mb-4">
+          <h3 className="text-sm text-slate-400 tracking-wide">נוכחות ונטישה</h3>
+          <span className="text-xs text-slate-500">
+            {att.avgRate === null ? 'אין נתוני נוכחות עדיין' : `נוכחות ממוצעת ${att.avgRate}%`}
+          </span>
+        </div>
+        {attention.length === 0 ? (
+          <div className="text-slate-500 text-sm">
+            {!att.ready ? 'טוען…' : clients.length === 0 ? 'אין מתאמנים עדיין' : 'אין מתאמנים בסיכון נטישה ✓'}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {attention.map((r) => {
+              const msg = At.readyMessage({ row: r, trainer });
+              return (
+                <div key={r.id} className="flex items-center justify-between gap-3 flex-wrap p-2 rounded-lg bg-slate-800/40">
+                  <button
+                    onClick={() => setView({ name: 'client-detail', id: r.id })}
+                    className="text-right grow min-w-0"
+                  >
+                    <div className="text-sm">{r.name}</div>
+                    <div className={`text-xs ${r.atRisk ? 'text-amber-400' : 'text-red-400'}`}>{At.attendanceHeadline(r)}</div>
+                  </button>
+                  {msg && (
+                    <div className="flex gap-2">
+                      <Btn size="sm" variant="outline" onClick={() => setDraft({ title: msg.title + ' — ' + r.name, message: msg.message })}>הודעה מוכנה</Btn>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="text-xs text-slate-500 mt-3">שום הודעה לא נשלחת לבד — ההודעה מוצגת להעתקה, ואתה מחליט.</div>
+      </Card>
+
+      <Modal open={!!draft} onClose={() => setDraft(null)} title={draft?.title || 'הודעה מוכנה'}>
+        {draft && (
+          <div className="space-y-3">
+            <div className="whitespace-pre-wrap text-sm bg-slate-800/50 border border-slate-800 rounded-lg p-3">{draft.message}</div>
+            <div className="flex gap-2 justify-end">
+              <Btn variant="outline" onClick={() => setDraft(null)}>סגירה</Btn>
+              <Btn variant="primary" onClick={async () => {
+                if (await copyToClipboard(draft.message)) setDraft(null);
+              }}>העתקת ההודעה</Btn>
+            </div>
+            <div className="text-xs text-slate-500">ההודעה לא נשלחת מכאן — היא מועתקת, וכך אפשר לשלוח אותה בעצמך בדרך שנוחה לך.</div>
+          </div>
+        )}
+      </Modal>
 
       <div className="flex gap-2 flex-wrap">
         <Btn variant="primary" onClick={() => setView({ name: 'client-new' })}>+ מתאמן חדש</Btn>

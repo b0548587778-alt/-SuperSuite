@@ -79,6 +79,9 @@ function recalcDiamond() {
     html += verdictHTML(profit, margin);
   }
 
+  // "מאין הסכום?" — מחיר הבסיס לקראט והמקדמים, מתוך אותו v
+  html += explainDiamond(d, carat, v, askingIls);
+
   html += `
     <div class="tip-box">
       <div class="tip-title">✦ אזהרות יהלומים 2026</div>
@@ -93,6 +96,7 @@ function recalcDiamond() {
     </div>
   `;
   r.innerHTML = html;
+  explainAttach('#d-result');
   $('#d-save').hidden = !askingIls;
 }
 
@@ -185,6 +189,9 @@ function recalcWatch() {
     html += verdictHTML(profit, margin);
   }
 
+  // "מאין הסכום?" — המחיר שהוקלד והמקדמים, מתוך אותו watchValue
+  html += explainWatch(w, { brand, cond, papers, service, estValue, wholesale });
+
   html += `
     <div class="tip-box">
       <div class="tip-title">◔ טיפים שעוני יוקרה</div>
@@ -200,5 +207,6 @@ function recalcWatch() {
     </div>
   `;
   r.innerHTML = html;
+  explainAttach('#w-result');
   $('#w-save').hidden = !w.asking;
 }

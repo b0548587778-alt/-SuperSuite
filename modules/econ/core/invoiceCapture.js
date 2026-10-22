@@ -1,0 +1,183 @@
+// קליטת חשבונית ספק — מנתונים שהוקלדו (או שיועלו בעתיד מ-OCR) לטויוטת פקודת יומן.
+// פונקציות טהורות: אין require ואין רשת (הקובץ נכלל גם בגרסת אנדרואיד).
+// הכללים:
+//  - החישוב באגורות (מספרים שלמים); המע"מ = סה"כ פחות נטו, כך שסה"כ תמיד שווה לסכום ששולם.
+//  - אין המצאה: שדה חסר או סתירה בין הסכומים — אזהרה, לא ניחוש.
+//  - הפלט הוא טיוטה בלבד. השמירה ביומן רק דרך acct:createEntry (validateEntry), לא כאן.
+'use strict';
+
+const pts = 100; // אגורות בשקל
+const toAg = (n) => Math.round(Number(n) * pts);
+
+// קודי חשבונות מערכתיים — עותק מקומי של SYS ב-core/accounting.js (הקובץ הזה טהור)
+const SYS = { INPUT_VAT: '1300', AP: '2000' };
+
+// ניקוי קלט משתמש: תווי בקרה הופכים לרווח, והטקסט נחתך
+const str = (v, max) => String(v === undefined || v === null ? '' : v)
+  .replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max || 200);
+
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+
+// מספר הקצאה: 9 ספרות, ונקרא כמספר (אפסים מובילים נופלים). הבדיקה מול הסף לפי תאריך
+// היא באחריות core/allocation.js — כאן רק מחזירים את מה שהוקלד, בלי לפסוק
+function allocationNumber(v) {
+  const digits = String(v === undefined || v === null ? '' : v).replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.length > 9) throw new Error('מספר ההקצאה חייב להכיל עד 9 ספרות');
+  return Number(digits);
+}
+
+// סכום בשקלים שהוקלד (או מספר) ← אגורות; ריק = null
+function agOrNull(v, label) {
+  if (v === undefined || v === null || String(v).trim() === '') return null;
+  const ag = toAg(String(v).trim().replace(/[,\s₪]/g, ''));
+  if (!Number.isSafeInteger(ag) || ag < 0) throw new Error(`${label}: סכום לא תקין`);
+  return ag;
+}
+
+/**
+ * בונה טיוטת פקודת יומן לחשבונית ספק.
+ * @param {object} input
+ *   supplierName, supplierTaxId (ת"ז/ח"פ), docNumber, date (YYYY-MM-DD),
+ *   gross (סה"כ כולל מע"מ — חובה), net (לפני מע"מ, רשות), vat (מע"מ, רשות),
+ *   exempt (פטור ממע"מ), vatRate (0<r<1), expenseAccount (קוד 4-6 ספרות),
+ *   allocation, memo
+ * @param {object} options  { vatRate, expenseAccounts } — שיעור ברירת מחדל ורשימת קודי חשבונות הוצאה
+ * @returns {{ entry, warnings, supplier: {name, taxId}, docNumber, allocation, totalAg }}
+ */
+function draftEntry(input, options = {}) {
+  const data = input && typeof input === 'object' ? input : {};
+  const warnings = [];
+
+  const supplierName = str(data.supplierName, 120);
+  const supplierTaxId = String(data.supplierTaxId === undefined || data.supplierTaxId === null ? '' : data.supplierTaxId)
+    .replace(/\D/g, '').slice(0, 9);
+  const docNumber = str(data.docNumber, 40);
+  const date = String(data.date || '').trim();
+
+  if (!isDate(date)) throw new Error('תאריך החשבונית חסר או לא תקין (YYYY-MM-DD)');
+
+  const grossAg = agOrNull(data.gross, 'סה"כ החשבונית');
+  if (grossAg === null || grossAg <= 0) throw new Error('יש להזין את סה"כ החשבונית (כולל מע"מ)');
+
+  const exempt = !!data.exempt;
+  let rate = Number(data.vatRate !== undefined && data.vatRate !== null && data.vatRate !== ''
+    ? data.vatRate : options.vatRate);
+  if (!(rate > 0 && rate < 1)) rate = 0.18;
+
+  const netAg = agOrNull(data.net, 'הסכום לפני מע"מ');
+  const vatAg = agOrNull(data.vat, 'המע"מ');
+
+  // נטו: מה שהוקלד, אחרת נגזר מהסה"כ. מע"מ: תמיד סה"כ פחות נטו — כך אין הפרש אגורה
+  let net;
+  if (netAg === null) {
+    net = exempt ? grossAg : Math.round(grossAg / (1 + rate));
+  } else {
+    net = netAg;
+    if (net > grossAg) throw new Error('הסכום לפני מע"מ גדול מהסה"כ — יש לבדוק את הסכומים');
+  }
+  let vat = grossAg - net;
+  if (exempt) {
+    if (vat !== 0) throw new Error('בחשבונית פטורה ממע"מ סה"כ חייב להיות שווה לסכום לפני מע"מ');
+  } else if (vat <= 0) {
+    throw new Error('החשבונית אינה פטורה אך אין בה מע"מ — יש לבדוק את הסכומים או לסמן "פטור ממע"מ"');
+  }
+  if (vatAg !== null && vatAg !== vat) {
+    warnings.push(`המע"מ שהוקלד (${(vatAg / pts).toFixed(2)}) אינו שווה לסה"כ פחות נטו (${(vat / pts).toFixed(2)}) — נלקח החישוב מהסכומים`);
+  }
+  // הפרש של יותר מאגורה בין נטו × שיעור לבין המע"מ = הסכומים לא מתיישבים
+  if (!exempt && netAg !== null && Math.abs(Math.round(net * rate) - vat) > 1) {
+    warnings.push('הסכומים אינם תואמים לשיעור המע"מ — יש לבדוק את החשבונית מול המסמך');
+  }
+
+  let acc = null;
+  const accCode = str(data.expenseAccount, 10);
+  const allowed = Array.isArray(options.expenseAccounts) ? options.expenseAccounts.map(String) : null;
+  if (accCode) {
+    if (!/^\d{4,6}$/.test(accCode)) throw new Error('קוד חשבון ההוצאה חייב להיות 4-6 ספרות');
+    if (allowed && !allowed.includes(accCode)) throw new Error(`חשבון ${accCode} אינו חשבון הוצאה בתוכנית החשבונות`);
+    acc = accCode;
+  }
+
+  if (!acc) throw new Error('יש לבחור חשבון הוצאה לחשבונית');
+  if (!supplierName) warnings.push('שם הספק חסר — הטיוטה תישמר בלי שם ספק');
+  if (!supplierTaxId) warnings.push('מספר עוסק/ח"פ של הספק חסר — מספר הקצאה לא ייבדק, והדיווח במע"מ לא יזוהה');
+  if (!docNumber) warnings.push('מספר החשבונית חסר');
+
+  let allocation = null;
+  try { allocation = allocationNumber(data.allocation); }
+  catch (error) { warnings.push(error.message); }
+
+  // השורות בשקלים (validateEntry ממיר לאגורות בעצמו); הסכומים כאן כבר מעוגלים באגורות
+  const memo = str(data.memo, 120) || `חשבונית ${docNumber || ''}`.trim();
+  const label = [supplierName, docNumber ? `מס' ${docNumber}` : ''].filter(Boolean).join(' — ').slice(0, 200);
+  // בלי חשבון הוצאה אין טיוטה (נבדק למעלה) — שורה בלי חשבון הייתה נדחית ב-validateEntry אחרי שהמשתמש אישר
+  const lines = [
+    { account: acc, debit: net / pts, credit: 0, memo: memo.slice(0, 120) }
+  ];
+  if (vat > 0) lines.push({ account: SYS.INPUT_VAT, debit: vat / pts, credit: 0, memo: 'מע"מ תשומות' });
+  lines.push({ account: SYS.AP, debit: 0, credit: grossAg / pts, memo: memo.slice(0, 120) });
+
+  const entry = { date, description: label || 'חשבונית ספק', lines };
+  // פרטי החשבונית לדוח המע"מ המפורט (PCN874) — בשמות של validateVatDoc (supplierTaxId / reference / docDate)
+  if (/^\d{9}$/.test(supplierTaxId)) {
+    entry.vatDoc = {
+      supplierTaxId,
+      reference: docNumber.replace(/\D/g, '').slice(-20) || undefined,
+      docDate: date,
+      ...(allocation ? { allocationNumber: String(allocation) } : {})
+    };
+  }
+
+  return {
+    entry,
+    warnings,
+    complete: !!(supplierName && supplierTaxId && docNumber && acc),
+    supplier: { name: supplierName, taxId: supplierTaxId },
+    docNumber,
+    allocation,
+    amountsAg: { net, vat, gross: grossAg }
+  };
+}
+
+// השלמת חשבון ההוצאה מההיסטוריה: ספק מאותו ת"ז/ח"פ או אותו שם — הספרה הנפוצה ביותר
+// (השוויון נשבר לטובת החשבון שנבחר לאחרונה). null כשאין ההיסטוריה מספקת החלטה
+function suggestAccount(input, journal, expenseAccounts) {
+  const data = input && typeof input === 'object' ? input : {};
+  const taxId = String(data.supplierTaxId || '').replace(/\D/g, '');
+  const name = str(data.supplierName, 120);
+  if (!taxId && !name) return null;
+  const allowed = Array.isArray(expenseAccounts) ? new Set(expenseAccounts.map(String)) : null;
+  const counts = new Map();
+  let last = null;
+  for (const e of Array.isArray(journal) ? journal : []) {
+    const doc = e && e.vatDoc;
+    if (!doc || !Array.isArray(e.lines)) continue;
+    const sameId = taxId && String(doc.supplierTaxId || '').replace(/\D/g, '') === taxId;
+    const sameName = name && str(doc.supplierName, 120) === name;
+    if (!sameId && !sameName) continue;
+    for (const line of e.lines) {
+      const code = String(line && line.account || '');
+      if (!(line && line.debit > 0) || !/^\d{4,6}$/.test(code)) continue;
+      if (code === SYS.INPUT_VAT) continue;
+      if (allowed && !allowed.has(code)) continue;
+      counts.set(code, (counts.get(code) || 0) + 1);
+      last = { code, at: String(e.createdAt || e.date || ''), e };
+    }
+  }
+  if (counts.size === 0) return null;
+  let best = null;
+  for (const [code, n] of counts) {
+    if (!best || n > best.n || (n === best.n && last && code === last.code && best.code !== last.code)) best = { code, n };
+  }
+  return { account: best.code, times: best.n, candidates: counts.size };
+}
+
+// רשימת חשבונות ההוצאה לתוכנית החשבונות (מסוננת ומוודאת תקינות — קלט לא מהימן)
+function expenseAccountCodes(accounts) {
+  return (Array.isArray(accounts) ? accounts : [])
+    .filter(a => a && a.type === 'expense' && /^\d{4,6}$/.test(String(a.code)))
+    .map(a => String(a.code));
+}
+
+module.exports = { draftEntry, suggestAccount, expenseAccountCodes, allocationNumber };

@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { DIR, loadShamai } = require('./helpers/shamai-src');
 
-const load = () => loadShamai(['core', 'calc', 'prices', 'appraise-metals', 'appraise-gems', 'appraise-judaica', 'appraise-assets', 'ledger']);
+const load = () => loadShamai(['core', 'calc', 'explain', 'prices', 'appraise-metals', 'appraise-gems', 'appraise-judaica', 'appraise-assets', 'ledger']);
 
 test('בלי מחיר למ"ר — אין שווי, ויש הפניה לשמאות המקצועית', () => {
   const s = load();

@@ -112,6 +112,8 @@ function attachViewHandlers(viewName) {
   });
   const csvJ = document.getElementById('acctCsvJournal');
   if (csvJ) csvJ.addEventListener('click', () => handleCsv('journal'));
+  const captureBtn = document.getElementById('acctCaptureBtn');
+  if (captureBtn) captureBtn.addEventListener('click', () => handleCaptureInvoice());
   document.querySelectorAll('[data-action="pdf"]').forEach(btn => {
     btn.addEventListener('click', () => handlePdf(btn.dataset.id));
   });
@@ -134,6 +136,7 @@ function attachViewHandlers(viewName) {
   if (viewName === 'mortgage-lab') attachLabHandlers();
   if (viewName === 'realty') attachRealtyHandlers();
   if (viewName === 'realestate') attachRealEstateHandlers();
+  if (viewName === 'ai') attachAiHandlers(elements.view);
 
   // תיבת חיפוש
   const searchInput = document.getElementById('viewSearch');

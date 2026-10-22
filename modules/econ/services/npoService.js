@@ -7,6 +7,7 @@ const DI = require('../core/donationImport');
 const MEM = require('../core/memorials');
 const CMP = require('../core/campaigns');
 const MSV = require('../core/masav');
+const L = require('../core/npoLetters');
 
 // פרטי חשבון הבנק לא יוצאים לממשק — רק מסיכה
 const withoutBank = ({ bankAccount, ...o }) => ({ ...o, bankMasked: MSV.maskAccount(bankAccount) });
@@ -477,6 +478,25 @@ class NpoService {
   async getDonorFile(donorKey, year) {
     const { npo } = await this._load();
     return { statement: N.donorAnnualStatement(npo.donations, npo.settings, donorKey, year), donations: N.donorYearDonations(npo.donations, donorKey, year) };
+  }
+
+  // ---------- מכתבים ותבניות (שלב 3) — טיוטה בלבד, לא נשמרת ואינה משנה נתונים ----------
+  async getThankYouLetter(donorKey, year, options) {
+    const { npo } = await this._load();
+    const statement = N.donorAnnualStatement(npo.donations, npo.settings, donorKey, year);
+    return { letter: L.thankYouLetter(statement, options || {}), org: npo.settings };
+  }
+
+  async getAnnualNarrative(year, options) {
+    const { npo } = await this._load();
+    const report = N.annualReport(npo.donations, npo.grants, npo.settings, Number(year) || new Date().getFullYear());
+    return { letter: L.annualNarrative(report, options || {}), org: npo.settings };
+  }
+
+  async getGrantDraft(year, input) {
+    const { npo } = await this._load();
+    const report = N.annualReport(npo.donations, npo.grants, npo.settings, Number(year) || new Date().getFullYear());
+    return { letter: L.grantDraft(report, input || {}), org: npo.settings };
   }
 
   async getDonation(donationId) {

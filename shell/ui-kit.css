@@ -103,6 +103,7 @@
 .ss-card > .ss-section-title:first-child, .ss-card > h3:first-child, .ss-card > h4:first-child { margin-top: 0; }
 .ss-hint { margin: var(--ss-sp-1) 0 var(--ss-sp-3); color: var(--ss-muted); font-size: var(--ss-fs-sm); }
 .ss-muted { color: var(--ss-muted); }
+.ss-pre { white-space: pre-line; overflow-wrap: anywhere; }
 .ss-text-danger { color: var(--ss-danger-ink); }
 .ss-toolbar { display: flex; flex-wrap: wrap; gap: var(--ss-sp-2); align-items: center; margin: var(--ss-sp-3) 0; }
 .ss-toolbar > .ss-input[type="search"] { flex: 1 1 220px; width: auto; }

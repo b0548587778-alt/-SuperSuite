@@ -638,7 +638,14 @@ function wireSecureStore() {
 /* ---------- מסד נתונים פגום או נעול בעלייה (PLAN.md 2.3) ----------
    נעול ← "נסו שוב". פגום ← שחזור מהגיבוי האוטומטי האחרון למסד חדש; הפגום מועבר הצידה, לא נמחק.
    מחזיר true אם המערכת הכלכלית עלתה, false ליציאה. */
-const econInitOptions = () => ({ isRestTime: syncPaused, dbOptions: dbAtRestOptions(), trainerData: trainerDataForEcon });
+const econInitOptions = () => ({
+  isRestTime: syncPaused,
+  dbOptions: dbAtRestOptions(),
+  trainerData: trainerDataForEcon,
+  // עוזר ה-AI: מפתח הגיבוי להצפנת ההעדפות (קריאה לא יוצרת מפתח), ופתיחת מודול — לפי הרישיון של ההתקנה
+  aiOptions: () => ({ getBackupKey: (create) => autoBackupKey(create) }),
+  moduleLicensed: (mod) => LG.moduleAllowed(licenseNow(), mod),
+});
 const openAutoBackup = (file) => JSON.parse(BK.decryptBackup(fs.readFileSync(file, 'utf8'), autoBackupKey(false)));
 async function recoverDatabase(firstErr) {
   let err = firstErr;

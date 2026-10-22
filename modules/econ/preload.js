@@ -118,6 +118,8 @@ contextBridge.exposeInMainWorld('systemAPI', {
   addAccount: (account) => ipcRenderer.invoke('acct:addAccount', account),
   getJournal: (range) => ipcRenderer.invoke('acct:getJournal', range),
   createEntry: (entry) => ipcRenderer.invoke('acct:createEntry', entry),
+  // קליטת חשבונית ספק — מחזיר טיוטה בלבד; השמירה רק ב-createEntry
+  captureInvoice: (input) => ipcRenderer.invoke('acct:captureInvoice', input),
   reverseEntry: (entryId) => ipcRenderer.invoke('acct:reverseEntry', entryId),
   getInvoices: () => ipcRenderer.invoke('acct:getInvoices'),
   createInvoice: (invoice) => ipcRenderer.invoke('acct:createInvoice', invoice),
@@ -214,6 +216,13 @@ contextBridge.exposeInMainWorld('systemAPI', {
   deleteNpoStandingOrder: (id) => ipcRenderer.invoke('npo:deleteStandingOrder', id),
   exportNpoCsv: (kind, year) => ipcRenderer.invoke('npo:exportCsv', kind, year),
   exportNpoReceiptPdf: (id) => ipcRenderer.invoke('npo:exportReceiptPdf', id),
+  // מכתבים ותבניות (שלב 3) — טיוטה לתצוגה בלבד; ה-PDF נשמר בקובץ שהמשתמש בוחר
+  getNpoThankYouLetter: (donorKey, year, options) => ipcRenderer.invoke('npo:getThankYouLetter', donorKey, year, options),
+  exportNpoThankYouPdf: (donorKey, year, options) => ipcRenderer.invoke('npo:exportThankYouPdf', donorKey, year, options),
+  getNpoAnnualNarrative: (year, options) => ipcRenderer.invoke('npo:getAnnualNarrative', year, options),
+  exportNpoAnnualNarrativePdf: (year, options) => ipcRenderer.invoke('npo:exportAnnualNarrativePdf', year, options),
+  getNpoGrantDraft: (year, input) => ipcRenderer.invoke('npo:getGrantDraft', year, input),
+  exportNpoGrantDraftPdf: (year, input) => ipcRenderer.invoke('npo:exportGrantDraftPdf', year, input),
 
   // גמ"ח
   getGemachOverview: (asOf) => ipcRenderer.invoke('gemach:getOverview', asOf),
@@ -456,6 +465,18 @@ contextBridge.exposeInMainWorld('systemAPI', {
   importData: (kind, csvText) => ipcRenderer.invoke('ports:import', kind, csvText),
   importContactsVcard: (text) => ipcRenderer.invoke('ports:importVcard', text),
   exportContactsVcard: () => ipcRenderer.invoke('ports:exportVcard'),
+
+  // עוזר ה-AI — „שאל את התוכנה”. מקומי, ללא רשת; ההרשאה והרישיון נבדקים בתהליך הראשי
+  aiStatus: () => ipcRenderer.invoke('ai:status'),
+  aiModules: () => ipcRenderer.invoke('ai:modules'),
+  aiSample: () => ipcRenderer.invoke('ai:sample'),
+  aiRun: (question, extra) => ipcRenderer.invoke('ai:run', question, extra),
+  aiExplain: (payload) => ipcRenderer.invoke('ai:explain', payload),
+  aiOpen: (target) => ipcRenderer.invoke('ai:open', target),
+  aiPrefsGet: () => ipcRenderer.invoke('ai:prefs:get'),
+  aiPrefsSave: (patch) => ipcRenderer.invoke('ai:prefs:save', patch),
+  aiConsent: (consented) => ipcRenderer.invoke('ai:consent', consented === true),
+  aiContext: (context) => ipcRenderer.invoke('ai:context', context),
 
   // Backup and Restore — רק טקסט מוצפן (SSBK1:) עובר לממשק; גיבוי גלוי לא קיים
   backupEncrypted: (passphrase) => ipcRenderer.invoke('data:backupEncrypted', passphrase),

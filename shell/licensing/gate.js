@@ -44,7 +44,12 @@ function peopleSources(state) {
   return Object.keys(PEOPLE_SOURCES).filter(s => have.has(PEOPLE_SOURCES[s]));
 }
 
+// 'ai.cloud' הוא שדרוג על 'ai' — רישיון עם שדרוג הענן בלבד פותח גם את העוזר המקומי
+const satisfies = (have, feature) => have.has(feature) || (feature === 'ai' && have.has('ai.cloud'));
+
 function featuresForChannel(channel) {
+  // עוזר ה-AI הוא תחום רישוי בפני עצמו — לא תלוי בקיום econ
+  if (String(channel).startsWith('ai:')) return ['ai'];
   const prefix = String(channel).split(':')[0];
   const sub = ECON_SUB_FEATURES[prefix];
   return sub ? ['econ', sub] : ['econ'];
@@ -65,10 +70,17 @@ function checkChannel(state, channel, permission) {
     if (!(READ_ONLY_STATUS.has(state.status) && READ_ONLY_PERMS.has(permission))) return statusMessage(state);
   }
   const have = new Set(state.features || []);
-  const missing = featuresForChannel(channel).filter(f => !have.has(f));
+  const missing = featuresForChannel(channel).filter(f => !satisfies(have, f));
   if (missing.length) return 'התחום הזה אינו כלול ברישיון של המערכת';
   if (String(channel).startsWith('people:') && !peopleSources(state).length) return 'התחום הזה אינו כלול ברישיון של המערכת';
   return null;
+}
+
+// תחום כלכלי נפרד (econ.npo, econ.accounting...) — פתוח אם הרישיון כולל אותו או את 'econ' עצמו
+function featureOpen(state, feature) {
+  if (!state || state.mode === 'unlicensed') return true;
+  const have = new Set(state.features || []);
+  return have.has(feature) || have.has('econ');
 }
 
 function moduleAllowed(state, mod) {
@@ -105,4 +117,4 @@ function checkUserLimit(state, activeCount) {
   return null;
 }
 
-module.exports = { MODULE_FEATURES, ECON_SUB_FEATURES, PEOPLE_SOURCES, ALWAYS_VIEWS, peopleSources, featuresForChannel, checkChannel, moduleAllowed, viewAllowed, shellState, checkUserLimit, statusMessage };
+module.exports = { MODULE_FEATURES, ECON_SUB_FEATURES, PEOPLE_SOURCES, ALWAYS_VIEWS, peopleSources, featuresForChannel, checkChannel, featureOpen, moduleAllowed, viewAllowed, shellState, checkUserLimit, statusMessage };

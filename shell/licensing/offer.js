@@ -6,7 +6,7 @@ const OFFER_TYPE = 'supersuite-offer';
 const MAX_PLANS = 20;
 const MAX_TERMS = 100000;
 const FEATURES = ['econ', 'econ.accounting', 'econ.npo', 'econ.gemach', 'econ.chesed', 'econ.mortgage', 'econ.mortgage-advisor', 'econ.mortgage-lab', 'econ.realestate',
-  'shamai', 'trainer', 'tools'];
+  'shamai', 'trainer', 'tools', 'ai', 'ai.cloud'];
 
 const clean = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, max);
 

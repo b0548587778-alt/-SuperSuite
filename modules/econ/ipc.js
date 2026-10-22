@@ -2,6 +2,7 @@
 const { ipcMain, dialog, BrowserWindow, safeStorage } = require('electron');
 const fs = require('fs');
 const X = require('./core/exports');
+const L = require('./core/npoLetters'); // מכתבים לעמותה — טהור; כאן רק לעטיפת HTML ל-PDF
 const { initializeDatabase, issuedAfter, defaults: DB_DEFAULTS } = require('./core/database');
 const ModCounters = require('../../shell/module-counters');
 const { AuthService: authService } = require('./services/authService');
@@ -59,6 +60,8 @@ const PK = require('../../shell/licensing/prekeys');
 const OF = require('../../shell/licensing/offer');
 const ACT = require('../../shell/licensing/activation');
 const LIC = require('../../shell/licensing/license');
+const AI = require('../../shell/ai');
+const AI_RULES = require('../../shell/ai/rules'); // טהור — לזיהוי התחום ולקביעת התקופה, כדי שהסיכום והתשובה יתאימו
 
 let db;
 let licenseStore = null;
@@ -100,6 +103,14 @@ function withActivation(s) {
 let clockNow = () => Date.now();
 // מקור תשלומי האימונים (main.js): (senderId) ← נתוני מחסן האימונים. בלי מקור (אנדרואיד, בדיקות) — לא זמין
 let trainerSource = null;
+// עוזר ה-AI (shell/ai): { status, prefsGet, prefsSave, run, explain } — נבנה ב-initEcon, ושומר את העדפותיו
+let aiAssistant = null;
+let aiOptions = null;
+// רשימת המודולים לכניסה בעוזר — מוגבלת לרישיון ההתקנה (ופה אין את לקוח השרת) — בלי פונקציה (אנדרואיד, בדיקות) המודול סגור
+let moduleLicensed = null;
+// הקשר זמני לעוזר ה-AI (מקום אחד לכל חלון): { shamai, trainer } — נמחק אחרי כל שאלה ואינו נשמר לדיסק
+const aiContextBySender = new Map();
+let aiUserDataPath = '';
 // כניסה/קישור עם Google שאומתו מול Google — תנאי ההפעלה מתעדכן, והמערכת נפתחת מיד אם זה היה התנאי החסר
 function markGoogleActivation() {
   if (!licenseStore) return;
@@ -149,10 +160,15 @@ function licenseAdapters(userDataPath) {
 let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
-async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, relayUrl = DEFAULT_RELAY_URL, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
-  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, trainerData, googleClient } = {}) {
+async function initEcon(userDataPath, opts = {}) {
+  aiContextBySender.clear();
+  const { rootKeys = ROOT_KEYS, relayUrl = DEFAULT_RELAY_URL, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
+  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, trainerData, googleClient } = opts;
   restTime = isRestTime;
   trainerSource = typeof trainerData === 'function' ? trainerData : null;
+  // שם הפרמטר חופף למשתנה הגלובלי — כאן מעדכנים רק את הגלובלי (הצהרה מחודשת הייתה אסורה)
+  aiOptions = typeof opts.aiOptions === 'function' ? opts.aiOptions : null;
+  moduleLicensed = typeof opts.moduleLicensed === 'function' ? opts.moduleLicensed : null;
   clockNow = clock || (() => Date.now());
   googleDeps = { signIn: googleSignIn || GS.signIn, fetchImpl: fetchImpl || globalThis.fetch,
     openBrowser: openExternal || ((url) => { const sh = require('electron').shell; if (!sh || typeof sh.openExternal !== 'function') throw new Error('כניסה עם Google אינה זמינה במכשיר הזה'); return sh.openExternal(url); }) };
@@ -184,6 +200,15 @@ async function initEcon(userDataPath, { rootKeys = ROOT_KEYS, relayUrl = DEFAULT
     ownerPrekeys: PK.createPrekeyStore({ storage: ownerPrekeyStorage || ad.ownerPrekeys, clock: clock || Date.now }) });
   // dbOptions: הצפנת המסד (PLAN.md 3.1) — המפתח והגיבוי לפני ההמרה מגיעים מ-main.js
   db = await initializeDatabase(userDataPath, dbOptions);
+  // עוזר ה-AI: מקבל את מפתח הגיבוי האוטומטי דרך aiOptions (קריאה לא יוצרת מפתח). בלי find-backupKey — אין העדפות שמורות וקוראים ברירת מחדל
+  const aiOpts = (aiOptions ? aiOptions() : null) || {};
+  aiUserDataPath = userDataPath;
+  aiAssistant = AI.createAI({
+    userDataPath,
+    getBackupKey: typeof aiOpts.getBackupKey === 'function' ? aiOpts.getBackupKey : () => null,
+    onError: (scope, e) => errorLogger(scope, e),
+    clock: () => clockNow(),
+  });
   authService.initialize(db);
   financialService.initialize(db);
   marketIntelService.initialize(db);
@@ -248,15 +273,28 @@ function permissionFor(channel) {
   if (channel === 'rlty:readTaxTableFile') return 'data.edit';
   // מיפוי מאגרים ומזעור נתונים (תיקון 13) — מנהל בלבד
   if (channel.startsWith('privacy:')) return 'users.manage';
+  // מכתבים לעמותה: הכנת הטיוטה — קריאה בלבד (לא נשמר דבר); שמירה ל-PDF — ייצוא
+  if (channel === 'npo:getThankYouLetter' || channel === 'npo:getAnnualNarrative' || channel === 'npo:getGrantDraft') return 'data.view';
+  if (/^npo:(exportThankYou|exportAnnualNarrative|exportGrantDraft)Pdf$/.test(channel)) return 'data.export';
   // רישוי: התקנה, הנפקת מערכות בת והשבתתן — מנהל בלבד. מצב הרישיון — לכל משתמש מחובר
   if (channel.startsWith('license:') && channel !== 'license:getStatus') return 'users.manage';
   if (channel.startsWith('owner:')) return 'users.manage';
+  // עוזר ה-AI: קריאה — לכל משתמש; שאלה — עריכה (מוגבלת לקריאה בכל מקרה); שינוי העדפות, הסכמה לענן ובדיקת הגדרות — מנהל בלבד
+  if (channel === 'ai:status' || channel === 'ai:prefs:get' || channel === 'ai:modules' || channel === 'ai:sample' || channel === 'ai:explain') return 'data.view';
+  if (channel === 'ai:run') return 'data.edit';
+  // העוזר שמבקש תצוגה אחרת (עמותה, שמאות, אימונים) — קריאה בלבד, בלי שינוי דבר
+  if (channel === 'ai:open') return 'data.view';
+  // העברת הקשר זמני (הערכה אחרונה מהשמאות, דוח מן האימונים) — דורש גם הרשאת צפייה בחשבונות
+  if (channel === 'ai:context') return 'data.view';
+  if (channel.startsWith('ai:')) return 'users.manage';
   // עדכוני גרסה: כל משתמש רואה שיש עדכון; הורדה והתקנה — מנהל בלבד
   if (channel === 'update:getStatus') return 'data.view';
   if (channel.startsWith('update:')) return 'users.manage';
   // גבייה: קישור התשלום קובע לאן נכנס כסף — מנהל בלבד; קליטת דוח וסימון "שולם" — עריכה; ביטול — מחיקה (לפי השם)
   if (channel === 'collect:saveSettings') return 'users.manage';
   if (channel === 'collect:previewImport' || channel === 'collect:getMessage') return 'data.view';
+  // קליטת חשבונית ספק: רק מחזיר טיוטה — לא נכתב דבר (השמירה ב-acct:createEntry, בהרשאת עריכה)
+  if (channel === 'acct:captureInvoice') return 'data.view';
   if (channel === 'collect:importReport') return 'data.edit';
   // הודעות: קריאה — לכל משתמש; שליחה ועריכה — data.edit; מחיקה — data.delete; הגדרות העסק (תשובות אוטומטיות, פרופיל) — מנהל
   if (['chat:overview', 'chat:thread', 'chat:refresh', 'chat:search', 'chat:starred', 'chat:getSettings', 'chat:saveAttachment'].includes(channel)) return 'data.view';
@@ -721,7 +759,14 @@ function registerIpcHandlers() {
     await auditEvent(event, 'acct.entry.create', { id: result && (result.id || result.number) });
     return result;
   });
-  handle('acct:reverseEntry', async (event, entryId) => {
+  // קליטת חשבונית ספק: טיוטה בלבד — אין שמירה בערוץ הזה; השמירה דרך acct:createEntry
+  handle('acct:captureInvoice', async (event, input) => {
+    const result = await accountingService.captureInvoice(input);
+    // ביומן הפעולות אין פרטי ספק — רק שהטיוטה הוכנה (אינה נשמרת בשום מקום)
+    await auditEvent(event, 'acct.capture.draft', {});
+    return result;
+  });
+  handle('acct:reverseEntry',async (event, entryId) => {
     const result = await accountingService.reverseEntry(entryId);
     await auditEvent(event, 'acct.entry.reverse', { id: result && (result.id || result.number) });
     return result;
@@ -1173,6 +1218,31 @@ function registerIpcHandlers() {
     if (d.receipt && d.receipt.external) throw new Error('הקבלה לתרומה זו הופקה בערוץ התרומה עצמו — יש להפיק אותה משם');
     const r = await saveHtmlAsPdf(X.renderDonationReceiptHtml(d), `קבלה-${d.receipt.number}.pdf`);
     if (r.ok) await auditEvent(event, 'npo.receipt.pdf', { receipt: d.receipt.number });
+    return r;
+  });
+  // מכתבים ותבניות (core/npoLetters.js) — טיוטה לתצוגה ולעריכה במסך. שום דבר לא נשמר בשרת.
+  // החישוב על נתוני השנה בלבד דרך המנוע הקיים (donorAnnualStatement / annualReport)
+  handle('npo:getThankYouLetter', async (event, donorKey, year, options) => npoService.getThankYouLetter(donorKey, year, options));
+  handle('npo:getAnnualNarrative', async (event, year, options) => npoService.getAnnualNarrative(year, options));
+  handle('npo:getGrantDraft', async (event, year, input) => npoService.getGrantDraft(year, input));
+  handle('npo:exportThankYouPdf', async (event, donorKey, year, options) => {
+    const { letter, org } = await npoService.getThankYouLetter(donorKey, year, options);
+    const safe = String(letter.donor).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'תורם';
+    const r = await saveHtmlAsPdf(L.renderLetterHtml(letter, org), `מכתב-תודה-${letter.year}-${safe}.pdf`);
+    if (r.ok) await auditEvent(event, 'npo.letters.thankyou.pdf', { year: letter.year });
+    return r;
+  });
+  handle('npo:exportAnnualNarrativePdf', async (event, year, options) => {
+    const { letter, org } = await npoService.getAnnualNarrative(year, options);
+    const r = await saveHtmlAsPdf(L.renderLetterHtml(letter, org), `נרטיב-לדוח-שנתי-${letter.year}.pdf`);
+    if (r.ok) await auditEvent(event, 'npo.letters.narrative.pdf', { year: letter.year });
+    return r;
+  });
+  handle('npo:exportGrantDraftPdf', async (event, year, input) => {
+    const { letter, org } = await npoService.getGrantDraft(year, input);
+    const safe = String(letter.fundName).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'קרן';
+    const r = await saveHtmlAsPdf(L.renderLetterHtml(letter, org), `בקשת-מענק-${safe}.pdf`);
+    if (r.ok) await auditEvent(event, 'npo.letters.grant.pdf', { year: letter.year });
     return r;
   });
 
@@ -2521,6 +2591,178 @@ function registerIpcHandlers() {
   });
   // ערוץ גיבוי גלוי הוסר: גיבוי לא מוצפן לא יוצא מהמערכת. השחזור מקובץ JSON ישן נשאר (המסך הראשי מקבל רק קובץ של התוכנה כולה)
   handle('data:restore', async (event, backupData, opts) => restoreEcon(event, econFromBackup(backupData), opts, false));
+
+  // ===== עוזר ה-AI — „שאל את התוכנה” =====
+  // מקומי בלבד: מנוע הכללים + נתונים שהמנוע הקיים מחזיר. אין רשת, אין מסד חופשי, ואין לוג של שאלות.
+  // כל נתון נכנס להקשר רק כשהתחום פתוח — לפי הרשאת המשתמש וגם לפי הרישיון (ctx.opened ב-rules.js).
+
+  // הזכאות לענן: רישיון עם 'ai.cloud' בלבד. featureOpen נכון ל-fallback ל'econ', ולכן נבדק מפורשות
+  const aiCloudLicensed = (state) => !!state && state.mode === 'licensed'
+    && (state.features || []).includes('ai.cloud') && state.status === 'active';
+  const canRead = (event, perm) => authService.hasPermission(event.sender.id, perm);
+
+  // מה המנוע מתאר למשתמש: התוכנית, ומה פתוח — בלבד
+  // בלי main.js (בדיקות) — רישיון פתוח כמו ההתנהגות הקיימת של LG.moduleAllowed
+  const moduleLicensedFlag = (mod) => (typeof moduleLicensed === 'function' ? moduleLicensed(mod) : LG.moduleAllowed(licenseState(), mod));
+  // תחום עמותה פתוח — אותה בדיקה שהשער עושה בפתיחת ערוץ npo: רישיון (econ.npo או econ) + רשות צפייה
+  const npoOpen = (event) => !LG.checkChannel(licenseState(), 'npo:getOverview', 'data.view') && canRead(event, 'data.view');
+  const aiModules = (event) => ([
+    { id: 'acct', label: 'חשבונאות וחשבוניות', opened: canRead(event, 'data.view') && moduleLicensedFlag('econ') },
+    { id: 'npo', label: 'עמותה ותרומות', opened: npoOpen(event) },
+    { id: 'shamai', label: 'שמאות', opened: moduleLicensedFlag('shamai') && canRead(event, 'data.view') },
+    { id: 'trainer', label: 'אימונים', opened: moduleLicensedFlag('trainer') && canRead(event, 'data.view') },
+  ]);
+
+  // ניקוי טקסט שהגיע מהממשק — בלי תווי בקרה, באורך מוגבל
+  const clipText = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n);
+  // טווח מהממשק — קלט לא מהימן: רק תאריכים בצורה YYYY-MM / YYYY-MM-DD, ותווית קצרה. טווח לא תקין = אין טווח
+  const DATE_SHAPE = /^\d{4}-\d{2}(-\d{2})?$/;
+  function cleanAiRange(raw) {
+    const r = raw && typeof raw === 'object' ? raw : null;
+    if (!r) return null;
+    const from = DATE_SHAPE.test(String(r.from ?? '')) ? String(r.from) : null;
+    const to = DATE_SHAPE.test(String(r.to ?? '')) ? String(r.to) : null;
+    if (!from && !to) return null;
+    return { from, to, label: clipText(r.label, 40) || null };
+  }
+
+  // הקשר מהמנוע הקיים. כל קריאה כפופה להרשאה ולרישיון של התחום שלה
+  // range (אופציונלי) — הטווח המבוקש; הסיכום נטען לתקופה עצמה, לא לכל הזמן
+  async function aiRulesContext(event, today, range = null) {
+    const ctx = { today, opened: {} };
+    const lic = licenseState();
+    const acctCanSee = !LG.checkChannel(lic, 'acct:getInvoices', 'data.view') && canRead(event, 'data.view');
+    const npoCanSee = !LG.checkChannel(lic, 'npo:getOverview', 'data.view') && canRead(event, 'data.view');
+    ctx.opened.acct = acctCanSee;
+    ctx.opened.npo = npoCanSee;
+    ctx.opened.shamai = moduleLicensedFlag('shamai') && canRead(event, 'data.view');
+    ctx.opened.trainer = moduleLicensedFlag('trainer') && canRead(event, 'data.view');
+    if (acctCanSee) {
+      const period = { from: range && range.from, to: range && range.to };
+      try { ctx.summary = await accountingService.getPeriodSummary(period); } catch { ctx.summary = null; }
+      try { ctx.invoices = await accountingService.getInvoices(); } catch { ctx.invoices = null; }
+      try { ctx.analytics = await accountingService.getInvoiceAnalytics(); } catch { ctx.analytics = null; }
+    }
+    if (npoCanSee) {
+      try { ctx.npo = await npoService.getOverview(Number(String(today).slice(0, 4)) || undefined); } catch { ctx.npo = null; }
+    }
+    // הקשר הזמני שהועבר מהשמאות או מהאימונים — נשרף אחרי השימוש, ולא נשמר
+    const extra = aiContextBySender.get(event.sender.id);
+    aiContextBySender.delete(event.sender.id);
+    if (extra) {
+      if (ctx.opened.shamai && extra.shamai) ctx.shamai = extra.shamai;
+      if (ctx.opened.trainer && extra.trainer) ctx.trainer = extra.trainer;
+    }
+    return ctx;
+  }
+
+  // הקשר מהשמאות/האימונים — קלט לא מהימן: רק השדות המוכרים, בגבולות גודל. לא נשמר לשום מקום
+  const clipAg = (v) => (Number.isSafeInteger(v) && v >= 0 && v <= 100_000_000_000 ? v : null);
+  function cleanAiContext(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const out = {};
+    const s = r.shamai && typeof r.shamai === 'object' ? r.shamai : null;
+    if (s) {
+      const valueAg = clipAg(s.valueAg);
+      if (valueAg != null) {
+        const conf = Number(s.confidence);
+        out.shamai = {
+          label: clipText(s.label, 80),
+          valueAg,
+          confidence: Number.isFinite(conf) && conf >= 0 && conf <= 100 ? Math.round(conf) : null,
+          factors: (Array.isArray(s.factors) ? s.factors.slice(0, 20) : []).map(f => ({
+            name: clipText(f && f.name, 60), bp: Math.round(Number(f && f.bp)) || 0 })).filter(f => f.name && Math.abs(f.bp) <= 10000),
+          warnings: (Array.isArray(s.warnings) ? s.warnings.slice(0, 10) : []).map(w => clipText(w, 200)).filter(Boolean),
+        };
+      }
+    }
+    const t = r.trainer && typeof r.trainer === 'object' ? r.trainer : null;
+    if (t) {
+      const alerts = (Array.isArray(t.alerts) ? t.alerts.slice(0, 50) : []).map(a => ({
+        title: clipText(a && a.title, 60),
+        detail: clipText(a && a.detail, 160),
+        tone: ['red', 'yellow', 'info'].includes(a && a.tone) ? a.tone : 'info',
+      })).filter(a => a.title);
+      const clients = Number(t.clients);
+      out.trainer = { alerts, clients: Number.isFinite(clients) && clients >= 0 ? Math.round(clients) : undefined };
+    }
+    return out;
+  }
+
+  handle('ai:status', async (event) => {
+    const st = aiAssistant.status();
+    const state = licenseState();
+    const licensed = aiCloudLicensed(state);
+    return {
+      ...st,
+      cloud: { ...st.cloud, licensed, eligible: licensed && st.cloud.consented === true, ready: false },
+      opened: Object.fromEntries(aiModules(event).map(m => [m.id, m.opened])),
+    };
+  });
+  handle('ai:prefs:get', async () => aiAssistant.prefsGet());
+  handle('ai:prefs:save', async (event, patch) => {
+    const saved = aiAssistant.prefsSave(patch || {});
+    await auditEvent(event, 'ai.prefs.save', { engine: saved.engine, conceal: saved.conceal });
+    return saved;
+  });
+  // הסכמה לענן — נפרדת ומפורשת. בלי זכאות אין הסכמה, גם אם התבקשה
+  handle('ai:consent', async (event, consented) => {
+    if (consented === true && !aiCloudLicensed(licenseState())) {
+      throw new Error('שירות ה-AI בענן אינו כלול ברישיון של המערכת. העוזר המקומי עובד תמיד, בלי רשת');
+    }
+    const saved = aiAssistant.prefsSave({ consent: { cloud: consented === true } });
+    await auditEvent(event, 'ai.consent', { cloud: saved.consent.cloud });
+    return saved;
+  });
+  handle('ai:modules', async (event) => aiModules(event));
+  handle('ai:context', async (event, raw) => {
+    aiContextBySender.set(event.sender.id, cleanAiContext(raw));
+    return { ok: true };
+  });
+  // שאלה — נתוני קריאה בלבד. חוסר הרשאה לתחום אינו שגיאה: עונים בשפה פשוטה שהתחום סגור (runRules)
+  handle('ai:run', async (event, question, extra = {}) => {
+    const q = String(question || '');
+    if (!q.trim()) throw new Error('כתבו שאלה');
+    if (q.length > 500) throw new Error('השאלה ארוכה מדי — עד 500 תווים');
+    const today = localDay(clockNow());
+    // התקופה של הסיכום חייבת להיות בדיוק זו שעליה runRules מדווח. runRules גוזר את הטווח בעצמו
+    // (resolveRange) ודורס ctx.range — ולכן הטווח כאן חייב להסכים איתו, אחרת הסיכום ייספר מתקופה אחרת
+    // מהתקופה שמוצגת בתשובה. טווח מפורש מהממשק („החודש שעבר” וכו') מתקבל רק לתחום החשבונות ולמי שרשאי לראותו,
+    // ורק כשהוא מסכים עם הטווח של השאלה (rangeAgrees); אחרת — הטווח של הכללים
+    const wantsRange = !!extra && typeof extra.range === 'object' && !Array.isArray(extra.range);
+    const domain = AI_RULES.detectDomain(q);
+    const acctOpen = canRead(event, 'data.view') && !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view');
+    const fallback = AI_RULES.resolveRange(q, today);
+    const hint = (wantsRange && acctOpen && (!domain || domain === 'acct')) ? cleanAiRange(extra.range) : null;
+    // הרמז מתקבל רק כשהוא מסכים עם הטווח שהכללים גזרו מהשאלה (ראו rangeAgrees) — אחרת השאלה קובעת
+    const range = hint && AI_RULES.rangeAgrees(hint, fallback) ? hint : fallback;
+    const ctx = await aiRulesContext(event, today, range);
+    if (ctx.opened.acct) ctx.range = range;
+    const result = aiAssistant.run(q, ctx);
+    // קשר השמאות/האימונים נשרף בכל שאלה — גם כשהוא לא נוצל (בלי כשירות לאימות/canRead) — והוא לא נשמר
+    aiContextBySender.delete(event.sender.id);
+    return result;
+  });
+  handle('ai:explain', async (event, payload) => aiAssistant.explain(payload || {}));
+  // העוזר מצביע על המסך שבו אפשר לראות את הנתונים. רשימת יעדים סגורה — בלי ניווט חופשי
+  const AI_VIEW_TARGETS = new Set(['acct-invoices', 'acct-reports', 'npo', 'realestate', 'trainer']);
+  handle('ai:open', async (event, target) => {
+    const view = AI_VIEW_TARGETS.has(target) ? target : null;
+    if (!view) throw new Error('המסך המבוקש אינו מוכר');
+    await auditEvent(event, 'ai.open', { view });
+    return { view };
+  });
+  // דוגמת שאלות — לפי התחומים שפתוחים למשתמש הזה
+  handle('ai:sample', async (event) => {
+    const open = await aiModules(event);
+    const qs = [];
+    if (open.find(m => m.id === 'acct').opened) qs.push('כמה גבייתי החודש?', 'מי לא שילם?', 'מה דוח המע"מ של החודש?');
+    if (open.find(m => m.id === 'npo').opened) qs.push('אילו תורמים תרמו השנה?');
+    if (open.find(m => m.id === 'shamai').opened) qs.push('מה הערכת השווי האחרונה?');
+    if (open.find(m => m.id === 'trainer').opened) qs.push('איזה מתאמנים דורשים תשומת לב?');
+    qs.push('איך מוציאים חשבונית?');
+    return qs;
+  });
 }
 // קבלת הודעות אוטומטית (כדי שהודעות פתיחה והיעדרות יישלחו גם כשאיש לא לוחץ "קבלת הודעות").
 // רק כשהמנהל הפעיל זאת בהגדרות, יש שרת מוגדר, ולא בשבת וביום טוב. תיבת מנהל-העל — רק כשהמצב פתוח

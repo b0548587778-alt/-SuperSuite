@@ -1,0 +1,197 @@
+// ממשק המודול הכלכלי — עוזר „שאל את התוכנה”: שאלות בשפה פשוטה על נתוני המשתמש.
+// סקריפט רגיל (לא מודול): כל קבצי ui/ חולקים טווח שמות אחד, לפי הסדר ב-views/index.html.
+// העוזר מקומי בלבד: אין קריאה לרשת, והתשובות נבנות ממנוע החישוב של התוכנה. כל ההרשאות והרישיון נבדקים בתהליך הראשי.
+'use strict';
+
+// תחומי הנתונים שהעוזר מכיר — הסימון מגיע מ-ai:status (רישיון + הרשאה של המשתמש הזה)
+const AI_SOURCES = [
+  { id: 'acct', label: 'חשבונאות וחשבוניות' },
+  { id: 'npo', label: 'עמותה ותרומות' },
+  { id: 'shamai', label: 'שמאות' },
+  { id: 'trainer', label: 'אימונים' }
+];
+
+// התשובה נשמרת בזיכרון התצוגה בלבד — היא לא נשמרת למסד ולא נשלחת לשום מקום
+const aiUi = { busy: false, answer: null, error: '' };
+
+// מזהי הדפוסים שהממשק מחפש כדי להציע ניווט למסך המתאים
+const AI_OPEN_IDS = {
+  unpaid: 'acct-invoices',
+  customers: 'acct-invoices',
+  income: 'acct-reports',
+  expense: 'acct-reports',
+  vat: 'acct-reports',
+  profit: 'acct-reports',
+  donors: 'npo',
+  shamai: 'realestate',
+  trainer: 'trainer',
+  howto: 'acct-invoices'
+};
+
+// טווח התקופה שהממשק מבקש במפורש. התאריכים נקבעים כאן לפי תאריך המחשב — לא UTC
+function aiUiRange(text) {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const day = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const t = String(text || '');
+  if (t.includes('החודש שעבר')) {
+    return {
+      from: day(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+      // גבול עליון כוללני (inRange): „עד” חייב להיות היום שאחרי החודש שעבר — כלומר הראשון של החודש הזה
+      to: day(new Date(now.getFullYear(), now.getMonth(), 1)),
+      label: 'החודש שעבר'
+    };
+  }
+  if (t.includes('השנה שעברה')) {
+    const y = now.getFullYear() - 1;
+    return { from: `${y}-01-01`, to: `${y}-12-31`, label: `שנת ${y}` };
+  }
+  return null;
+}
+
+function renderAi(data) {
+  const st = (data && data.status) || {};
+  const cloud = st.cloud || {};
+  const prefs = st.prefs || {};
+  const opened = st.opened || {};
+  const samples = (data && Array.isArray(data.samples)) ? data.samples : [];
+  const engineText = st.engine === 'local' ? 'מודל מקומי' : 'מנוע החישוב של התוכנה';
+  const cloudText = cloud.licensed
+    ? (cloud.ready ? 'מחובר' : 'כלול ברישיון — טרם הופעל')
+    : 'כלול בשדרוג';
+
+  const sourceTags = AI_SOURCES.map(s => {
+    if (s.id === 'shamai' || s.id === 'trainer') {
+      return `<span class="ss-badge ${opened[s.id] ? 'ss-badge-success' : ''}">${esc(s.label)} — ${opened[s.id] ? 'מודול פתוח' : 'מודול סגור'}</span>`;
+    }
+    return `<span class="ss-badge ${opened[s.id] ? 'ss-badge-success' : ''}">${esc(s.label)} — ${opened[s.id] ? 'פתוח' : 'לא בהרשאה'}</span>`;
+  }).join(' ');
+
+  const html = [];
+  html.push(`<div class="ss-page-head"><span>שאלו בשפה פשוטה על הנתונים שבתוכנה — „כמה גבייתי החודש?”, „מי לא שילם?”. העוזר עונה ממנוע החישוב של התוכנה, על המחשב הזה, בלי חיבור לרשת. התשובות הן עזר בלבד ואינן ייעוץ מקצועי — בדקו לפני החלטה.</span></div>`);
+
+  html.push(`<div class="ss-card">
+    <h4 class="ss-section-title">מצב העוזר</h4>
+    <div class="ss-row"><span>מנוע התשובות</span><span>${esc(engineText)}</span></div>
+    <div class="ss-row"><span>עוזר בענן</span><span>${esc(cloudText)}</span><span class="ss-badge ${cloud.licensed ? 'ss-badge-info' : ''}">${cloud.licensed ? 'ברישיון' : 'שדרוג'}</span></div>
+    <div class="ss-row"><span>הסתרת מזהים</span><span>${prefs.conceal ? 'מוסתרים לפני שהטקסט מוצג' : 'המזהים מוצגים כפי שהם'}</span>
+      <button type="button" class="ss-btn-secondary ss-btn-sm" data-ai-conceal="${prefs.conceal ? '1' : '0'}">${prefs.conceal ? 'בטל הסתרה' : 'הצג בלי מזהים'}</button></div>
+    <p class="ss-muted">תחומים שהשאלות עונות עליהם עבור המשתמש הזה:</p>
+    ${sourceTags}
+  </div>`);
+
+  html.push(`<div class="ss-card">
+    <label class="ss-label" for="aiQuestion">השאלה</label>
+    <textarea class="ss-input" id="aiQuestion" dir="rtl" rows="3" maxlength="500" placeholder="למשל: מי לא שילם? כמה גבייתי החודש?"></textarea>
+    ${samples.length ? `<div class="ss-toolbar">${samples.map(q => `<button type="button" class="ss-btn-ghost ss-btn-sm" data-ai-sample="${esc(q)}">${esc(q)}</button>`).join(' ')}</div>` : ''}
+    <div class="ss-toolbar">
+      <button type="button" class="ss-btn-primary" id="aiAsk"${aiUi.busy ? ' disabled' : ''}>${aiUi.busy ? 'בודק…' : 'שאל'}</button>
+      <span class="ss-muted">התשובה נבנית מהנתונים בטווח התקופה: החודש, „החודש שעבר” או „השנה שעברה” — לפי השאלה.</span>
+    </div>
+  </div>`);
+
+  if (aiUi.error) {
+    html.push(`<div class="ss-card ss-card-warning"><p>${esc(aiUi.error)}</p></div>`);
+  }
+  if (aiUi.answer) {
+    const a = aiUi.answer;
+    const target = a.data && a.data.kind ? AI_OPEN_IDS[a.data.kind] : '';
+    html.push(`<div class="ss-card">
+      <h4 class="ss-section-title">התשובה</h4>
+      <p class="ss-pre">${esc(a.text)}</p>
+      <div class="ss-toolbar">
+        <span class="ss-badge ss-badge-info">${esc(a.engineLabel || 'מנוע החישוב')}</span>
+        <button type="button" class="ss-btn-secondary ss-btn-sm" id="aiExplain">איך חושב הסכום?</button>
+        ${target ? `<button type="button" class="ss-btn-ghost ss-btn-sm" data-ai-open="${esc(target)}">פתיחת המסך הרלוונטי</button>` : ''}
+      </div>
+      <p class="ss-muted" id="aiExplainOut" hidden></p>
+    </div>`);
+  }
+
+  return `<div class="ss-stack">${html.join('')}</div>`;
+}
+
+function attachAiHandlers(root) {
+  const askBtn = root.querySelector('#aiAsk');
+  const box = root.querySelector('#aiQuestion');
+  const run = async () => {
+    const question = box ? box.value.trim() : '';
+    if (!question) {
+      showError('כתבו שאלה');
+      if (box) box.focus();
+      return;
+    }
+    aiUi.busy = true;
+    aiUi.error = '';
+    if (askBtn) { askBtn.disabled = true; askBtn.textContent = 'בודק…'; }
+    try {
+      const range = aiUiRange(question);
+      aiUi.answer = await window.systemAPI.aiRun(question, range ? { range } : {});
+    } catch (e) {
+      aiUi.error = 'לא הצלחתי לענות: ' + errMsg(e);
+    } finally {
+      aiUi.busy = false;
+      switchView('ai');
+    }
+  };
+  if (askBtn) askBtn.addEventListener('click', run);
+  if (box) {
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); }
+    });
+    box.focus();
+  }
+  root.querySelectorAll('[data-ai-sample]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (box) box.value = btn.dataset.aiSample || '';
+      run();
+    });
+  });
+
+  const concealBtn = root.querySelector('[data-ai-conceal]');
+  if (concealBtn) {
+    concealBtn.addEventListener('click', async () => {
+      try {
+        await window.systemAPI.aiPrefsSave({ conceal: concealBtn.dataset.aiConceal !== '1' });
+        showToast('נשמר — ההסתרה תחול על השאלה הבאה');
+        switchView('ai');
+      } catch (e) {
+        showError('שמירת ההגדרה נכשלה: ' + errMsg(e));
+      }
+    });
+  }
+
+  const explainBtn = root.querySelector('#aiExplain');
+  if (explainBtn) {
+    explainBtn.addEventListener('click', async () => {
+      const out = root.querySelector('#aiExplainOut');
+      try {
+        const res = await window.systemAPI.aiExplain({ text: aiUi.answer ? aiUi.answer.text : '' });
+        if (out) { out.textContent = res && res.text ? res.text : ''; out.hidden = false; }
+      } catch (e) {
+        showError('לא הצלחתי להסביר: ' + errMsg(e));
+      }
+    });
+  }
+
+  root.querySelectorAll('[data-ai-open]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const target = btn.dataset.aiOpen || '';
+      // רק דפוס מוכר, ורק מסך שמופיע בטבלה — דפוס חדש בלי יעד לא מנווט לשום מקום
+      const view = Object.prototype.hasOwnProperty.call(AI_OPEN_IDS, target) ? AI_OPEN_IDS[target] : '';
+      // המודול „trainer” אינו מסך בממשק הכלכלי (נפתח ב-openModule) — ולכן אינו בטבלת viewTitles
+      const known = view === 'trainer' || Object.prototype.hasOwnProperty.call(viewTitles, view);
+      if (!view || !known) {
+        showError('המסך המבוקש אינו מוכר');
+        return;
+      }
+      // הדגם הראשון מגן על המסך הראשון; היעד עצמו נבדק בשרת (רשימה סגורה) לפני המעבר
+      try { await window.systemAPI.aiOpen(view); } catch (e) { showError(errMsg(e)); return; }
+      if (view === 'trainer') {
+        window.systemAPI.openModule('trainer').catch(e => showError('שגיאה בפתיחת המודול: ' + errMsg(e)));
+        return;
+      }
+      switchView(view);
+    });
+  });
+}

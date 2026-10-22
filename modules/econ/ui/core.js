@@ -51,6 +51,7 @@ const viewTitles = {
   'settings': 'הגדרות ומשתמשים — ייבוא/ייצוא ויומן ביקורת',
   'licensing': 'רישוי ומערכות — רישיון, מערכות בת ומנהל-העל',
   'messages': 'הודעות — תקשורת מאובטחת בין המערכות',
+  'ai': 'שאל את התוכנה — עוזר מקומי על נתוני החשבונות, העמותה, השמאות והאימונים',
   'collect': 'גבייה וקישורי תשלום',
   'personal-finance': 'התוכנית הפיננסית — הגדרה ופריטים',
   'tasks': 'משימות',
@@ -283,6 +284,16 @@ async function loadViewData(viewName) {
           peer: state.chatPeer || null, as: state.chatAs || '', ownerUnlocked: !!(owner && owner.unlocked), isAdmin: !!(adv && adv.isAdmin) };
         break;
       }
+      case 'ai': {
+        // העוזר המקומי: המצב, התחומים הפתוחים ודוגמאות שאלות — במקביל, בלי רשת
+        const [status, samples, prefs] = await Promise.all([
+          window.systemAPI.aiStatus(),
+          window.systemAPI.aiSample(),
+          window.systemAPI.aiPrefsGet()
+        ]);
+        state.data.ai = { status, samples, prefs };
+        break;
+      }
       case 'tasks':
         state.data.tasks = await window.systemAPI.getTasks();
         break;
@@ -406,7 +417,8 @@ const DATA_KEYS = {
   'acct-pricing': 'acctPricing',
   'acct-personal': 'acctPersonal',
   'acct-bank': 'acctBank',
-  'biz-reports': 'bizReports'
+  'biz-reports': 'bizReports',
+  'ai': 'ai'
 };
 
 // Render current view
@@ -510,6 +522,9 @@ function renderView(viewName) {
       break;
     case 'biz-reports':
       html = renderBizReports(data);
+      break;
+    case 'ai':
+      html = renderAi(data);
       break;
     default:
       html = renderEmpty('לא נמצאו נתונים');

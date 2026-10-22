@@ -6,7 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadShamai } = require('./helpers/shamai-src');
 
-const FILES = ['core', 'calc', 'appraise-metals', 'appraise-gems', 'appraise-judaica'];
+const FILES = ['core', 'calc', 'explain', 'appraise-metals', 'appraise-gems', 'appraise-judaica'];
 
 function fresh() {
   const s = loadShamai(FILES);

@@ -89,6 +89,9 @@ function recalcAntique() {
     html += verdictHTML(profit, margin);
   }
 
+  // "מאין הסכום?" — מחיר השוק והמקדמים, מתוך אותו antiqueValue
+  html += explainAntique(a, { condMult, hallmarkMult, value: adjustedValue, maxPurchase });
+
   html += `
     <div class="tip-box">
       <div class="tip-title">❦ מקורות לבדיקת מחירים</div>
@@ -104,6 +107,7 @@ function recalcAntique() {
     </div>
   `;
   r.innerHTML = html;
+  explainAttach('#a-result');
   $('#a-save').hidden = !a.asking;
 }
 
@@ -291,6 +295,9 @@ function recalcCoin() {
     html += verdictHTML(profit, margin);
   }
 
+  // "מאין הסכום?" — שווי ההתכה, הפרמיה והדירוג, מתוך אותו coinValue
+  html += explainCoin(c, state.prices, { meltIls, gradeMult, value: finalValue, maxPurchase });
+
   html += `
     <div class="tip-box">
       <div class="tip-title">◉ מטבעות - טיפים</div>
@@ -306,5 +313,6 @@ function recalcCoin() {
     </div>
   `;
   r.innerHTML = html;
+  explainAttach('#cn-result');
   $('#cn-save').hidden = !c.asking;
 }

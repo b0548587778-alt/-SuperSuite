@@ -8,6 +8,7 @@ const STATIC_ASSETS = [
   './style.css',
   './src/core.js',
   './src/calc.js',
+  './src/explain.js',
   './src/prices.js',
   './src/purchase.js',
   './src/casefile.js',

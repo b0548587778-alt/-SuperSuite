@@ -19,7 +19,7 @@ function loadShamai(names) {
   const vm = require('vm');
   const els = new Map();
   const el = (sel) => {
-    if (!els.has(sel)) els.set(sel, { value: '', checked: false, innerHTML: '', hidden: false, dataset: {}, classList: { toggle() {}, add() {}, remove() {} }, addEventListener() {} });
+    if (!els.has(sel)) els.set(sel, { value: '', checked: false, innerHTML: '', hidden: false, open: false, dataset: {}, classList: { contains: () => false, toggle() {}, add() {}, remove() {} }, addEventListener() {}, querySelectorAll: () => [] });
     return els.get(sel);
   };
   const document = { readyState: 'complete', querySelector: el, querySelectorAll: () => [], getElementById: (id) => el('#' + id), addEventListener() {} };

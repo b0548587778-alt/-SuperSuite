@@ -10,6 +10,7 @@ const PCN = require('../core/pcn874');
 const RC = require('../core/recurring');
 const BR = require('../core/bankReconcile');
 const BZ = require('../core/bizReports');
+const IC = require('../core/invoiceCapture');
 const { assertIsraeliId } = require('../core/israeliId');
 
 const toAgSafe = (n) => Math.round(Number(n) * 100);
@@ -901,6 +902,20 @@ class AccountingService {
     data.bankLines = data.bankLines.filter(l => l.id !== lineId);
     await this.db.save(data);
     return true;
+  }
+
+  // ---------- קליטת חשבונית ספק (שלב 3) — טיוטה בלבד, לא נשמרת ----------
+  // מחזיר טיוטת פקודת יומן לאישור המשתמש. השמירה רק דרך createEntry (עם כל הבדיקות).
+  async captureInvoice(input) {
+    const data = await this._load();
+    const codes = IC.expenseAccountCodes(data.accounts);
+    const out = IC.draftEntry(input || {}, { vatRate: this._vatRate(data), expenseAccounts: codes });
+    const suggestion = IC.suggestAccount(input || {}, data.journal || [], codes);
+    const expenseAccounts = data.accounts
+      .filter(a => a.type === 'expense' && codes.includes(String(a.code)))
+      .map(a => ({ code: String(a.code), name: a.name }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+    return { ...out, suggestion, expenseAccounts };
   }
 
   async setVatRate(rate) {

@@ -427,6 +427,7 @@ function renderNpo(o) {
             <button class="secondary" data-npo-export="donations">רשימת תרומות</button>
             <button class="secondary" data-npo-export="grants">תמיכות</button>
             <button class="secondary" data-npo-export="funds">קרנות</button>
+            <button class="secondary" data-npo-narrative id="npoNarrativeBtn" title="נרטיב מילולי לדוח מתוך נתוני השנה — טיוטה לעריכה">📝 נרטיב לדוח</button>
           </div>
           <h4>תורמים מעל ${money(r.largeDonorThreshold)}</h4>
           ${(Array.isArray(r.largeDonors) ? r.largeDonors : []).map(d => `<div class="acct-row"><span>${esc(d.name)}</span><span>${money(d.total)}</span></div>`).join('') || '<div class="acct-row muted">אין</div>'}
@@ -454,6 +455,7 @@ function renderNpo(o) {
         </div>
         <div class="card">
           <h3>תמיכות ומענקים (${grants.length})</h3>
+          <div class="acct-actions"><button class="secondary" data-npo-grant-draft id="npoGrantDraftBtn" title="טיוטת מכתב בקשת מענק — לפי נתוני השנה; אין בה התחייבות או נתונים שאין בכוחינו להציג">📝 טיוטת בקשת מענק</button></div>
           ${grants.map(g => `
             <div class="acct-row">
               <span>${esc(g.source)}${g.program ? ' · ' + esc(g.program) : ''} <small class="muted">${esc(NPO_GRANT_STATUS[g.status] || '')}${g.deadline ? ' · הגשה עד ' + esc(g.deadline) : ''}${Number(g.matchingPercent) ? ' · מימון תואם ' + Number(g.matchingPercent) + '%' : ''}</small>
@@ -466,7 +468,7 @@ function renderNpo(o) {
         </div>
         <div class="card">
           <h3>תורמים (${donors.length})</h3>
-          ${donors.slice(0, 15).map(d => `<div class="acct-row"><span>${esc(d.name)} <small class="muted">${d.count} תרומות · אחרונה ${esc(d.lastDate)}</small></span><span>${money(d.total)} <button class="icon-btn" data-npo-statement="${esc(d.key)}" title="סיכום שנתי לתורם (PDF) — לבקשת החזר מס" aria-label="סיכום שנתי לתורם">📄</button> <button class="icon-btn" data-npo-donor-file="${esc(d.key)}" title="תיק תורם (PDF) — הסיכום השנתי וכל הקבלות בקובץ אחד" aria-label="תיק תורם">🗂️</button></span></div>`).join('') || '<div class="acct-row muted">אין תורמים עדיין</div>'}
+          ${donors.slice(0, 15).map(d => `<div class="acct-row"><span>${esc(d.name)} <small class="muted">${d.count} תרומות · אחרונה ${esc(d.lastDate)}</small></span><span>${money(d.total)} <button class="icon-btn" data-npo-statement="${esc(d.key)}" title="סיכום שנתי לתורם (PDF) — לבקשת החזר מס" aria-label="סיכום שנתי לתורם">📄</button> <button class="icon-btn" data-npo-thankyou="${esc(d.key)}" title="מכתב תודה לתורם — טיוטה לפי תרומות השנה, ל-PDF" aria-label="מכתב תודה לתורם">💌</button> <button class="icon-btn" data-npo-donor-file="${esc(d.key)}" title="תיק תורם (PDF) — הסיכום השנתי וכל הקבלות בקובץ אחד" aria-label="תיק תורם">🗂️</button></span></div>`).join('') || '<div class="acct-row muted">אין תורמים עדיין</div>'}
         </div>
       </div>
     </div>`;
@@ -636,6 +638,120 @@ function attachNpoHandlers() {
     try { const r = await window.systemAPI.exportNpoCsv(btn.dataset.npoExport, npoYear()); if (r && r.ok) showToast('הקובץ נשמר'); }
     catch (error) { showError('שגיאה בייצוא: ' + errMsg(error)); }
   }));
+  // מכתבים ותבניות (שלב 3) — טיוטה לתצוגה; ה-PDF נשמר לקובץ שהמשתמש בוחר
+  document.querySelectorAll('[data-npo-thankyou]').forEach(btn => btn.addEventListener('click', () => openThankYouLetter(btn.dataset.npoThankyou)));
+  on('npoNarrativeBtn', () => openAnnualNarrative());
+  on('npoGrantDraftBtn', () => openGrantDraft());
+}
+
+// ---------- מכתבים ותבניות (שלב 3): מכתב תודה, נרטיב לדוח, בקשת מענק ----------
+// הטיוטה נוצרת בשרת מנתוני השנה (core/npoLetters.js), מוצגת כאן בלבד, ולא נשמרת לשום מקום.
+// "שמירה" = קובץ PDF שהמשתמש בוחר היכן לשמור — אין כתיבה אוטומטית לנתוני העמותה.
+// חלון "ביטול"/"סגירה" — הטופס המשני חייב להיות null, אחרת handleSubmit יחשוב שמדובר בטופס רשומה
+function openLettersDialog(title, html) {
+  state.subForm = null;
+  showModal(title, html);
+}
+
+// שדות "תוספת אישית" — הטקסט נשלח לשרת רק כשמפיקים את המכתב; אינו נשמר בשום מקום
+function letterMessageValue() {
+  const el = document.getElementById('letterMessage');
+  return el ? el.value : '';
+}
+// בוחר חלון "הפקה" לפני שהתצוגה מוחלפת — מחזיר { btn, close }
+// החלון משתמש ב"ביטול" הקבוע (core.js → closeModal); אין לקשור כאן מאזין נוסף — הקישור עם { once } היה נשאר תלוי
+// ב-DOM ונשאר פתוח אחרי החלפת התצוגה. מחזיר רק את כפתור "הצגת הטיוטה", אם קיים
+function letterDialogRefs() {
+  const btn = document.getElementById('letterDraftBtn');
+  return { btn, close: null };
+}
+
+// תצוגת טיוטה לקריאה בלבד; onPdf(message) מפיק את הקובץ (התוספת עוברת לשרת רק בהפקה)
+function showLetterPreview(title, text, onPdf) {
+  openLettersDialog(title, `<label class="field">
+      <span>טיוטה — לעיון לפני המסירה (לא ניתנת לעריכה כאן; העריכה אחרי ההפקה)</span>
+      <textarea id="letterText" rows="14" readonly>${esc(text)}</textarea>
+    </label>
+    <label class="field">
+      <span>תוספת אישית לברכה (אופציונלי)</span>
+      <input id="letterMessage" type="text" maxlength="1200">
+    </label>
+    <div class="acct-actions">
+      <button type="button" class="primary" id="letterPdf">שמירה כ-PDF</button>
+    </div>
+    <p class="muted">הטיוטה אינה נשמרת בתוכנה ואינה מוזנת לנתוני העמותה. יש לעבור על הנוסח לפני המסירה — הוא אינו מחליף מסמך חתום.</p>`);
+  const btn = document.getElementById('letterPdf');
+  if (btn) btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const r = await onPdf();
+      if (r && r.ok) showToast('הטיוטה נשמרה כ-PDF');
+    } catch (error) { showError('שגיאה בהפקת ה-PDF: ' + errMsg(error)); }
+    finally { btn.disabled = false; }
+  });
+}
+
+// טופס פרטי המכתב: השדות בשרת, והתוצאה מוצגת בתצוגת טיוטה עם "שמירה כ-PDF"
+// הטופס הוא #modalForm עצמו — לכן אין להשתמש ב-openSubForm (schemas[view] של npo מכיל את שדות התרומה)
+function showLetterForm(title, fields, blank, build, exportFn) {
+  openLettersDialog(title, buildFormHtml(fields) + `<div class="acct-actions">
+      <button type="button" class="primary" id="letterDraftBtn">הצגת הטיוטה</button>
+    </div>
+    <p class="muted">הטיוטה מחושבת מנתוני העמותה של השנה, להצגה בלבד. לא נשמר בשרת דבר מתוך הטופס.</p>`);
+  fields.forEach(f => { const el = document.getElementById('f_' + f.name); if (el) el.value = blank[f.name] == null ? '' : blank[f.name]; });
+  const { btn } = letterDialogRefs();
+  if (btn) btn.addEventListener('click', async () => {
+    // השדות בשרת: collectFormData של הטופס הראשי עובר על formSchemas['npo'] — כאן קוראים רק את שדות המכתב
+    const input = {};
+    for (const f of fields) {
+      const el = document.getElementById('f_' + f.name);
+      if (!el) continue;
+      const value = el.value.trim();
+      if (value !== '') input[f.name] = f.type === 'number' ? Number(value) : value;
+    }
+    btn.disabled = true;
+    try {
+      if (!input.fundName) throw new Error('יש להזין את שם הקרן או הגוף שמבקשים ממנו את המענק');
+      const { letter } = await build(input);
+      showLetterPreview(letter.title, letter.text, () => exportFn(input));
+    } catch (error) { showError('שגיאה בהכנת הטיוטה: ' + errMsg(error)); }
+    finally { btn.disabled = false; }
+  });
+}
+
+async function openThankYouLetter(donorKey) {
+  try {
+    const year = npoYear();
+    const { letter } = await window.systemAPI.getNpoThankYouLetter(donorKey, year);
+    showLetterPreview(letter.title, letter.text,
+      async () => window.systemAPI.exportNpoThankYouPdf(donorKey, year, { message: letterMessageValue() }));
+  } catch (error) { showError('שגיאה בהכנת מכתב התודה: ' + errMsg(error)); }
+}
+
+async function openAnnualNarrative() {
+  try {
+    const year = npoYear();
+    const { letter } = await window.systemAPI.getNpoAnnualNarrative(year);
+    showLetterPreview(letter.title, letter.text,
+      async () => window.systemAPI.exportNpoAnnualNarrativePdf(year, { message: letterMessageValue() }));
+  } catch (error) { showError('שגיאה בהכנת הנרטיב: ' + errMsg(error)); }
+}
+
+// טיוטת בקשת מענק — השדות מפורטים לגמרי, והתוצאה היא הצעה בלבד; אינה נשמרת ברשימת התמיכות
+function openGrantDraft() {
+  const fields = [
+    { name: 'fundName', label: 'שם הקרן או הגוף שמבקשים ממנו', type: 'text', required: true },
+    { name: 'amount', label: 'הסכום המבוקש (₪)', type: 'number' },
+    { name: 'program', label: 'תכנית או מטרה', type: 'text' },
+    { name: 'purpose', label: 'ייעודי התמיכה — שורה לכל ייעוד (עד 10)', type: 'textarea' },
+    { name: 'period', label: 'תקופה (למשל: שנת תשפ״ז)', type: 'text' },
+    { name: 'contactName', label: 'שם איש הקשר', type: 'text' },
+    { name: 'contactPhone', label: 'טלפון איש הקשר', type: 'text' }
+  ];
+  const year = npoYear();
+  showLetterForm('טיוטת בקשת מענק', fields, {},
+    input => window.systemAPI.getNpoGrantDraft(year, input),
+    input => window.systemAPI.exportNpoGrantDraftPdf(year, input));
 }
 
 // ---------- מס"ב (PLAN.md 9.17): קובץ חיובים וקליטת החזרות — משותף לעמותה ולגמ"ח ----------
