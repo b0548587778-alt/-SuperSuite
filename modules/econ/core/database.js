@@ -384,9 +384,12 @@ class Database {
         }
       } catch (err) {
         if (err && String(err.code || '').startsWith('db-key')) throw err; // מפתח שגוי — לא מציגים נתונים ריקים
-        if (row.collection !== 'meta') {
-          data[row.collection] = [];
-        }
+        // אוסף שלא נקרא — שגיאה, ולא רשימה ריקה: save() כותב את כל האוספים מחדש,
+        // ורשימה ריקה כאן הייתה מוחקת אותו לצמיתות בשמירה הבאה (למשל את כל החשבוניות)
+        const e = new Error(`חלק מהנתונים במסד פגום (${row.collection}) ולא ניתן לקרוא אותו. כדי לא לדרוס נתונים, הפעולה נעצרה. יש לשחזר מגיבוי או לפנות לתמיכה.`);
+        e.code = 'db-collection-corrupt';
+        e.collection = row.collection;
+        throw e;
       }
     }
 

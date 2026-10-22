@@ -11,6 +11,17 @@
 const TROY_OZ = 31.1035;     // grams in a troy ounce
 const POUND   = 0.4535924;   // grams in a pound (avoirdupois) - for industrial metals
 
+// מספר מהקלדה ← מחרוזת עם נקודה עשרונית, או null. משותף למשקלים, למחירים ולסכומים, כדי שפסיק ייקרא
+// אותו דבר בכל שדה: פסיק לפני קבוצות של 3 ספרות = מפריד אלפים ("1,000" ← 1000), פסיק יחיד אחר = נקודה
+// עשרונית ("4665,5" ← 4665.5). פעם "1,000" גרם נקרא כגרם אחד, ו-"4665,5" במחיר — כ-46655
+function normalizeNumText(raw, strip = /[\s₪$]/g) {
+  const s = String(raw ?? '').trim().replace(strip, '');
+  if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) return s.replace(/,/g, '');
+  if (/^\d+(\.\d+)?$/.test(s)) return s;
+  if (/^\d+,\d+$/.test(s)) return s.replace(',', '.');
+  return null;
+}
+
 // Default fallback prices (used when API fails)
 const DEFAULT_PRICES = {
   gold: 4665,

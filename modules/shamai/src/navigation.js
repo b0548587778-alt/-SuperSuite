@@ -568,28 +568,36 @@ function exportCSV() {
   toast('CSV יוצא', 'success');
 }
 
+// ייבוא פריטים מקובץ JSON: המשתמש בוחר בין הוספה לקיים לבין החלפה (עם אישור נוסף) — לעולם לא דריסה בלי שאלה.
+// הגרסה היחידה בשמאי: גרסה כפולה ב-tools.js נדרסה בעבר על ידי גרסה שהחליפה הכול בלי אישור
 function importJSON(e) {
   const file = e.target.files[0];
+  e.target.value = '';
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async (ev) => {
     try {
       const data = JSON.parse(ev.target.result);
-      if (data.opportunities && Array.isArray(data.opportunities)) {
-        state.opportunities = data.opportunities;
-        Storage.save('opportunities', state.opportunities);
-        renderLedger();
-        renderHeader();
-        toast(`יובאו ${data.opportunities.length} פריטים`, 'success');
+      if (!data || !Array.isArray(data.opportunities)) throw new Error('פורמט לא תקין');
+      const items = data.opportunities.filter(o => o && typeof o === 'object' && !Array.isArray(o));
+      const mode = await ssDialog.choose(`לייבא ${items.length} פריטים?`, [
+        { label: 'להוסיף לקיים', value: 'merge' }, { label: 'להחליף את הקיים', value: 'replace', kind: 'danger' }]);
+      if (!mode) return;
+      if (mode === 'merge') {
+        state.opportunities = [...items, ...state.opportunities];
       } else {
-        toast('פורמט לא תקין', 'error');
+        if (!(await ssDialog.confirm('להחליף את כל הנתונים הקיימים?', { danger: true }))) return;
+        state.opportunities = items;
       }
-    } catch {
-      toast('שגיאה בייבוא', 'error');
+      Storage.save('opportunities', state.opportunities);
+      renderLedger();
+      renderHeader();
+      toast(`יובאו ${items.length} פריטים`, 'success');
+    } catch (err) {
+      toast('שגיאה בייבוא: ' + (err && err.message ? err.message : ''), 'error');
     }
   };
   reader.readAsText(file);
-  e.target.value = '';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

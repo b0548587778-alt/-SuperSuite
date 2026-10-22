@@ -66,8 +66,10 @@ function buildSchedule(amount, installments, issueDate) {
   const [y, m, d] = issueDate.split('-').map(Number);
   const schedule = [];
   for (let i = 1; i <= n; i++) {
-    // חישוב ב-UTC כדי שתאריך הפירעון לא יזוז יום בגלל אזור הזמן של המחשב המריץ
-    const due = new Date(Date.UTC(y, m - 1 + i, d));
+    // חישוב ב-UTC כדי שתאריך הפירעון לא יזוז יום בגלל אזור הזמן של המחשב המריץ.
+    // יום שאינו קיים בחודש (31 בפברואר) ← היום האחרון בחודש; אחרת התשלום גולש לחודש הבא, וחודש אחד מקבל שניים
+    const last = new Date(Date.UTC(y, m + i, 0)).getUTCDate();
+    const due = new Date(Date.UTC(y, m - 1 + i, Math.min(d, last)));
     const dueDate = due.toISOString().slice(0, 10);
     const amountAg = base + (i === n ? remainder : 0);
     schedule.push({ seq: i, dueDate, amountAg, paidAg: 0, paidDate: '', status: 'pending' });

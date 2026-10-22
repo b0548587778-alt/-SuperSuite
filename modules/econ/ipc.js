@@ -269,6 +269,8 @@ function permissionFor(channel) {
   if (channel === 'settings:getGoogle' || channel === 'settings:saveGoogle') return 'users.manage';
   // אימות כלל רגולטורי משנה את האזהרות לכל המשתמשים — מנהל בלבד
   if (channel === 'mlab:verifyRule' || channel === 'mlab:unverifyRule') return 'users.manage';
+  // הגדרות הנהלת החשבונות: תאריך הנעילה (פתיחה מחדש של תקופת מע"מ שדווחה), שיעור המע"מ ומספר העוסק — מנהל בלבד
+  if (channel === 'acct:saveSettings' || channel === 'acct:setVatRate') return 'users.manage';
   // הגדרות משרד הייעוץ (מי רואה אילו תיקים) — מנהל בלבד
   if (channel === 'madv:saveSettings' || channel === 'madv:saveBrand' || channel === 'madv:setBrandLogo') return 'users.manage';
   // פרטי המשרד בהזמנת התיווך (שם, רישיון, עוסק פטור) — מנהל בלבד
@@ -960,7 +962,11 @@ function registerIpcHandlers() {
     if (r.ok) await auditEvent(event, 'acct.export.ledger.pdf', { rows: l.rows.length });
     return r;
   });
-  handle('acct:setVatRate', async (event, rate) => accountingService.setVatRate(rate));
+  handle('acct:setVatRate', async (event, rate) => {
+    const vatRate = await accountingService.setVatRate(rate);
+    await auditEvent(event, 'acct.settings.vatRate', { vatRate });
+    return vatRate;
+  });
   handle('acct:getSettings', async () => accountingService.getSettings());
   handle('acct:getProducts', async () => accountingService.getProducts());
   handle('acct:importProducts', async (event, csvText) => {

@@ -31,8 +31,8 @@ function isValidIsraeliIdNumber(raw) {
 
 // שקלים מהקלדה ← אגורות שלמות, או null
 function parseAgorot(raw) {
-  const s = String(raw ?? '').trim().replace(/[,\s₪]/g, '');
-  if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
+  const s = normalizeNumText(raw);
+  if (s === null || !/^\d+(\.\d{1,2})?$/.test(s)) return null;
   const [a, b = ''] = s.split('.');
   return Number(a) * 100 + Number((b + '00').slice(0, 2));
 }
@@ -43,7 +43,8 @@ function purchaseLineAg(line, prices, n = 1) {
   if (!PURCHASE_PURITIES[metal]) throw new Error(`שורה ${n}: מתכת לא מוכרת`);
   const purity = Number(line.purityPpt);
   if (!PURCHASE_PURITIES[metal].includes(purity)) throw new Error(`שורה ${n}: טוהר לא מוכר`);
-  const grams = Number(String(line.grams ?? '').trim().replace(',', '.'));
+  const gramsText = normalizeNumText(line.grams);
+  const grams = gramsText === null ? NaN : Number(gramsText);
   if (!(grams > 0 && grams <= 100000)) throw new Error(`שורה ${n}: יש להזין משקל בגרמים`);
   const spot = Number(prices && prices[metal]);
   const usdIls = Number(prices && prices.usdIls);

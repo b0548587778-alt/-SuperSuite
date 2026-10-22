@@ -38,6 +38,27 @@ test('פיצול: אין const/let/class כפולים ברמה העליונה ב
   }
 });
 
+// פונקציה בשם זהה בשני קבצים לא נכשלת בטעינה — האחרונה דורסת בשקט. כך importJSON מ-navigation.js
+// (החלפה של כל הפריטים בלי אישור) דרסה את הגרסה עם האישור ב-tools.js
+test('פיצול: אין function באותו שם בשני קבצים שונים', () => {
+  const seen = new Map();
+  for (const f of shamaiFiles()) {
+    const names = new Set([...fs.readFileSync(path.join(DIR, f), 'utf8').matchAll(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]));
+    for (const n of names) {
+      assert.ok(!seen.has(n), `${n} מוגדרת גם ב-${seen.get(n)} וגם ב-${f}`);
+      seen.set(n, f);
+    }
+  }
+});
+
+test('ייבוא JSON בשמאי שואל לפני החלפה, ולא דורס בלי אישור', () => {
+  const nav = fs.readFileSync(path.join(DIR, 'src', 'navigation.js'), 'utf8');
+  const body = nav.slice(nav.indexOf('function importJSON'), nav.indexOf('\n}\n', nav.indexOf('function importJSON')));
+  assert.match(body, /ssDialog\.choose/);
+  assert.match(body, /ssDialog\.confirm/);
+  assert.ok(body.indexOf('ssDialog.confirm') < body.indexOf('state.opportunities = items'));
+});
+
 test('מיקוד: תיק שמאות, זהב, קניית זהב מלקוח, יהלומים, שעונים, יודאיקה, מטבעות וספרים ראשונים; השאר תחת "תחומים נוספים"', () => {
   const main = html.slice(html.indexOf('id="hub-main"'), html.indexOf('id="hub-more"'));
   const subs = [...main.matchAll(/data-sub="(\w+)"/g)].map((m) => m[1]);

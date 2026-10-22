@@ -76,8 +76,8 @@ function priceSummary(prices, today = localToday()) {
 function checkPrice(k, raw) {
   const field = PRICE_FIELDS.find(f => f.k === k);
   if (!field) throw new Error('שדה מחיר לא מוכר');
-  const s = String(raw ?? '').trim().replace(/[,\s$₪]/g, '');
-  if (!/^\d+(\.\d+)?$/.test(s)) throw new Error(`${field.name}: יש להזין מספר`);
+  const s = normalizeNumText(raw);
+  if (s === null) throw new Error(`${field.name}: יש להזין מספר`);
   const v = Number(s);
   if (!(v >= field.min && v <= field.max)) throw new Error(`${field.name}: ${v} מחוץ לטווח הסביר (${field.min}–${field.max} ${field.unit})`);
   return v;

@@ -92,7 +92,9 @@ function computeInvoice(invoice, vatRate = DEFAULT_VAT_RATE) {
     const qty = Number(it.quantity ?? 1), price = Number(it.unitPrice);
     if (!Number.isFinite(qty) || qty <= 0) throw new Error(`פריט ${i + 1}: כמות לא תקינה`);
     if (!Number.isFinite(price) || price < 0) throw new Error(`פריט ${i + 1}: מחיר לא תקין`);
-    const lineNet = Math.round(qty * toAg(price));
+    // עיגול אחד לשורה, אחרי ההכפלה: עיגול מחיר היחידה קודם מכפיל את הסטייה בכמות (1000 × 0.125 = 125, לא 130).
+    // toPrecision מנקה את שארית הנקודה הצפה (1.005 × 100 = 100.4999…) לפני העיגול
+    const lineNet = Math.round(Number((qty * price * 100).toPrecision(12)));
     net += lineNet;
     return { description: String(it.description || '').trim() || 'שירות/מוצר', quantity: qty, unitPrice: price, lineNet: fromAg(lineNet), account: it.account ? String(it.account) : (it.kind === 'service' ? SYS.SERVICES : SYS.SALES) };
   });

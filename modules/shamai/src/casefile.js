@@ -126,8 +126,8 @@ const caseIsDay = (v) => {
 
 // מספר עשרוני מהקלדה (פסיק או נקודה), או NaN
 function caseNum(raw) {
-  const s = String(raw ?? '').trim().replace(/\s/g, '').replace(',', '.');
-  return /^\d+(\.\d+)?$/.test(s) ? Number(s) : NaN;
+  const s = normalizeNumText(raw);
+  return s === null ? NaN : Number(s);
 }
 
 // סכום מוקלד ← יחידות שלמות (אגורות/סנטים), או null כשהשדה ריק. זורק על קלט שגוי
