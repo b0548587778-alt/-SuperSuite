@@ -365,4 +365,15 @@ test('כרטיס המודל המקומי — לפי הרישיון והמצב; �
   assert.deepEqual(errors, ['החתימה אינה תקינה']);
   assert.equal(els.aiModelInstall.textContent, 'התקנת מודל מקובץ', 'לא נשאר „מתקין…”');
   assert.equal(els.aiModelInstall.disabled, false);
+
+  // הכרטיס מתרענן גם אחרי שגיאה (המודל הקודם כבר נעצר בשרת), ולא אחרי ביטול
+  const switched = [];
+  ctx.switchView = (v) => switched.push(v);
+  await els.aiModelInstall._l[0]();
+  assert.deepEqual(switched, ['ai'], 'אחרי התקנה שנכשלה — רענון');
+  ctx.systemAPI.aiModelInstall = async () => ({ canceled: true });
+  await els.aiModelInstall._l[0]();
+  confirmAnswer = false;
+  await els.aiModelRemove._l[0]();
+  assert.deepEqual(switched, ['ai'], 'ביטול בחלון הבחירה או באישור — בלי רענון');
 });

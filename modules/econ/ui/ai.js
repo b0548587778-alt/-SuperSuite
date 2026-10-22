@@ -147,29 +147,31 @@ function attachAiModelHandlers(root) {
     const b = root.querySelector('#' + id);
     if (!b) return;
     b.addEventListener('click', async () => {
-      // התווית הזמנית („מתקין…”) חוזרת גם אחרי שגיאה — אחרת הכפתור נראה כאילו הפעולה עוד רצה
+      // התווית הזמנית („מתקין…”) חוזרת גם אחרי שגיאה — אחרת הכפתור נראה כאילו הפעולה עוד רצה.
+      // הכרטיס מתרענן תמיד: גם התקנה שנכשלה עוצרת את המודל הקודם, והמצב במסך כבר לא נכון
       const label = b.textContent;
       b.disabled = true;
-      try { await fn(b); } catch (e) { showError(errMsg(e)); } finally { b.disabled = false; b.textContent = label; }
+      let changed = false;
+      try { changed = (await fn(b)) !== false; } catch (e) { changed = true; showError(errMsg(e)); }
+      finally { b.disabled = false; b.textContent = label; }
+      if (changed) switchView('ai');
     });
   };
   bind('aiModelInstall', async (b) => {
     b.textContent = 'מתקין… (בדיקת הקובץ לוקחת כדקה)';
     const r = await window.systemAPI.aiModelInstall();
-    if (r && !r.canceled) { showToast(`המודל ${r.name || r.id} הותקן`); }
-    switchView('ai');
+    if (!r || r.canceled) return false;
+    showToast(`המודל ${r.name || r.id} הותקן`);
   });
   bind('aiModelVerify', async (b) => {
     b.textContent = 'בודק…';
     const r = await window.systemAPI.aiModelVerify();
     if (r && r.present) showToast('המודל תקין'); else showError((r && r.error) || 'המודל אינו תקין');
-    switchView('ai');
   });
   bind('aiModelRemove', async () => {
-    if (!(await askConfirm('להסיר את המודל מהמחשב? אפשר להתקין אותו שוב מהקובץ.'))) return;
+    if (!(await askConfirm('להסיר את המודל מהמחשב? אפשר להתקין אותו שוב מהקובץ.'))) return false;
     await window.systemAPI.aiModelRemove();
     showToast('המודל הוסר');
-    switchView('ai');
   });
 }
 

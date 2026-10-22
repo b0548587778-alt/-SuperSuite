@@ -201,9 +201,10 @@ function createAI({ userDataPath, getBackupKey, onError = () => {}, clock = () =
       if (!licensed()) throw new Error('המודל המקומי אינו כלול ברישיון של המערכת');
       if (!modelStore) throw new Error('אין תיקיית נתונים להתקנת המודל');
       local.stop();
-      const res = await modelStore.install(manifestText, filePath);
-      await local.refresh();
-      return res;
+      // גם אחרי התקנה שנכשלה — המצב מתעדכן (המודל הקודם נעצר)
+      try {
+        return await modelStore.install(manifestText, filePath);
+      } finally { await local.refresh(); }
     },
     async verify() {
       if (!modelStore) return { present: false };
@@ -213,9 +214,9 @@ function createAI({ userDataPath, getBackupKey, onError = () => {}, clock = () =
     },
     async remove() {
       local.stop();
-      const r = modelStore ? modelStore.remove() : { present: false };
-      await local.refresh();
-      return r;
+      try {
+        return modelStore ? await modelStore.remove() : { present: false };
+      } finally { await local.refresh(); }
     },
   };
 

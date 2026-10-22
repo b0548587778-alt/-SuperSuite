@@ -69,8 +69,35 @@ test('model-pack: התקנה מ-USB — העתקה עם אימות, ואז המ�
   fs.appendFileSync(cur.path, 'x');
   assert.equal((await store.current()).present, false);
   assert.equal((await store.current({ deep: true })).present, false);
-  store.remove();
+  await store.remove();
   assert.equal(fs.existsSync(cur.path), false);
+});
+
+test('model-pack: הסרה כשקובץ המודל עוד פתוח (Windows) — ממתינה, ולא מוחקת את התעודה לפני הקובץ', async () => {
+  const src = tmp('ai-usb-'), dest = path.join(tmp('ai-ud-'), 'ai-models');
+  const m = fakeModel(src);
+  // fs שבו קובץ ה-GGUF „תפוס” (EPERM) מספר פעמים — כמו תהליך המודל שזה עתה נעצר
+  let busy = 0;
+  const lockedFs = Object.assign(Object.create(fs), { unlinkSync: (f) => {
+    if (f.endsWith('.gguf') && busy > 0) { busy--; throw Object.assign(new Error('busy'), { code: 'EPERM' }); }
+    return fs.unlinkSync(f);
+  } });
+  const store = MP.createModelStore({ fs: lockedFs, dir: dest, rootKeys: [root.publicJwk], retry: { tries: 3, waitMs: 1 } });
+  await store.install(manifestFor(m), m.file);
+  const gguf = (await store.current()).path;
+  busy = 2;
+  assert.deepEqual(await store.remove(), { present: false }, 'משתחרר בניסיון השלישי');
+  assert.equal(fs.existsSync(gguf), false);
+  assert.equal(fs.existsSync(path.join(dest, 'model.ssmodel')), false);
+
+  await store.install(manifestFor(m), m.file);
+  busy = 99;
+  await assert.rejects(store.remove(), /עדיין בשימוש/);
+  assert.ok(fs.existsSync(gguf), 'הקובץ נשאר');
+  assert.equal((await store.current()).present, true, 'התעודה נשארה — אפשר לנסות שוב, ואין קובץ יתום');
+  busy = 0;
+  await store.remove();
+  assert.equal(fs.existsSync(gguf), false);
 });
 
 test('model-pack: קובץ שאינו תואם לתעודה, או שאינו GGUF — נדחה ולא נשאר בדיסק', async () => {

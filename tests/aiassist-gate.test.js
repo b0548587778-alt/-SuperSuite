@@ -341,3 +341,64 @@ test('ipc: owner:modelSign — מנהל-העל חותם GGUF, התעודה נש�
   try { const db = ipc.getDb(); if (db && db.db) db.db.close(); } catch { /* כבר סגור */ }
   if (TMP_DIR) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
 });
+
+// ---------- ערוצים ארוכים (handleLong): חלון הבחירה וחישוב התמצית מחוץ לתור, ובדיקה חוזרת לפני הכתיבה ----------
+// חלון בחירה שנשאר פתוח עד שהבדיקה מחליטה
+function pendingDialog() {
+  let answer;
+  const shown = new Promise((r) => { openDialog = () => { r(); return new Promise((a) => { answer = a; }); }; });
+  return { shown, answer: (v) => answer(v) };
+}
+
+test('ipc: owner:modelSign — התור פנוי בזמן הבחירה, חתימה אחת בכל פעם, ובדיקה חוזרת אחרי החישוב', async () => {
+  const ownerStorage = mem();
+  const { publicKey } = createOwnerCore({ storage: ownerStorage, clock: () => T0 }).init(PASS);
+  const dir = fs.mkdtempSync(path.join(TMP_DIR || os.tmpdir(), 'owner-long-'));
+  if (!TMP_DIR) test.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
+  await ipc.initEcon(path.join(dir, 'data'), { rootKeys: [publicKey], clock: () => T0, ownerStorage, relayUrl: '' });
+  await setupAdmin(26);
+  await handlers['owner:unlock'](ev(26), PASS);
+  const MP = require(path.join(ROOT, 'shell/ai/model-pack'));
+  const gguf = path.join(dir, 'long-model.gguf');
+  fs.writeFileSync(gguf, Buffer.concat([Buffer.from(MP.GGUF_MAGIC, 'latin1'), Buffer.alloc(2048, 3)]));
+  const input = { id: 'long-test', name: 'מודל ניסיון', license: 'Apache-2.0' };
+
+  const d = pendingDialog();
+  const first = handlers['owner:modelSign'](ev(26), input);
+  await d.shown;
+  assert.ok(await handlers['auth:status'](ev(26)), 'פעולה אחרת לא ממתינה לחלון הבחירה');
+  await assert.rejects(handlers['owner:modelSign'](ev(26), input), /כבר מתבצעת/);
+  d.answer({ canceled: false, filePaths: [gguf] });
+  assert.equal((await first).ok, true);
+
+  const realHash = MP.hashFile;
+  try {
+    // הקובץ משתנה בזמן חישוב התמצית (עוד מועתק) — לא נחתמת תעודה שגויה
+    openDialog = async () => ({ canceled: false, filePaths: [gguf] });
+    MP.hashFile = async (f, file) => { const h = await realHash(f, file); fs.appendFileSync(file, 'x'); return h; };
+    await assert.rejects(handlers['owner:modelSign'](ev(26), input), /השתנה בזמן הבדיקה/);
+    // מצב מנהל-העל ננעל בזמן החישוב — החתימה נדחית בבדיקה החוזרת
+    MP.hashFile = async (f, file) => { await handlers['owner:lock'](ev(26)); return realHash(f, file); };
+    await assert.rejects(handlers['owner:modelSign'](ev(26), input), /מנהל-העל/);
+  } finally { MP.hashFile = realHash; openDialog = async () => ({ canceled: true, filePaths: [] }); }
+  // ביטול בחלון — בלי חתימה
+  await handlers['owner:unlock'](ev(26), PASS);
+  assert.deepEqual(await handlers['owner:modelSign'](ev(26), input), { ok: false });
+  try { const db = ipc.getDb(); if (db && db.db) db.db.close(); } catch { /* כבר סגור */ }
+  if (TMP_DIR) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+});
+
+test('ipc: ai:model:install — התור פנוי בזמן הבחירה, והסרה / אימות באמצע ההתקנה נדחים', async () => {
+  await issuedTenant(['ai', 'ai.local']);
+  await setupAdmin(27);
+  const d = pendingDialog();
+  const install = handlers['ai:model:install'](ev(27));
+  await d.shown;
+  assert.ok(await handlers['ai:model:status'](ev(27)), 'פעולה אחרת לא ממתינה להתקנה');
+  await assert.rejects(handlers['ai:model:remove'](ev(27)), /כבר מתבצעת/);
+  await assert.rejects(handlers['ai:model:verify'](ev(27)), /כבר מתבצעת/);
+  d.answer({ canceled: true, filePaths: [] });
+  assert.deepEqual(await install, { canceled: true });
+  openDialog = async () => ({ canceled: true, filePaths: [] });
+  assert.deepEqual(await handlers['ai:model:remove'](ev(27)), { present: false }, 'אחרי ההתקנה — ההסרה פתוחה שוב');
+});

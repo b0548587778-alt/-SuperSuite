@@ -388,7 +388,7 @@ async function runGuarded(channel, fn, event, args) {
 let googleDeps = null;
 let googleBuiltIn = null;
 let googlePolicy = { enabled: false, clientId: '', clientSecret: '', onlineRequiresGoogle: false, source: 'none' };
-let googleBusy = false;
+const googleLock = { busy: false };
 function builtInGoogle(c) {
   if (!c || !c.clientId) return null;
   try { return GS.validateConfig(c); } catch (e) { console.error('google-client.js: ' + e.message); return null; }
@@ -416,23 +416,37 @@ function googleOnlineDenied(channel, session) {
   return session && session.via === 'google' ? null : 'ההודעות זמינות רק אחרי כניסה עם Google. צאו והיכנסו עם Google';
 }
 
-/* ערוץ שממתין לכניסה בדפדפן (עד 3 דקות). ההמתנה רצה מחוץ לתור של מסד הנתונים — אחרת כל התוכנה נתקעת;
-   הבדיקות והכתיבה (לפני ואחרי) עוברות בתור, דרך אותה אכיפת הרשאות כמו כל ערוץ */
-function handleGoogle(channel, { loginHint } = {}, fn) {
+/* ערוץ עם המתנה ארוכה (דפדפן, חלון בחירת קובץ, תמצית של קובץ גדול). ההמתנה (work) רצה מחוץ לתור של מסד הנתונים —
+   אחרת כל התוכנה נתקעת; before ו-after רצים בתור, דרך אותה אכיפת הרשאות כמו כל ערוץ (after — בדיקה חוזרת אחרי ההמתנה).
+   lock — משותף לערוצים שאסור שירוצו יחד. work שמחזיר longDone(ערך) מסיים בלי after (למשל ביטול בחלון הבחירה) */
+const LONG_DONE = Symbol('long-done');
+const longDone = (value) => ({ [LONG_DONE]: value });
+function handleLong(channel, { lock, busy, before, work, after }) {
   ipcMain.handle(channel, async (event, ...args) => {
     try {
-      if (googleBusy) throw new Error('כניסה עם Google כבר פתוחה בדפדפן — השלימו אותה או המתינו');
-      googleBusy = true;
+      if (lock.busy) throw new Error(busy);
+      lock.busy = true;
       try {
-        const pre = await enqueue(() => runGuarded(channel, async (ev) => {
-          if (!googlePolicy.enabled) throw new Error('כניסה עם Google לא הופעלה במערכת הזו');
-          return loginHint ? await loginHint(ev) : undefined;
-        }, event, []));
-        const identity = await googleDeps.signIn({ clientId: googlePolicy.clientId, clientSecret: googlePolicy.clientSecret },
-          { openBrowser: googleDeps.openBrowser, fetchImpl: googleDeps.fetchImpl, loginHint: pre || undefined });
-        return await enqueue(() => runGuarded(channel, (ev) => fn(ev, identity, ...args), event, []));
-      } finally { googleBusy = false; }
+        const pre = await enqueue(() => runGuarded(channel, async (ev) => (before ? before(ev, ...args) : undefined), event, []));
+        const mid = await work(pre, ...args);
+        if (mid && Object.hasOwn(mid, LONG_DONE)) return mid[LONG_DONE];
+        return await enqueue(() => runGuarded(channel, (ev) => after(ev, mid, ...args), event, []));
+      } finally { lock.busy = false; }
     } catch (e) { throw toUserError(e); }
+  });
+}
+
+// כניסה בדפדפן (עד 3 דקות). כניסה וקישור — לא יחד
+function handleGoogle(channel, { loginHint } = {}, fn) {
+  handleLong(channel, {
+    lock: googleLock, busy: 'כניסה עם Google כבר פתוחה בדפדפן — השלימו אותה או המתינו',
+    before: async (ev) => {
+      if (!googlePolicy.enabled) throw new Error('כניסה עם Google לא הופעלה במערכת הזו');
+      return loginHint ? await loginHint(ev) : undefined;
+    },
+    work: (pre) => googleDeps.signIn({ clientId: googlePolicy.clientId, clientSecret: googlePolicy.clientSecret },
+      { openBrowser: googleDeps.openBrowser, fetchImpl: googleDeps.fetchImpl, loginHint: pre || undefined }),
+    after: (ev, identity, ...args) => fn(ev, identity, ...args),
   });
 }
 
@@ -2396,41 +2410,40 @@ function registerIpcHandlers() {
   });
   // מנהל-העל: חתימת מודל AI מקומי — בוחרים קובץ GGUF, מחושבת תמצית (בזרימה, בלי לטעון 1GB לזיכרון),
   // ונשמרת לידו תעודה ‎.ssmodel. אותו מסלול אמון כמו שחרור גרסה: המפתח הפרטי נשאר בתוך ownerCore.
-  // כמו handleGoogle: השומר (כניסה, הרשאה, מצב מנהל-על פתוח) בתור; חלון הבחירה וחישוב התמצית (עד דקה) — מחוץ לתור,
-  // כדי שלא כל פעולה אחרת במערכת תמתין להם; החתימה והרישום ביומן — שוב בתור, אחרי בדיקה חוזרת
-  let modelSignBusy = false;
-  const ownerSignGuard = (event, fn) => enqueue(() => runGuarded('owner:modelSign', async (ev) => { ownerCore.rootSigner(); return fn(ev); }, event, []));
-  ipcMain.handle('owner:modelSign', async (event, input = {}) => {
-    try {
-      if (modelSignBusy) throw new Error('חתימת מודל כבר מתבצעת — המתינו לסיומה');
-      modelSignBusy = true;
-      try {
-        await ownerSignGuard(event, async () => true);
-        const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ המודל (‎.gguf)', properties: ['openFile'],
-          filters: [{ name: 'קובץ מודל', extensions: ['gguf'] }] });
-        if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { ok: false };
-        const file = pick.filePaths[0];
-        const st = fs.statSync(file);
-        if (st.size > MP.MAX_SIZE) throw new Error('קובץ המודל גדול מ-3GB');
-        const fd = fs.openSync(file, 'r');
-        const head = Buffer.alloc(4);
-        try { fs.readSync(fd, head, 0, 4, 0); } finally { fs.closeSync(fd); }
-        if (head.toString('latin1') !== MP.GGUF_MAGIC) throw new Error('הקובץ אינו מודל GGUF');
-        const sha256 = await MP.hashFile(fs, file);
-        const x = input || {};
-        return await ownerSignGuard(event, async (ev) => {
-          const text = MP.createModelManifest(ownerCore.rootSigner(), {
-            id: x.id, name: x.name, license: x.license, quant: x.quant, contextSize: x.contextSize,
-            fileName: path.basename(file), size: st.size, sha256,
-          }, { issuedAt: clockNow() });
-          const p = MP.verifyModelManifest(text, [ownerCore.pubkey()]);
-          const out = file.replace(/\.gguf$/i, '') + '.ssmodel';
-          fs.writeFileSync(out, text, 'utf8');
-          await ownerAudit(ev, 'model.sign', { id: p.id, sha256: p.sha256, size: p.size });
-          return { ok: true, id: p.id, name: p.name, size: p.size, path: out };
-        });
-      } finally { modelSignBusy = false; }
-    } catch (e) { throw toUserError(e); }
+  // השומר (כניסה, הרשאה, מצב מנהל-על פתוח) בתור; חלון הבחירה וחישוב התמצית (עד דקה) — מחוץ לתור (handleLong);
+  // החתימה והרישום ביומן — שוב בתור, אחרי בדיקה חוזרת. חתימה אחת בכל פעם
+  handleLong('owner:modelSign', {
+    lock: { busy: false }, busy: 'חתימת מודל כבר מתבצעת — המתינו לסיומה',
+    before: () => { ownerCore.rootSigner(); },
+    work: async () => {
+      const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ המודל (‎.gguf)', properties: ['openFile'],
+        filters: [{ name: 'קובץ מודל', extensions: ['gguf'] }] });
+      if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return longDone({ ok: false });
+      const file = pick.filePaths[0];
+      const st = fs.statSync(file);
+      if (st.size > MP.MAX_SIZE) throw new Error('קובץ המודל גדול מ-3GB');
+      const fd = fs.openSync(file, 'r');
+      const head = Buffer.alloc(4);
+      try { fs.readSync(fd, head, 0, 4, 0); } finally { fs.closeSync(fd); }
+      if (head.toString('latin1') !== MP.GGUF_MAGIC) throw new Error('הקובץ אינו מודל GGUF');
+      const sha256 = await MP.hashFile(fs, file);
+      // קובץ שעוד מועתק / נכתב — הגודל והתמצית לא יתאימו, ותעודה חתומה כזו תידחה בכל התקנה
+      const after = fs.statSync(file);
+      if (after.size !== st.size || after.mtimeMs !== st.mtimeMs) throw new Error('קובץ המודל השתנה בזמן הבדיקה — המתינו לסיום ההעתקה ונסו שוב');
+      return { file, size: st.size, sha256 };
+    },
+    after: async (ev, f, input) => {
+      const x = input || {};
+      const text = MP.createModelManifest(ownerCore.rootSigner(), {
+        id: x.id, name: x.name, license: x.license, quant: x.quant, contextSize: x.contextSize,
+        fileName: path.basename(f.file), size: f.size, sha256: f.sha256,
+      }, { issuedAt: clockNow() });
+      const p = MP.verifyModelManifest(text, [ownerCore.pubkey()]);
+      const out = f.file.replace(/\.gguf$/i, '') + '.ssmodel';
+      fs.writeFileSync(out, text, 'utf8');
+      await ownerAudit(ev, 'model.sign', { id: p.id, sha256: p.sha256, size: p.size });
+      return { ok: true, id: p.id, name: p.name, size: p.size, path: out };
+    },
   });
   handle('owner:releases', async () => ownerCore.releases().map(({ text, ...r }) => r));
   handle('owner:releasePublish', async (event, version, platform) => {
@@ -2829,25 +2842,35 @@ function registerIpcHandlers() {
     return aiAssistant.search(q, ctx);
   });
   // המודל המקומי (תוסף): מצב — לכל משתמש; התקנה, אימות והסרה — מנהל בלבד (permissionFor).
-  // הקבצים נבחרים בחלון של המערכת כאן בתהליך הראשי — נתיב לא מתקבל מהמסך
+  // הקבצים נבחרים בחלון של המערכת כאן בתהליך הראשי — נתיב לא מתקבל מהמסך.
+  // התקנה (העתקה ותמצית של עד 3GB) ואימות מלא — מחוץ לתור (handleLong), אחרת כל המערכת ממתינה דקה.
+  // התקנה, אימות והסרה — אחת בכל פעם (מנעול משותף): הסרה באמצע העתקה הייתה משאירה תעודה בלי מודל
   handle('ai:model:status', async () => aiAssistant.model.status());
-  handle('ai:model:install', async (event) => {
-    const pickM = await dialog.showOpenDialog({ title: 'בחירת תעודת המודל (‎.ssmodel)', properties: ['openFile'], filters: [{ name: 'תעודת מודל', extensions: ['ssmodel'] }] });
-    if (pickM.canceled || !pickM.filePaths.length) return { canceled: true };
-    const pickG = await dialog.showOpenDialog({ title: 'בחירת קובץ המודל (‎.gguf)', defaultPath: path.dirname(pickM.filePaths[0]), properties: ['openFile'], filters: [{ name: 'קובץ מודל', extensions: ['gguf'] }] });
-    if (pickG.canceled || !pickG.filePaths.length) return { canceled: true };
-    const manifest = fs.readFileSync(pickM.filePaths[0], 'utf8');
-    if (manifest.length > 64 * 1024) throw new Error('תעודת המודל אינה תקינה');
-    const res = await aiAssistant.model.install(manifest, pickG.filePaths[0]);
-    await auditEvent(event, 'ai.model.install', { id: res && res.id });
-    // בלי נתיב פנימי למסך
-    return { id: res.id, name: res.name, size: res.size };
+  const modelLock = { busy: false };
+  const MODEL_BUSY = 'פעולה על המודל כבר מתבצעת — המתינו לסיומה';
+  handleLong('ai:model:install', {
+    lock: modelLock, busy: MODEL_BUSY,
+    work: async () => {
+      const pickM = await dialog.showOpenDialog({ title: 'בחירת תעודת המודל (‎.ssmodel)', properties: ['openFile'], filters: [{ name: 'תעודת מודל', extensions: ['ssmodel'] }] });
+      if (pickM.canceled || !pickM.filePaths.length) return longDone({ canceled: true });
+      const pickG = await dialog.showOpenDialog({ title: 'בחירת קובץ המודל (‎.gguf)', defaultPath: path.dirname(pickM.filePaths[0]), properties: ['openFile'], filters: [{ name: 'קובץ מודל', extensions: ['gguf'] }] });
+      if (pickG.canceled || !pickG.filePaths.length) return longDone({ canceled: true });
+      const manifest = fs.readFileSync(pickM.filePaths[0], 'utf8');
+      if (manifest.length > 64 * 1024) throw new Error('תעודת המודל אינה תקינה');
+      return aiAssistant.model.install(manifest, pickG.filePaths[0]);
+    },
+    after: async (ev, res) => {
+      await auditEvent(ev, 'ai.model.install', { id: res && res.id });
+      // בלי נתיב פנימי למסך
+      return { id: res.id, name: res.name, size: res.size };
+    },
   });
-  handle('ai:model:verify', async () => aiAssistant.model.verify());
-  handle('ai:model:remove', async (event) => {
-    const res = await aiAssistant.model.remove();
-    await auditEvent(event, 'ai.model.remove', {});
-    return res;
+  handleLong('ai:model:verify', { lock: modelLock, busy: MODEL_BUSY,
+    work: async () => longDone(await aiAssistant.model.verify()) });
+  handleLong('ai:model:remove', {
+    lock: modelLock, busy: MODEL_BUSY,
+    work: () => aiAssistant.model.remove(),
+    after: async (ev, res) => { await auditEvent(ev, 'ai.model.remove', {}); return res; },
   });
   // העוזר מצביע על המסך שבו אפשר לראות את הנתונים. רשימת יעדים סגורה — בלי ניווט חופשי
   const AI_VIEW_TARGETS = new Set(['acct-invoices', 'acct-reports', 'npo', 'realestate', 'trainer']);

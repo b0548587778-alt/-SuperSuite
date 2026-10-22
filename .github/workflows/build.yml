@@ -192,13 +192,14 @@ jobs:
             echo "--- annotations: job $id" >> "$out"
             api "$repo/check-runs/$id/annotations" | jq -r '.[]? | "\(.annotation_level): \(.message)"' >> "$out"
           done
-          # כל ה-artifacts, בכל העמודים (עד 3,000): מזהה, גודל, זמן יצירה, ריצה
+          # כל ה-artifacts, בכל העמודים (עד 3,000): מזהה, גודל, זמן יצירה, ריצה.
+          # בלי אלה שפג תוקפם (expired): הם כבר לא נספרים במכסה, ואין מה למחוק בהם
           : > artifacts.tsv
           for page in $(seq 1 30); do
             api "$repo/actions/artifacts?per_page=100&page=$page" > page.json
             n=$(jq '.artifacts | length' page.json 2>/dev/null)
             [ "${n:-0}" -gt 0 ] || break
-            jq -r '.artifacts[] | [.id, .size_in_bytes, .created_at, (.workflow_run.id | tostring)] | @tsv' page.json >> artifacts.tsv
+            jq -r '.artifacts[] | select(.expired != true) | [.id, .size_in_bytes, .created_at, (.workflow_run.id | tostring)] | @tsv' page.json >> artifacts.tsv
           done
           echo "--- artifacts: $(wc -l < artifacts.tsv), MB: $(awk -F'\t' '{ s += $2 } END { print int(s / 1048576) }' artifacts.tsv)" >> "$out"
           # ניקוי (החלטת הבעלים 22.10.2026): 202 קבצים / 4.3GB מילאו את המכסה. נמחקים רק artifacts בני יותר מ-6 שעות

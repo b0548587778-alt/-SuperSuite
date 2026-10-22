@@ -95,13 +95,31 @@ function hashFile(fs, file) {
   });
 }
 
+// מחיקת קובץ שאולי עוד פתוח: ב-Windows תהליך המודל שזה עתה נעצר מחזיק את הקובץ עוד רגע (EPERM / EBUSY).
+// true — הקובץ לא קיים עוד; false — עדיין בשימוש אחרי כל הניסיונות
+async function unlinkSettled(fs, file, { tries = 10, waitMs = 200 } = {}) {
+  for (let i = 1; ; i++) {
+    try { fs.unlinkSync(file); return true; } catch (e) {
+      if (e && e.code === 'ENOENT') return true;
+      if (i >= tries) return false;
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+}
+
 // המודל המותקן: dir/<id>.gguf + dir/model.ssmodel + dir/model-state.json (גודל וזמן שינוי אחרי האימות)
-function createModelStore({ fs, dir, rootKeys }) {
+function createModelStore({ fs, dir, rootKeys, retry }) {
   const manifestFile = path.join(dir, INSTALLED);
   const stateFile = path.join(dir, STATE);
 
   function readJson(file) {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+  }
+  // קובץ המודל של התעודה המותקנת (גם בלי אימות חתימה — כדי שאפשר יהיה להסיר תעודה פגומה). מזהה לא תקין — אין קובץ
+  function installedFile() {
+    const prev = readJson(manifestFile);
+    const id = prev && prev.payload ? String(prev.payload.id || '') : '';
+    return ID_RE.test(id) ? path.join(dir, id + '.gguf') : null;
   }
 
   // התקנה מקובץ (USB / תיקייה). sourcePath — קובץ ה-GGUF; manifestText — תוכן ה-‎.ssmodel
@@ -122,10 +140,8 @@ function createModelStore({ fs, dir, rootKeys }) {
       throw e;
     }
     // מודל קודם בשם אחר — מוסר, כדי שלא יישארו 2GB מיותרים בדיסק
-    const prev = readJson(manifestFile);
-    if (prev && prev.payload && prev.payload.id !== p.id) {
-      try { fs.unlinkSync(path.join(dir, prev.payload.id + '.gguf')); } catch { /* כבר הוסר */ }
-    }
+    const prevFile = installedFile();
+    if (prevFile && prevFile !== target) await unlinkSettled(fs, prevFile, retry);
     fs.writeFileSync(manifestFile, typeof manifestText === 'string' ? manifestText : JSON.stringify(manifestText), 'utf8');
     const after = fs.statSync(target);
     fs.writeFileSync(stateFile, JSON.stringify({ sha256: p.sha256, size: after.size, mtimeMs: Math.round(after.mtimeMs) }), 'utf8');
@@ -151,11 +167,11 @@ function createModelStore({ fs, dir, rootKeys }) {
     return { present: true, path: file, manifest: p };
   }
 
-  function remove() {
-    const prev = readJson(manifestFile);
-    for (const f of [prev && prev.payload ? path.join(dir, prev.payload.id + '.gguf') : null, manifestFile, stateFile]) {
-      if (f) { try { fs.unlinkSync(f); } catch { /* כבר הוסר */ } }
-    }
+  // התעודה נמחקת רק אחרי שקובץ המודל נמחק — אחרת נשאר בדיסק קובץ של כמה GB שאף מסך לא יודע עליו
+  async function remove() {
+    const file = installedFile();
+    if (file && !(await unlinkSettled(fs, file, retry))) throw new Error('קובץ המודל עדיין בשימוש — נסו שוב בעוד רגע');
+    for (const f of [manifestFile, stateFile]) { try { fs.unlinkSync(f); } catch { /* כבר הוסר */ } }
     return { present: false };
   }
 
