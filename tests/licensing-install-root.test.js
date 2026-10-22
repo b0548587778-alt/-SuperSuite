@@ -15,7 +15,8 @@ function setup() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-root-'));
   const dir = path.join(base, 'owner-data');
   const file = path.join(base, 'root-keys.js');
-  fs.copyFileSync(REAL, file);
+  // מתחילים מקובץ ריק משלנו — לא מהאמיתי, שאולי כבר מכיל את מפתח הבעלים (CLAUDE.md: אין להניח ריק או מלא)
+  fs.writeFileSync(file, 'module.exports = [];\n');
   const r = createOwner({ dir, passphrase: PASS }).init();
   return { dir, file, r };
 }
