@@ -88,6 +88,7 @@ test('ערכה כהה: טקסט ורקעים — ניגודיות 4.5 לפחות
     ['success-ink', 'success-soft'], ['warning-ink', 'warning-soft'], ['danger-ink', 'danger-soft'], ['info-ink', 'info-soft'],
     ['success', 'surface'], ['warning', 'surface'], ['danger', 'surface'], ['surface', 'danger'],
     ['on-dark', 'side-top'], ['ink-2', 'side-top'],
+    ['violet', 'surface'], ['violet', 'violet-soft'], ['violet-ink', 'violet-soft'],
   ]), []);
 });
 

@@ -10,6 +10,126 @@ const ITEMS = [...CAT.ITEMS];
 const BY_KEY = new Map(ITEMS.map(it => [it.key, it]));
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/* ---------- סט אייקונים אחד למעטפת: קווי, 24×24, עובי אחיד (.ss-icon ב-ui-kit.css). ציור מקורי, בלי רכיב צד שלישי.
+   הקטלוג שומר אמוג'י לכל פריט; כאן המיפוי מפריט/תחום/פרופיל לאייקון ---------- */
+const IC = (function () {
+  const P = {
+    home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>',
+    'arrow-right': '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
+    'arrow-left': '<path d="M19 12H5"/><path d="m11 6-6 6 6 6"/>',
+    'chevron-left': '<path d="m14 6-6 6 6 6"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    download: '<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
+    upload: '<path d="M12 20V9"/><path d="m7 14 5-5 5 5"/><path d="M5 4h14"/>',
+    drive: '<rect x="3" y="13" width="18" height="7" rx="2"/><path d="M5.5 13 8 5h8l2.5 8"/><path d="M7 16.5h.01"/><path d="M11 16.5h6"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/><path d="m14.5 8.5 2 2"/>',
+    link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
+    palette: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.5-1.9-.3-1 .4-2.1 1.5-2.1H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10Z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="15" cy="7.5" r="1"/>',
+    help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"/><path d="M12 17h.01"/>',
+    power: '<path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>',
+    sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+    sparkles: '<path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8Z"/><path d="M18.5 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8Z"/>',
+    send: '<path d="M21 3 3 10.5l7 2.5 2.5 7Z"/><path d="m10 13 4.5-4.5"/>',
+    calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/>',
+    sunset: '<path d="M3 18h18M6 21h12"/><path d="M7 18a5 5 0 0 1 10 0"/><path d="M12 3v6M9 6l3 3 3-3"/>',
+    star: '<path d="m12 3 2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6l-5.4 2.9 1.2-6-4.5-4.2 6.1-.7Z"/>',
+    moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>',
+    candle: '<path d="M12 3c1.5 1.6 2 2.8 2 3.8a2 2 0 0 1-4 0c0-1 .5-2.2 2-3.8Z"/><rect x="9" y="11" width="6" height="10" rx="1"/>',
+    check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+    x: '<path d="M6 6l12 12M18 6 6 18"/>',
+    alert: '<path d="M12 3.5 2.5 20h19Z"/><path d="M12 10v4.5M12 17.5h.01"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    'trend-up': '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+    'trend-down': '<path d="m3 7 6 6 4-4 8 8"/><path d="M15 17h6v-6"/>',
+    invoice: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+    coins: '<ellipse cx="9" cy="7" rx="6" ry="3"/><path d="M3 7v4c0 1.7 2.7 3 6 3s6-1.3 6-3V7"/><path d="M9 14v3c0 1.7 2.7 3 6 3s6-1.3 6-3v-5c0-1.6-2.4-2.9-5.5-3"/>',
+    'hand-coin': '<circle cx="15" cy="7" r="3"/><path d="M3 15h3l4 3h5a1.5 1.5 0 0 0 0-3h-3"/><path d="M6 15c1-1.5 2.5-2.5 4.5-2.5H14"/><path d="M3 21h3"/>',
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    wallet: '<path d="M4 6.5A2.5 2.5 0 0 1 6.5 4H18v4"/><rect x="3.5" y="8" width="17" height="12" rx="2"/><path d="M16 14h.01"/>',
+    building: '<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10.5 21v-3h3v3"/>',
+    bank: '<path d="M3 9.5 12 4l9 5.5"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8"/><path d="M3 20.5h18"/>',
+    'chart-line': '<path d="M4 20V4M4 20h16"/><path d="m7 15 4-4 3 3 5-6"/>',
+    'chart-bar': '<path d="M4 20V4M4 20h16"/><path d="M8 16v-5M12 16V8M16 16v-3"/>',
+    dashboard: '<rect x="3.5" y="3.5" width="7" height="9" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="5" rx="1.5"/><rect x="13.5" y="11.5" width="7" height="9" rx="1.5"/><rect x="3.5" y="15.5" width="7" height="5" rx="1.5"/>',
+    card: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/>',
+    droplet: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z"/>',
+    book: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5Z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"/><path d="M9 7h6"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
+    tag: '<path d="M3 12V4h8l10 10-8 8Z"/><circle cx="7.5" cy="8.5" r="1.3"/>',
+    briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M3 12.5h18"/>',
+    store: '<path d="M4 9.5 5.5 4h13L20 9.5"/><path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0"/><path d="M5 12v8h14v-8M10 20v-4h4v4"/>',
+    target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".8"/>',
+    shekel: '<path d="M6 19V5h6a3 3 0 0 1 3 3v7"/><path d="M10 9v10h6a3 3 0 0 0 3-3V5"/>',
+    heart: '<path d="M12 20s-7-4.4-7-9.5A4 4 0 0 1 12 8a4 4 0 0 1 7 2.5C19 15.6 12 20 12 20Z"/>',
+    package: '<path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5Z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/>',
+    'home-lock': '<path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><circle cx="12" cy="14" r="2"/><path d="M12 16v2"/>',
+    calculator: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15v3M8 18h4"/>',
+    realty: '<path d="M3 21V11l6-5 6 5v10"/><path d="M15 21V9l3-2.5L21 9v12"/><path d="M2 21h20M7.5 21v-4h3v4"/>',
+    ruler: '<path d="M3.5 16.5 16.5 3.5l4 4-13 13Z"/><path d="m7 13 1.5 1.5M10 10l1.5 1.5M13 7l1.5 1.5"/>',
+    gem: '<path d="M6 4h12l3 5-9 11L3 9Z"/><path d="M3 9h18M9.5 4 8 9l4 11 4-11-1.5-5"/>',
+    checklist: '<path d="m4 6 1.5 1.5L8 5M4 12l1.5 1.5L8 11M4 18l1.5 1.5L8 17"/><path d="M11 6.5h9M11 12.5h9M11 18.5h9"/>',
+    contacts: '<rect x="4" y="3" width="15" height="18" rx="2"/><circle cx="11.5" cy="10" r="2.5"/><path d="M7.5 17a4 4 0 0 1 8 0M19 7h2M19 11h2M19 15h2"/>',
+    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+    pen: '<path d="m4 20 1-4L16 5l3 3L8 19Z"/><path d="m14 7 3 3"/>',
+    toolbox: '<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M9 8V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V8M3 13h18M10 13v2h4v-2"/>',
+    activity: '<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>',
+    dumbbell: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>',
+    ticket: '<path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4Z"/><path d="M14 7v2M14 11v2M14 15v2"/>',
+    bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    clipboard: '<rect x="5" y="4.5" width="14" height="16.5" rx="2"/><path d="M9 3h6v3H9ZM9 11h6M9 15h4"/>',
+    list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+    leaf: '<path d="M5 19c0-8 5-14 15-15-1 10-7 15-15 15Z"/><path d="m5 19 8-8"/>',
+    stretch: '<circle cx="12" cy="4.5" r="2"/><path d="M4 9h16M12 9v6l-3 6M12 15l3 6"/>',
+    run: '<circle cx="14" cy="4.5" r="2"/><path d="m6 20 3.5-5 3 2v-5l-3-1.5L7 13M12.5 12l3 3H19M9.5 10.5l3-2.5"/>',
+    'book-open': '<path d="M12 6.5C10 5 7 4.5 3 5v14c4-.5 7 0 9 1.5 2-1.5 5-2 9-1.5V5c-4-.5-7 0-9 1.5Z"/><path d="M12 6.5v14"/>',
+    wrench: '<path d="M15 4a5 5 0 0 0-4.6 6.9L4 17.3V20h2.7l6.4-6.4A5 5 0 0 0 20 9l-3 1-3-3 1-3Z"/>',
+    message: '<path d="M4 5h16v11H9l-5 4Z"/>',
+    lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
+    pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+  };
+
+  // פריט בקטלוג ← אייקון. פריט חדש בלי מיפוי מקבל את האייקון של התחום שלו
+  const BY_KEY = {
+    'econ:dashboard': 'dashboard', 'econ:acct-invoices': 'invoice', 'econ:collect': 'card', 'econ:acct-reports': 'chart-line',
+    'econ:biz-reports': 'droplet', 'econ:acct-bank': 'bank', 'econ:acct-journal': 'book', 'econ:acct-chart': 'folder',
+    'econ:acct-pricing': 'tag', 'econ:business': 'store', 'econ:market-intel': 'target', 'econ:acct-settings': 'building',
+    'econ:personal-finance': 'wallet', 'econ:finance': 'shekel', 'econ:acct-personal': 'home', 'econ:npo': 'heart',
+    'econ:gemach': 'hand-coin', 'econ:chesed': 'package', 'econ:people': 'users', 'econ:mortgage': 'home-lock',
+    'econ:mortgage-advisor': 'briefcase', 'econ:mortgage-lab': 'calculator', 'econ:realty': 'realty', 'econ:realestate': 'ruler',
+    shamai: 'gem', 'econ:tasks': 'checklist', 'econ:contacts': 'contacts', 'econ:voice-notes': 'mic', 'econ:canvas': 'pen',
+    tools: 'toolbox', 'econ:fitness': 'activity', 'trainer:dashboard': 'dumbbell', 'trainer:clients': 'user',
+    'trainer:schedule': 'calendar', 'trainer:memberships': 'ticket', 'trainer:reminders': 'bell', 'trainer:programs': 'clipboard',
+    'trainer:exercises': 'list', 'trainer:nutrition': 'leaf', 'trainer:flexibility': 'stretch', 'trainer:cardio': 'run',
+    'trainer:knowledge': 'book-open', 'trainer:tools': 'wrench', 'trainer:settings': 'sliders', 'econ:ai': 'sparkles',
+    'econ:settings': 'sliders', 'econ:licensing': 'key', 'econ:messages': 'message',
+  };
+  const BY_GROUP = { money: 'coins', home: 'home', realty: 'realty', org: 'briefcase', health: 'activity', trainer: 'dumbbell', system: 'sliders' };
+  const BY_PROFILE = { npo: 'heart', gemach: 'hand-coin', chesed: 'package', business: 'store', household: 'home', mortgage: 'home-lock', appraiser: 'gem', trainer: 'dumbbell' };
+
+  // svg(name): סימון מוכן להכנסה ל-innerHTML. השמות קבועים מהטבלה — לעולם לא טקסט מהמשתמש
+  function svg(name, cls) {
+    const body = P[name];
+    if (!body) return '';
+    return `<svg class="ss-icon${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${body}</svg>`;
+  }
+  const nameForItem = (it) => (it && (BY_KEY[it.key] || BY_GROUP[it.group])) || 'sparkles';
+  const forItem = (it, cls) => svg(nameForItem(it), cls);
+  const forProfile = (id, cls) => svg(BY_PROFILE[id] || 'sparkles', cls);
+  // אייקונים בסימון הקבוע: <span data-icon="home"></span>
+  function hydrate(root) {
+    const scope = root && root.querySelectorAll ? root : null;
+    if (!scope) return;
+    for (const el of scope.querySelectorAll('[data-icon]')) if (P[el.dataset.icon]) el.innerHTML = svg(el.dataset.icon);
+  }
+
+  return { svg, forItem, forProfile, hydrate };
+})();
+const svg = (name) => (IC ? IC.svg(name) : '');
+const itemIcon = (it) => (IC ? IC.forItem(it) : esc(it.icon));
+if (IC && document.querySelectorAll) IC.hydrate(document);
 
 // views — התצוגה הפעילה בכל מודול שיש לו מסכים בסרגל (כלכלי, אימונים)
 const ui = { active: null, views: {}, query: '' };
@@ -37,12 +157,12 @@ function groupTitle(id) { const g = GROUPS.find(x => x.id === id); return g ? g.
 function navItem(it) {
   const off = !itemOpen(it);
   return `<button class="it hue-${it.hue}${off ? ' off' : ''}" data-key="${esc(it.key)}" title="${esc(off ? lic.message || 'אינו כלול ברישיון' : it.desc)}">` +
-    `<span class="ic">${esc(it.icon)}</span><span class="nm">${esc(it.name)}</span></button>`;
+    `<span class="ic">${itemIcon(it)}</span><span class="nm">${esc(it.name)}</span></button>`;
 }
 
 function renderNav() {
   const q = ui.query.trim();
-  let html = q ? '' : '<button class="it home" data-key="home"><span class="ic">⌂</span><span class="nm">מסך הבית</span></button>';
+  let html = q ? '' : `<button class="it home" data-key="home"><span class="ic">${IC ? svg('home') : '⌂'}</span><span class="nm">מסך הבית</span></button>`;
   let found = 0;
   for (const g of GROUPS) {
     const items = ITEMS.filter(it => it.group === g.id && matches(it, q));
@@ -153,7 +273,7 @@ function openOnboarding() {
   const st = obState();
   $('obErr').textContent = '';
   $('obChoices').innerHTML = OB.PROFILES.map(p => `<label><input type="checkbox" name="ob" value="${esc(p.id)}"${st.profiles.includes(p.id) ? ' checked' : ''}>` +
-    `<span class="ob-check" aria-hidden="true">✓</span><span class="ob-icon" aria-hidden="true">${esc(p.icon)}</span><b>${esc(p.name)}</b><small>${esc(p.desc)}</small></label>`).join('');
+    `<span class="ob-check" aria-hidden="true">${IC ? svg('check') : '✓'}</span><span class="ob-icon" aria-hidden="true">${IC ? IC.forProfile(p.id) : esc(p.icon)}</span><b>${esc(p.name)}</b><small>${esc(p.desc)}</small></label>`).join('');
   const count = () => {
     const n = $('obChoices').querySelectorAll('input[name="ob"]:checked').length;
     $('obCount').textContent = n ? (n === 1 ? 'נבחרה אפשרות אחת' : `נבחרו ${n} אפשרויות`) : 'עדיין לא נבחר דבר';
@@ -167,6 +287,8 @@ function openOnboarding() {
     if (!picked.length) { $('obErr').textContent = 'בחרו לפחות אפשרות אחת'; return; }
     done();
     obSave({ profiles: picked, completed: true, dismissed: false });
+    // אחרי הבחירה הראשונה — סיור קצר של 3 שלבים (פעם אחת; אפשר שוב מ"צעדים ראשונים")
+    if (!tourSeen()) startTour();
   };
   $('obCancel').onclick = done;
   dlg.oncancel = (e) => { e.preventDefault(); done(); };
@@ -177,6 +299,7 @@ if (OB) {
   $('obEdit').onclick = openOnboarding;
   $('obLater').onclick = () => obSave({ dismissed: true });
   $('obHide').onclick = () => obSave({ dismissed: true });
+  $('tourAgain').onclick = () => startTour();
   $('obList').onclick = (e) => {
     const b = e.target.closest('[data-ob-step]');
     if (!b) return;
@@ -204,7 +327,7 @@ function greeting(h) {
 }
 function card(it) {
   return `<button class="card hue-${it.hue}${itemOpen(it) ? '' : ' off'}" data-key="${esc(it.key)}" type="button">` +
-    `<span class="ic">${esc(it.icon)}</span><span><b>${esc(it.name)}</b><small>${esc(it.desc)}</small></span></button>`;
+    `<span class="ic" aria-hidden="true">${itemIcon(it)}</span><span><b>${esc(it.name)}</b><small>${esc(it.desc)}</small></span></button>`;
 }
 function renderHome() {
   const now = new Date();
@@ -213,6 +336,9 @@ function renderHome() {
   const heb = HC.hebrewToday(now.getTime(), cal);
   $('dates').innerHTML = heb ? `<b>${esc(heb.text)}</b>${heb.night ? ' <i>(אור ליום ' + esc(HC.WEEKDAYS[heb.weekday]) + ')</i>' : ''} · ${esc(greg)}` : esc(greg);
   renderDay(now.getTime());
+  $('todayDate').textContent = heb ? heb.text : greg;
+  renderKpis();
+  renderToday(now);
   renderLicense();
   renderOnboarding();
 
@@ -225,9 +351,180 @@ function renderHome() {
     ITEMS.filter(it => it.group === g.id).map(card).join('') + '</div></section>').join('');
 }
 $('home').onclick = e => {
-  const c = e.target.closest('.card, .lic-go');
+  const c = e.target.closest('.card, .lic-go, .kpi, .t-item');
   if (c) open(c.dataset.key);
 };
+
+/* ---------- מסך הבית: מדדים ו"היום" (יארצייטים, הלוואות לפירעון, חשבוניות פתוחות) ----------
+   הנתונים מגיעים מ-shellAPI.getHomeSummary (קריאה בלבד, לפי הרשאות ורישיון — main.js). כשאין ערוץ או שאין כניסה
+   למערכת הכספים — המדדים מוצגים ריקים עם הסבר, ולחיצה פותחת את המסך המתאים. סכומים באגורות. */
+let homeData = null;
+const nis = (ag) => '₪' + (Math.round(Number(ag) || 0) / 100).toLocaleString('he-IL', { maximumFractionDigits: 0 });
+const count = (n) => (Number.isFinite(Number(n)) ? Math.max(0, Math.round(Number(n))).toLocaleString('he-IL') : '—');
+const KPIS = [
+  { id: 'income', key: 'econ:acct-reports', hue: 'blue', icon: 'trend-up', label: 'הכנסות החודש',
+    value: (k) => nis(k.incomeMonth), sub: (k) => deltaHtml(k.incomeMonth, k.incomePrevMonth), has: (k) => k.incomeMonth != null },
+  { id: 'invoices', key: 'econ:acct-invoices', hue: 'gold', icon: 'invoice', label: 'חשבוניות פתוחות',
+    value: (k) => count(k.openInvoices), sub: (k) => (k.openInvoicesAmount ? esc(nis(k.openInvoicesAmount)) + ' לגבייה' : 'הכול נגבה'), has: (k) => k.openInvoices != null },
+  { id: 'donations', key: 'econ:npo', hue: 'green', icon: 'heart', label: 'תרומות החודש',
+    value: (k) => nis(k.donationsMonth), sub: () => 'עמותה וצדקה', has: (k) => k.donationsMonth != null },
+  { id: 'loans', key: 'econ:gemach', hue: 'purple', icon: 'hand-coin', label: 'הלוואות פעילות בגמ"ח',
+    value: (k) => count(k.activeLoans), sub: () => 'ללא ריבית', has: (k) => k.activeLoans != null },
+];
+// שינוי מול החודש הקודם — חץ ומילים, לא רק צבע
+function deltaHtml(cur, prev) {
+  const a = Number(cur), b = Number(prev);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= 0) return 'מתחילת החודש';
+  const pct = Math.round((a - b) / b * 100);
+  if (!pct) return '<span class="ss-delta">ללא שינוי מהחודש הקודם</span>';
+  const up = pct > 0;
+  return `<span class="ss-delta ${up ? 'ss-delta-up' : 'ss-delta-down'}">${up ? '▲' : '▼'} ${Math.abs(pct)}%</span> מול החודש הקודם`;
+}
+function renderKpis() {
+  const k = (homeData && homeData.kpis) || {};
+  $('kpis').innerHTML = KPIS.map(d => {
+    const it = BY_KEY.get(d.key);
+    if (!it) return '';
+    const has = d.has(k);
+    return `<button type="button" class="kpi hue-${d.hue}${has ? '' : ' empty'}${itemOpen(it) ? '' : ' off'}" data-key="${esc(d.key)}">` +
+      `<span class="k-top"><span>${esc(d.label)}</span><span class="k-ic" aria-hidden="true">${svg(d.icon)}</span></span>` +
+      `<span class="k-val">${has ? esc(d.value(k)) : '—'}</span>` +
+      `<span class="k-sub">${has ? d.sub(k) : 'אחרי כניסה לכספים'}</span></button>`;
+  }).join('');
+}
+
+// 'YYYY-MM-DD' ← ימים מהיום (תאריך מקומי, לא UTC)
+function daysFrom(day, now) {
+  const m = String(day || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const a = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((a - b) / 86400000);
+}
+const shortDate = (day) => { const m = String(day || '').match(/^\d{4}-(\d{2})-(\d{2})$/); return m ? `${Number(m[2])}.${Number(m[1])}` : ''; };
+function whenBadge(days, late) {
+  if (late || days < 0) return '<span class="ss-badge ss-badge-danger">באיחור</span>';
+  if (days === 0) return '<span class="ss-badge ss-badge-warning">היום</span>';
+  if (days === 1) return '<span class="ss-badge ss-badge-info">מחר</span>';
+  return `<span class="ss-badge">בעוד ${days} ימים</span>`;
+}
+const TODAY_COLS = [
+  { id: 'yahrzeits', key: 'econ:npo', hue: 'gold', icon: 'candle', title: 'יארצייטים', none: 'אין יארצייט בשבוע הקרוב',
+    row: (r, now) => ({ title: r.parentName ? `${r.name} ב"ר ${r.parentName}` : r.name, detail: r.hebrew || '', badge: whenBadge(Number(r.daysLeft) || 0, false) }) },
+  { id: 'loans', key: 'econ:gemach', hue: 'purple', icon: 'hand-coin', title: 'הלוואות לפירעון', none: 'אין תשלומים קרובים',
+    row: (r, now) => ({ title: r.borrowerName, detail: `${nis(r.amount)} · ${shortDate(r.dueDate)}`, badge: whenBadge(daysFrom(r.dueDate, now) ?? 0, r.late) }) },
+  { id: 'invoices', key: 'econ:acct-invoices', hue: 'blue', icon: 'invoice', title: 'חשבוניות פתוחות', none: 'אין חשבוניות פתוחות',
+    row: (r, now) => ({ title: r.customer, detail: `${r.number ? 'מס׳ ' + r.number + ' · ' : ''}${nis(r.amount)}`, badge: whenBadge(daysFrom(r.dueDate, now) ?? 0, r.late) }) },
+];
+function renderToday(now) {
+  const box = $('todayCols');
+  if (!homeData) {
+    const it = BY_KEY.get('econ:dashboard');
+    box.innerHTML = `<div class="t-empty">${svg('calendar')}<span><b>המשימות של היום יופיעו כאן</b><br>יארצייטים, הלוואות לפירעון וחשבוניות פתוחות — אחרי כניסה למערכת הכספים.</span>` +
+      (it ? `<button type="button" class="t-item t-cta" data-key="econ:dashboard">כניסה ללוח הבקרה</button>` : '') + '</div>';
+    return;
+  }
+  box.innerHTML = TODAY_COLS.map(c => {
+    const rows = Array.isArray(homeData[c.id]) ? homeData[c.id].slice(0, 4) : [];
+    const items = rows.map(r => c.row(r, now)).map(r =>
+      `<button type="button" class="t-item" data-key="${esc(c.key)}"><span class="t-txt"><b>${esc(r.title)}</b><small>${esc(r.detail)}</small></span>${r.badge}</button>`).join('');
+    return `<div class="t-col hue-${c.hue}"><h3><span class="t-ic" aria-hidden="true">${svg(c.icon)}</span>${esc(c.title)}<span class="n">${rows.length || ''}</span></h3>` +
+      `<div class="t-list">${items || `<div class="t-none">${esc(c.none)}</div>`}</div></div>`;
+  }).join('');
+}
+async function loadHome() {
+  if (!window.shellAPI.getHomeSummary) return;
+  try {
+    const d = await window.shellAPI.getHomeSummary();
+    homeData = d && typeof d === 'object' ? d : null;
+  } catch { homeData = null; }
+  if (!ui.active) { renderKpis(); renderToday(new Date()); }
+}
+
+/* ---------- שאל את התוכנה: תיבת השאלה במסך הבית ----------
+   העוזר עצמו ב-shell/ai (מנוע כללים מקומי, בלי רשת). כשיש ערוץ למעטפת (shellAPI.aiAsk) — התשובה מוצגת כאן;
+   עד אז השאלה פותחת את מסך "שאל את התוכנה" במערכת הכספים. */
+const ASK_SAMPLES = ['כמה גביתי החודש?', 'מי לא שילם?', 'מה דוח המע"מ של החודש?', 'אילו תורמים תרמו השנה?'];
+$('askSugg').innerHTML = ASK_SAMPLES.map(q => `<button type="button" data-ask="${esc(q)}">${esc(q)}</button>`).join('');
+$('askSugg').onclick = (e) => {
+  const b = e.target.closest('[data-ask]');
+  if (!b) return;
+  $('askQ').value = b.dataset.ask;
+  ask(b.dataset.ask);
+};
+$('askForm').onsubmit = (e) => { e.preventDefault(); ask($('askQ').value); };
+function askOut(html) {
+  const out = $('askOut');
+  out.innerHTML = html;
+  out.hidden = !html;
+  const x = out.querySelector('[data-ask-close]');
+  if (x) x.onclick = () => { askOut(''); $('askQ').focus(); };
+}
+async function ask(raw) {
+  const q = String(raw || '').trim().slice(0, 500);
+  if (!q) { $('askQ').focus(); return; }
+  const head = (label) => `<div class="a-head"><span class="ss-badge">${svg('sparkles')} ${esc(label)}</span>` +
+    `<button type="button" class="ss-btn-ghost ss-btn-sm" data-ask-close aria-label="סגירת התשובה">${svg('x')}</button></div><p class="a-q">${esc(q)}</p>`;
+  if (!window.shellAPI.aiAsk) {
+    askOut(head('שאל את התוכנה') + '<p class="a-text">פותחים את מסך "שאל את התוכנה" — הקלידו שם את השאלה.</p>');
+    open('econ:ai');
+    return;
+  }
+  $('askGo').disabled = true;
+  askOut(head('חושב…') + '<span class="ss-skeleton"></span><span class="ss-skeleton short"></span>');
+  try {
+    const r = await window.shellAPI.aiAsk(q);
+    askOut(head(r && r.engineLabel ? 'ענה: ' + r.engineLabel : 'תשובה') + `<p class="a-text ss-pre">${esc((r && r.text) || 'אין תשובה')}</p>`);
+  } catch (e) {
+    askOut(head('לא נענה') + `<p class="a-text">${esc((e && e.message) || 'העוזר אינו זמין כרגע')}</p>`);
+  } finally { $('askGo').disabled = false; }
+}
+
+/* ---------- סיור קצר: 3 שלבים אחרי אשף ההתחלה ----------
+   חלון מודאלי אחד על כל המסך (מיקוד נשאר בתוכו, Esc סוגר), עם "חור" סביב האזור שמוסבר. */
+const TOUR_KEY = 'suite.tour';
+const TOUR = (OB && OB.TOUR) || [];
+function tourSeen() { try { return localStorage.getItem(TOUR_KEY) === 'done'; } catch { return true; } }
+function startTour() {
+  if (!TOUR.length) return;
+  const dlg = $('tourDlg');
+  let i = 0;
+  const place = () => {
+    const s = TOUR[i];
+    $('tourStep').textContent = `שלב ${i + 1} מתוך ${TOUR.length}`;
+    $('tourTitle').textContent = s.title;
+    $('tourText').textContent = s.text;
+    $('tourBack').hidden = i === 0;
+    $('tourNext').textContent = i === TOUR.length - 1 ? 'סיום' : 'הבא';
+    if (dlg.querySelectorAll) dlg.querySelectorAll('#tourDots i').forEach((d, n) => d.classList.toggle('on', n === i));
+    const el = document.querySelector(s.sel);
+    const r = el && typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
+    const W = window.innerWidth || 0, H = window.innerHeight || 0;
+    if (!r || !W) return;
+    const pad = 6, hole = $('tourHole').style, card = $('tourCard').style;
+    hole.top = (r.top - pad) + 'px'; hole.left = (r.left - pad) + 'px';
+    hole.width = (r.width + pad * 2) + 'px'; hole.height = (Math.min(r.height, H - 24) + pad * 2) + 'px';
+    const cw = Math.min(340, W - 32), ch = 230;
+    // ליד האזור: משמאל לסרגל (שבצד ימין), או מתחת לאזור במסך הבית
+    const side = r.left > W / 2;
+    const left = side ? r.left - cw - 20 : r.left + Math.max(0, (r.width - cw) / 2);
+    const top = side ? Math.min(Math.max(16, r.top + 20), H - ch - 16) : Math.min(r.bottom + 18, H - ch - 16);
+    card.left = Math.max(16, Math.min(left, W - cw - 16)) + 'px';
+    card.top = Math.max(16, top) + 'px';
+  };
+  const done = () => {
+    $('tourNext').onclick = $('tourBack').onclick = $('tourSkip').onclick = null; dlg.oncancel = null;
+    try { localStorage.setItem(TOUR_KEY, 'done'); } catch { /* לא קריטי */ }
+    if (dlg.open) closeDialog(dlg);
+  };
+  $('tourNext').onclick = () => { if (i < TOUR.length - 1) { i++; place(); $('tourNext').focus(); } else done(); };
+  $('tourBack').onclick = () => { if (i > 0) { i--; place(); $('tourNext').focus(); } };
+  $('tourSkip').onclick = done;
+  dlg.oncancel = (e) => { e.preventDefault(); done(); };
+  showDialog(dlg);
+  place();
+  $('tourNext').focus();
+}
 
 /* ---------- רישוי: מסך "מערכת מושבתת" ---------- */
 function renderLicense() {
@@ -250,11 +547,11 @@ function renderLicense() {
   bar.textContent = blocked ? lic.message : lic.message + ' — צפייה, ייצוא וגיבוי בלבד';
   block.hidden = false;
   block.className = 'lic-block' + (blocked ? '' : ' limited');
-  block.innerHTML = `<h2>${blocked ? '🔒' : '⏸'} ${esc(lic.message)}</h2>` +
+  block.innerHTML = `<h2>${IC ? svg(blocked ? 'lock' : 'pause') : (blocked ? '🔒' : '⏸')} ${esc(lic.message)}</h2>` +
     (blocked ? '<p>התוכנה אינה זמינה לעבודה כרגע.</p>' : `<p>אפשר לצפות בנתונים, לייצא ולגבות. יצירה ועריכה חסומות עד ${lic.status === 'trial_ended' ? 'להתקנת רישיון' : 'לחידוש'}.</p>`) +
     '<p>הנתונים שלך שמורים במחשב ולא נמחקו. לחידוש הפעילות פנו לספק, או קלטו רישיון / עדכון סטטוס.</p>' +
-    '<button type="button" class="lic-go" data-key="econ:licensing">🔑 רישוי ומערכות</button>' +
-    '<button type="button" class="lic-go" data-key="econ:messages">💬 הודעה לספק</button>';
+    `<button type="button" class="lic-go" data-key="econ:licensing">${IC ? svg('key') : '🔑'} רישוי ומערכות</button>` +
+    `<button type="button" class="lic-go" data-key="econ:messages">${IC ? svg('message') : '💬'} הודעה לספק</button>`;
 }
 function flashLicense() {
   if (!ui.active) { renderHome(); }
@@ -291,10 +588,11 @@ async function loadExtras() {
   } catch { /* הסרגל הבסיסי ממשיך לעבוד */ }
 }
 loadExtras();
+loadHome();
 
 window.shellAPI.onActive(id => {
   ui.active = id || null;
-  if (!id) renderHome();
+  if (!id) { renderHome(); loadHome(); }
   mark();
   updateWhere();
 });
@@ -551,13 +849,14 @@ function renderDay(nowMs) {
     .filter(e => e.kind === 'yomtov' || e.kind === 'fast').map(e => ({ name: 'מחר: ' + e.name, kind: 'info' })));
   const next = HC.nextHoly(nowMs, cal);
   const chips = events.map(e => `<span class="chip ${esc(e.kind)}">${esc(e.name)}</span>`).join('');
+  const t = (icon, label, time) => `<span>${svg(icon)}${esc(label)}<b>${HC.formatTime(time)}</b></span>`;
   $('day').innerHTML =
-    `<div class="day-col"><div class="day-t">היום · ${esc(cal.cityObj.name)}</div>` +
+    `<div class="day-t">${svg('calendar')}לוח עברי · ${esc(cal.cityObj.name)}</div>` +
     (chips ? `<div class="chips">${chips}</div>` : '') +
-    `<div class="zm"><span>זריחה <b>${HC.formatTime(z.sunrise)}</b></span><span>שקיעה <b>${HC.formatTime(z.sunset)}</b></span><span>צאת הכוכבים <b>${HC.formatTime(z.tzeit)}</b></span></div></div>` +
-    (next ? `<div class="day-col shab"><div class="day-t">${esc(next.name)} הקרובה</div>` +
-      `<div class="zm big"><span>הדלקת נרות <b>${HC.formatTime(next.candles)}</b></span><span>צאת ${esc(next.name.startsWith('שבת') ? 'השבת' : 'החג')} <b>${HC.formatTime(next.tzeit)}</b></span><span>ר"ת <b>${HC.formatTime(next.tzeitRT)}</b></span></div></div>` : '') +
-    `<button class="day-set" id="calSet" type="button" title="הגדרות לוח ושבת">⚙</button>`;
+    `<div class="zm">${t('sun', 'זריחה', z.sunrise)}${t('sunset', 'שקיעה', z.sunset)}${t('star', 'צאת הכוכבים', z.tzeit)}</div>` +
+    (next ? `<div class="shab"><div class="day-t">${svg('candle')}${esc(next.name)} הקרובה</div>` +
+      `<div class="zm big">${t('candle', 'הדלקת נרות', next.candles)}${t('moon', 'צאת ' + (next.name.startsWith('שבת') ? 'השבת' : 'החג'), next.tzeit)}${t('star', 'ר"ת', next.tzeitRT)}</div></div>` : '') +
+    `<button class="day-set" id="calSet" type="button" title="הגדרות לוח ושבת" aria-label="הגדרות לוח ושבת">${IC ? svg('sliders') : '⚙'}</button>`;
   $('calSet').onclick = openCalendarSettings;
   $('sideDate').textContent = (HC.hebrewToday(nowMs, cal) || {}).short || '';
 }
@@ -621,7 +920,8 @@ loadCalendar();
 const DSP = window.SUITE_DISPLAY;
 let display = DSP ? { ...DSP.DEFAULTS } : null;
 const DS_LABELS = { theme: 'ערכת צבע', accent: 'צבע הדגשה', density: 'צפיפות', text: 'גודל טקסט', shape: 'פינות', contrast: 'ניגודיות', motion: 'אנימציות ותנועה' };
-const DS_ICONS = { classic: '🏛', night: '🌙', office: '📊', easy: '🔍', calm: '🌿' };
+const DS_ICONS = IC ? { classic: svg('building'), night: svg('moon'), office: svg('chart-bar'), easy: svg('search'), calm: svg('leaf') }
+  : { classic: '🏛', night: '🌙', office: '📊', easy: '🔍', calm: '🌿' };
 // צבע הנקודה ליד כל צבע הדגשה — מתוך שפת העיצוב, דרך המאפיין עצמו
 const dsPreview = (s) => DSP.applyTo(document, DSP.attrsFor(s, matchMedia('(prefers-color-scheme: dark)').matches));
 async function loadDisplay() {

@@ -43,6 +43,13 @@
   ];
   const MAX_SCREENS = 8;
 
+  // סיור קצר אחרי האשף — 3 שלבים, כל אחד מצביע על אזור במעטפת (sel: בורר CSS ב-shell.html)
+  const TOUR = [
+    { sel: '#nav', title: 'כל המסכים — בסרגל אחד', text: 'המסכים מסודרים לפי תחומים: כספים, משק בית, ארגון ועוד. הכפתור "מסך הבית" בתחתית מחזיר לכאן מכל מקום.' },
+    { sel: '.search', title: 'חיפוש מהיר', text: 'Ctrl+K מכל מסך: מקלידים כמה אותיות ולוחצים Enter — והמסך נפתח.' },
+    { sel: '#askForm', title: 'שאל את התוכנה', text: 'שאלות בשפה פשוטה על החשבונות, התרומות והגמ"ח. התשובה מחושבת במחשב שלך, בלי רשת.' },
+  ];
+
   // profiles: מזהי פרופילים שנבחרו. validKeys: מפתחות הקטלוג הקיימים (מסך שלא קיים — מושמט)
   function plan(profiles, validKeys) {
     const valid = new Set(validKeys || []);
@@ -68,7 +75,7 @@
     };
   }
 
-  const api = { PROFILES, COMMON_STEPS, MAX_SCREENS, plan, normalizeState };
+  const api = { PROFILES, COMMON_STEPS, MAX_SCREENS, TOUR, plan, normalizeState };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_ONBOARDING = api;
 })(typeof window !== 'undefined' ? window : this);

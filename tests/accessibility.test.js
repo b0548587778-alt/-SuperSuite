@@ -30,6 +30,8 @@ const TEXT_PAIRS = [
   ['success', 'surface'], ['success-ink', 'success-soft'], ['warning', 'surface'], ['warning-ink', 'warning-soft'],
   ['danger', 'surface'], ['danger-ink', 'danger-soft'], ['info', 'surface'], ['info-ink', 'info-soft'],
   ['dark-text', 'dark-bg'], ['dark-muted', 'dark-bg'], ['dark-muted', 'dark-surface'], ['dark-faint', 'dark-bg'], ['dark-gold', 'dark-bg'],
+  // עוזר ה-AI (תיבת השאלה, הסיור) וכותרת מסך הבית
+  ['violet', 'surface'], ['violet', 'violet-soft'], ['violet-ink', 'violet-soft'], ['ink-2', 'hero-end'],
 ];
 
 test('ניגודיות: כל זוג טקסט ורקע בשפת העיצוב — 4.5 לפחות', () => {

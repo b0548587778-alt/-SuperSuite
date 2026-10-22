@@ -2,28 +2,44 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
 <title>SuperSuite</title>
-<!-- מסך פתיחה (PLAN.md 7.2): מוצג עד שהחלון הראשי מוכן. בלי סקריפט — main.js סוגר אותו -->
+<!-- מסך פתיחה (PLAN.md 7.2): מוצג עד שהחלון הראשי מוכן. בלי סקריפט — main.js סוגר אותו.
+     כהה תמיד (משתני הסרגל הקבועים), כמו סרגל הצד וכותרת מסך הבית -->
 <link rel="stylesheet" href="design-tokens.css">
 <style>
 html,body{margin:0;height:100%;overflow:hidden;user-select:none;-webkit-app-region:drag}
-body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:var(--ss-font);color:var(--ss-ink);
-     background:radial-gradient(360px 220px at 100% 0%,rgba(212,167,58,.18),transparent 70%),linear-gradient(180deg,var(--ss-navy-2),var(--ss-navy-0))}
-img{width:88px;height:88px;filter:drop-shadow(0 8px 24px rgba(212,167,58,.35))}
-b{font-family:var(--ss-font-title);font-size:30px;letter-spacing:.5px;color:var(--ss-surface)}
-small{color:var(--ss-ink-2);font-size:var(--ss-fs-sm)}
-.bar{width:160px;height:3px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden;margin-top:6px}
-.bar i{display:block;width:40%;height:100%;border-radius:2px;background:var(--ss-gold-bright);animation:run 1.2s ease-in-out infinite}
-@keyframes run{0%{transform:translateX(160px)}100%{transform:translateX(-160px)}}
-@media (prefers-reduced-motion:reduce){.bar i{animation:none;width:100%}}
+body{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-family:var(--ss-font);color:var(--ss-ink);
+     background:radial-gradient(420px 260px at 85% -10%,var(--ss-gold-glow),transparent 70%),
+                radial-gradient(380px 240px at 10% 115%,var(--ss-veil-2),transparent 70%),
+                linear-gradient(160deg,var(--ss-side-top) 0%,var(--ss-navy-1) 55%,var(--ss-navy-0) 100%)}
+/* רשת נקודות עדינה, דוהה כלפי מטה */
+body::before{content:"";position:absolute;inset:0;pointer-events:none;
+     background-image:radial-gradient(var(--ss-veil-2) 1px,transparent 1.4px);background-size:20px 20px;
+     -webkit-mask-image:linear-gradient(180deg,rgba(0,0,0,.8),transparent 70%)}
+.logo{position:relative;width:96px;height:96px;display:grid;place-items:center;margin-bottom:6px;animation:in .6s var(--ss-ease)}
+.logo::before{content:"";position:absolute;inset:-14px;border-radius:50%;background:radial-gradient(closest-side,var(--ss-gold-glow),transparent);animation:glow 2.4s var(--ss-ease-in-out) infinite alternate}
+img{position:relative;width:88px;height:88px}
+b{position:relative;font-family:var(--ss-font-title);font-size:30px;font-weight:800;letter-spacing:-.01em;color:var(--ss-on-dark);animation:in .6s var(--ss-ease)}
+.tag{position:relative;color:var(--ss-ink-2);font-size:var(--ss-fs-sm);animation:in .6s var(--ss-ease)}
+.bar{position:relative;width:180px;height:4px;border-radius:2px;background:var(--ss-veil-2);overflow:hidden;margin-top:14px}
+.bar i{display:block;width:45%;height:100%;border-radius:2px;background:var(--ss-grad-gold);animation:run 1.3s var(--ss-ease-in-out) infinite}
+.status{position:relative;color:var(--ss-ink-2);font-size:var(--ss-fs-xs)}
+.bsd{position:absolute;top:10px;left:14px;font-family:var(--ss-font-serif);font-size:12px;color:var(--ss-ink-2)}
+.foot{position:absolute;bottom:12px;inset-inline:0;text-align:center;font-size:11px;color:var(--ss-ink-2)}
+@keyframes run{0%{transform:translateX(180px)}100%{transform:translateX(-180px)}}
+@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes glow{from{opacity:.55;transform:scale(.94)}to{opacity:1;transform:scale(1.04)}}
+@media (prefers-reduced-motion:reduce){.bar i{animation:none;width:100%}.logo,.logo::before,b,.tag{animation:none}}
 </style>
 </head>
 <body>
-  <img src="../build/icon.png" alt="">
+  <span class="bsd">בס״ד</span>
+  <div class="logo"><img src="../build/icon.png" alt=""></div>
   <b>SuperSuite</b>
-  <small>כל העבודה שלך — במקום אחד</small>
+  <span class="tag">כל העבודה שלך — במקום אחד</span>
   <div class="bar" role="progressbar" aria-label="טוען"><i></i></div>
-  <small>טוען…</small>
+  <span class="status" role="status">טוען…</span>
+  <span class="foot">הנתונים נשמרים במחשב שלך בלבד · בלי חיבור לרשת</span>
 </body>
 </html>

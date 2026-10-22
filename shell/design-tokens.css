@@ -3,47 +3,53 @@
    באנדרואיד — מועתק לכל מודול בבנייה). המודולים ממפים את המשתנים הישנים שלהם (--primary, --gold וכו') לכאן.
    צבע חדש — מוסיפים כאן, לא בקובץ של המודול (tests/ui-consistency.test.js). */
 :root {
-  /* ---- מותג: נייבי וזהב ---- */
+  /* ---- מותג: נייבי עמוק וזהב חם ---- */
   --ss-navy-0: #0b1426;
   --ss-navy-1: #0f1a30;
   --ss-navy-2: #13264a;
   --ss-navy-3: #1b3260;
   --ss-navy-line: #22365e;
   /* קבועים — לא משתנים בערכה הכהה (סרגל הצד וכותרת מסך הבית כהים תמיד) */
-  --ss-side-top: #13264a;
-  --ss-hero-end: #1d4f86;
+  --ss-side-top: #122142;
+  --ss-hero-end: #1f4682;
   --ss-on-dark: #ffffff;
   --ss-gold: #b8860b;
-  --ss-gold-bright: #d4a73a;
+  --ss-gold-bright: #d9ae45;
   --ss-gold-deep: #8b6508;
-  --ss-gold-soft: #f6eccb;
+  --ss-gold-soft: #f7eed2;
+  --ss-gold-pale: #f3dc98;
 
   /* ---- פעולה ראשית (כחול) ---- */
-  --ss-primary: #24479e;
-  --ss-primary-dark: #1a3678;
-  --ss-primary-soft: #eaf0fb;
-  --ss-primary-ring: rgba(36, 71, 158, .14);
+  --ss-primary: #2747b0;
+  --ss-primary-dark: #1c368c;
+  --ss-primary-soft: #ecf1fd;
+  --ss-primary-ring: rgba(39, 71, 176, .18);
+
+  /* ---- עוזר ה-AI: סגול עדין, רק לרכיבי העוזר ---- */
+  --ss-violet: #5b3fc4;
+  --ss-violet-soft: #f1edfd;
+  --ss-violet-ink: #432c9e;
 
   /* ---- משטחים וטקסט (מצב בהיר) ---- */
-  --ss-bg: #f4f6fb;
+  --ss-bg: #f5f7fb;
   --ss-surface: #ffffff;
-  --ss-surface-2: #eef1f7;
+  --ss-surface-2: #eff2f8;
   --ss-surface-input: #fbfcfe;
-  --ss-border: #e3e7f0;
+  --ss-border: #e4e8f1;
   --ss-border-strong: #cfd6e4;
-  --ss-text: #14213d;
+  --ss-text: #111d38;
   --ss-text-2: #2b3a58;
-  --ss-muted: #5d6b85;
-  --ss-faint: #626e87;   /* 7.3: ניגודיות 4.5 לפחות על לבן ועל הרקעים הבהירים (היה #8a96ad — 2.98) */
+  --ss-muted: #59678a;
+  --ss-faint: #5f6b85;   /* 7.3: ניגודיות 4.5 לפחות על לבן ועל הרקעים הבהירים */
 
-  /* ---- טקסט על רקע כהה (סרגל הצד) ---- */
+  /* ---- טקסט על רקע כהה (סרגל הצד, כותרת מסך הבית) ---- */
   --ss-ink: #e9eef8;
-  --ss-ink-2: #a9b5cc;
-  --ss-ink-3: #7584a0;
+  --ss-ink-2: #b3bfd6;
+  --ss-ink-3: #8090ad;
 
   /* ---- מצבים: צבע, רקע רך, קו, וטקסט כהה על הרקע הרך ---- */
   --ss-success: #13865b;
-  --ss-success-soft: #e7f6ef;
+  --ss-success-soft: #e6f6ee;
   --ss-success-line: #bfe3d1;
   --ss-success-ink: #166534;
   --ss-warning: #b45309;
@@ -95,16 +101,20 @@
   --ss-dark-purple: #a78bfa;
   --ss-dark-blue: #60a5fa;
 
-  /* ---- גופנים ---- */
-  --ss-font: "Segoe UI", Heebo, Arial, system-ui, sans-serif;
-  --ss-font-title: "David", "Frank Ruhl Libre", serif;
-  --ss-font-mono: Consolas, "Courier New", monospace;
+  /* ---- גופנים ----
+     "SS Sans" — שם הגופן העברי הארוז עם התוכנה (shell/fonts/fonts.css, נטען במעטפת ובמסך הפתיחה).
+     מסך שלא טוען אותו — Segoe UI, כמו קודם. כותרות: אותו גופן במשקל כבד; הגופן המסורתי — לבס"ד ולמסך השבת */
+  --ss-font: "SS Sans", "Segoe UI", Heebo, Arial, system-ui, sans-serif;
+  --ss-font-title: "SS Sans", "Segoe UI", Heebo, Arial, sans-serif;
+  --ss-font-serif: "David", "Frank Ruehl", "Frank Ruhl Libre", serif;
+  --ss-font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
   --ss-fs-xs: 12px;
   --ss-fs-sm: 13px;
   --ss-fs-md: 14px;
   --ss-fs-lg: 17px;
   --ss-fs-xl: 22px;
   --ss-fs-2xl: 28px;
+  --ss-fs-3xl: 36px;
 
   /* ---- מרווחים ---- */
   --ss-sp-1: 4px;
@@ -114,23 +124,47 @@
   --ss-sp-5: 24px;
   --ss-sp-6: 32px;
 
-  /* ---- פינות וצללים ---- */
+  /* ---- פינות וצללים: שכבות רכות (צל קרוב חד + צל רחוק מפוזר) ---- */
   --ss-radius-sm: 8px;
   --ss-radius: 12px;
-  --ss-radius-lg: 14px;
-  --ss-shadow-sm: 0 1px 2px rgba(20, 33, 61, .05);
-  --ss-shadow: 0 1px 2px rgba(20, 33, 61, .05), 0 8px 24px rgba(20, 33, 61, .06);
-  --ss-shadow-lg: 0 12px 40px rgba(20, 33, 61, .18);
+  --ss-radius-lg: 16px;
+  --ss-radius-xl: 22px;
+  --ss-radius-pill: 999px;
+  --ss-shadow-xs: 0 1px 1px rgba(17, 29, 56, .04);
+  --ss-shadow-sm: 0 1px 2px rgba(17, 29, 56, .06), 0 1px 1px rgba(17, 29, 56, .03);
+  --ss-shadow: 0 1px 2px rgba(17, 29, 56, .05), 0 4px 10px -2px rgba(17, 29, 56, .05), 0 12px 28px -6px rgba(17, 29, 56, .08);
+  --ss-shadow-lg: 0 2px 6px rgba(17, 29, 56, .06), 0 24px 56px -12px rgba(17, 29, 56, .22);
+  --ss-shadow-xl: 0 4px 12px rgba(11, 20, 38, .08), 0 40px 90px -20px rgba(11, 20, 38, .35);
+  --ss-shadow-glow: 0 0 0 1px rgba(91, 63, 196, .14), 0 10px 30px -8px rgba(91, 63, 196, .35);
   --ss-glass: rgba(255, 255, 255, .86);     /* פס עליון שקוף-למחצה (כותרת המודול הכלכלי) */
   --ss-overlay: rgba(11, 20, 38, .55);       /* רקע מאחורי חלון הודעה (ss-dialog.js, dialog במעטפת) */
-  --ss-focus: 0 0 0 3px rgba(36, 71, 158, .14);
+  --ss-focus: 0 0 0 3px rgba(39, 71, 176, .16);
   --ss-focus-ring: var(--ss-primary);        /* מסגרת מיקוד במקלדת (7.3) — על רקע בהיר */
   --ss-focus-ring-dark: var(--ss-gold-bright); /* על רקע כהה (הסרגל, המצב הכהה) */
+
+  /* ---- שכבות שקופות על רקע כהה (הסרגל וכותרת מסך הבית — כהים תמיד) ---- */
+  --ss-veil-1: rgba(255, 255, 255, .05);
+  --ss-veil-2: rgba(255, 255, 255, .09);
+  --ss-veil-3: rgba(255, 255, 255, .16);
+  --ss-veil-line: rgba(255, 255, 255, .10);
+  --ss-gold-glow: rgba(217, 174, 69, .22);
+
+  /* ---- מעברי צבע ---- */
+  --ss-grad-brand: linear-gradient(135deg, var(--ss-side-top) 0%, var(--ss-navy-3) 55%, var(--ss-hero-end) 100%);
+  --ss-grad-gold: linear-gradient(135deg, var(--ss-gold-pale) 0%, var(--ss-gold-bright) 50%, var(--ss-gold) 100%);
+  --ss-grad-ai: linear-gradient(120deg, var(--ss-primary) 0%, var(--ss-violet) 55%, var(--ss-gold-bright) 100%);
+
+  /* ---- תנועה: קצרה ורכה; כבויה ב"תנועה מופחתת" ---- */
+  --ss-ease: cubic-bezier(.2, .8, .2, 1);
+  --ss-ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --ss-dur-fast: 120ms;
+  --ss-dur: 200ms;
+  --ss-dur-slow: 360ms;
 
   /* ---- פקדים (ספריית הרכיבים shell/ui-kit.css) ---- */
   --ss-ctl-h: 38px;                 /* גובה כפתור ושדה */
   --ss-ctl-pad-x: 16px;
-  --ss-ctl-radius: var(--ss-radius-sm);
+  --ss-ctl-radius: 10px;
   --ss-ctl-font: 600 var(--ss-fs-md) / 1.2 var(--ss-font);
 }
 
@@ -147,54 +181,60 @@
 /* ---- ערכה כהה ---- */
 :root[data-ss-theme="dark"] {
   color-scheme: dark;
-  --ss-bg: #0e1626;
-  --ss-surface: #16213a;
-  --ss-surface-2: #1d2a47;
-  --ss-surface-input: #111b30;
-  --ss-border: #2a3a5c;
-  --ss-border-strong: #3a4d74;
-  --ss-text: #e8edf7;
-  --ss-text-2: #c9d3e6;
-  --ss-muted: #a3b2cc;
-  --ss-faint: #93a3c0;
-  --ss-navy-2: #dfe7f7;            /* בשימוש בעיקר כצבע כותרות */
-  --ss-gold: #d4a73a;
-  --ss-gold-deep: #e0b955;
-  --ss-gold-soft: #3a3020;
-  --ss-primary: #6d9bff;
-  --ss-primary-dark: #8db1ff;
-  --ss-primary-soft: #1c2c52;
-  --ss-primary-ring: rgba(109, 155, 255, .25);
-  --ss-on-primary: #0e1626;
+  --ss-bg: #0b1222;
+  --ss-surface: #131c31;
+  --ss-surface-2: #1a253f;
+  --ss-surface-input: #0f182b;
+  --ss-border: #26334f;
+  --ss-border-strong: #364671;
+  --ss-text: #e9eef8;
+  --ss-text-2: #cad4e7;
+  --ss-muted: #a5b3cd;
+  --ss-faint: #95a5c2;
+  --ss-navy-2: #e1e8f7;            /* בשימוש בעיקר כצבע כותרות */
+  --ss-gold: #d9ae45;
+  --ss-gold-deep: #e6c063;
+  --ss-gold-soft: #33291a;
+  --ss-primary: #7ba2ff;
+  --ss-primary-dark: #9cb9ff;
+  --ss-primary-soft: #1b2b52;
+  --ss-primary-ring: rgba(123, 162, 255, .28);
+  --ss-on-primary: #0b1222;
+  --ss-violet: #ab98ff;
+  --ss-violet-soft: #231d46;
+  --ss-violet-ink: #d3c9ff;
   --ss-success: #34c38f;
-  --ss-success-soft: #12352a;
+  --ss-success-soft: #11342a;
   --ss-success-line: #1f5a44;
   --ss-success-ink: #7fe0b5;
   --ss-warning: #e0a030;
   --ss-warning-mid: #e0a030;
-  --ss-warning-soft: #3a2e12;
+  --ss-warning-soft: #362b12;
   --ss-warning-line: #6b5320;
   --ss-warning-ink: #f5cf7a;
   --ss-danger: #f07070;
-  --ss-danger-soft: #3d1b1f;
+  --ss-danger-soft: #3b1b20;
   --ss-danger-line: #6e2c33;
   --ss-danger-ink: #ffb3b3;
-  --ss-info: #6d9bff;
-  --ss-info-soft: #182a4d;
+  --ss-info: #7ba2ff;
+  --ss-info-soft: #172a4e;
   --ss-info-line: #2d4a80;
-  --ss-info-ink: #a9c4ff;
-  --ss-cat-blue: #6d9bff;
+  --ss-info-ink: #abc5ff;
+  --ss-cat-blue: #7ba2ff;
   --ss-cat-green: #34c38f;
-  --ss-cat-amber: #d4a73a;
-  --ss-cat-purple: #a78bfa;
+  --ss-cat-amber: #d9ae45;
+  --ss-cat-purple: #ab98ff;
   --ss-cat-teal: #2cc4c4;
-  --ss-cat-slate: #a3b2cc;
-  --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
-  --ss-shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 24px rgba(0, 0, 0, .3);
-  --ss-shadow-lg: 0 12px 40px rgba(0, 0, 0, .5);
-  --ss-overlay: rgba(0, 0, 0, .6);
-  --ss-glass: rgba(22, 33, 58, .9);
-  --ss-focus: 0 0 0 3px rgba(109, 155, 255, .3);
+  --ss-cat-slate: #a5b3cd;
+  --ss-shadow-xs: 0 1px 1px rgba(0, 0, 0, .3);
+  --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+  --ss-shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 12px 28px -6px rgba(0, 0, 0, .45);
+  --ss-shadow-lg: 0 2px 6px rgba(0, 0, 0, .4), 0 24px 56px -12px rgba(0, 0, 0, .65);
+  --ss-shadow-xl: 0 4px 12px rgba(0, 0, 0, .45), 0 40px 90px -20px rgba(0, 0, 0, .75);
+  --ss-shadow-glow: 0 0 0 1px rgba(171, 152, 255, .22), 0 10px 30px -8px rgba(171, 152, 255, .3);
+  --ss-overlay: rgba(2, 6, 16, .66);
+  --ss-glass: rgba(19, 28, 49, .9);
+  --ss-focus: 0 0 0 3px rgba(123, 162, 255, .32);
   --ss-focus-ring: var(--ss-gold-bright);
 }
 
