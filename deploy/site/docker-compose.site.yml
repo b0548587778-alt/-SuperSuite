@@ -1,0 +1,12 @@
+# תוספת לקובץ של שרת הרישוי: מגישה גם את אתר השיווק מאותו Caddy.
+# מריצים משורש הפרויקט, אחרי מילוי deploy/site/.env:
+#   docker compose -f deploy/relay/docker-compose.yml -f deploy/site/docker-compose.site.yml up -d --build
+# נתיבים יחסיים כאן הם ביחס ל-deploy/relay (התיקייה של הקובץ הראשון).
+services:
+  caddy:
+    env_file:
+      - .env
+      - ../site/.env
+    volumes:
+      - ../site/site.caddy:/etc/caddy/sites/site.caddy:ro
+      - ../site/public:/srv/site:ro

@@ -22,3 +22,7 @@
 		format console
 	}
 }
+
+# אתרים נוספים באותו Caddy (למשל אתר השיווק, deploy/site/site.caddy).
+# בלי קבצים בתיקייה — אין שינוי. מופעל דרך deploy/site/docker-compose.site.yml
+import /etc/caddy/sites/*.caddy

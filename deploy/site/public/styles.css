@@ -1,0 +1,183 @@
+/* אתר SuperSuite — סטטי, בלי גופנים או משאבים חיצוניים (ידידותי ל-NetFree).
+   הצבעים מ-shell/design-tokens.css של התוכנה: נייבי וזהב. */
+:root {
+  --navy-0: #0b1426;
+  --navy-2: #13264a;
+  --navy-3: #1b3260;
+  --hero-end: #1d4f86;
+  --gold: #b8860b;
+  --gold-bright: #d4a73a;
+  --gold-deep: #8b6508;
+  --gold-soft: #f6eccb;
+  --primary: #24479e;
+  --bg: #f4f6fb;
+  --surface: #ffffff;
+  --border: #e3e7f0;
+  --text: #14213d;
+  --text-2: #2b3a58;
+  --muted: #5d6b85;
+  --radius: 16px;
+  --shadow: 0 6px 24px rgba(20, 33, 61, .08);
+  --font: "Segoe UI", "Noto Sans Hebrew", "Arial Hebrew", Arial, "Helvetica Neue", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--text);
+  background: var(--surface);
+}
+img { max-width: 100%; height: auto; display: block; }
+a { color: var(--primary); }
+h1, h2, h3 { line-height: 1.25; margin: 0 0 .5em; }
+h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); }
+h3 { font-size: 1.2rem; }
+ul { padding: 0; margin: 0; list-style: none; }
+
+.wrap { width: min(1160px, 100% - 40px); margin-inline: auto; }
+.narrow { width: min(820px, 100% - 40px); }
+.center { text-align: center; }
+.small { font-size: .9rem; color: var(--muted); }
+
+.skip {
+  position: absolute; inset-inline-start: 12px; top: -60px; z-index: 100;
+  background: var(--gold-bright); color: var(--navy-0); padding: 10px 16px; border-radius: 8px; font-weight: 700;
+}
+.skip:focus { top: 12px; }
+
+:focus-visible { outline: 3px solid var(--gold-bright); outline-offset: 3px; border-radius: 6px; }
+
+/* ---- כפתורים ---- */
+.btn {
+  display: inline-block; padding: 12px 24px; border-radius: 12px; font-weight: 700;
+  text-decoration: none; border: 2px solid transparent; transition: transform .15s, background .15s;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn-sm { padding: 7px 16px; font-size: .95rem; }
+.btn-gold { background: linear-gradient(135deg, #f0d58a, var(--gold-bright) 55%, var(--gold)); color: var(--navy-0); }
+.btn-ghost { color: #fff; border-color: rgba(255, 255, 255, .45); }
+.btn-ghost:hover { background: rgba(255, 255, 255, .08); }
+.btn-ghost-dark { color: var(--primary); border-color: var(--primary); }
+.btn-ghost-dark:hover { background: #eaf0fb; }
+
+/* ---- כותרת עליונה ---- */
+.top {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(11, 20, 38, .96); color: #fff;
+  border-bottom: 1px solid #22365e;
+}
+.top-in { display: flex; align-items: center; gap: 20px; min-height: 64px; }
+.brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-weight: 800; font-size: 1.2rem; }
+.brand img { border-radius: 9px; }
+.top nav { margin-inline-start: auto; }
+.nav { display: flex; gap: 4px; flex-wrap: wrap; }
+.nav a { color: #dbe3f3; text-decoration: none; padding: 8px 12px; border-radius: 8px; font-size: .97rem; }
+.nav a:hover { color: #fff; background: rgba(255, 255, 255, .08); }
+@media (max-width: 860px) { .top nav { display: none; } .top .btn { margin-inline-start: auto; } }
+
+/* ---- פתיח ---- */
+.hero {
+  color: #fff;
+  background: radial-gradient(1200px 500px at 15% -10%, rgba(212, 167, 58, .18), transparent 60%),
+              linear-gradient(160deg, var(--navy-0), var(--navy-2) 55%, var(--hero-end));
+  padding: 72px 0 84px;
+}
+.hero-in { display: grid; grid-template-columns: 1fr 1.15fr; gap: 48px; align-items: center; }
+.hero h1 { font-size: clamp(2rem, 4.6vw, 3.2rem); }
+.gold { color: var(--gold-bright); }
+.eyebrow { color: var(--gold-bright); font-weight: 700; letter-spacing: .02em; margin: 0 0 12px; }
+.lead { font-size: 1.15rem; color: #dbe3f3; max-width: 60ch; }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; margin: 28px 0 22px; }
+.ticks { display: flex; flex-wrap: wrap; gap: 8px 22px; color: #c9d4ea; font-size: .97rem; }
+.ticks li::before { content: "✓"; color: var(--gold-bright); font-weight: 800; margin-inline-end: 6px; }
+.hero-shot { margin: 0; }
+.hero-shot img { border-radius: 14px; box-shadow: 0 24px 60px rgba(0, 0, 0, .45); border: 1px solid rgba(255, 255, 255, .12); }
+@media (max-width: 900px) { .hero-in { grid-template-columns: 1fr; } .hero { padding: 48px 0 56px; } }
+
+/* ---- מקטעים ---- */
+.sec { padding: 80px 0; }
+.sec-soft { background: var(--bg); }
+.sec-dark { background: linear-gradient(160deg, var(--navy-0), var(--navy-3)); color: #fff; }
+.sub { color: var(--muted); font-size: 1.1rem; margin: 0 0 36px; }
+.note { color: var(--muted); margin-top: 28px; }
+.sec-dark .note { color: #b9c5de; }
+
+.grid { display: grid; gap: 22px; }
+.g2 { grid-template-columns: repeat(2, 1fr); }
+.g3 { grid-template-columns: repeat(3, 1fr); }
+.g4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1000px) { .g4 { grid-template-columns: repeat(2, 1fr); } .g3 { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .g4, .g2 { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 26px; box-shadow: var(--shadow);
+}
+.card p { margin: 0 0 14px; color: var(--text-2); }
+
+/* מודולים */
+.mod-ic {
+  width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--gold-soft); color: var(--gold-deep); font-size: 1.4rem; font-weight: 800; margin-bottom: 14px;
+}
+.mod ul li, .plan ul li { padding: 5px 0; padding-inline-start: 22px; position: relative; color: var(--text-2); font-size: .97rem; }
+.mod ul li::before, .plan ul li::before { content: "✓"; position: absolute; inset-inline-start: 0; color: var(--gold); font-weight: 800; }
+
+/* עוזר חכם */
+.ai-in .lead { margin-bottom: 36px; }
+.ai-list { margin-top: 8px; }
+.card-dark { background: rgba(255, 255, 255, .05); border-color: rgba(255, 255, 255, .14); box-shadow: none; }
+.card-dark h3 { color: var(--gold-bright); }
+.card-dark p { color: #dbe3f3; margin: 0; }
+
+/* צילומי מסך */
+.shots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 26px; align-items: start; }
+.shots figure { margin: 0; }
+.shots img { border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); background: var(--bg); }
+.shots a:hover img { box-shadow: 0 10px 30px rgba(20, 33, 61, .16); }
+.shots figcaption { text-align: center; color: var(--muted); margin-top: 10px; font-weight: 600; }
+.shots .phone img { max-width: 260px; margin-inline: auto; }
+@media (max-width: 720px) { .shots { grid-template-columns: 1fr; } }
+
+/* מחירים */
+.plans { align-items: stretch; }
+.plan { display: flex; flex-direction: column; position: relative; }
+.plan ul { margin-bottom: 24px; flex: 1; }
+.plan .btn { text-align: center; }
+.price { margin: 4px 0 18px !important; }
+.price .amt { font-size: 2.2rem; font-weight: 800; color: var(--text); }
+.price .per { color: var(--muted); }
+.plan-hot { border: 2px solid var(--gold-bright); box-shadow: 0 14px 40px rgba(184, 134, 11, .18); }
+.badge {
+  position: absolute; top: -14px; inset-inline-start: 24px; margin: 0 !important;
+  background: var(--gold-bright); color: var(--navy-0) !important; font-weight: 800; font-size: .85rem;
+  padding: 3px 12px; border-radius: 999px;
+}
+
+/* הורדה */
+.dl .btn { margin: 4px 0 12px; }
+
+/* שאלות */
+details {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  margin-bottom: 12px; padding: 0 22px;
+}
+summary { cursor: pointer; font-weight: 700; padding: 16px 0; list-style-position: inside; }
+details p { margin: 0 0 18px; color: var(--text-2); }
+details[open] { box-shadow: var(--shadow); }
+
+/* צור קשר */
+.contact { display: inline-grid; gap: 12px; text-align: start; font-size: 1.1rem; }
+.contact .lbl { display: inline-block; min-width: 110px; color: var(--muted); }
+
+/* תחתית */
+.foot { background: var(--navy-0); color: #b9c5de; padding: 28px 0; }
+.foot-in { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.foot p { margin: 0; }
+.foot .small { color: #9fb0cf; }
