@@ -17,6 +17,9 @@
     "build:trainer": "node tools/build-trainer.js",
     "build:trainer:check": "node tools/build-trainer.js --check"
   },
+  "optionalDependencies": {
+    "node-llama-cpp": "^3.0.0"
+  },
   "devDependencies": {
     "electron": "^38.8.6",
     "electron-builder": "^26.0.0"
@@ -34,7 +37,12 @@
       "package.json",
       "LICENSE.txt",
       "THIRD-PARTY-NOTICES.txt",
-      "build/eula.txt"
+      "build/eula.txt",
+      "!node_modules/@node-llama-cpp/*cuda*/**"
+    ],
+    "asarUnpack": [
+      "node_modules/node-llama-cpp/**",
+      "node_modules/@node-llama-cpp/**"
     ],
     "npmRebuild": false,
     "electronFuses": {

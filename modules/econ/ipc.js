@@ -57,6 +57,7 @@ const { validateUrl } = require('../../shell/licensing/remote');
 const { DEFAULT_RELAY_URL } = require('../../shell/licensing/default-relay');
 const { createChatStore } = require('../../shell/licensing/chat');
 const UP = require('../../shell/licensing/update');
+const MP = require('../../shell/ai/model-pack');
 const PK = require('../../shell/licensing/prekeys');
 const OF = require('../../shell/licensing/offer');
 const ACT = require('../../shell/licensing/activation');
@@ -2392,6 +2393,30 @@ function registerIpcHandlers() {
     fs.writeFileSync(relPath, text, 'utf8');
     await ownerAudit(event, 'release.create', { version: payload.version, platform: payload.platform, sha256: payload.sha256 });
     return { ok: true, version: payload.version, platform: payload.platform, path: relPath, sha256: payload.sha256 };
+  });
+  // מנהל-העל: חתימת מודל AI מקומי — בוחרים קובץ GGUF, מחושבת תמצית (בזרימה, בלי לטעון 1GB לזיכרון),
+  // ונשמרת לידו תעודה ‎.ssmodel. אותו מסלול אמון כמו שחרור גרסה: המפתח הפרטי נשאר בתוך ownerCore
+  handle('owner:modelSign', async (event, input = {}) => {
+    const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ המודל (‎.gguf)', properties: ['openFile'],
+      filters: [{ name: 'קובץ מודל', extensions: ['gguf'] }] });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { ok: false };
+    const file = pick.filePaths[0];
+    const st = fs.statSync(file);
+    if (st.size > MP.MAX_SIZE) throw new Error('קובץ המודל גדול מ-3GB');
+    const fd = fs.openSync(file, 'r');
+    const head = Buffer.alloc(4);
+    try { fs.readSync(fd, head, 0, 4, 0); } finally { fs.closeSync(fd); }
+    if (head.toString('latin1') !== MP.GGUF_MAGIC) throw new Error('הקובץ אינו מודל GGUF');
+    const x = input || {};
+    const text = MP.createModelManifest(ownerCore.rootSigner(), {
+      id: x.id, name: x.name, license: x.license, quant: x.quant, contextSize: x.contextSize,
+      fileName: path.basename(file), size: st.size, sha256: await MP.hashFile(fs, file),
+    }, { issuedAt: clockNow() });
+    const p = MP.verifyModelManifest(text, [ownerCore.pubkey()]);
+    const out = file.replace(/\.gguf$/i, '') + '.ssmodel';
+    fs.writeFileSync(out, text, 'utf8');
+    await ownerAudit(event, 'model.sign', { id: p.id, sha256: p.sha256, size: p.size });
+    return { ok: true, id: p.id, name: p.name, size: p.size, path: out };
   });
   handle('owner:releases', async () => ownerCore.releases().map(({ text, ...r }) => r));
   handle('owner:releasePublish', async (event, version, platform) => {

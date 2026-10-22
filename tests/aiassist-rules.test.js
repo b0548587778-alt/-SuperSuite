@@ -310,3 +310,48 @@ test('attachViewHandlers — תצוגת ai מחברת את attachAiHandlers (ג�
   await root.btn._listeners.click[0]();
   assert.deepEqual(calls, ['מי לא שילם?'], 'הלחיצה הגיעה ל-ai:run');
 });
+
+test('כרטיס המודל המקומי — לפי הרישיון והמצב; התקנה, בדיקה והסרה מגיעות לערוצים', async () => {
+  const ctx = vm.createContext({ console, Date, String, Object, Promise, Number, esc: (v) => String(v ?? '') });
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'modules/econ/ui/ai.js'), 'utf8') +
+    '\n;globalThis.__ai = { renderAiModelCard, aiModelSize };', ctx, { filename: 'modules/econ/ui/ai.js' });
+  const ai = ctx.__ai;
+  const locked = ai.renderAiModelCard({ licensed: false, present: false, mode: 'locked' });
+  assert.match(locked, /לא כלול ברישיון/);
+  assert.doesNotMatch(locked, /id="aiModelInstall"/, 'בלי רישיון — אין כפתור התקנה');
+  const empty = ai.renderAiModelCard({ licensed: true, present: false, mode: 'unavailable' });
+  assert.match(empty, /id="aiModelInstall"/);
+  assert.doesNotMatch(empty, /id="aiModelRemove"/, 'אין מה להסיר');
+  const ready = ai.renderAiModelCard({ licensed: true, present: true, mode: 'ready', model: { id: 'dicta', name: 'דיקטה', size: 1.2 * 1024 ** 3, quant: 'Q4_K_M', license: 'Apache-2.0' } });
+  assert.match(ready, /דיקטה · Q4_K_M · 1\.2 GB/);
+  assert.match(ready, /id="aiModelRemove"/);
+  assert.equal(ai.aiModelSize(300 * 1024 ** 2), '300 MB');
+
+  const els = {};
+  const btn = () => ({ disabled: false, textContent: '', _l: [], addEventListener(ev, fn) { this._l.push(fn); } });
+  for (const id of ['aiModelInstall', 'aiModelVerify', 'aiModelRemove']) els[id] = btn();
+  const calls = [];
+  ctx.window = ctx;
+  ctx.systemAPI = {
+    aiModelInstall: async () => { calls.push('install'); return { id: 'dicta', name: 'דיקטה' }; },
+    aiModelVerify: async () => { calls.push('verify'); return { present: true }; },
+    aiModelRemove: async () => { calls.push('remove'); return { present: false }; },
+  };
+  const toasts = [];
+  ctx.showToast = (m) => toasts.push(m);
+  ctx.showError = (m) => { throw new Error('לא אמור להופיע: ' + m); };
+  ctx.switchView = () => {};
+  let confirmAnswer = false;
+  ctx.askConfirm = async () => confirmAnswer;
+  vm.runInContext('__attachModel = (root) => attachAiModelHandlers(root);', ctx);
+  ctx.__attachModel({ querySelector: (sel) => els[sel.slice(1)] || null });
+  await els.aiModelInstall._l[0]();
+  await els.aiModelVerify._l[0]();
+  await els.aiModelRemove._l[0]();
+  assert.deepEqual(calls, ['install', 'verify'], 'הסרה בלי אישור — לא נשלחת');
+  confirmAnswer = true;
+  await els.aiModelRemove._l[0]();
+  assert.deepEqual(calls, ['install', 'verify', 'remove']);
+  assert.equal(els.aiModelRemove.disabled, false, 'הכפתור חוזר לפעול');
+  assert.ok(toasts.some(t => t.includes('דיקטה')));
+});

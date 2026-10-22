@@ -27,3 +27,17 @@ test('CI: המתקין אורז את מודול האימונים שנבנה מה
   require('assert').ok(build.indexOf('rm -rf modules/trainer') < dl && dl > 0 && dl < build.indexOf('electron-builder'), 'המודול הבנוי לא מחליף את העותק שבמאגר לפני האריזה');
   require('assert').match(yml, /if \[ -f package-lock\.json \]; then CMD="npm ci"/);
 });
+
+test('המודל המקומי: node-llama-cpp תלות אופציונלית, הקבצים הטבעיים מחוץ ל-asar, בלי CUDA, והרישיון ב-NOTICES', () => {
+  // אופציונלית — npm install בסביבה מסוננת לא נכשל בגללה; בלעדיה העוזר עובד בכללים בלבד (runtimeAvailable)
+  assert.ok(pkg.optionalDependencies && pkg.optionalDependencies['node-llama-cpp']);
+  assert.ok(!(pkg.dependencies || {})['node-llama-cpp'], 'לא תלות חובה');
+  // קובץ ‎.node לא נטען מתוך app.asar
+  assert.ok(pkg.build.asarUnpack.includes('node_modules/node-llama-cpp/**'));
+  assert.ok(pkg.build.asarUnpack.includes('node_modules/@node-llama-cpp/**'));
+  assert.ok(pkg.build.files.includes('!node_modules/@node-llama-cpp/*cuda*/**'), 'גרסת CUDA (מאות MB) לא נארזת');
+  assert.equal(pkg.build.npmRebuild, false, 'בינאריים מוכנים — בלי בניית llama.cpp בזמן האריזה');
+  const notices = require('fs').readFileSync(require('path').join(__dirname, '..', 'THIRD-PARTY-NOTICES.txt'), 'utf8');
+  assert.match(notices, /node-llama-cpp/);
+  assert.match(notices, /llama\.cpp/);
+});

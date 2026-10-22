@@ -14,10 +14,12 @@ const { createOwnerCore } = require(path.join(ROOT, 'shell/licensing/owner-core'
 
 // stub של Electron, כמו ב-ipc-guard.test.js
 const handlers = {};
+// חלון בחירת קובץ מדומה — כל בדיקה מציבה את התשובה שלה
+let openDialog = async () => ({ canceled: true, filePaths: [] });
 const Module = require('module');
 Module._resolveFilename_orig = Module._resolveFilename;
 Module._resolveFilename = function (req, ...rest) { return req === 'electron' ? '/__electron_stub__.js' : Module._resolveFilename_orig.call(this, req, ...rest); };
-require.cache['/__electron_stub__.js'] = { id: '/__electron_stub__.js', filename: '/__electron_stub__.js', loaded: true, exports: { ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } } } };
+require.cache['/__electron_stub__.js'] = { id: '/__electron_stub__.js', filename: '/__electron_stub__.js', loaded: true, exports: { ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } }, dialog: { showOpenDialog: (...a) => openDialog(...a) } } };
 const ipc = require(path.join(ROOT, 'modules/econ/ipc'));
 const ev = (id) => ({ sender: { id } });
 // היום לפי שעון הרישיון (העוזר משתמש ב-clockNow של initEcon)
@@ -306,4 +308,36 @@ test('ipc: ai:model:install / remove — מנהל בלבד; משתמש צפיי�
   await assert.rejects(handlers['ai:model:install'](ev(24)), /אין הרשאה/);
   await assert.rejects(handlers['ai:model:remove'](ev(24)), /אין הרשאה/);
   assert.ok(await handlers['ai:model:status'](ev(24)), 'מצב — לכל משתמש');
+});
+
+test('ipc: owner:modelSign — מנהל-העל חותם GGUF, התעודה נשמרת לידו ונפתחת במחסן המודלים', async () => {
+  const ownerStorage = mem();
+  const { publicKey } = createOwnerCore({ storage: ownerStorage, clock: () => T0 }).init(PASS);
+  const dir = fs.mkdtempSync(path.join(TMP_DIR || os.tmpdir(), 'owner-model-'));
+  if (!TMP_DIR) test.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
+  await ipc.initEcon(path.join(dir, 'data'), { rootKeys: [publicKey], clock: () => T0, ownerStorage, relayUrl: '' });
+  await setupAdmin(25);
+  const MP = require(path.join(ROOT, 'shell/ai/model-pack'));
+  const gguf = path.join(dir, 'tiny-model.gguf');
+  fs.writeFileSync(gguf, Buffer.concat([Buffer.from(MP.GGUF_MAGIC, 'latin1'), Buffer.alloc(2048, 7)]));
+  openDialog = async () => ({ canceled: false, filePaths: [gguf] });
+  const input = { id: 'tiny-test', name: 'מודל ניסיון', license: 'Apache-2.0', quant: 'Q4_K_M', contextSize: '4096' };
+  await assert.rejects(handlers['owner:modelSign'](ev(25), input), /מנהל-העל/, 'בלי פתיחה בסיסמה — אין חתימה');
+  await handlers['owner:unlock'](ev(25), PASS);
+  const r = await handlers['owner:modelSign'](ev(25), input);
+  assert.equal(r.ok, true);
+  assert.equal(r.path, path.join(dir, 'tiny-model.ssmodel'));
+  const p = MP.verifyModelManifest(fs.readFileSync(r.path, 'utf8'), [publicKey]);
+  assert.equal(p.fileName, 'tiny-model.gguf');
+  assert.equal(p.size, fs.statSync(gguf).size);
+  assert.equal(p.sha256, require('crypto').createHash('sha256').update(fs.readFileSync(gguf)).digest('hex'));
+  assert.ok(!JSON.stringify(r).includes('"d"'), 'המפתח הפרטי לא יוצא');
+  // קובץ שאינו GGUF — נדחה לפני חישוב
+  const bad = path.join(dir, 'fake.gguf');
+  fs.writeFileSync(bad, 'not a model');
+  openDialog = async () => ({ canceled: false, filePaths: [bad] });
+  await assert.rejects(handlers['owner:modelSign'](ev(25), input), /אינו מודל GGUF/);
+  openDialog = async () => ({ canceled: true, filePaths: [] });
+  try { const db = ipc.getDb(); if (db && db.db) db.db.close(); } catch { /* כבר סגור */ }
+  if (TMP_DIR) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
 });

@@ -537,7 +537,7 @@ function offerEditor(cur) {
 function renderOwnerReleases(list, remote) {
   const rows = (Array.isArray(list) ? list : []).slice().reverse();
   return `<div class="acct-header"><h4>שחרור גרסאות</h4>
-      <div class="acct-actions"><button class="primary small" id="ownerReleaseBtn">＋ שחרור גרסה חדשה</button></div></div>
+      <div class="acct-actions"><button class="small" id="ownerModelSignBtn">חתימת מודל AI</button> <button class="primary small" id="ownerReleaseBtn">＋ שחרור גרסה חדשה</button></div></div>
     <div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>גרסה</th><th>מערכת</th><th>קובץ</th><th>שוחררה</th><th></th></tr></thead>
       <tbody>${rows.map(r => `<tr><td dir="ltr"><b>${esc(r.version)}</b></td><td>${r.platform === 'android' ? 'אנדרואיד' : 'מחשב'}</td>

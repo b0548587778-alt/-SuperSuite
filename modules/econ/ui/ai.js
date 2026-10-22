@@ -55,7 +55,7 @@ function renderAi(data) {
   const prefs = st.prefs || {};
   const opened = st.opened || {};
   const samples = (data && Array.isArray(data.samples)) ? data.samples : [];
-  const engineText = st.engine === 'local' ? 'מודל מקומי' : 'מנוע החישוב של התוכנה';
+  const engineText = st.local && st.local.licensed && st.local.mode === 'ready' ? 'מנוע החישוב, ומודל במחשב לשאלות חופשיות' : 'מנוע החישוב של התוכנה';
   const cloudText = cloud.licensed
     ? (cloud.ready ? 'מחובר' : 'כלול ברישיון — טרם הופעל')
     : 'כלול בשדרוג';
@@ -79,6 +79,8 @@ function renderAi(data) {
     <p class="ss-muted">תחומים שהשאלות עונות עליהם עבור המשתמש הזה:</p>
     ${sourceTags}
   </div>`);
+
+  html.push(renderAiModelCard(st.local || {}));
 
   html.push(`<div class="ss-card">
     <label class="ss-label" for="aiQuestion">השאלה</label>
@@ -111,6 +113,64 @@ function renderAi(data) {
   return `<div class="ss-stack">${html.join('')}</div>`;
 }
 
+// גודל קובץ המודל לתצוגה (MB / GB)
+function aiModelSize(bytes) {
+  const n = Number(bytes) || 0;
+  return n >= 1024 ** 3 ? (n / 1024 ** 3).toFixed(1) + ' GB' : Math.round(n / 1024 ** 2) + ' MB';
+}
+
+// המודל המקומי (תוסף בתשלום): מצב, התקנה מקובץ עם תעודה חתומה, אימות והסרה. ההרשאה והרישיון — בשרת
+function renderAiModelCard(local) {
+  const m = local.model;
+  const modeText = !local.licensed ? 'לא כלול ברישיון — שדרוג „עוזר חכם — מודל במחשב”'
+    : !local.present ? 'לא מותקן'
+    : local.mode === 'ready' ? (local.running ? 'פעיל' : 'מוכן — נטען בשאלה הראשונה')
+    : local.mode === 'degraded' ? 'הטעינה האחרונה נכשלה — ננסה שוב בשאלה הבאה'
+    : 'מותקן, אך רכיב ההרצה חסר בגרסה הזו של התוכנה';
+  const badge = !local.licensed ? '' : local.present && local.mode === 'ready' ? 'ss-badge-success' : local.present ? 'ss-badge-warning' : '';
+  return `<div class="ss-card">
+    <h4 class="ss-section-title">מודל שפה במחשב</h4>
+    <div class="ss-row"><span>מצב</span><span>${esc(modeText)}</span><span class="ss-badge ${badge}">${local.present ? 'מותקן' : 'לא מותקן'}</span></div>
+    ${m ? `<div class="ss-row"><span>המודל</span><span>${esc(m.name || m.id)}${m.quant ? ' · ' + esc(m.quant) : ''} · ${esc(aiModelSize(m.size))}${m.license ? ' · רישיון ' + esc(m.license) : ''}</span></div>` : ''}
+    ${local.error ? `<p class="ss-hint">${esc(local.error)}</p>` : ''}
+    <p class="ss-muted">המודל רץ על המחשב הזה בלבד ומותקן מקובץ (למשל מדיסק און קי): תעודה חתומה (‎.ssmodel) וקובץ המודל (‎.gguf). התוכנה בודקת את החתימה ואת תקינות הקובץ לפני השימוש.</p>
+    ${local.licensed ? `<div class="ss-toolbar">
+      <button type="button" class="ss-btn-secondary ss-btn-sm" id="aiModelInstall">${local.present ? 'החלפת מודל' : 'התקנת מודל מקובץ'}</button>
+      ${local.present ? `<button type="button" class="ss-btn-ghost ss-btn-sm" id="aiModelVerify">בדיקת תקינות</button>
+      <button type="button" class="ss-btn-danger ss-btn-sm" id="aiModelRemove">הסרת המודל</button>` : ''}
+    </div>` : ''}
+  </div>`;
+}
+
+function attachAiModelHandlers(root) {
+  const bind = (id, fn) => {
+    const b = root.querySelector('#' + id);
+    if (!b) return;
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { await fn(b); } catch (e) { showError(errMsg(e)); } finally { b.disabled = false; }
+    });
+  };
+  bind('aiModelInstall', async (b) => {
+    b.textContent = 'מתקין… (בדיקת הקובץ לוקחת כדקה)';
+    const r = await window.systemAPI.aiModelInstall();
+    if (r && !r.canceled) { showToast(`המודל ${r.name || r.id} הותקן`); }
+    switchView('ai');
+  });
+  bind('aiModelVerify', async (b) => {
+    b.textContent = 'בודק…';
+    const r = await window.systemAPI.aiModelVerify();
+    if (r && r.present) showToast('המודל תקין'); else showError((r && r.error) || 'המודל אינו תקין');
+    switchView('ai');
+  });
+  bind('aiModelRemove', async () => {
+    if (!(await askConfirm('להסיר את המודל מהמחשב? אפשר להתקין אותו שוב מהקובץ.'))) return;
+    await window.systemAPI.aiModelRemove();
+    showToast('המודל הוסר');
+    switchView('ai');
+  });
+}
+
 function attachAiHandlers(root) {
   const askBtn = root.querySelector('#aiAsk');
   const box = root.querySelector('#aiQuestion');
@@ -134,6 +194,7 @@ function attachAiHandlers(root) {
       switchView('ai');
     }
   };
+  attachAiModelHandlers(root);
   if (askBtn) askBtn.addEventListener('click', run);
   if (box) {
     box.addEventListener('keydown', (e) => {

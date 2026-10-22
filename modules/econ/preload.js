@@ -429,6 +429,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   updateInstall: () => ipcRenderer.invoke('update:install'),
   ownerReleaseCreate: (input) => ipcRenderer.invoke('owner:releaseCreate', input),
   ownerReleases: () => ipcRenderer.invoke('owner:releases'),
+  ownerModelSign: (input) => ipcRenderer.invoke('owner:modelSign', input),
   ownerReleasePublish: (version, platform) => ipcRenderer.invoke('owner:releasePublish', version, platform),
   collectOverview: () => ipcRenderer.invoke('collect:getOverview'),
   collectSaveSettings: (input) => ipcRenderer.invoke('collect:saveSettings', input),

@@ -365,6 +365,18 @@ function attachLicensingHandlers() {
     const r = await window.systemAPI.ownerReleaseCreate(v);
     if (r && r.ok) showToast(`גרסה ${r.version} נחתמה. התעודה נשמרה: ${r.path}`);
   });
+  on('ownerModelSignBtn', async () => {
+    const v = await licForm('חתימת מודל AI מקומי', [
+      { name: 'id', label: 'מזהה (אותיות לטיניות קטנות, ספרות, נקודה או מקף — למשל dictalm-1.7b-q4)', required: true },
+      { name: 'name', label: 'שם לתצוגה' },
+      { name: 'license', label: 'רישיון המודל (למשל Apache-2.0)' },
+      { name: 'quant', label: 'כימות (למשל Q4_K_M)' },
+      { name: 'contextSize', label: 'אורך הקשר', value: '4096' },
+    ], 'בחירת קובץ ה-GGUF וחתימה', 'בשלב הבא בוחרים את קובץ המודל. חישוב התמצית לוקח כדקה; התעודה (‎.ssmodel) תישמר לידו.');
+    if (!v) return;
+    const r = await window.systemAPI.ownerModelSign(v);
+    if (r && r.ok) showToast(`המודל ${r.name} נחתם. התעודה נשמרה: ${r.path}`);
+  });
   each('data-owner-publish', async (b) => {
     if (!(await askConfirm(`לשלוח את גרסה ${b.dataset.ownerPublish} לכל המערכות?`))) return;
     const r = await window.systemAPI.ownerReleasePublish(b.dataset.ownerPublish, b.dataset.platform);
