@@ -168,7 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
+      actions: write
       checks: read
     steps:
       # מצב כל משימה וכל צעד, והודעות השגיאה של GitHub (למשל "Set up job" שנכשל) — גם כשמשימה נפלה לפני שכתבה יומן.
@@ -189,6 +189,25 @@ jobs:
             echo "--- annotations: job $id" >> logs/jobs.txt
             api "check-runs/$id/annotations" | jq -r '.[]? | "\(.annotation_level): \(.message)"' >> logs/jobs.txt
           done
+      # מחיקת ה-artifacts של ריצות קודמות (החלטת הבעלים 22.10.2026): 202 קבצים / 4.3GB מילאו את המכסה,
+      # וכל העלאה חדשה נכשלה. הם משמשים רק להעברה בין משימות באותה ריצה; גרסאות שפורסמו — ב-Releases.
+      # של הריצה הנוכחית לא נמחקים. GitHub מחשב את הנפח מחדש רק אחרי כמה שעות
+      - name: cleanup old artifacts
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p logs
+          api() { curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
+          base="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts"
+          deleted=0
+          # תמיד עמוד 1: אחרי מחיקה הרשימה זזה. תקרה — 30 סבבים (3,000 קבצים)
+          for round in $(seq 1 30); do
+            ids=$(api "$base?per_page=100" | jq -r --arg run "$GITHUB_RUN_ID" '.artifacts[]? | select((.workflow_run.id | tostring) != $run) | .id')
+            [ -z "$ids" ] && break
+            for id in $ids; do api -X DELETE "$base/$id" -o /dev/null && deleted=$((deleted + 1)); done
+          done
+          echo "--- cleanup: deleted $deleted old artifacts" >> logs/jobs.txt
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
