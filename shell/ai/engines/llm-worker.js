@@ -21,7 +21,9 @@ async function load({ modelPath, contextSize, threads }) {
   const started = Date.now();
   // node-llama-cpp הוא ESM בלבד — import דינמי. הספרייה נארזת עם התוכנה; המודל — תוסף נפרד
   lib = lib || await import('node-llama-cpp');
-  llama = llama || await lib.getLlama({ build: 'never', gpu: 'auto', progressLogs: false, logLevel: 'error' });
+  // מעבד בלבד (gpu: false): גרסאות ה-CUDA וה-Vulkan לא נארזות (package.json → build.files) — כך זה אותו רכיב בכל מחשב,
+  // בלי ניסיון לטעון דרייבר גרפי ישן במחשב משרדי. מודל קטן (עד 3GB) רץ במעבד בזמן סביר
+  llama = llama || await lib.getLlama({ build: 'never', gpu: false, progressLogs: false, logLevel: 'error' });
   model = await llama.loadModel({ modelPath });
   context = await model.createContext({ contextSize: contextSize || 4096, threads: threads || undefined });
   return { ms: Date.now() - started, gpu: llama.gpu || false };

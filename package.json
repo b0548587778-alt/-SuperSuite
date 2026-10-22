@@ -38,7 +38,8 @@
       "LICENSE.txt",
       "THIRD-PARTY-NOTICES.txt",
       "build/eula.txt",
-      "!node_modules/@node-llama-cpp/*cuda*/**"
+      "!node_modules/@node-llama-cpp/*cuda*/**",
+      "!node_modules/@node-llama-cpp/*vulkan*/**"
     ],
     "asarUnpack": [
       "node_modules/node-llama-cpp/**",

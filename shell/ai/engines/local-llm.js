@@ -18,9 +18,16 @@ function electronFork() {
   });
 }
 
-// runtimeAvailable — האם node-llama-cpp ארוז בהתקנה הזו (בלי לטעון אותו)
-function runtimeAvailable() {
-  try { require.resolve('node-llama-cpp'); return true; } catch { return false; }
+// runtimeAvailable — האם node-llama-cpp ארוז בהתקנה הזו (בלי לטעון אותו).
+// לא require.resolve: החבילה היא ESM בלבד, ואם ב-exports שלה אין תנאי require — הוא נכשל גם כשהיא ארוזה,
+// והמודל היה „לא זמין” תמיד. בודקים שקובץ ה-package.json קיים באחת מתיקיות node_modules של החיפוש
+// (גם בתוך app.asar: הקבצים שב-asarUnpack רשומים באינדקס, ו-fs של Electron מכיר אותם)
+function runtimeAvailable(searchPaths = module.paths) {
+  let fs;
+  try { fs = require('fs'); } catch { return false; }
+  return (searchPaths || []).some((dir) => {
+    try { return fs.existsSync(path.join(dir, 'node-llama-cpp', 'package.json')); } catch { return false; }
+  });
 }
 
 // modelStore — createModelStore (model-pack.js). fork — לבדיקות: מחזיר אובייקט עם postMessage/on/kill

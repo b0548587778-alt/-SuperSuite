@@ -20,11 +20,17 @@ on:
 # יומני הבנייה נכתבים גם לענף ci-status (משימת report): דף היומנים של GitHub Actions חסום ב-NetFree,
 # וכך אפשר לקרוא את התוצאה ב-git fetch origin ci-status.
 jobs:
-  # מודול האימונים מקוד המקור (modules-src/trainer). בסביבה מסוננת vite לא ניתן להתקנה — הבנייה כאן
-  trainer:
+  # משימה אחת: מודול האימונים מקוד המקור (modules-src/trainer; vite חסום ב-NetFree), הבדיקות, האריזה ובדיקת העלייה.
+  # בלי artifacts בין משימות: כשמכסת האחסון של המאגר מלאה (ריצות #54–#59) העברת קבצים בין משימות נכשלה,
+  # וכל הבנייה נעצרה אף שהבדיקות עברו. היומנים והמודול הבנוי נדחפים ישירות לענף ci-status (צעד אחרון, תמיד)
+  build:
     runs-on: windows-latest
+    permissions:
+      contents: write
+    outputs:
+      publish: ${{ steps.publish.outcome }}
     env:
-      LOG: ${{ github.workspace }}/ci-logs/trainer.log
+      LOG: ${{ github.workspace }}/ci-logs/build.log
     defaults:
       run:
         shell: bash
@@ -43,50 +49,29 @@ jobs:
           if [ -f package-lock.json ]; then CMD="npm ci"; else CMD="npm install"; fi
           { echo "== $CMD (trainer)"; $CMD 2>&1; } | tee -a "$LOG"
           cp package-lock.json "$GITHUB_WORKSPACE/ci-logs/trainer-package-lock.json"
+      # גם בשורש: npm ci רק כשקובץ הנעילה כולל את node-llama-cpp (אחרת npm ci נכשל על אי-התאמה).
+      # הקובץ שנוצר נשמר ב-ci-status (root-package-lock.json) — אחרי commit שלו, כל בנייה מקבלת אותן גרסאות בדיוק
       - name: npm install
-        run: set -o pipefail; { echo "== npm install"; npm install 2>&1; } | tee -a "$LOG"
+        run: |
+          set -o pipefail
+          if grep -q '"node_modules/node-llama-cpp"' package-lock.json; then CMD="npm ci"; else CMD="npm install"; fi
+          { echo "== $CMD"; $CMD 2>&1; } | tee -a "$LOG"
+          cp package-lock.json ci-logs/root-package-lock.json
+      # המתקין אורז את מודול האימונים שנבנה מהמקור באותה ריצה (PLAN.md 6.1), לא את העותק שבמאגר.
+      # עותק לפני הכיווץ — למחשב, דרך ci-status: git checkout FETCH_HEAD -- trainer-module
       - name: build trainer
-        run: set -o pipefail; { echo "== build-trainer"; node tools/build-trainer.js 2>&1; } | tee -a "$LOG"
+        run: |
+          set -o pipefail
+          { echo "== build-trainer"; node tools/build-trainer.js 2>&1; } | tee -a "$LOG"
+          cp -r modules/trainer ci-logs/trainer-module
+      # הבדיקות רצות על הקוד המקורי, לפני הכיווץ
       - name: npm test
         run: set -o pipefail; { echo "== npm test"; npm test 2>&1; } | tee -a "$LOG"
-      - uses: actions/upload-artifact@v4
-        with:
-          retention-days: 2
-          name: trainer-module
-          path: modules/trainer
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          retention-days: 2
-          name: ci-logs-trainer
-          path: ci-logs
-  # המתקין אורז את מודול האימונים שנבנה מהמקור באותה ריצה (PLAN.md 6.1), לא את העותק שבמאגר
-  build:
-    needs: [trainer]
-    runs-on: windows-latest
-    env:
-      LOG: ${{ github.workspace }}/ci-logs/build.log
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: mkdir -p ci-logs
-      - name: מודול האימונים מהבנייה
-        run: rm -rf modules/trainer
-      - uses: actions/download-artifact@v4
-        with:
-          name: trainer-module
-          path: modules/trainer
       - name: Release check
         if: ${{ inputs.release }}
         run: set -o pipefail; { echo "== release-check"; node tools/release-check.js 2>&1; } | tee -a "$LOG"
-      - name: npm install
-        run: set -o pipefail; { echo "== npm install"; npm install 2>&1; } | tee -a "$LOG"
       # --publish never: בלי זה electron-builder מזהה CI ומנסה לפרסם ל-GitHub Releases (ונכשל בלי GH_TOKEN).
-      # פרסום גרסאות — משימת publish (PLAN.md 1.1), למאגר ההורדות הציבורי.
+      # פרסום גרסאות — הצעד publish למטה (PLAN.md 1.1), למאגר ההורדות הציבורי.
       # חתימת קוד — רק אם הוגדרו סודות במאגר (docs/CODE-SIGNING.md). בלי סודות: בנייה לא חתומה, כמו קודם.
       # טוקן USB אינו זמין בשרת של GitHub — כאן אפשר רק PFX או Azure Trusted Signing.
       - name: Build
@@ -104,44 +89,22 @@ jobs:
           set -o pipefail
           ARGS="$(node tools/code-signing.js --args)"
           { echo "== code-signing"; node tools/code-signing.js 2>&1; } | tee -a "$LOG"
-          # כיווץ הקוד (PLAN.md 3.5) — במקום, בעותק של GitHub בלבד. הבדיקות הרגילות רצות במשימת trainer על הקוד המקורי
+          # כיווץ הקוד (PLAN.md 3.5) — במקום, בעותק של GitHub בלבד, אחרי הבדיקות
           { echo "== minify"; npm install --no-save esbuild 2>&1 && node tools/minify.js 2>&1; } | tee -a "$LOG"
           { echo "== electron-builder"; npx electron-builder --win nsis portable --publish never $ARGS 2>&1; } | tee -a "$LOG"
       # הגרסה הארוזה והמכווצת: עולה בלי שגיאות, ומסרבת לעלות עם פרמטר דיבוג או עם app.asar שהשתנה.
-      # נכשל ← אין מתקין להורדה (השלבים הבאים מדולגים)
+      # נכשל ← אין פרסום (הצעדים הבאים מדולגים)
       - name: Smoke test (packaged)
         env:
           SMOKE_LOG: ${{ github.workspace }}/ci-logs/smoke.log
         run: set -o pipefail; { echo "== smoke"; node tools/smoke-packaged.js 2>&1; } | tee -a "$LOG"
-      - uses: actions/upload-artifact@v4
-        with:
-          retention-days: 2
-          name: SuperSuite-Windows
-          path: |
-            dist/SuperSuite-Setup.exe
-            dist/SuperSuite-Portable.exe
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          retention-days: 2
-          name: ci-logs-build
-          path: ci-logs
-  # פרסום למאגר ההורדות הציבורי (PLAN.md 1.1) — רק בהפעלה ידנית עם publish, ורק אחרי בנייה ובדיקת עלייה שעברו.
-  # המאגר הזה פרטי; ההורדות במאגר ציבורי נפרד (משתנה SS_DOWNLOADS_REPO, למשל owner/SuperSuite-Downloads),
-  # עם טוקן שמורשה לכתוב רק אליו (סוד SS_DOWNLOADS_TOKEN). מדריך: docs/DOWNLOADS.md.
-  # קישור קבוע לגרסה האחרונה: https://github.com/<מאגר>/releases/latest/download/SuperSuite-Setup.exe
-  publish:
-    needs: [build]
-    if: ${{ (inputs.publish || startsWith(github.ref, 'refs/tags/v')) && needs.build.result == 'success' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { sparse-checkout: package.json, sparse-checkout-cone-mode: false }
-      - uses: actions/download-artifact@v4
-        with:
-          name: SuperSuite-Windows
-          path: out
+      # פרסום למאגר ההורדות הציבורי (PLAN.md 1.1) — רק מתגית גרסה או בהפעלה ידנית עם publish, ורק אחרי בנייה ובדיקת עלייה שעברו
+      # (צעד שאחריהם — לא רץ אם אחד מהם נכשל). המאגר הזה פרטי; ההורדות במאגר ציבורי נפרד (משתנה SS_DOWNLOADS_REPO,
+      # למשל owner/SuperSuite-Downloads), עם טוקן שמורשה לכתוב רק אליו (סוד SS_DOWNLOADS_TOKEN). מדריך: docs/DOWNLOADS.md.
+      # קישור קבוע לגרסה האחרונה: https://github.com/<מאגר>/releases/latest/download/SuperSuite-Setup.exe
       - name: GitHub Release
+        id: publish
+        if: ${{ inputs.publish || startsWith(github.ref, 'refs/tags/v') }}
         env:
           GH_TOKEN: ${{ secrets.SS_DOWNLOADS_TOKEN }}
           REPO: ${{ vars.SS_DOWNLOADS_REPO }}
@@ -159,11 +122,25 @@ jobs:
           if gh release view "v$V" --repo "$REPO" >/dev/null 2>&1; then
             echo "הגרסה v$V כבר פורסמה ב-$REPO"; exit 1
           fi
-          gh release create "v$V" --repo "$REPO" --title "SuperSuite $V" --latest             --notes "SuperSuite גרסה $V" out/SuperSuite-Setup.exe out/SuperSuite-Portable.exe
+          gh release create "v$V" --repo "$REPO" --title "SuperSuite $V" --latest --notes "SuperSuite גרסה $V" dist/SuperSuite-Setup.exe dist/SuperSuite-Portable.exe
           echo "פורסם: https://github.com/$REPO/releases/latest/download/SuperSuite-Setup.exe"
-  # סיכום ויומנים לענף ci-status (קומיט יחיד, נדרס בכל ריצה). הענף לא מפעיל בנייה (רק master מפעיל)
+      # היומנים והמודול הבנוי לענף ci-status — תמיד, גם אחרי כישלון. משימת report מוסיפה עליהם את מצב המשימות
+      - name: logs to ci-status
+        if: always()
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd ci-logs
+          git init -q
+          git config user.name "ci"
+          git config user.email "ci@users.noreply.github.com"
+          git checkout -q -b ci-status
+          git add -A
+          git commit -qm "CI #$GITHUB_RUN_NUMBER $GITHUB_SHA (build)"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-status
+  # סיכום לענף ci-status, מעל היומנים שמשימת build דחפה (קומיט אחד לריצה, נדרס בכל ריצה). הענף לא מפעיל בנייה
   report:
-    needs: [trainer, build, publish]
+    needs: [build]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -184,7 +161,14 @@ jobs:
           out=logs/jobs.txt
           repo="https://api.github.com/repos/$GITHUB_REPOSITORY"
           api() { curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
-          api "$repo/actions/runs/$GITHUB_RUN_ID/jobs?per_page=50" > jobs.json
+          # GitHub מעדכן את מצב המשימה ואת הודעות השגיאה שלה כמה שניות אחרי שהיא נגמרת (בריצה #59 עוד "in_progress",
+          # בלי הודעות) — ממתינים עד דקה שכל משימה חוץ מזו תסומן completed
+          for i in $(seq 1 12); do
+            api "$repo/actions/runs/$GITHUB_RUN_ID/jobs?per_page=50" > jobs.json
+            pending=$(jq '[.jobs[]? | select(.name != "report" and .status != "completed")] | length' jobs.json 2>/dev/null)
+            [ "${pending:-0}" -eq 0 ] && break
+            sleep 5
+          done
           jq -r '.jobs[]? | "\(.name): \(.conclusion // .status)", (.steps[]? | "  \(.number). \(.name): \(.conclusion // .status)")' jobs.json > "$out" \
             || echo "--- jobs: API error: $(head -c 300 jobs.json)" >> "$out"
           # הודעות השגיאה לכל משימה שאינה "success" (גם כשהיא עוד נסגרת בזמן שהדוח נכתב)
@@ -218,30 +202,24 @@ jobs:
             fi
           done < artifacts.tsv
           echo "--- cleanup: deleted $deleted, failed $failed (older than $cutoff)" >> "$out"
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: ci-logs-*
-          path: logs
-          merge-multiple: true
-      # המודול הבנוי עובר לענף ci-status: הורדת artifact חסומה ב-NetFree, ו-git fetch עובד.
-      # במחשב: git fetch origin ci-status && git checkout FETCH_HEAD -- trainer-module (ואז העתקה ל-modules/trainer)
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: trainer-module
-          path: logs/trainer-module
       - name: push ci-status
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p logs && cd logs
-          printf 'run: %s (#%s)\nsha: %s\ntrainer: %s\nbuild: %s\npublish: %s\n' \
-            "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "${{ needs.trainer.result }}" "${{ needs.build.result }}" "${{ needs.publish.result }}" > summary.txt
+          remote="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          mkdir -p logs ci && cd ci
           git init -q
           git config user.name "ci"
           git config user.email "ci@users.noreply.github.com"
-          git checkout -q -b ci-status
+          # היומנים והמודול שמשימת build דחפה בריצה הזו; אם לא הגיעה לשם (נפלה לפני הצעד) — מתחילים מענף ריק
+          if git fetch -q --depth 1 "$remote" ci-status && git log -1 --format=%s FETCH_HEAD | grep -q "^CI #$GITHUB_RUN_NUMBER "; then
+            git checkout -q -b ci-status FETCH_HEAD
+          else
+            git checkout -q -b ci-status
+          fi
+          cp ../logs/jobs.txt . 2>/dev/null
+          printf 'run: %s (#%s)\nsha: %s\nbuild: %s\npublish: %s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "${{ needs.build.result }}" "${{ needs.build.outputs.publish || 'skipped' }}" > summary.txt
           git add -A
           git commit -qm "CI #$GITHUB_RUN_NUMBER $GITHUB_SHA"
-          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-status
+          git push -qf "$remote" ci-status

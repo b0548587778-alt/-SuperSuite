@@ -116,12 +116,11 @@ test('CI: כיווץ לפני electron-builder, ובדיקת עלייה של ה�
   const iMin = build.indexOf('node tools/minify.js');
   const iEb = build.indexOf('npx electron-builder');
   const iSmoke = build.indexOf('node tools/smoke-packaged.js');
-  const iUpload = build.indexOf('name: SuperSuite-Windows');
-  assert.ok(iMin > 0 && iMin < iEb && iEb < iSmoke && iSmoke < iUpload);
-  // הבדיקות הרגילות רצות על הקוד המקורי (משימת trainer), לא אחרי הכיווץ
-  const trainer = yml.slice(yml.indexOf('\n  trainer:'), yml.indexOf('\n  build:'));
-  assert.match(trainer, /npm test/);
-  assert.ok(!/minify/.test(trainer));
+  const iPublish = build.indexOf('name: GitHub Release');
+  assert.ok(iMin > 0 && iMin < iEb && iEb < iSmoke && iSmoke < iPublish);
+  // הבדיקות הרגילות רצות על הקוד המקורי — לפני הכיווץ
+  const iTest = build.indexOf('npm test 2>&1');
+  assert.ok(iTest > 0 && iTest < iMin);
 });
 
 // ---------- בדיקת עלייה ----------

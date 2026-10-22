@@ -14,7 +14,7 @@ const MP = require(path.join(ROOT, 'shell/ai/model-pack'));
 const router = require(path.join(ROOT, 'shell/ai/router'));
 const T = require(path.join(ROOT, 'shell/ai/tools'));
 const { checkGrounded } = require(path.join(ROOT, 'shell/ai/grounding'));
-const { createLocalEngine } = require(path.join(ROOT, 'shell/ai/engines/local-llm'));
+const { createLocalEngine, runtimeAvailable } = require(path.join(ROOT, 'shell/ai/engines/local-llm'));
 const { createAI } = require(path.join(ROOT, 'shell/ai'));
 const { createMockFork, fakeStore } = require('./helpers/mock-llm');
 
@@ -288,4 +288,14 @@ test('קבצי המודל המקומי: אין רשת, אין כתובות, ו-n
   const worker = fs.readFileSync(path.join(dir, 'engines/llm-worker.js'), 'utf8');
   assert.match(worker, /build: 'never'/, 'בלי בניית llama.cpp (שמורידה קוד)');
   assert.doesNotMatch(worker, /resolveModelFile|createModelDownloader|modelUri|hf:/, 'בלי הורדת מודל');
+});
+
+test('runtimeAvailable: מזהה את node-llama-cpp לפי הקובץ — גם חבילת ESM בלי תנאי require ב-exports', () => {
+  // require.resolve נכשל על חבילה כזו (ERR_PACKAGE_PATH_NOT_EXPORTED), והמודל היה „לא זמין” גם כשהוא ארוז
+  const nm = path.join(tmp('ai-nm-'), 'node_modules');
+  fs.mkdirSync(path.join(nm, 'node-llama-cpp'), { recursive: true });
+  fs.writeFileSync(path.join(nm, 'node-llama-cpp', 'package.json'), JSON.stringify({ name: 'node-llama-cpp', type: 'module', exports: { '.': { import: './dist/index.js' } } }));
+  assert.equal(runtimeAvailable([path.join(tmp('ai-nm-'), 'node_modules'), nm]), true);
+  assert.equal(runtimeAvailable([path.join(tmp('ai-nm-'), 'node_modules')]), false, 'בלי החבילה — לא זמין');
+  assert.equal(runtimeAvailable([]), false);
 });

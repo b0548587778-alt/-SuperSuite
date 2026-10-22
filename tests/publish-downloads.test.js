@@ -6,14 +6,17 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const yml = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'build.yml'), 'utf8').replace(/\r\n/g, '\n');
-const publish = yml.slice(yml.indexOf('\n  publish:\n'), yml.indexOf('\n  report:\n'));
+// הפרסום — צעד במשימת build (בלי artifact בין משימות), מ-"GitHub Release" עד הצעד הבא
+const build = yml.slice(yml.indexOf('\n  build:\n'), yml.indexOf('\n  report:\n'));
+const publish = build.slice(build.indexOf('- name: GitHub Release'), build.indexOf('- name: logs to ci-status'));
 
-test('פרסום רק מתגית גרסה או בהפעלה ידנית, ורק אחרי בנייה שעברה', () => {
-  assert.ok(publish.length > 100, 'יש משימת publish');
+test('פרסום רק מתגית גרסה או בהפעלה ידנית, ורק אחרי בנייה ובדיקת עלייה שעברו', () => {
+  assert.ok(publish.length > 100, 'יש צעד פרסום');
   assert.match(yml, /tags: \['v\*'\]/);
-  assert.match(publish, /needs: \[build\]/);
-  assert.match(publish, /inputs\.publish \|\| startsWith\(github\.ref, 'refs\/tags\/v'\)/);
-  assert.match(publish, /needs\.build\.result == 'success'/);
+  assert.match(publish, /if: \$\{\{ inputs\.publish \|\| startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
+  // צעד בלי always() רץ רק אם כל הצעדים שלפניו עברו — כולל האריזה ובדיקת העלייה
+  assert.doesNotMatch(publish, /always\(\)|failure\(\)/);
+  assert.ok(build.indexOf('node tools/smoke-packaged.js') < build.indexOf('- name: GitHub Release'));
 });
 
 test('פרסום למאגר נפרד בטוקן ייעודי — לא GITHUB_TOKEN ולא המאגר הפרטי', () => {
@@ -31,8 +34,8 @@ test('גרסה קיימת לא נדרסת, ותגית שלא תואמת את pac
 
 test('electron-builder עצמו לא מפרסם, והתוצאה מגיעה ל-ci-status', () => {
   assert.match(yml, /--publish never/);
-  assert.match(yml, /needs: \[trainer, build, publish\]/);
-  assert.match(yml, /needs\.publish\.result/);
+  assert.match(yml, /publish: \$\{\{ steps\.publish\.outcome \}\}/);
+  assert.match(yml, /needs\.build\.outputs\.publish/);
 });
 
 test('יש מדריך לבעלים', () => {

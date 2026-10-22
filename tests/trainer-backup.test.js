@@ -106,8 +106,10 @@ for (const [name, file] of [['main.js', ['main.js']], ['אנדרואיד', ['and
 
 test('CI: המודול הבנוי נשלח לענף ci-status (הורדת artifact חסומה ב-NetFree)', () => {
   const yml = read('.github', 'workflows', 'build.yml');
-  const report = yml.slice(yml.indexOf('\n  report:'));
-  assert.match(report, /name: trainer-module\s*\n\s*path: logs\/trainer-module/);
+  const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  report:'));
+  assert.match(build, /cp -r modules\/trainer ci-logs\/trainer-module/);
+  const i = build.indexOf('- name: logs to ci-status');
+  assert.ok(i > 0 && /git push -qf .*ci-status/.test(build.slice(i)));
 });
 
 test('ניהול סטודיו (9.11): מפתחות המנויים והיומן נשמרים, וערך שאינו רשימה נפסל', () => {
