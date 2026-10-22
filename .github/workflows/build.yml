@@ -164,7 +164,24 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
+      checks: read
     steps:
+      # מצב כל משימה וכל צעד, והודעות השגיאה של GitHub (למשל "Set up job" שנכשל) — גם כשמשימה נפלה לפני שכתבה יומן.
+      # דף ה-Actions וה-API חסומים ב-NetFree, ולכן זה נכתב ל-ci-status (jobs.txt)
+      - name: jobs summary
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p logs
+          api() { curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/$1"; }
+          api "actions/runs/$GITHUB_RUN_ID/jobs?per_page=50" > jobs.json
+          jq -r '.jobs[] | "\(.name): \(.conclusion // .status)", (.steps[]? | "  \(.number). \(.name): \(.conclusion // .status)")' jobs.json > logs/jobs.txt
+          for id in $(jq -r '.jobs[] | select(.conclusion == "failure") | .id' jobs.json); do
+            echo "--- annotations: job $id" >> logs/jobs.txt
+            api "check-runs/$id/annotations" | jq -r '.[]? | "\(.annotation_level): \(.message)"' >> logs/jobs.txt
+          done
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
