@@ -20,7 +20,7 @@ const LIC_FEATURES = [
   ['econ', 'מערכת כלכלית (בסיס)'], ['econ.accounting', 'הנהלת חשבונות'], ['econ.npo', 'עמותה ותרומות'], ['econ.gemach', 'גמ"ח'],
   ['econ.chesed', 'חסד וחלוקות'], ['econ.mortgage', 'משכנתאות'], ['econ.mortgage-advisor', 'ייעוץ משכנתאות'], ['econ.mortgage-lab', 'מעבדת תמהיל'], ['econ.realestate', 'נדל"ן (שמאות מקרקעין, תיווך ויזמים)'],
   ['shamai', 'שמאות'], ['trainer', 'ניהול אימונים'], ['tools', 'ארגז כלים'],
-  ['ai', 'עוזר חכם — מקומי'], ['ai.cloud', 'עוזר חכם — שדרוג ענן']
+  ['ai', 'עוזר חכם — כללים'], ['ai.local', 'עוזר חכם — מודל במחשב'], ['ai.cloud', 'עוזר חכם — שדרוג ענן']
 ];
 const licFeatureLabel = (f) => (LIC_FEATURES.find(x => x[0] === f) || [f, f])[1];
 const licDate = (ms) => (ms ? new Date(ms).toLocaleDateString('he-IL') : '');

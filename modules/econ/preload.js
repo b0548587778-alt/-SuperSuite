@@ -477,6 +477,11 @@ contextBridge.exposeInMainWorld('systemAPI', {
   aiPrefsSave: (patch) => ipcRenderer.invoke('ai:prefs:save', patch),
   aiConsent: (consented) => ipcRenderer.invoke('ai:consent', consented === true),
   aiContext: (context) => ipcRenderer.invoke('ai:context', context),
+  aiSearch: (text) => ipcRenderer.invoke('ai:search', text),
+  aiModelStatus: () => ipcRenderer.invoke('ai:model:status'),
+  aiModelInstall: () => ipcRenderer.invoke('ai:model:install'),
+  aiModelVerify: () => ipcRenderer.invoke('ai:model:verify'),
+  aiModelRemove: () => ipcRenderer.invoke('ai:model:remove'),
 
   // Backup and Restore — רק טקסט מוצפן (SSBK1:) עובר לממשק; גיבוי גלוי לא קיים
   backupEncrypted: (passphrase) => ipcRenderer.invoke('data:backupEncrypted', passphrase),

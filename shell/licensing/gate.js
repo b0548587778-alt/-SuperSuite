@@ -44,8 +44,9 @@ function peopleSources(state) {
   return Object.keys(PEOPLE_SOURCES).filter(s => have.has(PEOPLE_SOURCES[s]));
 }
 
-// 'ai.cloud' הוא שדרוג על 'ai' — רישיון עם שדרוג הענן בלבד פותח גם את העוזר המקומי
-const satisfies = (have, feature) => have.has(feature) || (feature === 'ai' && have.has('ai.cloud'));
+// 'ai.local' (מודל שפה במחשב) ו-'ai.cloud' הם שדרוגים על 'ai' — רישיון עם שדרוג בלבד פותח גם את העוזר הבסיסי (הכללים)
+const AI_UPGRADES = ['ai.local', 'ai.cloud'];
+const satisfies = (have, feature) => have.has(feature) || (feature === 'ai' && AI_UPGRADES.some(f => have.has(f)));
 
 function featuresForChannel(channel) {
   // עוזר ה-AI הוא תחום רישוי בפני עצמו — לא תלוי בקיום econ

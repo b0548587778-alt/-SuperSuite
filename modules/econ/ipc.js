@@ -212,6 +212,8 @@ async function initEcon(userDataPath, opts = {}) {
     getBackupKey: typeof aiOpts.getBackupKey === 'function' ? aiOpts.getBackupKey : () => null,
     onError: (scope, e) => errorLogger(scope, e),
     clock: () => clockNow(),
+    // המודל המקומי נפתח רק ברישיון פעיל עם 'ai.local' (localLicensed ב-shell/ai/router.js)
+    licenseState: () => licenseState(),
   });
   authService.initialize(db);
   financialService.initialize(db);
@@ -290,6 +292,8 @@ function permissionFor(channel) {
   if (channel === 'ai:open') return 'data.view';
   // העברת הקשר זמני (הערכה אחרונה מהשמאות, דוח מן האימונים) — דורש גם הרשאת צפייה בחשבונות
   if (channel === 'ai:context') return 'data.view';
+  // חיפוש בשפה טבעית (Ctrl+K) — קריאה בלבד; מצב המודל — לכל משתמש. התקנה, אימות והסרה — נופלים ל-users.manage למטה
+  if (channel === 'ai:search' || channel === 'ai:model:status') return 'data.view';
   if (channel.startsWith('ai:')) return 'users.manage';
   // עדכוני גרסה: כל משתמש רואה שיש עדכון; הורדה והתקנה — מנהל בלבד
   if (channel === 'update:getStatus') return 'data.view';
@@ -2777,6 +2781,35 @@ function registerIpcHandlers() {
   };
   handle('ai:run', aiRunFn);
   handle('ai:explain', async (event, payload) => aiAssistant.explain(payload || {}));
+  // חיפוש בשפה טבעית (Ctrl+K): מסכים מהרשימה הסגורה ורשומות קיימות בלבד — לעולם לא טקסט חופשי של המודל.
+  // ההקשר זהה לשאלה (aiRulesContext) — רשומות רק מתחומים שפתוחים למשתמש ולרישיון
+  handle('ai:search', async (event, text) => {
+    const q = String(text || '');
+    if (q.length > 200) throw new Error('החיפוש ארוך מדי — עד 200 תווים');
+    const ctx = await aiRulesContext(event, localDay(clockNow()));
+    return aiAssistant.search(q, ctx);
+  });
+  // המודל המקומי (תוסף): מצב — לכל משתמש; התקנה, אימות והסרה — מנהל בלבד (permissionFor).
+  // הקבצים נבחרים בחלון של המערכת כאן בתהליך הראשי — נתיב לא מתקבל מהמסך
+  handle('ai:model:status', async () => aiAssistant.model.status());
+  handle('ai:model:install', async (event) => {
+    const pickM = await dialog.showOpenDialog({ title: 'בחירת תעודת המודל (‎.ssmodel)', properties: ['openFile'], filters: [{ name: 'תעודת מודל', extensions: ['ssmodel'] }] });
+    if (pickM.canceled || !pickM.filePaths.length) return { canceled: true };
+    const pickG = await dialog.showOpenDialog({ title: 'בחירת קובץ המודל (‎.gguf)', defaultPath: path.dirname(pickM.filePaths[0]), properties: ['openFile'], filters: [{ name: 'קובץ מודל', extensions: ['gguf'] }] });
+    if (pickG.canceled || !pickG.filePaths.length) return { canceled: true };
+    const manifest = fs.readFileSync(pickM.filePaths[0], 'utf8');
+    if (manifest.length > 64 * 1024) throw new Error('תעודת המודל אינה תקינה');
+    const res = await aiAssistant.model.install(manifest, pickG.filePaths[0]);
+    await auditEvent(event, 'ai.model.install', { id: res && res.id });
+    // בלי נתיב פנימי למסך
+    return { id: res.id, name: res.name, size: res.size };
+  });
+  handle('ai:model:verify', async () => aiAssistant.model.verify());
+  handle('ai:model:remove', async (event) => {
+    const res = await aiAssistant.model.remove();
+    await auditEvent(event, 'ai.model.remove', {});
+    return res;
+  });
   // העוזר מצביע על המסך שבו אפשר לראות את הנתונים. רשימת יעדים סגורה — בלי ניווט חופשי
   const AI_VIEW_TARGETS = new Set(['acct-invoices', 'acct-reports', 'npo', 'realestate', 'trainer']);
   handle('ai:open', async (event, target) => {

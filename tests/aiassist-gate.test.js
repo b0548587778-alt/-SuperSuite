@@ -185,14 +185,11 @@ test('"ai" ו-"ai.cloud" מופיעים בכל מפת תכונות — בהצע�
   assert.ok(O.FEATURES.includes('ai'), 'offer.FEATURES כולל "ai"');
   assert.ok(O.FEATURES.includes('ai.cloud'), 'offer.FEATURES כולל "ai.cloud" — אחרת ההצעה מסננת אותו');
 
-  // אותה רשימה צריכה להופיע גם ב-modules/econ ובעותק של אנדרואיד (שניהם נכתבו מאותו מקור)
-  const files = [path.join(ROOT, 'modules/econ/ui/licensing.js'), path.join(ROOT, 'android/build/assets/www/econ/ui/licensing.js')];
-  const texts = files.filter(f => fs.existsSync(f)).map(f => fs.readFileSync(f, 'utf8'));
-  assert.ok(texts.length >= 1, 'נמצא לפחות עותק אחד של מסך הרישוי');
-  for (const src of texts) {
-    for (const f of ['ai', 'ai.cloud']) assert.ok(src.includes(`'${f}'`), `LIC_FEATURES כולל ${f}`);
-  }
-  if (texts.length === 2) assert.equal(texts[0], texts[1], 'שני עותקי licensing.js זהים');
+  // המקור בלבד: העותק של אנדרואיד (android/build, מחוץ למאגר) נוצר מחדש מהמקור בכל build-apk —
+  // השוואה מולו נכשלה על כל שינוי במקור עד הבנייה הבאה, בלי קשר לנכונות הקוד
+  const src = fs.readFileSync(path.join(ROOT, 'modules/econ/ui/licensing.js'), 'utf8');
+  for (const f of ['ai', 'ai.local', 'ai.cloud']) assert.ok(src.includes(`'${f}'`), `LIC_FEATURES כולל ${f}`);
+  for (const f of O.FEATURES) assert.ok(src.includes(`'${f}'`), `לכל תחום בהצעה יש שם במסך הרישוי: ${f}`);
 });
 
 // ---------- הזרימה האמיתית: "ai.cloud" לבדו, נעילה, טווח, העדפות ויעדים ----------
@@ -261,3 +258,52 @@ test('ipc: ai:open — רק יעד מהרשימה הסגורה', async () => {
   assert.deepEqual(await handlers['ai:open'](ev(12), 'acct-invoices'), { view: 'acct-invoices' });
 });
 
+
+// ---------- המודל המקומי: 'ai.local' ברישוי, והערוצים ai:search ו-ai:model:* ----------
+test('gate: "ai.local" הוא שדרוג על "ai" — פותח את העוזר בלבד, ונמצא ברשימת התחומים של ההצעה', () => {
+  const O = require(path.join(ROOT, 'shell/licensing/offer'));
+  assert.ok(O.FEATURES.includes('ai.local'), 'אפשר להנפיק ולמכור את התחום');
+  assert.equal(G.checkChannel(licensed(['ai.local']), 'ai:run', 'data.edit'), null);
+  assert.equal(G.checkChannel(licensed(['ai.local']), 'ai:search', 'data.view'), null);
+  assert.equal(G.checkChannel(licensed(['ai.local']), 'acct:getInvoices', 'data.view'), 'התחום הזה אינו כלול ברישיון של המערכת');
+});
+
+test('permissionFor: חיפוש ומצב המודל — צפייה; התקנה, אימות והסרה — מנהל בלבד', () => {
+  assert.equal(ipc.permissionFor('ai:search'), 'data.view');
+  assert.equal(ipc.permissionFor('ai:model:status'), 'data.view');
+  for (const ch of ['ai:model:install', 'ai:model:verify', 'ai:model:remove']) assert.equal(ipc.permissionFor(ch), 'users.manage', ch);
+});
+
+test('ipc: המודל המקומי נעול בלי "ai.local", ופתוח איתו — licenseState מגיע לעוזר', async () => {
+  await issuedTenant(['ai']);
+  await setupAdmin(21);
+  const without = await handlers['ai:status'](ev(21));
+  assert.equal(without.local.licensed, false);
+  assert.equal(without.local.mode, 'locked');
+  await issuedTenant(['ai', 'ai.local']);
+  await setupAdmin(22);
+  const withLocal = await handlers['ai:status'](ev(22));
+  assert.equal(withLocal.local.licensed, true, 'רישיון פעיל עם ai.local — המודל זמין להתקנה');
+  const ms = await handlers['ai:model:status'](ev(22));
+  assert.equal(ms.present, false, 'בלי מודל מותקן');
+  assert.equal(JSON.stringify(ms).includes(path.sep + 'ai-models'), false, 'בלי נתיב פנימי');
+});
+
+test('ipc: ai:search מחזיר מסכים מהרשימה הסגורה, ומוגבל באורך', async () => {
+  await issuedTenant(['econ', 'econ.accounting', 'ai']);
+  await setupAdmin(23);
+  const r = await handlers['ai:search'](ev(23), 'חשבוניות');
+  assert.ok(Array.isArray(r.screens) && Array.isArray(r.records));
+  assert.equal(r.engine, 'rules', 'בלי מודל — התאמת מילים בלבד');
+  await assert.rejects(handlers['ai:search'](ev(23), 'א'.repeat(201)), /ארוך מדי/);
+});
+
+test('ipc: ai:model:install / remove — מנהל בלבד; משתמש צפייה נחסם', async () => {
+  await issuedTenant(['ai', 'ai.local']);
+  await setupAdmin(24);
+  const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
+  AuthService.getSession(24).permissions = ['data.view', 'data.edit'];
+  await assert.rejects(handlers['ai:model:install'](ev(24)), /אין הרשאה/);
+  await assert.rejects(handlers['ai:model:remove'](ev(24)), /אין הרשאה/);
+  assert.ok(await handlers['ai:model:status'](ev(24)), 'מצב — לכל משתמש');
+});
