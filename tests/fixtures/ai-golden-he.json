@@ -1,0 +1,87 @@
+{
+  "about": "סט זהב בעברית לעוזר ה-AI. ב-CI רץ מול מודל מדומה (mock) — בודק ניתוב, כלים, ועיגון מספרים. מול מודל אמיתי: node tools/ai-golden-eval.js <model.gguf>. mock.answer מדמה את מה שהמודל כותב; „{{tool.path}}” מוחלף בערך מהכלי.",
+  "today": "2026-10-22",
+  "contexts": {
+    "full": {
+      "today": "2026-10-22",
+      "opened": { "acct": true, "npo": true, "shamai": true, "trainer": true },
+      "range": { "from": "2026-10-01", "to": "2026-10-22", "label": "אוקטובר 2026" },
+      "summary": { "income": 48250, "expenses": 12780.5, "outputVat": 8685, "inputVat": 2300.49, "vatPayable": 6384.51, "cashAfterVat": 29084.99 },
+      "invoices": [
+        { "number": 1041, "customer": "משה כהן", "date": "2026-10-03", "balance": 3600, "status": "open" },
+        { "number": 1042, "customer": "ישיבת אור התורה", "date": "2026-10-08", "balance": 12000, "status": "open" },
+        { "number": 1043, "customer": "יעקב לוי", "date": "2026-10-15", "balance": 2400, "status": "open" },
+        { "number": 1044, "customer": "שמעון ברגר", "date": "2026-10-16", "balance": 0, "status": "paid" }
+      ],
+      "analytics": { "customers": 4, "repeatShare": 25, "repeatCustomers": [{ "customer": "משה כהן", "count": 3, "total": 9600 }], "monthly": [{ "month": "2026-10", "count": 4 }] },
+      "npo": { "donors": [
+        { "name": "ר' אברהם פרידמן", "count": 4, "total": 18000 },
+        { "name": "משפחת גולדברג", "count": 2, "total": 3600 },
+        { "name": "תורם בעילום שם", "count": 1, "total": 500 }
+      ] },
+      "trainer": { "clients": 12, "alerts": [{ "title": "דוד שפירא", "detail": "המנוי מסתיים בעוד 3 ימים", "tone": "yellow" }] },
+      "shamai": { "label": "דירה ברחוב רבי עקיבא", "valueAg": 245000000, "confidence": 72, "factors": [{ "name": "קומה", "bp": 150 }], "warnings": [] }
+    },
+    "acctClosed": {
+      "today": "2026-10-22",
+      "opened": { "acct": false, "npo": true, "shamai": false, "trainer": false },
+      "npo": { "donors": [{ "name": "ר' אברהם פרידמן", "count": 4, "total": 18000 }] }
+    }
+  },
+  "cases": [
+    { "id": "rules-income", "kind": "ask", "q": "כמה גבייתי החודש?", "ctx": "full",
+      "expect": { "engine": "rules", "contains": ["₪48,250.00"] } },
+    { "id": "rules-unpaid", "kind": "ask", "q": "מי לא שילם?", "ctx": "full",
+      "expect": { "engine": "rules", "contains": ["ישיבת אור התורה", "₪18,000.00"] } },
+    { "id": "rules-vat", "kind": "ask", "q": "מה דוח המע\"מ של החודש?", "ctx": "full",
+      "expect": { "engine": "rules", "contains": ["₪6,384.51"] } },
+    { "id": "rules-donors", "kind": "ask", "q": "אילו תורמים תרמו השנה?", "ctx": "full",
+      "expect": { "engine": "rules", "contains": ["ר' אברהם פרידמן"] } },
+    { "id": "rules-howto", "kind": "ask", "q": "איך מוציאים חשבונית?", "ctx": "full",
+      "expect": { "engine": "rules", "contains": ["חשבונית חדשה"] } },
+    { "id": "rules-trainer", "kind": "ask", "q": "איזה מתאמנים דורשים תשומת לב?", "ctx": "full",
+      "expect": { "engine": "rules", "contains": ["דוד שפירא"] } },
+
+    { "id": "local-free-question", "kind": "ask", "q": "תן לי תמונת מצב קצרה של העסק", "ctx": "full",
+      "expect": { "engine": "local", "tools": ["period_summary", "unpaid_invoices"], "contains": ["₪48,250.00", "₪18,000.00"] },
+      "mock": { "calls": [{ "name": "period_summary" }, { "name": "unpaid_invoices" }],
+        "answer": "ב{{period_summary.period}} נכנסו {{period_summary.income}} ויצאו {{period_summary.expenses}}. יש {{unpaid_invoices.count}} חשבוניות פתוחות בסך {{unpaid_invoices.total}}." } },
+    { "id": "local-free-question-2", "kind": "ask", "q": "אצל מי כדאי לי להתקשר קודם השבוע?", "ctx": "full",
+      "expect": { "engine": "local", "tools": ["unpaid_invoices"], "contains": ["ישיבת אור התורה", "₪12,000.00"] },
+      "mock": { "calls": [{ "name": "unpaid_invoices", "args": { "limit": 3 } }],
+        "answer": "כדאי להתחיל ב{{unpaid_invoices.top.0.customer}} — יתרה של {{unpaid_invoices.top.0.balance}}, ואחריו {{unpaid_invoices.top.1.customer}}." } },
+    { "id": "local-summary", "kind": "ask", "q": "סכם לי את הדוח של החודש", "ctx": "full",
+      "expect": { "engine": "local", "task": "summary", "tools": ["period_summary"], "contains": ["₪35,469.50", "₪6,384.51"] },
+      "mock": { "calls": [{ "name": "period_summary" }],
+        "answer": "סיכום {{period_summary.period}}:\n• הכנסות {{period_summary.income}}\n• הוצאות {{period_summary.expenses}}\n• {{period_summary.result}} {{period_summary.profit}}\n• מע\"מ {{period_summary.vat}}" } },
+    { "id": "local-thanks-letter", "kind": "ask", "q": "נסח מכתב תודה לר' אברהם פרידמן על תרומותיו", "ctx": "full",
+      "expect": { "engine": "local", "task": "letter", "tools": ["donor_record"], "contains": ["בס״ד", "₪18,000.00", "אברהם פרידמן"] },
+      "mock": { "calls": [{ "name": "donor_record", "args": { "name": "אברהם פרידמן" } }],
+        "answer": "בס״ד\n\nלכבוד {{donor_record.matches.0.name}} הי״ו,\n\nבשם הנהלת העמותה, תודה מקרב לב על תרומותיך בשנת {{donor_record.year}} בסך {{donor_record.matches.0.total}}. יהי רצון שתזכה לברכה והצלחה בכל מעשי ידיך.\n\nבברכה ובתודה,\nהנהלת העמותה" } },
+    { "id": "local-receipt-text", "kind": "ask", "q": "נסח נוסח קבלה לתרומה של משפחת גולדברג", "ctx": "full",
+      "expect": { "engine": "local", "task": "letter", "tools": ["donor_record"], "contains": ["משפחת גולדברג", "₪3,600.00"] },
+      "mock": { "calls": [{ "name": "donor_record", "args": { "name": "גולדברג" } }],
+        "answer": "בס״ד\nהתקבלה בתודה תרומה מאת {{donor_record.matches.0.name}} בסך {{donor_record.matches.0.total}}. התרומה מוכרת לפי סעיף 46 בכפוף לאישור העמותה." } },
+
+    { "id": "guard-invented-number", "kind": "ask", "q": "מה התחזית שלך לשנה הבאה?", "ctx": "full",
+      "expect": { "engine": "rules", "fallback": "ungrounded", "notContains": ["₪99,999"] },
+      "mock": { "calls": [{ "name": "period_summary" }], "answer": "בשנה הבאה צפויות הכנסות של ₪99,999.00." } },
+    { "id": "guard-invented-percent", "kind": "ask", "q": "בכמה העסק צמח?", "ctx": "full",
+      "expect": { "engine": "rules", "fallback": "ungrounded", "notContains": ["37%"] },
+      "mock": { "calls": [], "answer": "העסק צמח ב-37% לעומת השנה שעברה." } },
+    { "id": "guard-closed-domain", "kind": "ask", "q": "תן לי תמונת מצב של העסק", "ctx": "acctClosed",
+      "expect": { "engine": "local", "tools": [], "notContains": ["₪48,250.00"] },
+      "mock": { "calls": [{ "name": "period_summary" }], "answer": "הנתון אינו זמין למשתמש הזה." } },
+
+    { "id": "search-screen", "kind": "search", "q": "חשבוניות", "ctx": "full",
+      "expect": { "engine": "rules", "screens": ["acct-invoices"] } },
+    { "id": "search-record", "kind": "search", "q": "כהן", "ctx": "full",
+      "expect": { "engine": "rules", "records": ["משה כהן"] } },
+    { "id": "search-natural-language", "kind": "search", "q": "המקום שבו רואים כמה כסף נשאר בסוף", "ctx": "full",
+      "expect": { "engine": "local", "screens": ["acct-reports"] },
+      "mock": { "calls": [{ "name": "find_screen", "args": { "text": "רווח" } }], "answer": "" } },
+    { "id": "search-closed-screen", "kind": "search", "q": "דוחות", "ctx": "acctClosed",
+      "expect": { "engine": "local", "screens": [] },
+      "mock": { "calls": [{ "name": "find_screen", "args": { "text": "דוחות" } }], "answer": "" } }
+  ]
+}
