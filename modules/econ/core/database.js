@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite'); // SQLite מובנה ב-Node/Electron — בלי מודול native
 const AR = require('./atRest');
+const { isDay } = require('./dates');
 
 // Collections definition - unified schema from all projects
 const collections = [
@@ -211,6 +212,22 @@ const migrations = [
       linked_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES auth_users(id) ON DELETE CASCADE
     )`
+  },
+  {
+    // גיבוי ידני, שחזור, קוד השחזור (🔑) ויעד הגיבוי — מנהל בלבד (החלטת הבעלים 23.10.2026, בדיקת קוד ממצא 21):
+    // הגיבוי כולל נזקקים חסויים בלי מיסוך, את כל תיקי המשכנתא ואת סוד Google. הגיבוי האוטומטי לא תלוי בהרשאה
+    version: 10,
+    sql: "DELETE FROM role_permissions WHERE role_id = 'editor' AND permission_id IN (SELECT id FROM permissions WHERE name = 'data.backup')"
+  },
+  {
+    // משימות תחזוקה שחייבות להסתיים גם אחרי קריסה (VACUUM אחרי הצפנת מסד ישן — _encryptExisting).
+    // מסד שכבר מוצפן מקבל VACUUM אחד: התקנות שקרסו בין COMMIT ל-VACUUM לפני התיקון לא סומנו, והעותקים הגלויים עוד בקובץ
+    version: 11,
+    sql: `CREATE TABLE IF NOT EXISTS maintenance (task TEXT PRIMARY KEY, since TEXT NOT NULL);
+          INSERT OR IGNORE INTO maintenance (task, since)
+          SELECT 'vacuum', datetime('now')
+          WHERE EXISTS (SELECT 1 FROM collections WHERE payload LIKE 'SSDB1:%')
+             OR EXISTS (SELECT 1 FROM audit_events WHERE details LIKE 'SSDB1:%')`
   }
 ];
 
@@ -302,7 +319,12 @@ class Database {
     if (!this.cipher.enabled) return { converted: false };
     const plain = await this.all("SELECT COUNT(*) AS n FROM collections WHERE payload NOT LIKE 'SSDB1:%'");
     const plainAudit = await this.all("SELECT COUNT(*) AS n FROM audit_events WHERE details IS NOT NULL AND details <> '' AND details NOT LIKE 'SSDB1:%'");
-    if (!plain[0].n && !plainAudit[0].n) return { converted: false };
+    if (!plain[0].n && !plainAudit[0].n) {
+      // קריסה בין COMMIT ל-VACUUM: הערכים כבר מוצפנים, אבל העותקים הגלויים עדיין בדפים הפנויים — משלימים עכשיו
+      const pending = await this.all("SELECT 1 FROM maintenance WHERE task = 'vacuum'");
+      if (pending.length) return (await this._vacuum()) ? { converted: false, vacuumed: true } : { converted: false, vacuumPending: true };
+      return { converted: false };
+    }
     if (this._beforeEncrypt) {
       try { await this._beforeEncrypt(this); }
       catch (e) {
@@ -321,15 +343,30 @@ class Database {
       for (const row of await this.all("SELECT id, details FROM audit_events WHERE details IS NOT NULL AND details <> '' AND details NOT LIKE 'SSDB1:%'")) {
         await this.run('UPDATE audit_events SET details = ? WHERE id = ?', [this.cipher.seal(row.details), row.id]);
       }
+      // באותה טרנזקציה: אם התוכנה תיסגר לפני שה-VACUUM יסתיים, הוא ירוץ בעלייה הבאה
+      await this.run("INSERT OR REPLACE INTO maintenance (task, since) VALUES ('vacuum', ?)", [new Date().toISOString()]);
       await this.exec('COMMIT');
     } catch (error) {
       await this.exec('ROLLBACK');
       throw error;
     }
-    // בניית הקובץ מחדש: בלי זה נשארים בדפים הפנויים של הקובץ (וביומן WAL) עותקים גלויים ישנים
-    await this.exec('VACUUM');
-    await this.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    return { converted: true };
+    return (await this._vacuum()) ? { converted: true } : { converted: true, vacuumPending: true };
+  }
+
+  // בניית הקובץ מחדש: בלי זה נשארים בדפים הפנויים של הקובץ (וביומן WAL) עותקים גלויים ישנים.
+  // הסימון נמחק רק אחרי שה-VACUUM הסתיים. כשל (כונן מלא, TEMP נעול) לא מפיל את העלייה — הערכים כבר
+  // מוצפנים; הסימון נשאר, השגיאה ב-atRestVacuumError (ליומן ב-main.js), וניסיון נוסף בעלייה הבאה
+  async _vacuum() {
+    try {
+      await this.exec('VACUUM');
+      await this.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      await this.run("DELETE FROM maintenance WHERE task = 'vacuum'");
+      this.atRestVacuumError = null;
+      return true;
+    } catch (e) {
+      this.atRestVacuumError = e;
+      return false;
+    }
   }
 
   async migrate() {
@@ -372,7 +409,8 @@ class Database {
 
   async load() {
     const rows = await this.all('SELECT collection, payload FROM collections');
-    const data = { ...defaults };
+    // עותק עמוק: אוסף חסר לא יחלוק מערכים עם defaults (push לתוכו היה משנה את ברירת המחדל לכל הקריאות הבאות)
+    const data = freshDefaults();
 
     for (const row of rows) {
       try {
@@ -583,6 +621,23 @@ class Database {
     return rows.length > 0;
   }
 
+  // סימוני הרישוי (תחילת הניסיון, "הותקן כאן רישיון") — עותק בלתי תלוי בקבצי הרישוי (בדיקת קוד 23.10.2026, ממצא 29;
+  // shell/licensing/store.js → setMark). טבלה נפרדת מהאוספים: לא ב-backup() ולא מוחלפת ב-restore() — הסימון נכנס לגיבוי
+  // ברמה העליונה (collectBackup ← econ.licenseMarks) ונקלט בשחזור רק כמיזוג מחמיר (econ.mergeLicenseMarks). ערכים לא רגישים
+  async getLicenseMarks() {
+    await this.run('CREATE TABLE IF NOT EXISTS license_marks (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
+    const out = {};
+    for (const r of await this.all('SELECT k, v FROM license_marks')) out[r.k] = String(r.v);
+    return out;
+  }
+
+  async setLicenseMarks(marks) {
+    await this.run('CREATE TABLE IF NOT EXISTS license_marks (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
+    for (const [k, v] of Object.entries(marks || {})) {
+      if (k === 'trialStart' || k === 'hadLicense') await this.run('INSERT OR REPLACE INTO license_marks (k, v) VALUES (?, ?)', [k, String(v)]);
+    }
+  }
+
   async userHasPermission(userId, permission) {
     const rows = await this.all(
       'SELECT 1 FROM user_roles ur JOIN role_permissions rp ON rp.role_id = ur.role_id ' +
@@ -732,7 +787,8 @@ class Database {
       throw new Error('מע"מ לא תקין');
     }
 
-    if (!recordData.date || !/^\d{4}-\d{2}-\d{2}$/.test(recordData.date)) {
+    // תאריך שקיים בלוח בלבד — 2026-02-31 נדחה (פעם regex בלבד)
+    if (!isDay(recordData.date)) {
       throw new Error('תאריך לא תקין');
     }
 
@@ -788,7 +844,7 @@ class Database {
     }
 
     if (updates.date !== undefined) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(updates.date)) {
+      if (!isDay(updates.date)) {
         throw new Error('תאריך לא תקין');
       }
       record.date = updates.date;
@@ -983,9 +1039,15 @@ function issuedAfter(backup, current) {
   return out;
 }
 
+// עותק חדש של ברירות המחדל בכל קריאה (JSON — עובד גם ב-WebView ישן באנדרואיד)
+function freshDefaults() {
+  return JSON.parse(JSON.stringify(defaults));
+}
+
 function normalizeData(value) {
+  const base = freshDefaults();
   const result = {
-    ...defaults,
+    ...base,
     ...value,
     version: 4
   };
@@ -993,7 +1055,7 @@ function normalizeData(value) {
   for (const key of collections) {
     if (objectCollections.has(key)) {
       // Object collections: ensure they are objects with proper structure
-      const defaultObj = defaults[key];
+      const defaultObj = base[key];
       const val = value[key];
       if (val && typeof val === 'object' && !Array.isArray(val)) {
         result[key] = { ...defaultObj, ...val };

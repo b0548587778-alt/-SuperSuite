@@ -100,14 +100,16 @@ test('main: מודול שאינו ברישיון לא נפתח; במערכת נ�
   await boot();
   licState = ACTIVE_ECON_ONLY;
   sent.length = 0;
+  // ספירה יחסית: הבדיקה לא מניחה שהיא הראשונה שיוצרת תצוגות (רצה גם לבד או בסדר אחר)
+  const before = views.length;
   await handlers['shell:open'](shell, 'shamai');
-  assert.equal(views.length, 0, 'תצוגת השמאי לא נוצרה');
+  assert.equal(views.length, before, 'תצוגת השמאי לא נוצרה');
   assert.ok(sent.some(([ch, st]) => ch === 'shell:license' && st.modules.shamai === false), 'המעטפת קיבלה את המצב');
 
   licState = LOCKED;
   await handlers['shell:open'](shell, 'econ', 'acct-invoices');
   await tick();
-  const econ = viewOf(0);
+  const econ = viewOf(before);
   assert.ok(econ, 'המודול הכלכלי נפתח');
   const gotos = econ.sent.filter(([ch]) => ch === 'econ:goto').map(([, v]) => v);
   assert.ok(gotos.length && gotos.every(v => v === 'licensing'), 'כל ניווט הופנה למסך הרישוי: ' + gotos);

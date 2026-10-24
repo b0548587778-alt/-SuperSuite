@@ -8,7 +8,9 @@ const AR = require('../modules/econ/core/atRest');
 //   plain-no-dpapi     — אין הצפנת Windows: עובדים כמו פעם, עם אזהרה
 //   plain-key-unreadable — קובץ המפתח לא נקרא ואין עדיין נתונים מוצפנים: לא מצפינים (כדי לא לאבד את קוד השחזור הקיים)
 //   missing            — יש נתונים מוצפנים, והמשתמש ביטל את הזנת קוד השחזור
-async function resolveDbKey({ fs, file, safeStorage, hasSealedData, verify, promptRecoveryCode }) {
+// מפתח ששוחזר מהקוד ולא נשמר בקובץ — מוחזר גם ב-unsavedBackupKey, כדי שהתהליך הראשי ישתמש בו עד סוף ההפעלה
+// (ולא ייצור מפתח אחר בשקט). onError(scope, e) — יומן תקלות
+async function resolveDbKey({ fs, file, safeStorage, hasSealedData, verify, promptRecoveryCode, onError = () => {} }) {
   const encryptionAvailable = safeStorage.isEncryptionAvailable();
   let backupKey = null;
   let problem = null;
@@ -34,12 +36,18 @@ async function resolveDbKey({ fs, file, safeStorage, hasSealedData, verify, prom
     catch (e) { message = e.message; continue; }
     const key = AR.deriveDbKey(recovered);
     if (!verify(key)) { message = 'קוד השחזור אינו של הנתונים במחשב הזה'; continue; }
-    // שומרים את המפתח מחדש בחשבון הזה, כדי שבפעם הבאה לא יידרש הקוד. הקובץ הישן נשמר בצד ולא נמחק
+    // שומרים את המפתח מחדש בחשבון הזה, כדי שבפעם הבאה לא יידרש הקוד. הקובץ הישן נשמר בצד (עותק) ולא נמחק.
+    // החלפה אטומית: בעבר הישן הועבר הצידה לפני כתיבה ישירה; כשהכתיבה נכשלה בשקט לא נשאר קובץ, ובהמשך נוצר
+    // מפתח אחר — וקוד שחזור שנרשם ממנו לא פותח את המסד (בדיקת קוד 23.10.2026). עכשיו בכל רגע יש קובץ מפתח
     if (encryptionAvailable) {
       try {
-        if (fs.existsSync(file)) fs.renameSync(file, file + '.old-' + Date.now());
-        fs.writeFileSync(file, safeStorage.encryptString(recovered));
-      } catch { /* לא נשמר — יידרש הקוד שוב בפעם הבאה, הנתונים לא נפגעים */ }
+        if (fs.existsSync(file)) fs.copyFileSync(file, file + '.old-' + Date.now());
+        AutoBk.writeFileDurable(fs, file, safeStorage.encryptString(recovered));
+      } catch (e) {
+        // לא נשמר — יידרש הקוד שוב בפעם הבאה; בהפעלה הזו המפתח נשאר בזיכרון
+        onError('db-key-save', e);
+        return { key, status: 'encrypted', recovered: true, unsavedBackupKey: recovered };
+      }
     }
     return { key, status: 'encrypted', recovered: true };
   }

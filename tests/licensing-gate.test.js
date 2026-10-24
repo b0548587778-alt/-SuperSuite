@@ -95,12 +95,20 @@ test('store: עם מפתח שורש ובלי קובץ — תקופת ניסיו�
   assert.match(store.current().reasons[0].reason, /תקופת הניסיון/);
 });
 
-test('store: קובץ פגום — נעול; בלי מפתחות שורש — ללא רישוי', () => {
+// קובץ פגום מועבר הצידה (לא נמחק) וממשיכים כאילו חסר — הניסיון והנעילה אחרי רישיון שמורים בשומר
+// (בדיקת קוד 23.10.2026, ממצא 35 — tests/audit-licensing-store.test.js). אחסון שלא יודע להעביר הצידה — נעול
+test('store: קובץ פגום — מועבר הצידה (או נעול כשאי אפשר); בלי מפתחות שורש — ללא רישוי', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-lic-'));
   const file = path.join(dir, 'license.json');
   fs.writeFileSync(file, '{not json');
-  assert.match(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 }).current().reasons[0].reason, /פגום/);
   assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys: [], clock: () => T0 }).current().mode, 'unlicensed');
+  const noAside = { read: () => '{not json', write: () => { throw new Error('לא אמור לכתוב'); } };
+  assert.match(createLicenseStore({ storage: noAside, secret: mem(), rootKeys, clock: () => T0 }).current().reasons[0].reason, /פגום/);
+  assert.equal(createLicenseStore({ storage: fileStorage(fs, file), secret: mem(), rootKeys, clock: () => T0 }).current().status, 'active');
+  const aside = fs.readdirSync(dir).filter(f => f.startsWith('license.json.unreadable-'));
+  assert.equal(aside.length, 1);
+  assert.equal(fs.readFileSync(path.join(dir, aside[0]), 'utf8'), '{not json');
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('store: שומר lastSeen, והחזרת השעון אחורה לא מחזירה רישיון שפג', () => {

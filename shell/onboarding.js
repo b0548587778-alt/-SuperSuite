@@ -35,13 +35,16 @@
   ];
   const BY_ID = new Map(PROFILES.map(p => [p.id, p]));
 
-  // צעדים שמתאימים לכולם — בסוף, כי הם חשובים אבל לא דחופים ביום הראשון
+  // צעדים שמתאימים לכולם — בסוף, כי הם חשובים אבל לא דחופים ביום הראשון.
+  // admin: true — רק מנהל יכול לבצע (ניהול משתמשים, יעד הגיבוי וקוד השחזור; החלטת הבעלים 23.10.2026)
   const COMMON_STEPS = [
-    { id: 'users', title: 'משתמשים נוספים', detail: 'לכל עובד משתמש משלו; לרואה החשבון — תפקיד "רואה חשבון" (צפייה וייצוא בלבד)', key: 'econ:settings' },
-    { id: 'backup-target', title: 'יעד לגיבוי האוטומטי', detail: 'עדיף כונן USB — כפתור 💾 בתחתית הסרגל', action: 'backup-target' },
-    { id: 'recovery-code', title: 'קוד שחזור', detail: 'בלעדיו לא ניתן לפתוח גיבוי אוטומטי במחשב אחר — כפתור 🔑', action: 'recovery-code' },
+    { id: 'users', title: 'משתמשים נוספים', detail: 'לכל עובד משתמש משלו; לרואה החשבון — תפקיד "רואה חשבון" (צפייה וייצוא בלבד)', key: 'econ:settings', admin: true },
+    { id: 'backup-target', title: 'יעד לגיבוי האוטומטי', detail: 'עדיף כונן USB — כפתור 💾 בתחתית הסרגל', action: 'backup-target', admin: true },
+    { id: 'recovery-code', title: 'קוד שחזור', detail: 'בלעדיו לא ניתן לפתוח גיבוי אוטומטי במחשב אחר — כפתור 🔑', action: 'recovery-code', admin: true },
   ];
   const MAX_SCREENS = 8;
+  // התוכנית הפיננסית וההוצאות האישיות — מנהל בלבד, גם צפייה (requiresAdmin ב-modules/econ/ipc.js)
+  const ADMIN_KEYS = new Set(['econ:personal-finance', 'econ:finance', 'econ:acct-personal']);
 
   // סיור קצר אחרי האשף — 3 שלבים, כל אחד מצביע על אזור במעטפת (sel: בורר CSS ב-shell.html)
   const TOUR = [
@@ -50,17 +53,18 @@
     { sel: '#askForm', title: 'שאל את התוכנה', text: 'שאלות בשפה פשוטה על החשבונות, התרומות והגמ"ח. התשובה מחושבת במחשב שלך, בלי רשת.' },
   ];
 
-  // profiles: מזהי פרופילים שנבחרו. validKeys: מפתחות הקטלוג הקיימים (מסך שלא קיים — מושמט)
-  function plan(profiles, validKeys) {
+  // profiles: מזהי פרופילים שנבחרו. validKeys: מפתחות הקטלוג הקיימים (מסך שלא קיים — מושמט).
+  // admin: false — בלי הצעדים של מנהל בלבד
+  function plan(profiles, validKeys, { admin = true } = {}) {
     const valid = new Set(validKeys || []);
     const chosen = [...new Set(Array.isArray(profiles) ? profiles : [])].filter(id => BY_ID.has(id));
     const screens = [], steps = [];
     const seen = new Set();
     for (const id of chosen) {
-      for (const k of BY_ID.get(id).screens) if (valid.has(k) && !screens.includes(k)) screens.push(k);
-      for (const s of BY_ID.get(id).steps) if (!seen.has(s.id) && (!s.key || valid.has(s.key))) { seen.add(s.id); steps.push(s); }
+      for (const k of BY_ID.get(id).screens) if (valid.has(k) && !screens.includes(k) && (admin || !ADMIN_KEYS.has(k))) screens.push(k);
+      for (const s of BY_ID.get(id).steps) if (!seen.has(s.id) && (!s.key || valid.has(s.key)) && (admin || !ADMIN_KEYS.has(s.key))) { seen.add(s.id); steps.push(s); }
     }
-    for (const s of COMMON_STEPS) if (!s.key || valid.has(s.key)) steps.push(s);
+    for (const s of COMMON_STEPS) if ((!s.key || valid.has(s.key)) && (admin || !s.admin)) steps.push(s);
     return { profiles: chosen, screens: screens.slice(0, MAX_SCREENS), steps };
   }
 
@@ -75,7 +79,7 @@
     };
   }
 
-  const api = { PROFILES, COMMON_STEPS, MAX_SCREENS, TOUR, plan, normalizeState };
+  const api = { PROFILES, COMMON_STEPS, MAX_SCREENS, ADMIN_KEYS, TOUR, plan, normalizeState };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_ONBOARDING = api;
 })(typeof window !== 'undefined' ? window : this);

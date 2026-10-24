@@ -85,10 +85,15 @@ test('יודאיקה ומטבעות: הסכומים זהים לתוצאה; אז�
   assert.match(stepValue(htmlC, 'שווי'), new RegExp('^₪' + s.run('fmt0(' + c.value + ')') + ' \\('));
   assert.match(stepValue(htmlC, 'רכישה מקסימלית'), new RegExp('^₪' + s.run('fmt0(' + c.maxPurchase + ')') + ' \\('));
 
-  // מטבע בלי משקל — אין שווי התכה וגם אין אזהרה (המטבע לא ממתכת)
-  const noWeight = s.calc('recalcCoin', '#cn-result', { '#cn-weight': '', '#cn-asking': '' });
-  assert.match(noWeight, /אין משקל מתכת/);
-  assert.doesNotMatch(noWeight, /class="explain-missing"/);
+  // מטבע כסף בלי משקל — מתכת יקרה שחסר לה משקל: הסבר נכון ואזהרה (פעם "לא ממתכת יקרה" ובלי אזהרה)
+  const noWeight = s.calc('recalcCoin', '#cn-result', { '#cn-metal': 'silver', '#cn-weight': '', '#cn-asking': '' });
+  assert.match(noWeight, /לא הוזן משקל/);
+  assert.doesNotMatch(noWeight, /לא ממתכת יקרה/);
+  assert.match(noWeight, /class="explain-missing"/);
+  // מטבע נחושת בלי משקל — באמת לא ממתכת יקרה, ואין אזהרה
+  const copper = s.calc('recalcCoin', '#cn-result', { '#cn-metal': 'copper', '#cn-weight': '', '#cn-asking': '' });
+  assert.match(copper, /לא ממתכת יקרה/);
+  assert.doesNotMatch(copper, /class="explain-missing"/);
 });
 
 test('הפאנל מתחסן HTML, ומצב הפתיחה נשמר אחרי חישוב מחדש', () => {

@@ -23,6 +23,13 @@ function renderPortsBar(kinds) {
   </div>`;
 }
 
+// קובץ טקסט מהמשתמש: UTF-8, ואם אינו תקין — windows-1255 (Excel בעברית שומר CSV כך;
+// בלי זה העברית הופכת לסימני שאלה בלי שום התראה)
+function decodeTextFile(buf) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+  catch { return new TextDecoder('windows-1255').decode(buf); }
+}
+
 function pickFileText(accept) {
   return new Promise((resolve) => {
     const input = document.createElement('input');
@@ -32,7 +39,7 @@ function pickFileText(accept) {
       const file = input.files && input.files[0];
       if (!file) return resolve(null);
       if (file.size > 20 * 1024 * 1024) { showError('הקובץ גדול מדי (עד 20MB)'); return resolve(null); }
-      resolve(await file.text());
+      resolve(decodeTextFile(await file.arrayBuffer()));
     });
     input.click();
   });

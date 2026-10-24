@@ -7,7 +7,6 @@ import android.database.sqlite.SQLiteCursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteProgram;
 import android.database.sqlite.SQLiteStatement;
-import android.os.Build;
 import android.util.Base64;
 
 import org.json.JSONArray;
@@ -83,8 +82,9 @@ final class SqlBridge {
         Cursor c = db().rawQueryWithFactory((database, driver, editTable, query) -> {
             try { bind(query, params); } catch (JSONException e) { bindError[0] = e; }
             SQLiteCursor cursor = new SQLiteCursor(driver, editTable, query);
-            // אוסף שלם נשמר כשורה אחת (JSON) — חלון ברירת המחדל (2MB) קטן מדי לנתונים גדולים
-            if (Build.VERSION.SDK_INT >= 28) cursor.setWindow(new CursorWindow("supersuite", 64L * 1024 * 1024));
+            // אוסף שלם נשמר כשורה אחת (JSON) — חלון ברירת המחדל (2MB) קטן מדי לנתונים גדולים.
+            // הבנאי עם גודל קיים מ-API 28, ולכן minSdk הוא 28 (android/build-apk.js — MIN_SDK)
+            cursor.setWindow(new CursorWindow("supersuite", 64L * 1024 * 1024));
             return cursor;
         }, sql, null, null);
         try {

@@ -20,59 +20,56 @@ function calculateLoan({ principal, annualRate, years }) {
   const r = Number(annualRate);
   const y = Number(years);
 
-  if (p <= 0 || r < 0 || y <= 0) {
-    throw new Error('נתוני ההלוואה אינם תקינים (סכום ותקופה חיוביים, ריבית לא שלילית)');
+  // NaN נכשל בכל השוואה ולכן עבר בעבר את הבדיקה; שנים — מספר שלם בלבד (2.5 שנים נתן לוח של שנתיים ותשלומים ל-30 חודשים)
+  if (!Number.isFinite(p) || !Number.isFinite(r) || p <= 0 || r < 0 || !Number.isInteger(y) || y <= 0) {
+    throw new Error('נתוני ההלוואה אינם תקינים (סכום חיובי, ריבית לא שלילית ותקופה בשנים שלמות)');
   }
+  if (y > 100) throw new Error('תקופת ההלוואה ארוכה מדי (עד 100 שנה)');
+  const principalAg = Math.round(p * 100);
+  if (!Number.isSafeInteger(principalAg)) throw new Error('סכום ההלוואה גדול מדי');
 
-  // Monthly interest rate
+  // הכול בשלמי אגורות: תשלום קבוע מעוגל לאגורה, ריבית חודשית מעוגלת לאגורה,
+  // והתשלום האחרון סוגר את היתרה בדיוק (שארית העיגול) — סכום הקרן שנפרעה = הקרן
   const monthlyRate = r / 12;
-  // Total number of payments
   const totalPayments = y * 12;
+  const paymentAg = monthlyRate === 0
+    ? Math.round(principalAg / totalPayments)
+    : Math.round(principalAg * monthlyRate / (1 - Math.pow(1 + monthlyRate, -totalPayments)));
 
-  // Monthly payment formula: P * r * (1+r)^n / ((1+r)^n - 1)
-  let monthlyPayment;
-  if (monthlyRate === 0) {
-    monthlyPayment = p / totalPayments;
-  } else {
-    const factor = Math.pow(1 + monthlyRate, totalPayments);
-    monthlyPayment = p * monthlyRate * factor / (factor - 1);
-  }
-
-  const totalPaid = monthlyPayment * totalPayments;
-  const totalInterest = totalPaid - p;
-
-  // Generate yearly breakdown
   const yearlyBreakdown = [];
-  let remainingBalance = p;
-  
+  let balanceAg = principalAg;
+  let totalPaidAg = 0;
+  let lastPaymentAg = paymentAg;
   for (let year = 1; year <= y; year++) {
-    let yearlyInterest = 0;
-    let yearlyPrincipal = 0;
-    
+    let yearlyInterestAg = 0;
+    let yearlyPrincipalAg = 0;
     for (let month = 1; month <= 12; month++) {
-      const interestPayment = remainingBalance * monthlyRate;
-      const principalPayment = monthlyPayment - interestPayment;
-      
-      yearlyInterest += interestPayment;
-      yearlyPrincipal += principalPayment;
-      remainingBalance -= principalPayment;
+      const interestAg = Math.round(balanceAg * monthlyRate);
+      const last = year === y && month === 12;
+      const payAg = last ? balanceAg + interestAg : Math.min(paymentAg, balanceAg + interestAg);
+      const principalPartAg = payAg - interestAg;
+      yearlyInterestAg += interestAg;
+      yearlyPrincipalAg += principalPartAg;
+      balanceAg -= principalPartAg;
+      totalPaidAg += payAg;
+      if (last) lastPaymentAg = payAg;
     }
-    
     yearlyBreakdown.push({
       year,
-      principalPaid: Math.round(yearlyPrincipal * 100) / 100,
-      interestPaid: Math.round(yearlyInterest * 100) / 100,
-      remainingBalance: Math.max(0, Math.round(remainingBalance * 100) / 100)
+      principalPaid: yearlyPrincipalAg / 100,
+      interestPaid: yearlyInterestAg / 100,
+      remainingBalance: balanceAg / 100
     });
   }
 
   return {
-    principal: p,
+    principal: principalAg / 100,
     annualRate: r * 100, // Return as percentage
     years: y,
-    monthlyPayment: Math.round(monthlyPayment * 100) / 100,
-    totalPaid: Math.round(totalPaid * 100) / 100,
-    totalInterest: Math.round(totalInterest * 100) / 100,
+    monthlyPayment: paymentAg / 100,
+    lastPayment: lastPaymentAg / 100,
+    totalPaid: totalPaidAg / 100,
+    totalInterest: (totalPaidAg - principalAg) / 100,
     yearlyBreakdown
   };
 }
@@ -184,29 +181,29 @@ function calculateIRR(initialInvestment, cashFlows) {
   const inv = Number(initialInvestment);
   const flows = Array.isArray(cashFlows) ? cashFlows : [];
 
-  if (inv <= 0 || flows.length === 0) {
+  if (!Number.isFinite(inv) || inv <= 0 || flows.length === 0 || !flows.every(f => Number.isFinite(Number(f)))) {
     throw new Error('הנתונים אינם תקינים');
   }
 
-  // Simple IRR approximation using binary search
+  // חיפוש בינארי בין ‎-99% ל-1000%. בלי החלפת סימן של הערך הנוכחי בקצוות — אין פתרון בטווח,
+  // ולא מחזירים את גבול החיפוש כאילו הוא התשובה
+  const npvAt = (rate) => flows.reduce((npv, flow, index) => npv + Number(flow) / Math.pow(1 + rate, index + 1), -inv);
   let low = -0.99;
   let high = 10; // 1000%
+  const lowSign = Math.sign(npvAt(low));
+  if (lowSign === Math.sign(npvAt(high))) {
+    throw new Error('לא נמצא שיעור תשואה פנימי בטווח ‎-99% עד 1000% — יש לבדוק את תזרימי המזומנים');
+  }
   let irr = 0;
-  
+
+  // הצמצום לפי הסימן בקצה התחתון — לא בהנחה שהוא חיובי (תזרים שלילי בסוף הופך את הכיוון)
   for (let i = 0; i < 100; i++) {
     const mid = (low + high) / 2;
-    let npv = -inv;
-    
-    flows.forEach((flow, index) => {
-      npv += Number(flow) / Math.pow(1 + mid, index + 1);
-    });
-    
-    if (npv > 0) {
+    if (Math.sign(npvAt(mid)) === lowSign) {
       low = mid;
     } else {
       high = mid;
     }
-    
     irr = mid;
   }
 
@@ -379,22 +376,37 @@ function calculateBudgetAllocation(budget) {
     throw new Error('חסרים נתוני התקציב');
   }
 
-  const total = Object.values(budget).reduce((sum, val) => sum + Number(val), 0);
-  
-  if (total === 0) {
+  // באגורות; סכום שלילי או לא מספר — שגיאה (לא NaN בסיכום)
+  const entries = Object.entries(budget).map(([category, amount]) => {
+    const ag = Math.round(Number(amount) * 100);
+    if (!Number.isSafeInteger(ag) || ag < 0) throw new Error(`סכום לא תקין בקטגוריה "${category}"`);
+    return [category, ag];
+  });
+  const totalAg = entries.reduce((sum, [, ag]) => sum + ag, 0);
+
+  if (totalAg === 0) {
     return { total: 0, allocations: {} };
   }
 
+  // אחוזים עם שתי ספרות (יחידות של 0.01%) בשיטת השארית הגדולה — הסכום תמיד 100 בדיוק
+  const units = entries.map(([category, ag], i) => {
+    const exact = ag * 10000;
+    return { category, ag, i, units: Math.floor(exact / totalAg), rest: exact % totalAg };
+  });
+  let left = 10000 - units.reduce((sum, u) => sum + u.units, 0);
+  for (const u of [...units].sort((a, b) => b.rest - a.rest || a.i - b.i)) {
+    if (left <= 0) break;
+    u.units += 1;
+    left -= 1;
+  }
+
   const allocations = {};
-  for (const [category, amount] of Object.entries(budget)) {
-    allocations[category] = {
-      amount: Number(amount),
-      percentage: Math.round((Number(amount) / total) * 10000) / 100
-    };
+  for (const u of units) {
+    allocations[u.category] = { amount: u.ag / 100, percentage: u.units / 100 };
   }
 
   return {
-    total: Math.round(total * 100) / 100,
+    total: totalAg / 100,
     allocations
   };
 }

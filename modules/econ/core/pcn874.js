@@ -5,6 +5,7 @@
 // סוגי תנועה שנתמכים: S (מכירה ללקוח מזוהה), L (מכירות ללקוחות לא מזוהים — רשומה מצטברת), T (תשומות מספק בישראל).
 // אין כאן ייבוא, יצוא, קופה קטנה וחשבונית עצמית (Y / R / K / M / C) — אין להם מקור בתוכנה.
 const A = require('./accounting');
+const { isDay } = require('./dates');
 
 const LENGTHS = { O: 131, T: 60, X: 10 };
 const SALE_TYPES = ['S', 'L'];
@@ -202,7 +203,8 @@ function validateVatDoc(input) {
   const ref = digits(input.reference);
   if (ref) out.reference = ref.slice(-20);
   if (input.docDate) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.docDate))) throw new Error('תאריך חשבונית הספק אינו תקין');
+    // תאריך שקיים בלוח בלבד — 2026-02-31 נדחה (פעם regex בלבד)
+    if (!isDay(String(input.docDate))) throw new Error('תאריך חשבונית הספק אינו תקין');
     out.docDate = String(input.docDate);
   }
   if (typeof input.equipment === 'boolean') out.equipment = input.equipment;

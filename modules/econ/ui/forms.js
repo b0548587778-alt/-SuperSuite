@@ -269,7 +269,7 @@ async function handleUser() {
       await loginUser();
     }
   } catch (error) {
-    showError('שגיאה בניהול משתמש: ' + error.message);
+    showError('שגיאה בניהול משתמש: ' + errMsg(error));
   }
 }
 
@@ -282,7 +282,9 @@ async function handleBackup() {
     if (f.pass.length < 12) { showError('סיסמת הגיבוי חייבת להכיל לפחות 12 תווים'); return; }
     showToast('יוצר גיבוי מוצפן...');
     const text = await window.systemAPI.backupEncrypted(f.pass);
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    // שעון מקומי (לא UTC) — שם הקובץ תואם לשעה שהמשתמש רואה
+    const now = new Date();
+    const stamp = isoDate(now) + '-' + [now.getHours(), now.getMinutes(), now.getSeconds()].map(n => String(n).padStart(2, '0')).join('-');
     const filename = `גיבוי-מערכת-כלכלית-${stamp}.ssbk`;
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
     const a = document.createElement('a');
@@ -349,7 +351,7 @@ async function handleSubmit() {
   try {
     data = collectFormData(schema.fields);
   } catch (error) {
-    showError(error.message);
+    showError(errMsg(error));
     return;
   }
 
@@ -366,7 +368,7 @@ async function handleSubmit() {
     closeModal();
     await switchView(state.currentView);
   } catch (error) {
-    showError('שגיאה בשמירה: ' + error.message);
+    showError('שגיאה בשמירה: ' + errMsg(error));
   } finally {
     elements.submitBtn.disabled = false;
   }
@@ -383,7 +385,7 @@ async function handleDelete(id) {
     showToast('הרשומה נמחקה');
     await switchView(state.currentView);
   } catch (error) {
-    showError('שגיאה במחיקה: ' + error.message);
+    showError('שגיאה במחיקה: ' + errMsg(error));
   }
 }
 
@@ -426,24 +428,33 @@ async function handleEdit(id, record) {
 
 // חיפוש בתצוגות נתמכות
 async function performSearch(query) {
-  const schema = formSchemas[state.currentView];
+  // המסך והמונים לפני ההמתנה: תוצאה שחזרה אחרי מעבר מסך או אחרי חיפוש חדש יותר — לא נכתבת ולא מוצגת
+  const view = state.currentView;
+  const viewSeq = state.viewSeq;
+  const searchSeq = state.searchSeq = (state.searchSeq || 0) + 1;
+  const stale = () => state.currentView !== view || state.viewSeq !== viewSeq || state.searchSeq !== searchSeq;
+  const schema = formSchemas[view];
   if (!schema || !schema.search) return;
 
   try {
     if (!query) {
-      await switchView(state.currentView);
+      await switchView(view);
       return;
     }
     const results = await schema.search(query);
-    const key = { contacts: 'contacts', 'voice-notes': 'notes' }[state.currentView];
-    state.data[state.currentView] = { [key]: results };
-    renderView(state.currentView);
+    if (stale()) return;
+    const key = { contacts: 'contacts', 'voice-notes': 'notes' }[view];
+    // אותו מפתח שממנו renderView קורא (voice-notes ← voiceNotes)
+    const dataKey = DATA_KEYS[view] || view;
+    state.data[dataKey] = { ...(state.data[dataKey] || {}), [key]: results };
+    renderView(view);
     const input = document.getElementById('viewSearch');
     if (input) {
       input.value = query;
       input.focus();
     }
   } catch (error) {
-    showError('שגיאה בחיפוש: ' + error.message);
+    if (stale()) return;
+    showError('שגיאה בחיפוש: ' + errMsg(error));
   }
 }

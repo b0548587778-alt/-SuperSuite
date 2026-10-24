@@ -112,6 +112,9 @@ async function init() {
     elements.closeModal.addEventListener('click', closeModal);
     elements.cancelBtn.addEventListener('click', closeModal);
     elements.submitBtn.addEventListener('click', handleSubmit);
+    // Enter בטופס עם שדה אחד שולח GET ומרענן את המודול (הנתונים ו-?embedded=1 אובדים) — בולמים.
+    // גם ה-CSP חוסם (form-action 'none'); השמירה — בכפתור
+    if (elements.modalForm) elements.modalForm.addEventListener('submit', (e) => e.preventDefault());
 
     // מסך כניסה: לא ממשיכים בלי משתמש מחובר
     const authStatus = await window.systemAPI.authStatus();
@@ -135,8 +138,16 @@ async function init() {
   }
 }
 
+// התוכנית הפיננסית וההוצאות האישיות — למנהל בלבד, גם צפייה (requiresAdmin ב-ipc.js). למשתמש אחר — הודעה, בלי פנייה לשרת
+const ADMIN_ONLY_VIEWS = ['personal-finance', 'finance', 'acct-personal'];
+function isAdminUser() {
+  return !!(state.user && Array.isArray(state.user.permissions) && state.user.permissions.includes('users.manage'));
+}
+
 // Switch between views
 async function switchView(viewName) {
+  // מונה מעברים: טעינה איטית של מסך קודם לא מתרנדרת מעל מסך שנפתח אחריה
+  const seq = state.viewSeq = (state.viewSeq || 0) + 1;
   try {
     state.currentView = viewName;
     state.loading = true;
@@ -155,20 +166,30 @@ async function switchView(viewName) {
       Promise.resolve(window.systemAPI.reportView(viewName)).catch(() => {});
     }
 
+    if (ADMIN_ONLY_VIEWS.includes(viewName) && !isAdminUser()) {
+      elements.view.innerHTML = renderEmpty('למנהל המערכת בלבד — התוכנית הפיננסית וההוצאות האישיות והמשפחתיות פתוחות רק למנהל');
+      elements.addBtn.disabled = true;
+      elements.addBtn.hidden = true;
+      state.loading = false;
+      return;
+    }
+
     // Clear view
     elements.view.innerHTML = '<div class="loading">טוען...</div>';
 
     // Load view data
     await loadViewData(viewName);
+    if (seq !== state.viewSeq) return;
 
     // Render view
     renderView(viewName);
 
     state.loading = false;
   } catch (error) {
+    if (seq !== state.viewSeq) return;
     state.loading = false;
-    state.error = error.message;
-    showError('שגיאה בטעינת התצוגה: ' + error.message);
+    state.error = errMsg(error);
+    showError('שגיאה בטעינת התצוגה: ' + errMsg(error));
   }
 }
 
@@ -362,7 +383,7 @@ async function loadViewData(viewName) {
 // Load dashboard data
 async function loadDashboardData() {
   const [finance, tasks, marketIntel, accounting, invoices, products, brief, biz] = await Promise.all([
-    window.systemAPI.getPersonalFinance().catch(() => null),
+    isAdminUser() ? window.systemAPI.getPersonalFinance().catch(() => null) : null,
     window.systemAPI.getTasks().catch(() => null),
     window.systemAPI.getMarketIntel().catch(() => null),
     window.systemAPI.getAccountingReports({ from: yearStart(), to: today() }).catch(() => null),
@@ -454,6 +475,7 @@ function renderView(viewName) {
       break;
     case 'realty':
       html = renderRealty(data);
+      break;
     case 'realestate':
       html = renderRealEstate(data);
       break;

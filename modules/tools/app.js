@@ -201,7 +201,7 @@ $('b64e').onclick=t(u8);$('b64d').onclick=t(un);o.onclick=()=>copy(o.textContent
       $('mO').innerHTML=`הכנסות ${ils(r.incomeAg)} · ${r.rate}% = ${ils(r.dueAg)} · ניתן ${ils(r.givenAg)}<br><b>${r.balanceAg>0?'נותר לתת: '+ils(r.balanceAg):r.balanceAg<0?'ניתן מעבר לחשבון: '+ils(-r.balanceAg):'מאוזן'}</b>`+
         (r.years.length>1?'<br>'+r.years.map(y=>`${esc(y.year)}: הכנסות ${ils(y.incomeAg)}, ניתן ${ils(y.givenAg)}`).join('<br>'):'');
     }catch(e){err($('mO'),e)}
-    $('mList').innerHTML=M.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100).map(e=>`<div>${e.kind==='income'?'➕ הכנסה':'➖ נתינה'} ${ils(e.amountAg)} · ${esc(e.date)}${e.note?' · '+esc(e.note):''} <button data-mx="${esc(e.id)}" aria-label="מחיקת רשומה">✕</button></div>`).join('')};
+    $('mList').innerHTML=C.maaserRecent(M).map(e=>`<div>${e.kind==='income'?'➕ הכנסה':'➖ נתינה'} ${ils(e.amountAg)} · ${esc(e.date)}${e.note?' · '+esc(e.note):''} <button data-mx="${esc(e.id)}" aria-label="מחיקת רשומה">✕</button></div>`).join('')};
   document.querySelectorAll('input[name="mR"]').forEach(r=>{if(Number(r.value)===store.get('maaserRate',10))r.checked=true;r.onchange=()=>{store.set('maaserRate',rate());mDraw()}});
   $('mD').value=today();
   $('mAdd').onclick=()=>{try{M.push(C.newMaaserEntry({kind:$('mK').value,amount:$('mA').value,date:$('mD').value,note:$('mN').value}));store.set('maaser',M);$('mA').value='';$('mN').value='';mDraw()}catch(e){toast(e.message)}};

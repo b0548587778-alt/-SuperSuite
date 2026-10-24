@@ -114,9 +114,10 @@ function renderCalcView() {
         <button class="calc-quick" data-quick="ils-usd">÷${fmt(state.prices.usdIls || 3.6, 3)} (₪→$)</button>
       </div>
       <div class="calc-quick-row">
-        <button class="calc-quick" data-quick="vat">×1.17 (מע"מ)</button>
+        <button class="calc-quick" data-quick="vat">${vatPct() ? `+מע"מ ${escapeHtml(fmt(vatPct(), 1).replace(/\.0$/, ''))}%` : '+מע"מ (להגדיר שיעור)'}</button>
         <button class="calc-quick" data-quick="margin30">÷0.7 (רווח 30%)</button>
       </div>
+      ${vatPct() ? '<div class="calc-quick-row"><button class="calc-quick" data-quick="vat-set">שינוי שיעור המע"מ</button></div>' : ''}
     </div>
   `;
 
@@ -176,17 +177,41 @@ function doCalc(a, b, op) {
   return 0;
 }
 
-function calcQuick(action) {
+// שיעור המע"מ באחוזים — מה שהמשתמש הגדיר (state.settings.vatPct), או null. אין שיעור קבוע בקוד:
+// פעם שיעור קבוע בקוד, שהתיישן כשהשיעור השתנה (בדיקת קוד 23.10.2026)
+function vatPct() {
+  const v = Number(state.settings && state.settings.vatPct);
+  return Number.isFinite(v) && v > 0 && v < 100 ? v : null;
+}
+
+async function askVatPct() {
+  const raw = await ssDialog.prompt('שיעור המע"מ באחוזים (לפי רשות המסים, היום):', vatPct() ? String(vatPct()) : '');
+  if (raw === null) return null;
+  const s = normalizeNumText(String(raw).replace('%', ''));
+  const v = s === null ? NaN : Number(s);
+  if (!(v > 0 && v < 100)) { toast('שיעור לא תקין', 'error'); return null; }
+  state.settings.vatPct = v;
+  Storage.save('settings', state.settings);
+  return v;
+}
+
+async function calcQuick(action) {
   const cur = parseFloat(calcState.display) || 0;
   let result = cur;
   let label = '';
+  if (action === 'vat-set') { await askVatPct(); renderCalcView(); return; }
   switch (action) {
     case 'oz-g':    result = cur * TROY_OZ; label = `${cur} oz = ${result.toFixed(2)} g`; break;
     case 'lb-kg':   result = cur * POUND;   label = `${cur} lb = ${result.toFixed(3)} kg`; break;
     case 'usd-ils': result = cur * (state.prices.usdIls || 3.6); label = `$${cur} = ₪${result.toFixed(2)}`; break;
     case 'ils-usd': result = cur / (state.prices.usdIls || 3.6); label = `₪${cur} = $${result.toFixed(2)}`; break;
-    case 'vat':     result = cur * 1.17;    label = `${cur} +מע"מ = ${result.toFixed(2)}`; break;
+    case 'vat': {
+      const pct = vatPct() || await askVatPct();
+      if (!pct) { renderCalcView(); return; }
+      result = cur * (1 + pct / 100); label = `${cur} +מע"מ ${pct}% = ${result.toFixed(2)}`; break;
+    }
     case 'margin30': result = cur / 0.7;    label = `${cur} (עלות) → ${result.toFixed(2)} (מחיר 30% רווח)`; break;
+    default: return;
   }
   calcState.history.push(label);
   calcState.display = String(result.toFixed(4).replace(/\.?0+$/, ''));
@@ -210,10 +235,8 @@ function performGlobalSearch(query) {
         type: 'opp',
         title: o.name,
         sub: `${OPP_CATEGORIES.find(c => c.k === o.category)?.name || ''} · ${o.status === 'watching' ? 'במעקב' : o.status === 'bought' ? 'במלאי' : 'נמכר'} · ₪${fmt0(o.asking || 0)}`,
-        action: () => {
-          switchView('ledger');
-          setTimeout(() => $('#opp-search').value = query, 100);
-        },
+        // לפי שם הפריט: החיפוש בפנקס לא כולל את שם הקטגוריה, ושאילתה שנמצאה רק בה הייתה מציגה פנקס ריק
+        action: () => showLedgerSearch(o.name || query),
       });
     }
   });
@@ -319,132 +342,165 @@ function openGlobalSearch() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  HEBREW HOLIDAYS / PARSHA WIDGET - ACCURATE HARDCODED SCHEDULE
+//  לוח עברי: פרשת השבוע וחג קרוב — מחושבים מלוח השנה העברי המובנה במנוע (Intl, ICU), כמו shell/hebcal.js.
+//  לוח ארץ ישראל. פעם: טבלה קבועה שנגמרה ב-26.12.2026, עם תווית שגויה ל-3.10.2026 (בדיקת קוד 23.10.2026)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Accurate parsha schedule for Hebrew years 5786-5788 (Diaspora)
-// Each entry: ISO date of Saturday → parsha name in Hebrew
-// Source: hebcal.com/sedrot/5786,5787,5788
-const PARSHA_SCHEDULE = {
-  // 5786 (Sept 2025 - Sept 2026)
-  '2025-10-18': 'בראשית',
-  '2025-10-25': 'נח',
-  '2025-11-01': 'לך לך',
-  '2025-11-08': 'וירא',
-  '2025-11-15': 'חיי שרה',
-  '2025-11-22': 'תולדות',
-  '2025-11-29': 'ויצא',
-  '2025-12-06': 'וישלח',
-  '2025-12-13': 'וישב',
-  '2025-12-20': 'מקץ',
-  '2025-12-27': 'ויגש',
-  '2026-01-03': 'ויחי',
-  '2026-01-10': 'שמות',
-  '2026-01-17': 'וארא',
-  '2026-01-24': 'בא',
-  '2026-01-31': 'בשלח',
-  '2026-02-07': 'יתרו',
-  '2026-02-14': 'משפטים',
-  '2026-02-21': 'תרומה',
-  '2026-02-28': 'תצוה',
-  '2026-03-07': 'כי תשא',
-  '2026-03-14': 'ויקהל-פקודי',
-  '2026-03-21': 'ויקרא',
-  '2026-03-28': 'צו',
-  '2026-04-04': 'שבת חול המועד פסח',
-  '2026-04-11': 'שמיני',
-  '2026-04-18': 'תזריע-מצורע',
-  '2026-04-25': 'אחרי מות-קדושים',
-  '2026-05-02': 'אמור',
-  '2026-05-09': 'בהר-בחקתי',
-  '2026-05-16': 'במדבר',
-  '2026-05-23': 'נשא',
-  '2026-05-30': 'בהעלתך',
-  '2026-06-06': 'שלח',
-  '2026-06-13': 'קרח',
-  '2026-06-20': 'חקת',
-  '2026-06-27': 'בלק',
-  '2026-07-04': 'פינחס',
-  '2026-07-11': 'מטות-מסעי',
-  '2026-07-18': 'דברים',
-  '2026-07-25': 'ואתחנן',
-  '2026-08-01': 'עקב',
-  '2026-08-08': 'ראה',
-  '2026-08-15': 'שופטים',
-  '2026-08-22': 'כי תצא',
-  '2026-08-29': 'כי תבוא',
-  '2026-09-05': 'נצבים-וילך',
-  // 5787 starts Sept 12, 2026 (Rosh Hashana)
-  '2026-09-19': 'האזינו',
-  '2026-10-03': 'שבת חול המועד סוכות',
-  '2026-10-10': 'בראשית',
-  '2026-10-17': 'נח',
-  '2026-10-24': 'לך לך',
-  '2026-10-31': 'וירא',
-  '2026-11-07': 'חיי שרה',
-  '2026-11-14': 'תולדות',
-  '2026-11-21': 'ויצא',
-  '2026-11-28': 'וישלח',
-  '2026-12-05': 'וישב',
-  '2026-12-12': 'מקץ',
-  '2026-12-19': 'ויגש',
-  '2026-12-26': 'ויחי',
-};
+const HEB_DAY_MS = 86400000;
+let hebCalFmt = null;
+try { hebCalFmt = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }); } catch (e) { hebCalFmt = null; }
 
-// Accurate Jewish holidays for 5786-5787
-const JEWISH_HOLIDAYS = [
-  // 5786
-  { name: 'ראש השנה', date: '2025-09-23' },
-  { name: 'יום כיפור', date: '2025-10-02' },
-  { name: 'סוכות', date: '2025-10-07' },
-  { name: 'שמחת תורה', date: '2025-10-14' },
-  { name: 'חנוכה', date: '2025-12-15' },
-  { name: 'ט"ו בשבט', date: '2026-02-02' },
-  { name: 'פורים', date: '2026-03-03' },
-  { name: 'פסח', date: '2026-04-02' },
-  { name: 'יום השואה', date: '2026-04-14' },
-  { name: 'יום העצמאות', date: '2026-04-22' },
-  { name: 'ל"ג בעומר', date: '2026-05-05' },
-  { name: 'שבועות', date: '2026-05-22' },
-  { name: 'יז בתמוז', date: '2026-07-02' },
-  { name: 'תשעה באב', date: '2026-07-23' },
-  // 5787
-  { name: 'ראש השנה', date: '2026-09-12' },
-  { name: 'יום כיפור', date: '2026-09-21' },
-  { name: 'סוכות', date: '2026-09-26' },
-  { name: 'שמחת תורה', date: '2026-10-03' },
-  { name: 'חנוכה', date: '2026-12-05' },
-];
+// יום אזרחי ← 12:00 UTC של אותו יום, בלי תלות באזור הזמן (כמו civil ב-shell/hebcal.js)
+const hebCivilDay = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 12);
 
-function isoDate(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+function hebParts(t) {
+  const p = hebCalFmt.formatToParts(new Date(t));
+  const g = (k) => (p.find((x) => x.type === k) || {}).value;
+  return { day: +g('day'), month: g('month'), year: +g('year') };
 }
 
-function getCurrentParsha() {
-  const now = new Date();
-  // Find upcoming Saturday (or today if Saturday)
-  const daysToShabbat = (6 - now.getDay() + 7) % 7;
-  const nextShabbat = new Date(now.getTime() + daysToShabbat * 86400000);
-  const key = isoDate(nextShabbat);
-  return PARSHA_SCHEDULE[key] || null;
+// הלוח העברי זמין ומחזיר שמות חודשים באנגלית (Tishri, Nisan...) — אחרת אין חישוב, והמסך מציג "—"
+function hebCalendarAvailable() {
+  if (!hebCalFmt) return false;
+  try { const p = hebParts(Date.UTC(2026, 8, 12, 12)); return p.month === 'Tishri' && p.day === 1 && p.year === 5787; } catch (e) { return false; }
 }
 
-function getJewishHolidays() {
-  const now = new Date();
-  const today = isoDate(now);
-  // Find next holiday in next 90 days
-  for (const h of JEWISH_HOLIDAYS) {
-    if (h.date >= today) {
-      const holDate = new Date(h.date + 'T00:00:00');
-      const daysAway = Math.ceil((holDate - now) / 86400000);
-      if (daysAway <= 90) {
-        return { name: h.name, daysAway, date: holDate };
-      }
-      return null;
-    }
+const PARSHIYOT = ['בראשית', 'נח', 'לך לך', 'וירא', 'חיי שרה', 'תולדות', 'ויצא', 'וישלח', 'וישב', 'מקץ', 'ויגש', 'ויחי',
+  'שמות', 'וארא', 'בא', 'בשלח', 'יתרו', 'משפטים', 'תרומה', 'תצוה', 'כי תשא', 'ויקהל', 'פקודי',
+  'ויקרא', 'צו', 'שמיני', 'תזריע', 'מצורע', 'אחרי מות', 'קדושים', 'אמור', 'בהר', 'בחקתי',
+  'במדבר', 'נשא', 'בהעלתך', 'שלח', 'קרח', 'חקת', 'בלק', 'פינחס', 'מטות', 'מסעי',
+  'דברים', 'ואתחנן', 'עקב', 'ראה', 'שופטים', 'כי תצא', 'כי תבוא', 'נצבים', 'וילך', 'האזינו'];
+// פרשות שמתחברות (המספר = הראשונה בזוג), לפי סדר העדיפות לחיבור כשחסרות שבתות
+const JOIN_BEFORE_PESACH = [21];               // ויקהל-פקודי
+const JOIN_AFTER_PESACH = [41, 26, 28, 31];    // מטות-מסעי, תזריע-מצורע, אחרי מות-קדושים, בהר-בחקתי
+const JOIN_LEAP_YEAR = [41, 26, 28, 31, 21];
+
+// שבת שאין בה פרשה רגילה (ארץ ישראל): מועד או חול המועד
+function hebSpecialShabbat(p) {
+  const { month: m, day: d } = p;
+  if (m === 'Tishri') {
+    if (d <= 2) return 'ראש השנה';
+    if (d === 10) return 'יום הכיפורים';
+    if (d === 15) return 'סוכות';
+    if (d >= 16 && d <= 21) return 'שבת חול המועד סוכות';
+    if (d === 22) return 'שמיני עצרת ושמחת תורה';
+  }
+  if (m === 'Nisan') {
+    if (d === 15) return 'פסח';
+    if (d >= 16 && d <= 20) return 'שבת חול המועד פסח';
+    if (d === 21) return 'שביעי של פסח';
+  }
+  if (m === 'Sivan' && d === 6) return 'שבועות';
+  return null;
+}
+
+// א' בתשרי של השנה העברית של יום t
+function hebNewYear(t) {
+  let x = t - (hebParts(t).day - 1) * HEB_DAY_MS;
+  for (let i = 0; i < 14 && hebParts(x).month !== 'Tishri'; i++) {
+    x -= HEB_DAY_MS;
+    x -= (hebParts(x).day - 1) * HEB_DAY_MS;
+  }
+  return x;
+}
+
+// הפרשות לשבתות של קטע בשנה: d שבתות חסרות = d חיבורים לפי סדר העדיפות. false — לא מסתדר (לא מנחשים)
+function hebAssign(out, sats, from, to, joins) {
+  const d = (to - from + 1) - sats.length;
+  if (d < 0 || d > joins.length) return false;
+  const joined = new Set(joins.slice(0, d));
+  let k = from;
+  for (const t of sats) {
+    if (joined.has(k)) { out.set(t, PARSHIYOT[k] + '-' + PARSHIYOT[k + 1]); k += 2; } else { out.set(t, PARSHIYOT[k]); k += 1; }
+  }
+  return k === to + 1;
+}
+
+// כל שבתות השנה העברית שמתחילה ב-rh ← שם הפרשה. עוגנים: צו לפני פסח (שנה פשוטה), דברים בשבת שלפני ט' באב,
+// ואתחנן אחריו ועד נצבים לפני ראש השנה; נצבים-וילך מתחברות כשראש השנה הבא בחמישי או בשבת
+const hebParshaCache = new Map();
+function hebParshaYear(rh) {
+  if (hebParshaCache.has(rh)) return hebParshaCache.get(rh);
+  const next = hebNewYear(rh + 390 * HEB_DAY_MS);
+  const leap = next - rh > 380 * HEB_DAY_MS;
+  const out = new Map();
+  const sats = [];
+  for (let t = rh + ((6 - new Date(rh).getUTCDay() + 7) % 7) * HEB_DAY_MS; t < next; t += 7 * HEB_DAY_MS) sats.push(t);
+  let i = 0;
+  // תשרי עד שמיני עצרת: וילך והאזינו, או רק האזינו כשנצבים-וילך חוברו בסוף השנה הקודמת
+  const tishrei = [];
+  for (; i < sats.length; i++) {
+    const p = hebParts(sats[i]);
+    if (!(p.month === 'Tishri' && p.day <= 22)) break;
+    const sp = hebSpecialShabbat(p);
+    if (sp) out.set(sats[i], sp); else tishrei.push(sats[i]);
+  }
+  if (tishrei.length === 2) { out.set(tishrei[0], PARSHIYOT[51]); out.set(tishrei[1], PARSHIYOT[52]); }
+  else if (tishrei.length === 1) out.set(tishrei[0], PARSHIYOT[52]);
+  // מבראשית עד ראש השנה הבא
+  const free = [];
+  for (; i < sats.length; i++) {
+    const p = hebParts(sats[i]);
+    const sp = hebSpecialShabbat(p);
+    if (sp) out.set(sats[i], sp); else free.push({ t: sats[i], p });
+  }
+  const afterAv9 = free.findIndex(({ p }) => (p.month === 'Av' && p.day > 9) || p.month === 'Elul');
+  const joinNV = [4, 6].includes(new Date(next).getUTCDay());
+  let ok = afterAv9 > 0 && free.length - afterAv9 === 7;
+  if (ok && leap) ok = hebAssign(out, free.slice(0, afterAv9).map((x) => x.t), 0, 43, JOIN_LEAP_YEAR);
+  else if (ok) {
+    const afterPesach = free.findIndex(({ p }) => (p.month === 'Nisan' && p.day > 21) || ['Iyar', 'Sivan', 'Tamuz', 'Av', 'Elul'].includes(p.month));
+    ok = afterPesach > 0 && afterPesach < afterAv9
+      && hebAssign(out, free.slice(0, afterPesach).map((x) => x.t), 0, 24, JOIN_BEFORE_PESACH)
+      && hebAssign(out, free.slice(afterPesach, afterAv9).map((x) => x.t), 25, 43, JOIN_AFTER_PESACH);
+  }
+  if (ok) {
+    free.slice(afterAv9).forEach(({ t }, j) => out.set(t, j === 6 && joinNV ? PARSHIYOT[50] + '-' + PARSHIYOT[51] : PARSHIYOT[44 + j]));
+  } else {
+    // לא הסתדר — רק המועדים, בלי ניחוש של פרשה
+    for (const { t } of free) out.delete(t);
+  }
+  hebParshaCache.set(rh, out);
+  return out;
+}
+
+// הפרשה של השבת הקרובה (היום, אם היום שבת)
+function getCurrentParsha(now = new Date()) {
+  if (!hebCalendarAvailable()) return null;
+  const today = hebCivilDay(now);
+  const shabbat = today + ((6 - new Date(today).getUTCDay() + 7) % 7) * HEB_DAY_MS;
+  return hebParshaYear(hebNewYear(shabbat)).get(shabbat) || null;
+}
+
+// חג או צום ליום עברי (wd — יום בשבוע, 6 = שבת); צומות שחלים בשבת נדחים
+function hebHolidayName(p, wd) {
+  const { month: m, day: d } = p;
+  if (m === 'Tishri') {
+    if (d === 1) return 'ראש השנה';
+    if (d === 10) return 'יום הכיפורים';
+    if (d === 15) return 'סוכות';
+    if (d === 22) return 'שמיני עצרת ושמחת תורה';
+  }
+  if (m === 'Kislev' && d === 25) return 'חנוכה';
+  if (m === 'Tevet' && d === 10) return 'עשרה בטבת';
+  if (m === 'Shevat' && d === 15) return 'ט״ו בשבט';
+  if ((m === 'Adar' || m === 'Adar II') && d === 14) return 'פורים';
+  if (m === 'Nisan' && d === 15) return 'פסח';
+  if (m === 'Iyar' && d === 18) return 'ל״ג בעומר';
+  if (m === 'Sivan' && d === 6) return 'שבועות';
+  if (m === 'Tamuz' && ((d === 17 && wd !== 6) || (d === 18 && wd === 0))) return 'שבעה עשר בתמוז';
+  if (m === 'Av' && ((d === 9 && wd !== 6) || (d === 10 && wd === 0))) return 'תשעה באב';
+  return null;
+}
+
+// החג הקרוב ב-90 הימים הבאים (כולל היום): { name, daysAway, date } או null
+function getJewishHolidays(now = new Date()) {
+  if (!hebCalendarAvailable()) return null;
+  const today = hebCivilDay(now);
+  for (let i = 0; i <= 90; i++) {
+    const t = today + i * HEB_DAY_MS;
+    const name = hebHolidayName(hebParts(t), new Date(t).getUTCDay());
+    if (name) return { name, daysAway: i, date: new Date(now.getFullYear(), now.getMonth(), now.getDate() + i) };
   }
   return null;
 }

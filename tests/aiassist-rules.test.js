@@ -12,17 +12,18 @@ const { redact } = require(path.join(ROOT, 'shell/ai/redact'));
 
 const TODAY = '2026-10-22';
 
-// הקשר פתוח לגמרי, בצורה שהשירותים מחזירים: סכומים בשקלים, יתרה בחשבונית
+// הקשר פתוח לגמרי, בצורה שהשירותים מחזירים: סכומים בשקלים, יתרה בחשבונית.
+// כמו getInvoices האמיתי: balance = הסכום פחות זיכויים — תשלום לא מקטין אותו, רק מעביר את status ל-'paid' (ממצא 45)
 function fullCtx() {
   return {
     today: TODAY,
     opened: { acct: true, npo: true, shamai: true, trainer: true },
     summary: { income: 10000, expenses: 4000, balance: 6000, count: 2, categories: [] },
     invoices: [
-      { number: 11, customer: 'משפחת כהן', total: 600, balance: 600, date: '2026-10-05' },
-      { number: 12, customer: 'משפחת לוי', total: 500, balance: 0, date: '2026-10-09' },
+      { number: 11, customer: 'משפחת כהן', total: 600, balance: 600, date: '2026-10-05', status: 'open' },
+      { number: 12, customer: 'משפחת לוי', total: 500, balance: 500, date: '2026-10-09', status: 'paid' },
     ],
-    npo: { donors: [{ name: 'משפחת כהן', count: 2, total: 400 }, { name: 'תורם בעילום שם', count: 1, total: 200 }] },
+    npo: { year: 2026, donors: [{ name: 'משפחת כהן', count: 2, total: 400 }, { name: 'תורם בעילום שם', count: 1, total: 200 }] },
     shamai: { label: 'צמיד זהב 14 קראט', valueAg: 350000, confidence: 80, factors: [{ name: 'משקל', bp: 120 }], warnings: ['המחירים ממקור שהוזן ידנית'] },
     trainer: { alerts: [{ title: 'מנוי מסתיים', detail: 'דוד לוי — 3 ימים', tone: 'red' }], clients: 12 },
   };
@@ -94,7 +95,7 @@ test('שמאות בלי הערכה בזיכרון — אומרים זאת בפש
   delete ctx.shamai;
   const a = R.runRules('מה הערכת השווי האחרונה?', ctx);
   assert.equal(a.data, undefined);
-  assert.match(a.text, /מסך השמאות/);
+  assert.match(a.text, /תיק שמאות/);
 });
 
 test('„איך מוציאים חשבונית?” — מדריך, בלי נתוני המשתמש', () => {
@@ -105,7 +106,8 @@ test('„איך מוציאים חשבונית?” — מדריך, בלי נתו�
 });
 
 test('resolveRange — גבולות החודש הקודם, השנה שעברה ומתחילת השנה', () => {
-  assert.deepEqual(R.resolveRange('כמה גבייתי החודש שעבר', TODAY), { from: '2026-09-01', to: '2026-10-01', label: 'ספטמבר 2026' });
+  // הגבול כוללני — היום האחרון של ספטמבר, לא ה-1 באוקטובר (ממצא 47)
+  assert.deepEqual(R.resolveRange('כמה גבייתי החודש שעבר', TODAY), { from: '2026-09-01', to: '2026-09-30', label: 'ספטמבר 2026' });
   assert.deepEqual(R.resolveRange('הכנסות אשתקד', TODAY), { from: '2025-01-01', to: '2025-12-31', label: 'שנת 2025' });
   assert.equal(R.resolveRange('הכנסות מתחילת השנה', TODAY).from, '2026-01-01');
   assert.equal(R.resolveRange('כמה גבייתי', TODAY).label, 'אוקטובר 2026');
@@ -151,8 +153,10 @@ test('rangeAgrees — רמז מהממשק מתקבל רק כשהוא מסכים 
   const now = R.resolveRange('כמה גבייתי החודש?', TODAY);
   assert.equal(R.rangeAgrees({ from: '2026-10-01', to: TODAY, label: 'החודש' }, now), true, 'החודש הזה');
   const prev = R.resolveRange('כמה גבייתי החודש שעבר?', TODAY);
-  // הממשק שולח את היום שאחרי החודש שעבר — גבול סיום אחר בכתב, אותה תקופה
-  assert.equal(R.rangeAgrees({ from: '2026-09-01', to: '2026-10-01', label: 'החודש שעבר' }, prev), true);
+  // הממשק שולח את היום האחרון של החודש שעבר — אותו טווח בדיוק
+  assert.equal(R.rangeAgrees({ from: '2026-09-01', to: '2026-09-30', label: 'החודש שעבר' }, prev), true);
+  // „עד 1.10” כוללני — כבר כולל את ה-1 באוקטובר, ולכן אינו אותו טווח (ממצא 47)
+  assert.equal(R.rangeAgrees({ from: '2026-09-01', to: '2026-10-01', label: 'החודש שעבר' }, prev), false);
   // שאלה על החודש, טווח אחר לגמרי מהממשק — השאלה קובעת
   assert.equal(R.rangeAgrees({ from: '2025-01-01', to: '2025-12-31', label: 'שנה' }, now), false);
   // שאלה על „החודש שעבר”, הממשק שלח את החודש הזה
@@ -167,15 +171,16 @@ test('rangeAgrees — רמז מהממשק מתקבל רק כשהוא מסכים 
   assert.equal(R.rangeAgrees(null, now), false);
 });
 
-test('aiUiRange — „החודש שעבר” הוא החודש הקלנדרי הקודם, וגבול הסיום כוללני (ה-1 לחודש הזה)', () => {
+test('aiUiRange — „החודש שעבר” הוא החודש הקלנדרי הקודם, וגבול הסיום כוללני (היום האחרון שלו)', () => {
   const ai = loadAiUi();
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
   const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const last = new Date(now.getFullYear(), now.getMonth(), 0);
   const r = ai.aiUiRange('כמה גבייתי החודש שעבר?');
   assert.equal(r.from, `${prev.getFullYear()}-${pad(prev.getMonth() + 1)}-01`);
-  // inRange כוללני משני הקצוות — „עד 31 לחודש שעבר” היה כולל את ה-31, ו„1 לחודש הזה” סוגר בדיוק שם
-  assert.equal(r.to, `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`);
+  // inRange כוללני משני הקצוות — „עד 1 לחודש הזה” כלל גם את הכנסות ה-1 בחודש הזה (ממצא 47)
+  assert.equal(r.to, `${last.getFullYear()}-${pad(last.getMonth() + 1)}-${pad(last.getDate())}`);
   assert.equal(ai.aiUiRange('כמה גבייתי'), null);
 });
 
@@ -184,12 +189,13 @@ test('AI_OPEN_IDS — יעדים רק מהמסכים המוכרים לממשק, 
   const titles = econViewTitles();
   const serverTargets = assertServerTargets();
   for (const [kind, view] of Object.entries(ai.AI_OPEN_IDS)) {
-    // המסך נפתח בממשק הכלכלי, או — היחיד — מודול האימונים (נפתח ב-openModule, לא ב-switchView)
-    const inShell = Object.prototype.hasOwnProperty.call(titles, view) || view === 'trainer';
+    // המסך נפתח בממשק הכלכלי, או מודול האימונים / השמאות (נפתחים ב-openModule, לא ב-switchView)
+    const inShell = Object.prototype.hasOwnProperty.call(titles, view) || view === 'trainer' || view === 'shamai';
     assert.ok(inShell, `${kind} ← ${view}: מסך מוכר בממשק`);
     assert.ok(serverTargets.has(view), `${kind} ← ${view}: היעד מאושר ב-ai:open`);
   }
   assert.equal(ai.AI_OPEN_IDS.trainer, 'trainer');
+  assert.equal(ai.AI_OPEN_IDS.shamai, 'shamai', 'הערכת השווי מתיק השמאות — פותחים את מודול השמאות');
   assert.equal(ai.AI_OPEN_IDS.donors, 'npo');
   assert.equal(ai.AI_OPEN_IDS.unpaid, 'acct-invoices');
 });

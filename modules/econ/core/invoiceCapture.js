@@ -16,7 +16,8 @@ const SYS = { INPUT_VAT: '1300', AP: '2000' };
 const str = (v, max) => String(v === undefined || v === null ? '' : v)
   .replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max || 200);
 
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 
 // מספר הקצאה: 9 ספרות, ונקרא כמספר (אפסים מובילים נופלים). הבדיקה מול הסף לפי תאריך
 // היא באחריות core/allocation.js — כאן רק מחזירים את מה שהוקלד, בלי לפסוק
@@ -25,6 +26,24 @@ function allocationNumber(v) {
   if (!digits) return null;
   if (digits.length > 9) throw new Error('מספר ההקצאה חייב להכיל עד 9 ספרות');
   return Number(digits);
+}
+
+// מספר העוסק / ח"פ של הספק: ספרות בלבד, 5–9 ספרות (ריפוד באפסים ל-9), וספרת ביקורת —
+// אותו אלגוריתם של core/israeliId.js (עותק מקומי, הקובץ טהור). ריק = '' (אזהרה בהמשך).
+// לא קוטעים ולא מוותרים בשקט: 10 ספרות נקטעו בעבר ל-9, ו-8 ספרות הוציאו את החשבונית מ-PCN874 בלי אזהרה
+function supplierTaxIdOf(v) {
+  const digits = String(v === undefined || v === null ? '' : v).replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.length < 5 || digits.length > 9) throw new Error('מספר העוסק / ח"פ של הספק חייב להכיל 5–9 ספרות');
+  const id = digits.padStart(9, '0');
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    let d = Number(id[i]) * (i % 2 === 0 ? 1 : 2);
+    if (d > 9) d -= 9;
+    sum += d;
+  }
+  if (/^0+$/.test(id) || sum % 10 !== 0) throw new Error('מספר העוסק / ח"פ של הספק אינו תקין (ספרת ביקורת) — יש לבדוק מול החשבונית, או להשאיר ריק');
+  return id;
 }
 
 // סכום בשקלים שהוקלד (או מספר) ← אגורות; ריק = null
@@ -50,12 +69,11 @@ function draftEntry(input, options = {}) {
   const warnings = [];
 
   const supplierName = str(data.supplierName, 120);
-  const supplierTaxId = String(data.supplierTaxId === undefined || data.supplierTaxId === null ? '' : data.supplierTaxId)
-    .replace(/\D/g, '').slice(0, 9);
   const docNumber = str(data.docNumber, 40);
   const date = String(data.date || '').trim();
 
   if (!isDate(date)) throw new Error('תאריך החשבונית חסר או לא תקין (YYYY-MM-DD)');
+  const supplierTaxId = supplierTaxIdOf(data.supplierTaxId);
 
   const grossAg = agOrNull(data.gross, 'סה"כ החשבונית');
   if (grossAg === null || grossAg <= 0) throw new Error('יש להזין את סה"כ החשבונית (כולל מע"מ)');
@@ -142,9 +160,15 @@ function draftEntry(input, options = {}) {
 
 // השלמת חשבון ההוצאה מההיסטוריה: ספק מאותו ת"ז/ח"פ או אותו שם — הספרה הנפוצה ביותר
 // (השוויון נשבר לטובת החשבון שנבחר לאחרונה). null כשאין ההיסטוריה מספקת החלטה
+// ע.מ להשוואה: 5–9 ספרות מרופדות ל-9, כמו שנשמר ב-vatDoc (‏12345674 = 012345674)
+function taxIdKey(v) {
+  const d = String(v || '').replace(/\D/g, '');
+  return d.length >= 5 && d.length <= 9 ? d.padStart(9, '0') : d;
+}
+
 function suggestAccount(input, journal, expenseAccounts) {
   const data = input && typeof input === 'object' ? input : {};
-  const taxId = String(data.supplierTaxId || '').replace(/\D/g, '');
+  const taxId = taxIdKey(data.supplierTaxId);
   const name = str(data.supplierName, 120);
   if (!taxId && !name) return null;
   const allowed = Array.isArray(expenseAccounts) ? new Set(expenseAccounts.map(String)) : null;
@@ -153,7 +177,7 @@ function suggestAccount(input, journal, expenseAccounts) {
   for (const e of Array.isArray(journal) ? journal : []) {
     const doc = e && e.vatDoc;
     if (!doc || !Array.isArray(e.lines)) continue;
-    const sameId = taxId && String(doc.supplierTaxId || '').replace(/\D/g, '') === taxId;
+    const sameId = taxId && taxIdKey(doc.supplierTaxId) === taxId;
     const sameName = name && str(doc.supplierName, 120) === name;
     if (!sameId && !sameName) continue;
     for (const line of e.lines) {

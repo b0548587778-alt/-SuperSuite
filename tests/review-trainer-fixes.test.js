@@ -34,7 +34,9 @@ test('מסכי הסטודיו: שמירה שנכשלה — הודעה, המסך 
   }
   assert.match(src, /if \(!\(await S\.set\(K\.memberships\(clientId\), list\)\)\) return saveFailed\(\);/);
   assert.match(src, /if \(!\(await saveMemberships\(clientId, r\.list\)\)\) return rollback\(\);/);
-  assert.match(src, /import \{ askConfirm, showMessage \} from '\.\/lib\/dialog\.js';/);
+  // ההודעה — showSaveError: בלי חלון שני כשהסיבה כבר מוצגת מ-lib/storage.js (tests/audit-secure-store-trainer.test.js)
+  assert.match(src, /import \{ askConfirm, showSaveError \} from '\.\/lib\/dialog\.js';/);
+  assert.match(src, /const saveFailed = \(\) => \{[\s\S]*?showSaveError\(/);
 });
 
 test('תאריך "האימון האחרון": completedAt פגום מדולג ולא הופך ל-NaN', () => {

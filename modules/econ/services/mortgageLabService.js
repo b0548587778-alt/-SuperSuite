@@ -9,7 +9,8 @@ const MA = require('../core/mortgageAdvisor');
 const MAX_SCENARIOS = 5000;
 const RETENTION_DAYS = 180;
 
-const today = () => new Date().toISOString().slice(0, 10);
+// היום המקומי (לא UTC — בין חצות ל-03:00 toISOString מחזיר את אתמול)
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const blank = (v) => v === undefined || v === null || v === '';
 const pct = (v) => (blank(v) ? undefined : Number(v) / 100);
 const str = (v, max, label) => {
@@ -17,7 +18,8 @@ const str = (v, max, label) => {
   if (s.length > max) throw new Error(`${label} ארוך מדי (עד ${max} תווים)`);
   return s;
 };
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 
 // רשימת ערכים מופרדת בפסיקים ("4.25, 4.25, 4") → מערך מספרים
 function list(v, label) {

@@ -77,11 +77,15 @@ test('לפי התוכנית בפועל: בלי קוד — שגיאה; חשבון
   assert.throws(() => IC.draftEntry(base({ expenseAccount: '50' }), ACCOUNTS), /4-6 ספרות/);
 });
 
-test('vatDoc — רק עם ע.מ של 9 ספרות, בשמות validateVatDoc', () => {
-  const ok = IC.draftEntry(base({ supplierTaxId: '514-123456', docNumber: 'INV/2026-77', allocation: '123456789' }), ACCOUNTS);
-  assert.deepStrictEqual(ok.entry.vatDoc, { supplierTaxId: '514123456', reference: '202677', docDate: '2026-10-15', allocationNumber: '123456789' });
-  const no = IC.draftEntry(base({ supplierTaxId: '12345' }), ACCOUNTS);
+test('vatDoc — ע.מ תקין (ספרת ביקורת) מרופד ל-9 ספרות, בשמות validateVatDoc', () => {
+  // 514123456 הקודם לא עבר ספרת ביקורת — מאז בדיקת הקוד 23.10.2026 מספר כזה נדחה ולא נכנס בשקט ל-PCN874
+  const ok = IC.draftEntry(base({ supplierTaxId: '514-123454', docNumber: 'INV/2026-77', allocation: '123456789' }), ACCOUNTS);
+  assert.deepStrictEqual(ok.entry.vatDoc, { supplierTaxId: '514123454', reference: '202677', docDate: '2026-10-15', allocationNumber: '123456789' });
+  // בלי ע.מ — בלי vatDoc (אזהרה)
+  const no = IC.draftEntry(base(), ACCOUNTS);
   assert.strictEqual(no.entry.vatDoc, undefined);
+  // מספר קצר או שגוי — שגיאה ברורה, לא השמטה שקטה
+  assert.throws(() => IC.draftEntry(base({ supplierTaxId: '12345' }), ACCOUNTS), /ספרת ביקורת/);
 });
 
 test('אזהרות על פרטים חסרים — ולא ניחוש', () => {
@@ -90,7 +94,7 @@ test('אזהרות על פרטים חסרים — ולא ניחוש', () => {
   assert.ok(r.warnings.some(w => w.includes('שם הספק')));
   assert.ok(r.warnings.some(w => w.includes('עוסק')));
   assert.ok(r.warnings.some(w => w.includes('מספר החשבונית')));
-  const full = IC.draftEntry(base({ supplierName: 'ספק לדוגמה', supplierTaxId: '514123456', docNumber: '77' }), ACCOUNTS);
+  const full = IC.draftEntry(base({ supplierName: 'ספק לדוגמה', supplierTaxId: '514123454', docNumber: '77' }), ACCOUNTS);
   assert.strictEqual(full.complete, true);
 });
 

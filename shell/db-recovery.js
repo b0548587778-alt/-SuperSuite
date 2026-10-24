@@ -16,9 +16,10 @@ function classifyDbError(err) {
 
 const DB_NAME = 'unified_economics.db';
 
-// קובצי הגיבוי האוטומטי בתיקייה (auto-YYYY-MM-DD.ssbk), מהישן לחדש
+// קובצי הגיבוי האוטומטי בתיקייה (auto-YYYY-MM-DD.ssbk, ומאז ממצא 38 גם auto-YYYY-MM-DD-<סימן ההתקנה>.ssbk), מהישן
+// לחדש. ביעד משותף יש גם גיבויים של מחשבים אחרים — latestUsableAutoBackup מדלג על מה שלא נפתח במפתח של המחשב הזה
 function autoBackupFiles(dir) {
-  try { return fs.readdirSync(dir).filter(f => /^auto-\d{4}-\d{2}-\d{2}\.ssbk$/.test(f)).sort(); } catch { return []; }
+  try { return fs.readdirSync(dir).filter(f => /^auto-\d{4}-\d{2}-\d{2}(-[0-9a-f]{8})?\.ssbk$/.test(f)).sort(); } catch { return []; }
 }
 const backupInfo = (dir, name) => ({ file: path.join(dir, name), day: name.slice(5, 15) });
 

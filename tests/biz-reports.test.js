@@ -195,7 +195,8 @@ test('לוח בקרה: יתרה, חייבים מובילים ותשלומים ק
 test('ערוצים: דרך handle(), "היום" נקבע בשרת, ייצוא כרטסת קורא מהספרים; שמירת הגדרות בהרשאת עריכה', () => {
   const ipc = read('modules/econ/ipc.js');
   for (const ch of ['getBizSettings', 'saveBizSettings', 'getCustomerBalances', 'getCustomerLedger', 'getCashForecast', 'getAdvancesReport', 'getBizDashboard', 'exportCustomerLedger']) {
-    assert.match(ipc, new RegExp(`handle\\('acct:${ch}'`), ch);
+    // handleSave — ייצוא: חלון השמירה מחוץ לתור (ממצא 39), אותו שומר
+    assert.match(ipc, new RegExp(`handle(?:Save)?\\('acct:${ch}'`), ch);
     assert.match(read('modules/econ/preload.js'), new RegExp(`'acct:${ch}'`), ch);
   }
   assert.match(ipc, /acct:getCashForecast[^\n]*localDay\(Date\.now\(\)\)/);

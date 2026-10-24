@@ -110,16 +110,45 @@ class CollectService {
     return {};
   }
 
+  // רישום התשלום וסימון הדרישה בשמירה אחת — הכול או כלום. השירותים האחרים טוענים ושומרים בעצמם,
+  // ולכן בזמן fn השירותים המשתתפים (אותו מסד מ-initialize(db) ב-ipc.js) מקבלים עטיפה שעובדת על עותק בזיכרון,
+  // והכתיבה האמיתית אחת בסוף. בטוח כי כל פעולה במסד רצה בתור אחד (enqueue) — אין פעולה אחרת באמצע.
+  // אובייקט המסד עצמו לא משתנה: גיבוי שרץ מחוץ לתור (db.backup) רואה רק נתונים שנשמרו, לא קבלה שעוד לא נכתבה.
+  // קודם: שתי שמירות נפרדות; שגיאה או קריסה ביניהן השאירו דרישה "פתוחה", וניסיון חוזר הפיק קבלה שנייה
+  async _inOneSave(fn) {
+    if (this._oneSave) return fn();
+    const base = this.db;
+    let work = null, dirty = false;
+    const tx = {
+      load: async () => structuredClone(work || (work = await base.load())),
+      save: async (value) => { work = structuredClone(value); dirty = true; }
+    };
+    // שירות עם מסד אחר (לא אמור לקרות) נשאר על המסד שלו — לא כותבים את הנתונים שלו למסד הזה
+    const swapped = [this, accounting, npo, gemach].filter((s, i, all) => s && s.db === base && all.indexOf(s) === i);
+    for (const s of swapped) s.db = tx;
+    this._oneSave = true;
+    let out;
+    try { out = await fn(); }
+    finally {
+      this._oneSave = false;
+      for (const s of swapped) s.db = base;
+    }
+    if (dirty) await base.save(work);
+    return out;
+  }
+
   // סימון ידני כ"שולם" (למשל: הלקוח שילם וראיתם את זה באתר חברת הסליקה)
   async markPaid(id, input = {}) {
-    const { payments } = await this._load();
-    const r = payments.requests.find(x => x.id === id);
-    if (!r) throw new Error('דרישת התשלום לא נמצאה');
-    if (r.status !== 'open') throw new Error('הדרישה אינה ממתינה לתשלום');
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(input.date || '')) ? input.date : localDay();
-    const txId = String(input.txId || '').trim().slice(0, 80);
-    const applied = await this._applyPayment(r, { date, txId });
-    return this._setPaid(id, { date, txId, source: 'manual', applied });
+    return this._inOneSave(async () => {
+      const { payments } = await this._load();
+      const r = payments.requests.find(x => x.id === id);
+      if (!r) throw new Error('דרישת התשלום לא נמצאה');
+      if (r.status !== 'open') throw new Error('הדרישה אינה ממתינה לתשלום');
+      const date = P.isDay(input.date) ? input.date : localDay();
+      const txId = String(input.txId || '').trim().slice(0, 80);
+      const applied = await this._applyPayment(r, { date, txId });
+      return this._setPaid(id, { date, txId, source: 'manual', applied });
+    });
   }
 
   // ---------- תשלום מערכת בת להורה שלה ----------
@@ -173,13 +202,17 @@ class CollectService {
     const recorded = [];
     const failed = [];
     for (const m of matched) {
-      data = await this._load();
-      const r = data.payments.requests.find(x => x.ref === m.ref);
-      if (!r || r.status !== 'open') continue;
       try {
-        const applied = await this._applyPayment(r, { date: m.date, txId: m.txId });
-        await this._setPaid(r.id, { date: m.date, txId: m.txId, source: 'report', how: m.how, name: m.name, applied });
-        recorded.push({ ref: m.ref, payerName: r.payerName, amount: P.fromAg(r.amountAg), how: m.how });
+        // כל תשלום — רישום וסימון הדרישה בשמירה אחת (_inOneSave)
+        const done = await this._inOneSave(async () => {
+          data = await this._load();
+          const r = data.payments.requests.find(x => x.ref === m.ref);
+          if (!r || r.status !== 'open') return null;
+          const applied = await this._applyPayment(r, { date: m.date, txId: m.txId });
+          await this._setPaid(r.id, { date: m.date, txId: m.txId, source: 'report', how: m.how, name: m.name, applied });
+          return r;
+        });
+        if (done) recorded.push({ ref: m.ref, payerName: done.payerName, amount: P.fromAg(done.amountAg), how: m.how });
       } catch (e) {
         failed.push({ ref: m.ref, line: m.line, message: e.message });
       }

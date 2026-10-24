@@ -85,7 +85,9 @@ class WebContentsViewStub {
     this.id = created.views.length + 100;
     this.opts = opts;
     created.views.push(this);
-    this.webContents = chainable({ id: this.id, isDestroyed: () => false, isLoading: () => false, send() {}, reload() {}, executeJavaScript: async () => '{}' });
+    this.webContents = chainable({ id: this.id, isDestroyed: () => false, isLoading: () => false, send() {}, reload() {}, executeJavaScript: async () => '{}',
+      // המחסן כאן לא סומן כ"הועבר": main.js קורא גם את ה-localStorage הישן (ממצא 36) — ריק
+      executeJavaScriptInIsolatedWorld: async () => '{}' });
   }
   setVisible(v) { this.visible = v; }
   setBounds() {}
@@ -169,8 +171,9 @@ test('ממצאים 4–5 (main.js): שחזור גיבוי ישן של השמאו
 test('ממצא 5 (main.js): גיבוי כלכלי ישן — האזהרה מונה את החשבוניות שהופקו אחריו', async () => {
   await boot();
   const db = require('../modules/econ/ipc').getDb();
-  const old = await db.backup();
   const cur = await db.load();
+  // הגיבוי הישן — בלי חשבוניות ובמונה 0, במפורש (בדיקה אחרת שרצה קודם עשויה להשאיר מונה גבוה במסד)
+  const old = { ...(await db.backup()), invoices: [], settings: { ...cur.settings, invoiceSeq: 0 } };
   cur.invoices = [{ id: 'i1', number: 1, date: '2026-10-01', total: 100 }, { id: 'i2', number: 2, date: '2026-10-02', total: 100 }];
   cur.settings = { ...cur.settings, invoiceSeq: 2 };
   await db.save(cur);
@@ -185,8 +188,11 @@ test('ממצא 5 (המסך הכלכלי): שחזור גיבוי ישן מחזי�
   const db = require('../modules/econ/ipc').getDb();
   const ev = { sender: { id: econView().id } };
   await handlers['auth:login'](ev, 'menahel', 'menahel-pass-long-1');
+  // שתי חשבוניות שהופקו "אחרי הגיבוי" — הבדיקה מכינה אותן בעצמה, ולא מסתמכת על הבדיקה הקודמת (רצה גם לבד או בסדר אחר)
   const cur = await db.load();
-  assert.equal(cur.invoices.length, 2, 'מהבדיקה הקודמת');
+  cur.invoices = [{ id: 'i1', number: 1, date: '2026-10-01', total: 100 }, { id: 'i2', number: 2, date: '2026-10-02', total: 100 }];
+  cur.settings = { ...cur.settings, invoiceSeq: 2 };
+  await db.save(cur);
   const oldEcon = { ...(await db.backup()), invoices: [], settings: { ...cur.settings, invoiceSeq: 0 } };
   const enc = BK.encryptBackup(JSON.stringify({ suite: 'SuperSuite', version: 2, scope: 'all', econ: oldEcon, localStorage: {} }), PASS);
   const r = await handlers['data:restoreEncrypted'](ev, enc, PASS);

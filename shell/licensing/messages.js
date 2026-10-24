@@ -16,6 +16,7 @@ const ATTACHMENT_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif':
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx' };
 const MID_RE = /^[A-Za-z0-9_-]{8,32}$/;
+const KINDS = ['text', 'receipt', 'edit', 'delete', 'profile'];
 const INFO = C.utf8('supersuite-message-v1');
 const INFO2 = C.utf8('supersuite-message-v2');
 
@@ -149,11 +150,18 @@ function open(myJwk, envelopeText, contacts, { prekeyPriv } = {}) {
   } catch (e) {
     throw new Error(e && e.message === 'expired' ? 'ההודעה ישנה מדי — המפתח הזמני שלה כבר נמחק' : 'לא ניתן לפענח את ההודעה');
   }
-  const msg = JSON.parse(new TextDecoder().decode(plain));
+  let msg;
+  try { msg = JSON.parse(new TextDecoder().decode(plain)); } catch { throw new Error('הודעה פגומה'); }
+  if (!msg || typeof msg !== 'object' || Array.isArray(msg)) throw new Error('הודעה פגומה');
   const { sig, ...body } = msg;
   if (body.from !== env.from || body.to !== env.to || !L.verifyObject(body, sig, peer.publicKey)) throw new Error('חתימת ההודעה אינה תקינה');
-  const out = { kind: body.kind || 'text', mid: body.mid, mids: body.mids || [], from: body.from, fromName: peer.name, subject: body.subject, text: body.text, sentAt: body.sentAt };
-  // גם השולח (מוכר וחתום) עלול לשלוח תוכן חריג — נבדק שוב כאן
+  // גם השולח (מוכר וחתום) עלול לשלוח תוכן חריג — הכול נבדק שוב כאן, כמו ב-seal (ממצא 49:
+  // text שהוא מספר הפיל את מסך ההודעות והחיפוש לצמיתות)
+  const kind = body.kind == null ? 'text' : body.kind;
+  const mid = cleanMid(body.mid);
+  if (!KINDS.includes(kind) || !mid || typeof body.sentAt !== 'number' || !Number.isFinite(body.sentAt)) throw new Error('הודעה לא תקינה');
+  const out = { kind, mid, mids: kind === 'receipt' && Array.isArray(body.mids) ? body.mids.slice(0, 500).map(cleanMid).filter(Boolean) : [],
+    from: body.from, fromName: peer.name, subject: cleanText(body.subject, MAX_SUBJECT), text: cleanText(body.text, MAX_TEXT), sentAt: body.sentAt };
   if (out.kind === 'edit' || out.kind === 'delete') out.target = cleanMid(body.target);
   if (out.kind === 'profile') out.profile = cleanProfileFields(body.profile);
   if (out.kind === 'text') {

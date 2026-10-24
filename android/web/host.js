@@ -26,7 +26,8 @@
   let tokenResolve;
   const tokenReady = new Promise(r => { tokenResolve = r; });
   window.__ssSetToken = t => { if (!token && typeof t === 'string') { token = t; tokenResolve(); } };
-  const SYNC = ['randomBytes', 'scrypt', 'aesGcm', 'dbOpen', 'dbExec', 'dbRun', 'dbAll', 'writeUri', 'printHtml', 'exit'];
+  const SYNC = ['randomBytes', 'scrypt', 'aesGcm', 'dbOpen', 'dbExec', 'dbRun', 'dbAll', 'writeUri', 'printHtml', 'exit',
+    'treeExists', 'treeMkdirs', 'treeWrite'];
   const raw = {};
   for (const m of SYNC) raw[m] = (...a) => BRIDGE[m](token, ...a);
   const shims = createNodeShims(raw);
@@ -56,7 +57,8 @@
   async function invoke(senderId, channel, args) {
     await ready;
     const fn = handlers.get(channel);
-    if (!fn) throw new Error(`No handler registered for '${channel}'`);
+    // ערוץ שאין לו מקבילה באנדרואיד — הודעה בעברית (ולא השגיאה הגולמית של Electron באנגלית)
+    if (!fn) throw new Error(`Error invoking remote method '${channel}': Error: הפעולה אינה זמינה בגרסת אנדרואיד`);
     try {
       return await fn({ sender: { id: senderId } }, ...args);
     } catch (e) {
@@ -65,39 +67,24 @@
     }
   }
 
-  /* ---------- דיאלוגים וחלון PDF למודול הכלכלי ---------- */
-  const PRINT_LABEL = 'מסך ההדפסה של המכשיר (שמירה כ-PDF)';
-  const MIME = { csv: 'text/csv', pdf: 'application/pdf', vcf: 'text/vcard', json: 'application/json', ssbk: 'application/octet-stream', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
-  const dialog = {
-    async showSaveDialog(a, b) {
-      const opts = (b || a) || {};
-      const name = String(opts.defaultPath || 'file').split(/[\\/]/).pop();
-      const ext = ((opts.filters && opts.filters[0] && opts.filters[0].extensions && opts.filters[0].extensions[0]) || name.split('.').pop() || '').toLowerCase();
-      if (ext === 'pdf') { shims.fs._register(PRINT_LABEL, 'print'); return { canceled: false, filePath: PRINT_LABEL }; }
-      const r = await bridgeAsync('createDocument', name, MIME[ext] || 'application/octet-stream');
-      if (!r || !r.uri) return { canceled: true };
-      shims.fs._register(r.name, r.uri);
-      return { canceled: false, filePath: r.name };
-    },
-    async showOpenDialog() { return { canceled: true, filePaths: [] }; },
-    async showMessageBox(a, b) { window.alert(((b || a) || {}).message || ''); return { response: 0 }; },
-    showErrorBox(title, msg) { window.alert(title + '\n' + msg); }
-  };
-  class PdfWindow {
-    constructor() { this.html = ''; const self = this; this.webContents = { printToPDF: async () => ({ __printHtml: self.html }) }; }
-    async loadURL(u) {
-      const m = /^data:text\/html;charset=utf-8;base64,(.*)$/.exec(u);
-      this.html = m ? shims.Buffer.from(m[1], 'base64').toString('utf8') : '';
-    }
-    destroy() {}
-  }
-  const electronMain = { ipcMain, dialog, BrowserWindow: PdfWindow };
+  /* ---------- דיאלוגים וחלון PDF למודול הכלכלי (node-shims.js) ---------- */
+  const electronMain = Object.assign({ ipcMain }, createElectronShims(shims, { bridgeAsync, alert: m => window.alert(m) }));
 
   /* ---------- מודולים (iframes) ---------- */
   const frames = {};
   let lsSeq = 0;
   const lsPending = new Map();
+  // קריאה בלבד לפי הרישיון בשמאות ובאימונים (main-android.js — syncWriteBlocks; האכיפה ב-frame.js): ההודעה לכל מודול
+  // עוברת בכתובת ה-iframe ביצירה (ss-ro) — כך היא בתוקף כבר בטעינה — ונשלחת למסגרת בכל שינוי ובכל טעינה
+  const writeBlocks = {};
+  const withWriteBlock = (id, entry) => (writeBlocks[id] ? entry + (entry.includes('?') ? '&' : '?') + 'ss-ro=' + encodeURIComponent(writeBlocks[id]) : entry);
+  const postWriteBlock = id => {
+    if (frames[id] && Object.prototype.hasOwnProperty.call(writeBlocks, id)) frames[id].el.contentWindow.postMessage({ ss: 'write-block', message: writeBlocks[id] }, originOf(id));
+  };
+  // פעילות במודול (frame.js — רק "הייתה פעילות", לכל היותר פעם בכמה שניות): main-android.js מאריך בה את הכניסה
+  const activityListeners = [];
   const frameApi = {
+    onActivity(fn) { if (typeof fn === 'function') activityListeners.push(fn); },
     exists: id => !!frames[id],
     ensure(id, entry) {
       if (frames[id]) return frames[id];
@@ -108,11 +95,16 @@
       el.setAttribute('allow', 'clipboard-read; clipboard-write');
       const f = { el, loaded: false, waiters: [] };
       frames[id] = f;
-      el.src = originOf(id) + entry;
+      el.src = originOf(id) + withWriteBlock(id, entry);
       (document.getElementById('ssFrames') || document.body).appendChild(el);
       return f;
     },
     setVisible(id, on) { if (frames[id]) frames[id].el.hidden = !on; },
+    // message — הודעה בעברית (כתיבה נחסמת) או null (מותר)
+    setWriteBlock(id, message) {
+      writeBlocks[id] = typeof message === 'string' && message ? message : null;
+      postWriteBlock(id);
+    },
     whenReady(id) {
       const f = frames[id];
       if (!f) return Promise.reject(new Error('no frame ' + id));
@@ -127,7 +119,8 @@
       const rid = ++lsSeq;
       return new Promise((resolve, reject) => {
         const t = setTimeout(() => { lsPending.delete(rid); reject(new Error('timeout')); }, 15000);
-        lsPending.set(rid, v => { clearTimeout(t); resolve(v); });
+        // התשובה מתקבלת רק מהמסגרת שנשאלה — מודול אחר לא יכול לזייף נתוני גיבוי של מודול אחר
+        lsPending.set(rid, { id, done: v => { clearTimeout(t); resolve(v); } });
         frames[id].el.contentWindow.postMessage({ ss: type, id: rid, data }, originOf(id));
       });
     },
@@ -146,10 +139,18 @@
     const m = e.data;
     if (!m || typeof m.ss !== 'string') return;
     const f = frames[id];
-    if (m.ss === 'ready') { f.loaded = true; f.waiters.splice(0).forEach(r => r()); return; }
-    if (m.ss === 'ls') { const p = lsPending.get(m.id); if (p) { lsPending.delete(m.id); p(m.data); } return; }
+    // בכל טעינה (גם טעינה מחדש של המודול עצמו) — מצב הכתיבה העדכני
+    if (m.ss === 'ready') { f.loaded = true; postWriteBlock(id); f.waiters.splice(0).forEach(r => r()); return; }
+    if (m.ss === 'ls') { const p = lsPending.get(m.id); if (p && p.id === id) { lsPending.delete(m.id); p.done(m.data); } return; }
+    // המודול נקבע לפי event.source — מסגרת לא יכולה לדווח פעילות בשם מודול אחר
+    if (m.ss === 'activity') { for (const fn of activityListeners) { try { fn(id); } catch (err) { console.error(err); } } return; }
     if (m.ss === 'invoke') {
-      invoke(SENDER[id], String(m.channel), Array.isArray(m.args) ? m.args : [])
+      const channel = String(m.channel);
+      // כל מודול — רק הערוצים של ה-preload שלו בשולחן העבודה (MA.moduleMayInvoke); שמאות וארגז הכלים — אף ערוץ
+      const run = MA.moduleMayInvoke(id, channel)
+        ? invoke(SENDER[id], channel, Array.isArray(m.args) ? m.args : [])
+        : Promise.reject(new Error(`Error invoking remote method '${channel}': Error: הפעולה אינה מותרת מתוך המודול הזה`));
+      run
         .then(value => { if (m.id) e.source.postMessage({ ss: 'reply', id: m.id, ok: true, value }, e.origin); })
         .catch(err => { if (m.id) e.source.postMessage({ ss: 'reply', id: m.id, ok: false, error: String(err.message || err) }, e.origin); });
       return;
@@ -184,19 +185,24 @@
 
   // window.shellAPI חייב להיות קיים לפני ש-shell.js נטען; הקריאות עצמן ממתינות ל-ready
   req('shell-preload');
+  const MA = req('main-android');
 
   const UI_KEY = 'ss-ui-settings';
+  const ui = {
+    load() { try { return JSON.parse(localStorage.getItem(UI_KEY) || '{}'); } catch { return {}; } },
+    save(o) { localStorage.setItem(UI_KEY, JSON.stringify(o)); }
+  };
   ready = tokenReady.then(async () => {
     const econ = req('econ-ipc');
-    await econ.initEcon('/data');
-    req('main-android').start({
+    // רישוי כמו בשולחן העבודה: החיבור לשרת הרישוי בלבד (relay-fetch.js ← Java), בלי סנכרון בשבת ויום טוב
+    await econ.initEcon(shims.DATA_ROOT, MA.econOptions({ ui, bridgeAsync, version: info.version, licenseState: () => econ.licenseState() }));
+    MA.start({
       ipcMain, econ, frames: frameApi, emitShell, bridgeAsync, SHELL_ID,
       senderOf: id => SENDER[id],
       econExtras: info.econExtras,
-      ui: {
-        load() { try { return JSON.parse(localStorage.getItem(UI_KEY) || '{}'); } catch { return {}; } },
-        save(o) { localStorage.setItem(UI_KEY, JSON.stringify(o)); }
-      },
+      version: info.version,
+      about: info.about,
+      ui,
       alert: m => window.alert(m),
       confirm: m => window.confirm(m),
       exit: () => raw.exit()

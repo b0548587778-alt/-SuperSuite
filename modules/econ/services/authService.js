@@ -11,6 +11,20 @@ class AuthService {
     this.db = null;
     this.now = () => Date.now(); // ניתן להחלפה בבדיקות
     this.idleMs = DEFAULT_IDLE_MIN * 60 * 1000;
+    this.endListeners = [];
+  }
+
+  // סוף פגישה — יציאה, ניתוק בחוסר פעילות, חסימת המשתמש או כניסה חדשה באותו חלון. fn(senderId, session).
+  // כך ipc.js נועל את מצב מנהל-העל יחד עם הפגישה שפתחה אותו (בדיקת קוד 23.10.2026, ממצא 4)
+  onSessionEnd(fn) {
+    this.endListeners.push(fn);
+    return () => { this.endListeners = this.endListeners.filter(x => x !== fn); };
+  }
+
+  _ended(senderId, session) {
+    for (const fn of this.endListeners) {
+      try { fn(senderId, session); } catch (e) { console.error('session end listener failed', e); }
+    }
   }
 
   initialize(db) {
@@ -44,7 +58,9 @@ async login(username, password) {
   // Helper to set session after login
   // via: 'password' | 'google' — לפי מדיניות ההודעות של Google
   setSession(senderId, user, via = 'password') {
+    const prev = this.sessions.get(senderId);
     this.sessions.set(senderId, { ...user, via, lastSeen: this.now() });
+    if (prev) this._ended(senderId, prev);
   }
 
   // מחזיר את המשתמש המחובר, או null אם אין כניסה או שהפגישה פגה (ואז הפגישה נמחקת)
@@ -53,6 +69,7 @@ async login(username, password) {
     if (!s) return null;
     if (this.now() - s.lastSeen > this.idleMs) {
       this.sessions.delete(senderId);
+      this._ended(senderId, s);
       return null;
     }
     s.lastSeen = this.now();
@@ -80,11 +97,13 @@ async login(username, password) {
 
   // משתמש שנחסם או שתפקידו שונה — כל הפגישות הפתוחות שלו נסגרות מיד (ההרשאות נטענות בכניסה)
   dropUser(userId) {
-    for (const [k, v] of this.sessions) if (v.id === userId) this.sessions.delete(k);
+    for (const [k, v] of this.sessions) if (v.id === userId) { this.sessions.delete(k); this._ended(k, v); }
   }
 
   logout(senderId) {
+    const s = this.sessions.get(senderId);
     this.sessions.delete(senderId);
+    if (s) this._ended(senderId, s);
     return true;
   }
 

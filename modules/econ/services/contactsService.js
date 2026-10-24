@@ -1,5 +1,6 @@
 // Contacts Service - Handles contact management
 const crypto = require('crypto');
+const { editable } = require('../core/editable');
 
 class ContactsService {
   constructor(db) {
@@ -61,7 +62,7 @@ class ContactsService {
     
     const contact = { 
       ...existing.contacts[contactIndex], 
-      ...updates, 
+      ...editable(updates), 
       updatedAt: new Date().toISOString() 
     };
     

@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- בלי הרשאת INTERNET: מערכת ההפעלה עצמה מונעת מהאפליקציה כל גישה לרשת (כלל 6) -->
+<!-- הרשאת INTERNET — לשרת הרישוי בלבד (החלטת הבעלים 23.10.2026): רק RelayClient.java פונה לרשת (POST https://<שרת>/v1).
+     ה-WebView נשאר חסום לרשת (setBlockNetworkLoads + AssetServer), ותעבורה לא מוצפנת (http) חסומה במערכת ההפעלה -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.bunimseller.supersuite">
+
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="SuperSuite"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:supportsRtl="true"
         android:theme="@style/SuperSuite.Launch">
         <activity

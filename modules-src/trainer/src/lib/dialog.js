@@ -11,3 +11,14 @@ export function showMessage(message, opts = {}) {
   const d = ss();
   return d ? d.alert(message, opts) : Promise.resolve(window.alert(message));
 }
+
+// שמירה שנכשלה (אין מקום, צפייה בלבד, הכניסה פגה — lib/storage.js): הודעה אחת, גם כשכמה שמירות נכשלות ברצף
+let saveErrorOpen = null;
+export function showSaveError(message) {
+  if (saveErrorOpen) return saveErrorOpen;
+  saveErrorOpen = Promise.resolve()
+    .then(() => showMessage(message))
+    .catch(() => {})
+    .finally(() => { saveErrorOpen = null; });
+  return saveErrorOpen;
+}

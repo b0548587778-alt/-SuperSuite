@@ -16,6 +16,8 @@ const str = (v, max, label) => {
   return s;
 };
 const monthOf = (date) => String(date).slice(0, 7);
+// היום המקומי (לא UTC — בישראל toISOString מחזיר את אתמול בין חצות ל-03:00)
+const localToday = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
 const addMonths = (ym, n) => {
   const [y, m] = ym.split('-').map(Number);
   const d = new Date(Date.UTC(y, m - 1 + n, 1));
@@ -38,7 +40,7 @@ function validateStandingOrder(input, { fundIds = ['general'], prev = {}, count 
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1e7) throw new Error('הסכום החודשי אינו תקין');
   const dayOfMonth = Number(input.dayOfMonth || 1);
   if (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) throw new Error('יום החיוב חייב להיות בין 1 ל-31');
-  const startMonth = str(input.startMonth, 7, 'חודש ההתחלה') || monthOf(new Date().toISOString());
+  const startMonth = str(input.startMonth, 7, 'חודש ההתחלה') || monthOf(localToday());
   if (!MONTH_RE.test(startMonth)) throw new Error('חודש ההתחלה אינו תקין (YYYY-MM)');
   const endMonth = str(input.endMonth, 7, 'חודש הסיום');
   if (endMonth && !MONTH_RE.test(endMonth)) throw new Error('חודש הסיום אינו תקין (YYYY-MM)');

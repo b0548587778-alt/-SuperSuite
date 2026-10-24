@@ -2,7 +2,7 @@
 'use strict';
 const { ipcRenderer } = require('electron');
 const METHODS = ['randomBytes', 'scrypt', 'aesGcm', 'dbOpen', 'dbExec', 'dbRun', 'dbAll', 'writeUri', 'printHtml', 'exit',
-  'createDocument', 'saveBytes', 'saveText', 'openText'];
+  'createDocument', 'saveBytes', 'saveText', 'openText', 'pickFolder', 'treeExists', 'treeMkdirs', 'treeWrite', 'relayPost'];
 const bridge = {};
 for (const m of METHODS) bridge[m] = (...args) => ipcRenderer.sendSync('sim-bridge', m, ...args);
 window.SuperSuiteBridge = bridge;

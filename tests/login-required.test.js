@@ -18,9 +18,13 @@ require.cache['/__electron_stub_login__.js'] = { id: '/__electron_stub_login__.j
 const ipc = require('../modules/econ/ipc');
 const PUBLIC = ['auth:status', 'auth:setup', 'auth:login', 'auth:logout', 'auth:google-login'];
 
-test('כל ערוץ של המודול הכלכלי (חוץ מערוצי הכניסה) נכשל בלי כניסה', async () => {
+// המסד לפני כל הבדיקות (ולא בתוך הראשונה): כל בדיקה רצה גם לבד או בסדר אחר
+test.before(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-login-'));
   await ipc.initEcon(dir, { googleSignIn: async () => { throw new Error('לא אמור להגיע לדפדפן'); }, openExternal: async () => {} });
+});
+
+test('כל ערוץ של המודול הכלכלי (חוץ מערוצי הכניסה) נכשל בלי כניסה', async () => {
   const channels = Object.keys(handlers).filter(ch => !PUBLIC.includes(ch));
   assert.ok(channels.length > 200, 'נמצאו כל הערוצים (' + channels.length + ')');
   const leaked = [];
@@ -56,20 +60,26 @@ const handlerBody = (ch) => {
 test('main.js: מחסן השמאות והאימונים — בלי כניסה אין נתונים ואין כתיבה', () => {
   const load = handlerBody('secure-store:load');
   assert.match(load, /!econSessionAlive\(\)\) \{ e\.returnValue = \{ state: 'no-session', migrated: true, data: \{\} \}/);
+  // כתיבה בלי כניסה נדחית עם תשובה לעמוד (לא נבלעת בשקט) — ההתנהגות נבדקת ב-tests/audit-secure-store.test.js
   const write = handlerBody('secure-store:write');
-  assert.match(write, /!fromModuleView\(e, mod\) \|\| !econSessionAlive\(\)\) return/);
+  assert.match(write, /e\.returnValue = secureWriteBlock\(mod\) \|\| secureStore\(mod\)\.write\(/);
+  const block = MAIN.slice(MAIN.indexOf('function secureWriteBlock'), MAIN.indexOf('function secureWriteBlock') + 400);
+  assert.match(block, /if \(!econSessionAlive\(\)\) return SecureStore\.rejectWrite\('no-session'/);
 });
 
 test('main.js: ערוצי המעטפת שמחזירים נתונים או מגבים — רק עם כניסה', () => {
   assert.match(handlerBody('shell:backup-all'), /shellGuard\(e, 'data\.backup'\)/);
   assert.match(handlerBody('shell:restore-all'), /shellGuard\(e, 'data\.restore'\)/);
-  assert.match(handlerBody('shell:get-recovery-code'), /shellGuard\(e, 'data\.backup'\)/);
+  // קוד השחזור — מנהל בלבד (החלטת הבעלים 23.10.2026)
+  assert.match(handlerBody('shell:get-recovery-code'), /shellGuard\(e, 'users\.manage'\)/);
   assert.match(handlerBody('shell:get-backup-target'), /if \(!econLoggedIn\(\)\) return null/);
   assert.match(handlerBody('shell:get-backup-status'), /if \(!econLoggedIn\(\)\) return null/);
 });
 
 test('main.js: גיבוי קורא את המחסן ישירות, ומודולים נעולים נטענים מחדש בכניסה וביציאה', () => {
-  const collect = MAIN.slice(MAIN.indexOf('async function collectBackup'), MAIN.indexOf('// ensureView יוצר תצוגות'));
+  // קריאת המודול עברה ל-readModuleItems (משותפת לגיבוי ולמצב שלפני שחזור, ממצא 36) — מיד לפני collectBackup
+  const collect = MAIN.slice(MAIN.indexOf('async function readModuleItems'), MAIN.indexOf('// ensureView יוצר תצוגות'));
+  assert.match(collect, /async function collectBackup[\s\S]*readModuleItems\(id\)/);
   // המחסן נקרא ישירות; מחסן נעול — שגיאה ולא גיבוי ריק (tests/backup-locked-store.test.js)
   assert.match(collect, /const s = secureStore\(id\);[\s\S]*?s\.snapshot\(\)/);
   const fn = MAIN.slice(MAIN.indexOf('function reloadLockedViewsOnSessionChange'), MAIN.indexOf('function onEconAuthChange() {'));

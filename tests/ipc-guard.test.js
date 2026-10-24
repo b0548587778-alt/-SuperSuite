@@ -12,11 +12,17 @@ Module._resolveFilename = function (req, ...rest) { return req === 'electron' ? 
 require.cache['/__electron_stub__.js'] = { id: '/__electron_stub__.js', filename: '/__electron_stub__.js', loaded: true, exports: { ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } } } };
 
 const ipc = require('../modules/econ/ipc');
+const { AuthService: auth } = require('../modules/econ/services/authService');
 const ev = (id) => ({ sender: { id } });
 
+// כל בדיקה מתחילה ממסד חדש ובלי כניסה שנשארה מבדיקה אחרת — רצה גם לבד או בסדר אחר
+async function freshEcon(prefix) {
+  for (const id of [...auth.sessions.keys()]) auth.logout(id);
+  await ipc.initEcon(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+}
+
 test('כל ערוץ מוגן דורש כניסה, ולאחר כניסה הוא עובד', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-ipc-'));
-  await ipc.initEcon(dir);
+  await freshEcon('ss-ipc-');
 
   await assert.rejects(handlers['financial:calculateMetrics'](ev(7), [], [], []), /נדרשת כניסה/);
   await assert.rejects(handlers['acct:getJournal'](ev(7), {}), /נדרשת כניסה/);
@@ -33,9 +39,8 @@ test('כל ערוץ מוגן דורש כניסה, ולאחר כניסה הוא �
   const journal = await handlers['acct:getJournal'](ev(7), {});
   assert.ok(Array.isArray(journal));
 
-  // שינוי סיסמה משתמש במשתמש המחובר (תיקון באג: קודם נשלח מזהה חלון במקום מזהה משתמש)
-  const changed = await handlers['auth:change-password'](ev(7), 'a-very-long-pass-2026', 'another-long-pass-2026');
-  assert.equal(changed, true);
+  // auth:change-password הוסר — אין מסך שמשתמש בו (בדיקת קוד 23.10.2026; tests/audit-permissions.test.js)
+  assert.equal(handlers['auth:change-password'], undefined);
 
   // מחיקת הכניסה סוגרת את הגישה
   await handlers['auth:logout'](ev(7));
@@ -43,8 +48,7 @@ test('כל ערוץ מוגן דורש כניסה, ולאחר כניסה הוא �
 });
 
 test('פעולות חשבונאות נרשמות ביומן ביקורת עם המשתמש המחובר', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-audit-'));
-  await ipc.initEcon(dir);
+  await freshEcon('ss-audit-');
   await handlers['auth:setup'](ev(3), 'auditor_1', 'another-strong-pass-1');
   await handlers['auth:login'](ev(3), 'auditor_1', 'another-strong-pass-1');
   const inv = await handlers['acct:createInvoice'](ev(3), { customer: 'בדיקה', items: [{ unitPrice: 50 }] });

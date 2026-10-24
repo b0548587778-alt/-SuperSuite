@@ -145,7 +145,7 @@ const formSchemas = {
       { name: 'type', label: 'סוג האימון', type: 'select', required: true, kinds: ['workout'], options: [
         { value: 'cardio', label: 'אירובי' },
         { value: 'strength', label: 'כוח' },
-        { value: 'yoga', label: 'יוגה' },
+        { value: 'yoga', label: 'גמישות ומתיחות' }, // הערך נשאר yoga — רשומות קיימות
         { value: 'walking', label: 'הליכה' },
         { value: 'sports', label: 'ספורט' },
         { value: 'other', label: 'אחר' }
@@ -196,7 +196,8 @@ const formSchemas = {
 // צבע לפי סימן: אפס נשאר ניטרלי (לא ירוק)
 const tone = (v) => (Number(v) < 0 ? 'neg' : Number(v) > 0 ? 'pos' : '');
 const money = (n) => '₪' + Number(n || 0).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const isoDate = (d) => d.toISOString().slice(0, 10);
+// תאריך מקומי (לא toISOString — UTC מזיז את היום בין חצות ל-03:00 ואת 1.1 ל-31.12)
+const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const yearStart = () => isoDate(new Date(new Date().getFullYear(), 0, 1));
 const today = () => isoDate(new Date());
 const acctPeriod = () => state.acctPeriod || (state.acctPeriod = { from: yearStart(), to: today() });
@@ -573,22 +574,17 @@ function renderAcctPersonal(d) {
 }
 
 async function handleImportCsv() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.csv,text/csv';
-  input.addEventListener('change', async () => {
-    const file = input.files && input.files[0];
-    if (!file) return;
-    try {
-      const r = await window.systemAPI.importProducts(await file.text());
-      const failed = r.errors.length ? ` · ${r.errors.length} שורות נדחו (שורה ${r.errors.slice(0, 5).map(e => e.line).join(', ')})` : '';
-      showToast(`יובאו ${r.added} מוצרים${failed}`);
-      await switchView(state.currentView);
-    } catch (error) {
-      showError('שגיאה בייבוא: ' + errMsg(error));
-    }
-  });
-  input.click();
+  // UTF-8 או windows-1255 (קובץ Excel בעברית)
+  const text = await pickCsvAnyEncoding();
+  if (text == null) return;
+  try {
+    const r = await window.systemAPI.importProducts(text);
+    const failed = r.errors.length ? ` · ${r.errors.length} שורות נדחו (שורה ${r.errors.slice(0, 5).map(e => e.line).join(', ')})` : '';
+    showToast(`יובאו ${r.added} מוצרים${failed}`);
+    await switchView(state.currentView);
+  } catch (error) {
+    showError('שגיאה בייבוא: ' + errMsg(error));
+  }
 }
 
 async function handleUnpay(id) {
@@ -762,10 +758,15 @@ function showCapturePreview(result) {
     <p class="muted">הרישום עובר את אותה בדיקה של רשומת יומן רגילה (מאזן, חשבונות, תקופה נעולה).</p>`);
   const save = document.getElementById('captureSaveBtn');
   if (save) save.addEventListener('click', async () => {
-    if (!(await askConfirm('לרשום את החשבונית ביומן? הסכומים נלקחים מהטיוטה שהוצגה.'))) return;
+    // כפילות (אותו ספק ואותה אסמכתה) — השרת חוסם בלי אישור מפורש
+    const dup = !!result.duplicate;
+    const question = dup
+      ? 'חשבונית זו של הספק כבר נרשמה ביומן. לרשום אותה שוב? מע"מ התשומות ייכלל פעמיים בדוח המע"מ.'
+      : 'לרשום את החשבונית ביומן? הסכומים נלקחים מהטיוטה שהוצגה.';
+    if (!(await askConfirm(question))) return;
     save.disabled = true;
     try {
-      await window.systemAPI.createEntry(entry);
+      await window.systemAPI.createEntry(dup ? { ...entry, confirmDuplicate: true } : entry);
       closeModal();
       showToast('החשבונית נרשמה ביומן');
       await switchView('acct-journal');
@@ -800,7 +801,13 @@ async function changeAcctPeriod() {
   state.acctPeriod = values;
   await switchView('acct-reports');
 }
-const isoOk = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+// תאריך שקיים בלוח: 2026-02-31 נדחה (regex לבד קיבל אותו)
+const isoOk = (s) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+};
 
 async function handleCancelInvoice(id) {
   if (!(await askConfirm('לבטל את החשבונית? תירשם חשבונית זיכוי שמבטלת את ההכנסה והמע"מ. החשבונית תישאר ברשימה כמבוטלת.'))) return;
@@ -959,7 +966,8 @@ async function handleConvertDoc(id, to) {
   const text = to === 'invoice' ? 'להפיק חשבונית מס מהמסמך? הפריטים והסכומים יועברו כמו שהם, והחשבונית תירשם ביומן.' : 'להמיר את המסמך? הפריטים והסכומים יועברו כמו שהם.';
   if (!(await askConfirm(text))) return;
   try {
-    const r = await window.systemAPI.convertSalesDoc(id, to, { date: today() });
+    // בלי תאריך — השרת קובע את "היום" המקומי (localDay), כדי שהמסמך לא ייפול לתקופת מע"מ אחרת
+    const r = await window.systemAPI.convertSalesDoc(id, to, {});
     showToast(r.kind === 'invoice' ? `הופקה חשבונית ${r.number}` : `נוצר מסמך ${r.number}`);
     await switchView('acct-invoices');
   } catch (error) {
@@ -980,10 +988,14 @@ async function handleCancelDoc(id) {
 
 // זיכוי מלא — אותם סכומים בדיוק; חלקי — שורה אחת בסכום לפני מע"מ, באותו שיעור מע"מ של החשבונית
 async function handleCreditNote(id) {
+  // אחרי זיכוי חלקי: ברירת המחדל — זיכוי חלקי ביתרת הנטו (השרת משלים את יתרת המע"מ עד האגורה)
+  const inv = (await window.systemAPI.getInvoices().catch(() => [])).find(i => i.id === id);
+  const partly = !!(inv && Number(inv.credited) > 0 && Number(inv.netBalance) > 0);
   const values = await askDocFields('חשבונית זיכוי', [
     { name: 'reason', label: 'סיבת הזיכוי', required: true },
-    { name: 'scope', label: 'היקף', options: [['full', 'זיכוי מלא של החשבונית'], ['partial', 'זיכוי חלקי']] },
-    { name: 'amount', label: 'לזיכוי חלקי: סכום לפני מע"מ (₪)', type: 'number' },
+    { name: 'scope', label: 'היקף', value: partly ? 'partial' : '', options: [['full', 'זיכוי מלא של החשבונית'], ['partial', 'זיכוי חלקי']] },
+    { name: 'amount', label: partly ? `לזיכוי חלקי: סכום לפני מע"מ (₪) — היתרה לזיכוי ${money(inv.netBalance)}` : 'לזיכוי חלקי: סכום לפני מע"מ (₪)',
+      type: 'number', value: partly ? String(inv.netBalance) : '' },
     { name: 'date', label: 'תאריך', type: 'date', value: today(), required: true }
   ], 'הפקת זיכוי');
   if (!values) return;
@@ -1179,15 +1191,27 @@ const acctFormSchemas = {
       { name: 'supplierRef', label: 'מספר חשבונית הספק', type: 'text' },
       { name: 'equipment', label: 'סוג התשומה', type: 'select', options: [{ value: '', label: 'לפי החשבון' }, { value: 'no', label: 'תשומות אחרות' }, { value: 'yes', label: 'ציוד (רכוש קבוע)' }] }
     ],
-    create: (d) => {
-      const vat = Number(d.inputVat || 0);
+    create: async (d) => {
+      // באגורות שלמות (כלל ברזל 1) — כל שורה מעוגלת לאגורה והזכות היא סכום השורות,
+      // אחרת 100.005 + 18.005 יוצרים רשומה לא מאוזנת
+      const amountAg = Math.round(Number(d.amount) * 100);
+      const vatAg = Math.round(Number(d.inputVat || 0) * 100);
+      if (!Number.isFinite(amountAg) || !Number.isFinite(vatAg)) throw new Error('הסכום אינו תקין');
+      const vat = vatAg / 100;
       // עם מע"מ תשומות: חובה הוצאה (לפני מע"מ) + חובה מע"מ תשומות, זכות הסכום הכולל
-      const total = Math.round((Number(d.amount) + vat) * 100) / 100;
-      const lines = vat > 0
-        ? [{ account: d.debitAccount, debit: d.amount }, { account: '1300', debit: vat, memo: 'מע"מ תשומות' }, { account: d.creditAccount, credit: total }]
-        : [{ account: d.debitAccount, debit: d.amount }, { account: d.creditAccount, credit: d.amount }];
+      const lines = vatAg > 0
+        ? [{ account: d.debitAccount, debit: amountAg / 100 }, { account: '1300', debit: vat, memo: 'מע"מ תשומות' }, { account: d.creditAccount, credit: (amountAg + vatAg) / 100 }]
+        : [{ account: d.debitAccount, debit: amountAg / 100 }, { account: d.creditAccount, credit: amountAg / 100 }];
       const vatDoc = vat > 0 ? { supplierTaxId: d.supplierTaxId, reference: d.supplierRef, docDate: d.date, ...(d.equipment ? { equipment: d.equipment === 'yes' } : {}) } : undefined;
-      return window.systemAPI.createEntry({ date: d.date, description: d.description, lines, ...(vatDoc ? { vatDoc } : {}) });
+      const entry = { date: d.date, description: d.description, lines, ...(vatDoc ? { vatDoc } : {}) };
+      try {
+        return await window.systemAPI.createEntry(entry);
+      } catch (error) {
+        // חשבונית ספק שכבר נרשמה — רישום נוסף רק באישור מפורש
+        if (!/כבר נרשמה ביומן/.test(errMsg(error))) throw error;
+        if (!(await askConfirm(errMsg(error) + '\n\nלרשום בכל זאת?'))) throw new Error('הרישום בוטל — החשבונית כבר רשומה ביומן');
+        return window.systemAPI.createEntry({ ...entry, confirmDuplicate: true });
+      }
     },
     remove: (id) => window.systemAPI.reverseEntry(id),
     confirmText: 'לבטל את הרשומה? תירשם רשומת ביטול הפוכה; הרשומה המקורית נשמרת לביקורת.'
@@ -1257,8 +1281,10 @@ acctFormSchemas['acct-pricing'] = {
 };
 acctFormSchemas['acct-personal'] = {
   title: 'רשומה אישית/משפחתית',
+  // ברירת המחדל — היום המקומי בכל פתיחה של הטופס (לא היום שבו המסך נטען)
+  prepare: (schema) => { schema.fields.find(f => f.name === 'date').value = today(); },
   fields: [
-    { name: 'date', label: 'תאריך (YYYY-MM-DD)', type: 'date', required: true, value: new Date().toISOString().slice(0, 10) },
+    { name: 'date', label: 'תאריך (YYYY-MM-DD)', type: 'date', required: true },
     { name: 'kind', label: 'סוג', type: 'select', options: [{ value: 'expense', label: 'הוצאה' }, { value: 'income', label: 'הכנסה' }] },
     { name: 'amount', label: 'סכום (₪)', type: 'number', required: true },
     { name: 'category', label: 'קטגוריה (למשל: מזון, חשמל, חינוך)', type: 'text', required: true },

@@ -11,6 +11,12 @@
   document.body.prepend(scrim);
   document.body.prepend(top);
 
+  // כפתורים של אפשרויות שאין להן מקבילה באנדרואיד (main-android.js — NOT_ON_ANDROID): לא מציגים כפתור שלא עושה כלום
+  for (const id of ['ds', 'crashReportBtn', 'userGuideBtn', 'userGuidePdfBtn']) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  }
+
   const drawer = on => document.body.classList.toggle('ss-drawer', on);
   const isOpen = () => document.body.classList.contains('ss-drawer');
   document.getElementById('ssMenu').onclick = () => drawer(!isOpen());

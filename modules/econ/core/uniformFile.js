@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const A = require('./accounting');
 const { isValidIsraeliId } = require('./israeliId');
 const SD = require('./salesDocs');
+const { isDay } = require('./dates');
 
 const SYSTEM_CONST = '&OF1.31&';
 
@@ -174,7 +175,8 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
   if (vatId.length !== 9 || !isValidIsraeliId(vatId)) throw new Error('יש להזין מספר עוסק מורשה תקין (9 ספרות) בהגדרות העסק לפני הפקת קבצים במבנה אחיד');
   const from = String(range && range.from || '');
   const to = String(range && range.to || '');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw new Error('טווח תאריכים לא תקין');
+  // תאריכים שקיימים בלוח בלבד — 2026-02-31 נדחה (פעם regex בלבד)
+  if (!isDay(from) || !isDay(to) || from > to) throw new Error('טווח תאריכים לא תקין');
   const pid = primaryId || newPrimaryId();
   if (!/^[1-9]\d{14}$/.test(pid)) throw new Error('מזהה ראשי לא תקין');
   const stamp = localParts(now);
@@ -370,4 +372,4 @@ function zipSingle(name, content, now = Date.now()) {
   return Buffer.concat([local, fname, data, central, fname, end]);
 }
 
-module.exports = { SOFTWARE, DOC_TYPES, RECORD_LABELS, LAYOUTS, RECORD_LENGTHS, SYSTEM_CONST, toIso8859_8, field, record, newPrimaryId, docTypeOf, vatRateCode, buildUniformFile, crc32, zipSingle };
+module.exports = { SOFTWARE, DOC_TYPES, RECORD_LABELS, LAYOUTS, RECORD_LENGTHS, SYSTEM_CONST, toIso8859_8, field, record, newPrimaryId, docTypeOf, vatRateCode, buildUniformFile, crc32, zipSingle, VAT_HISTORY, legalVatRate };

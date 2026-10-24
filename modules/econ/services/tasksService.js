@@ -1,5 +1,13 @@
 // Tasks Service - Handles task management
 const crypto = require('crypto');
+const { editable } = require('../core/editable');
+
+// היום לפי השעון המקומי — לא UTC (new Date('2026-10-23') הוא חצות UTC, ולכן המשימה סומנה "דחוי!" כבר ביום היעד)
+const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// באיחור: תאריך היעד לפני היום (ביום עצמו — עוד לא), והמשימה לא הושלמה. מחושב בכל קריאה ולא נשמר — אחרת הדגל קפא
+const isOverdue = (t, today = localDay()) => !!(t && t.dueDate && t.status !== 'done' && String(t.dueDate).slice(0, 10) < today);
+// רשומה לשמירה — בלי הדגל המחושב (גם בנתונים ישנים שבהם נשמר)
+const stored = (t) => { const { isOverdue: _, ...rest } = t || {}; return rest; };
 
 class TasksService {
   constructor(db) {
@@ -12,6 +20,12 @@ class TasksService {
   }
 
   async getTasks(senderId) {
+    const shape = await this._raw(senderId);
+    const today = localDay();
+    return { ...shape, tasks: shape.tasks.map(t => ({ ...t, isOverdue: isOverdue(t, today) })) };
+  }
+
+  async _raw(senderId) {
     const data = await this.db.load();
     return this._asShape(data.tasks, senderId);
   }
@@ -50,30 +64,21 @@ class TasksService {
   }
 
   async updateTask(senderId, taskId, updates) {
-    const existing = await this.getTasks(senderId);
+    const existing = await this._raw(senderId);
     const taskIndex = existing.tasks.findIndex(t => t.id === taskId);
     
     if (taskIndex === -1) {
       throw new Error('המשימה לא נמצאה');
     }
     
-    const task = { 
-      ...existing.tasks[taskIndex], 
-      ...updates, 
-      updatedAt: new Date().toISOString() 
-    };
-    
-    // Recalculate isOverdue if dueDate or status changed
-    if (updates.dueDate !== undefined || updates.status !== undefined) {
-      const dueDate = updates.dueDate !== undefined ? updates.dueDate : existing.tasks[taskIndex].dueDate;
-      const status = updates.status !== undefined ? updates.status : existing.tasks[taskIndex].status;
-      task.isOverdue = !!(dueDate && status !== 'done' && new Date(dueDate).getTime() < Date.now());
-    }
-    
-    const updatedTasks = existing.tasks.map((t, index) => {
-      if (index === taskIndex) return task;
-      return t;
+    const changes = editable(updates);
+    const task = stored({
+      ...existing.tasks[taskIndex],
+      ...changes,
+      updatedAt: new Date().toISOString()
     });
+
+    const updatedTasks = existing.tasks.map((t, index) => (index === taskIndex ? task : stored(t)));
     
     const data = await this.db.load();
     const shape = this._asShape(data.tasks, senderId);
@@ -81,11 +86,11 @@ class TasksService {
     data.tasks = shape.tasks;
     await this.db.save(data);
 
-    return task;
+    return { ...task, isOverdue: isOverdue(task) };
   }
 
   async deleteTask(senderId, taskId) {
-    const existing = await this.getTasks(senderId);
+    const existing = await this._raw(senderId);
     const taskIndex = existing.tasks.findIndex(t => t.id === taskId);
     
     if (taskIndex === -1) {
@@ -119,4 +124,4 @@ class TasksService {
   }
 }
 
-module.exports = { TasksService: new TasksService() };
+module.exports = { TasksService: new TasksService(), isOverdue };

@@ -13,11 +13,15 @@ const { publicInfo } = require('./identity');
 const { selfSignedCert, certPublicJwk, sameTlsKey } = require('./cert');
 
 const ALPN = 'supersuite-sync/1';
+// מעטפה בגודל המרבי (Envelope.MAX_BODY, 6MB) מקודדת ב-base64url (×4/3) נכנסת כאן עם מרווח — אחרת הגבול
+// בפועל היה נמוך מזה של המעטפה (בדיקת קוד 23.10.2026). tests/audit-lan-sync.test.js
 const MAX_FRAME = 9 * 1024 * 1024;
 // חיבור צימוד (מכשיר שעוד לא מצומד): בקשה אמיתית קטנה מ-4KB. מסגרת גדולה יותר — ניתוק מיד (בדיקת קוד 22.10.2026, ממצא 4)
 const PAIRING_MAX_FRAME = 16 * 1024;
 const REPLAY_WINDOW = 1024;
-const LIMITS = { handshakeMs: 10000, pairingMs: 30000, idleMs: 120000, maxConnections: 64 };
+// maxPerAddress: חיבורים פתוחים מכתובת אחת — כתובת אחת לא תופסת את כל 64 המקומות בלי אימות (בדיקת קוד 23.10.2026).
+// pairingMs: זמן כולל לחיבור צימוד (ולא רק זמן סרק — בית אחד כל כמה שניות החזיק אותו פתוח לתמיד)
+const LIMITS = { handshakeMs: 10000, pairingMs: 30000, idleMs: 120000, maxConnections: 64, maxPerAddress: 8 };
 // שני המכשירים חייגו זה לזה כמעט באותו רגע (שמעו את המשואה יחד) — נשאר החיבור שיזם בעל המזהה הנמוך (ממצא 8)
 const SIMULTANEOUS_MS = 10000;
 // התעודה לא נושאת את מזהה המכשיר: כל מי שמתחבר לפורט רואה אותה לפני כל אימות (ממצא 10)
@@ -109,7 +113,10 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
   if (!Number.isSafeInteger(st.outSeq) || st.outSeq < 0) st.outSeq = now() * 1000;
   // שמירת המצב נכשלה (דיסק מלא, אנטי-וירוס נועל את הקובץ) — נרשם ביומן, והקורא מחליט; לא חריגה שלא נתפסה
   // מתוך מאזין של חיבור, שהקפיצה את חלון הקריסה בכל הודעה (ממצא 5)
+  // צומת שנסגר (הרשת הופעלה מחדש) לא כותב: המצב שלו ישן, וכתיבה שלו הייתה דורסת את המצב של הצומת הפעיל
+  let closed = false;
   function persist() {
+    if (closed) return false;
     try { onState({ ...st }); return true; }
     catch (err) { log('error', 'שמירת מצב הסנכרון נכשלה', { code: err && err.code }); return false; }
   }
@@ -124,6 +131,8 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
   let server = null;
   const sockets = new Set(); // כל החיבורים הפתוחים — לסגירה מלאה
   const track = (sock) => { sockets.add(sock); sock.once('close', () => sockets.delete(sock)); return sock; };
+  const perAddress = new Map(); // כתובת → חיבורים פתוחים (כולל כאלה שעוד בלחיצת יד)
+  const addressOf = (sock) => String(sock.remoteAddress || '').replace(/^::ffff:/, '');
 
   const tlsBase = {
     cert, key, minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3',
@@ -210,6 +219,9 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
   // מסגרות קטנות בלבד (PAIRING_MAX_FRAME)
   function handlePairingConnection(socket, presented) {
     socket.setTimeout(lim.pairingMs, () => socket.destroy());
+    // זמן כולל: גם צד ששולח בית כל כמה רגעים מנותק בתומו
+    const deadline = setTimeout(() => socket.destroy(), lim.pairingMs);
+    socket.once('close', () => clearTimeout(deadline));
     let stage = 'request';
     let result = null;
     const failReply = (err) => {
@@ -244,17 +256,24 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
       stage = 'done';
       socket.end(encodeFrame({ t: 'pair-ok' }));
       const peer = result.peer;
-      node.emit('pair-request', {
-        peer, code,
-        approve: () => { resetReplay(peer.id); savePeers(Pairing.addPeer(getPeers(), peer, { now: now() })); },
-        reject: () => {},
-      });
+      node.emit('pair-request', { peer, code, approve: () => node.acceptPeer(peer), reject: () => {} });
     }, () => socket.destroy(), PAIRING_MAX_FRAME));
   }
 
   node.listen = ({ host = '0.0.0.0', port = 0 } = {}) => new Promise((resolve, reject) => {
     server = tls.createServer({ ...tlsBase, requestCert: true, handshakeTimeout: lim.handshakeMs }, onSecureConnection);
     server.maxConnections = lim.maxConnections;
+    // לפני לחיצת היד: כתובת שכבר מחזיקה maxPerAddress חיבורים — החדש נסגר מיד, בלי תשובה
+    server.on('connection', (raw) => {
+      const addr = addressOf(raw);
+      const n = perAddress.get(addr) || 0;
+      if (n >= lim.maxPerAddress) return raw.destroy();
+      perAddress.set(addr, n + 1);
+      track(raw).once('close', () => {
+        const left = (perAddress.get(addr) || 1) - 1;
+        if (left > 0) perAddress.set(addr, left); else perAddress.delete(addr);
+      });
+    });
     server.on('tlsClientError', () => {}); // לחיצת יד שנכשלה (גרסה ישנה, בלי תעודה) — מתעלמים בשקט
     server.once('error', reject);
     server.listen(port, host, () => { server.off('error', reject); resolve(server.address()); });
@@ -330,11 +349,15 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
       socket.on('close', () => { clearTimeout(timer); reject(fail('closed', 'המכשיר השני סגר את החיבור — ייתכן שקוד הצימוד כבר נוצל או בוטל. צרו קוד חדש')); });
       socket.write(encodeFrame({ t: 'pair', response: accepted.response }));
     });
-    return {
-      peer: accepted.peer, code: shown,
-      approve: () => { resetReplay(accepted.peer.id); savePeers(Pairing.addPeer(getPeers(), accepted.peer, { now: now() })); },
-      reject: () => {},
-    };
+    // endpoint — הכתובת שאליה התחברנו, לשמירה באישור (בלי לפענח שוב את ההזמנה, שאולי כבר פגה)
+    return { peer: accepted.peer, code: shown, endpoint: target, approve: () => node.acceptPeer(accepted.peer), reject: () => {} };
+  };
+
+  // אישור צימוד (המשתמש השווה את הקודים): החלון של המכשיר מתאפס והוא נשמר ברשימה. שירות שהפעיל את הרשת
+  // מחדש מאז הבקשה קורא לזה על הצומת הפעיל (service.js → acceptPeer)
+  node.acceptPeer = (peer) => {
+    resetReplay(peer.id);
+    savePeers(Pairing.addPeer(getPeers(), peer, { now: now() }));
   };
 
   // ביטול מכשיר: מסומן כמבוטל ונותק מיד
@@ -345,6 +368,7 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
   };
 
   node.close = () => new Promise((resolve) => {
+    closed = true;
     for (const s of [...sessions.values()]) s.close('סגירה');
     for (const sock of sockets) sock.destroy();
     pending = null;

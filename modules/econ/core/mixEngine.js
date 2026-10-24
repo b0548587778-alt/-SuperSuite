@@ -27,6 +27,8 @@ class EngineInputError extends Error {
   }
 }
 
+// היום המקומי (לא UTC — בישראל toISOString מחזיר את אתמול בין חצות ל-03:00)
+const localToday = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
 const isVariable = (type) => type === 'VARIABLE_LINKED' || type === 'VARIABLE_UNLINKED';
 // פריים ומשתנה מעוגן — נספרים לנתח הריבית המשתנה
 const isFloating = (type) => type === 'PRIME' || isVariable(type);
@@ -253,7 +255,7 @@ function aggregate(schedules) {
 function context(ctx) {
   if (!ctx || typeof ctx !== 'object') throw new EngineInputError('ctx', 'חסרים נתוני חישוב');
   const rules = ctx.rules || defaultRuleSet;
-  const asOf = ctx.asOf || new Date().toISOString().slice(0, 10);
+  const asOf = ctx.asOf || localToday();
   const convention = ctx.rateConvention === 'EFFECTIVE' ? 'EFFECTIVE' : 'NOMINAL';
   return { rules, asOf, convention, forecast: createForecast(ctx.forecast) };
 }
@@ -372,7 +374,7 @@ const UNIFORM_BASKET_KINDS = ['UNIFORM_BASKET_1', 'UNIFORM_BASKET_2', 'UNIFORM_B
 
 function buildUniformBasket(kind, params, ctx = {}) {
   const rules = ctx.rules || defaultRuleSet;
-  const asOf = ctx.asOf || new Date().toISOString().slice(0, 10);
+  const asOf = ctx.asOf || localToday();
   const basket = rules.value('boi.451.uniformBaskets', asOf).find(b => b.kind === kind);
   if (!basket) throw new EngineInputError('kind', 'סל אחיד לא מוכר');
   const totalAg = toAg(num(params.principal, 'principal', 'סכום ההלוואה'));
@@ -390,7 +392,7 @@ function buildUniformBasket(kind, params, ctx = {}) {
 
 function calculateUniformBaskets(params, ctx) {
   const rules = ctx.rules || defaultRuleSet;
-  const asOf = ctx.asOf || new Date().toISOString().slice(0, 10);
+  const asOf = ctx.asOf || localToday();
   const defs = rules.value('boi.451.uniformBaskets', asOf);
   return UNIFORM_BASKET_KINDS.map(kind => {
     const def = defs.find(b => b.kind === kind);
@@ -422,7 +424,7 @@ function maxLoanForPayment(input, ctx) {
   if (paymentPerShekel <= 0) throw new EngineInputError('mix', 'לתמהיל אין החזר בחודש הנבחר (למשל גרייס מלא)');
 
   const rules = ctx.rules || defaultRuleSet;
-  const asOf = ctx.asOf || new Date().toISOString().slice(0, 10);
+  const asOf = ctx.asOf || localToday();
   const ltvRule = rules.get('boi.329.maxLtv', asOf);
   const ltvLimit = ltvRule.value[input.buyerType];
   if (ltvLimit === undefined) throw new EngineInputError('buyerType', 'סוג רוכש לא מוכר');
@@ -498,7 +500,7 @@ function approvalToTracks(offer, principalAg) {
 function compareApprovals(offers, principal, ctx) {
   const amountAg = toAg(num(principal, 'principal', 'סכום ההלוואה'));
   if (amountAg <= 0) throw new EngineInputError('principal', 'סכום ההלוואה חייב להיות חיובי');
-  const asOf = ctx.asOf || new Date().toISOString().slice(0, 10);
+  const asOf = ctx.asOf || localToday();
   const rows = (Array.isArray(offers) ? offers : []).map(offer => {
     const expired = Boolean(offer.validUntil) && offer.validUntil < asOf;
     const overMax = offer.maxAmount !== undefined && offer.maxAmount !== '' && offer.maxAmount !== null && amountAg > toAg(offer.maxAmount);

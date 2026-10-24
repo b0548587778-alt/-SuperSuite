@@ -48,7 +48,8 @@ async function makeHarness({ calls, fitnessData, personalFinance, accounting, ta
       // renderTasks קורא data.tasks — השירות מחזיר עטיפה, לא מערך גולמי
       if (name === 'getTasks') return () => Promise.resolve({ tasks: tasks || [] });
       if (name === 'getPersonalFinance') return () => Promise.resolve(personalFinance || {});
-      if (name === 'authStatus') return () => Promise.resolve({ user: { id: 'u1', name: 'משתמש' }, configured: true });
+      // מנהל: התוכנית הפיננסית וההוצאות האישיות פתוחות רק למנהל (ADMIN_ONLY_VIEWS ב-ui/core.js)
+      if (name === 'authStatus') return () => Promise.resolve({ user: { id: 'u1', name: 'משתמש', permissions: ['data.view', 'users.manage'] }, configured: true });
       return (...args) => {
         calls.push({ name, args });
         if (LIST_RETURNS.has(name)) return Promise.resolve([]);

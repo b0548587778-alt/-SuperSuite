@@ -169,7 +169,8 @@ test('ממצא 9: validateClient — גיל, גובה בס"מ, משקל, ימי�
   assert.match(errs({ weight: '-70' }), /משקל צריך להיות בין 20 ל-350/);
   assert.match(errs({ age: '' }), /גיל — שדה חובה/);
   assert.match(errs({ age: '300' }), /גיל צריך להיות בין 5 ל-120/);
-  assert.match(errs({ daysPerWeek: '-1' }), /ימי אימון בשבוע צריך להיות בין 1 ל-7/);
+  // עד 6 — בלי שבת (בדיקת קוד 23.10.2026; פעם עד 7, ו-6/7 נתנו בשקט תוכנית של 5)
+  assert.match(errs({ daysPerWeek: '-1' }), /ימי אימון בשבוע צריך להיות בין 1 ל-6 \(בלי שבת\)/);
   assert.match(errs({ equipment: [] }), /לפחות פריט ציוד אחד/);
 });
 

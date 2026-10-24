@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════
 // Per 100g unless specified. ערכים ממוצעים לפי טבלאות תזונה מקובלות — למוצר מסוים קובעת התווית שלו.
 // kcal, p (protein g), c (carbs g), f (fat g)
+import { ACTIVITY_LEVELS } from './constants.js';
 
 export const FOODS = [
   // === חלבונים ===
@@ -139,58 +140,105 @@ export const FOODS = [
 // ═══════════════════════════════════════════════════════════════════
 
 export function calculateBMR({ weight, height, age, gender }) {
-  if (!weight || !height || !age) return 0;
+  if (!(weight > 0 && height > 0 && age > 0)) return 0;
   // Mifflin-St Jeor
-  if (gender === 'female') {
-    return Math.round(10 * weight + 6.25 * height - 5 * age - 161);
-  }
-  return Math.round(10 * weight + 6.25 * height - 5 * age + 5);
+  const bmr = gender === 'female'
+    ? Math.round(10 * weight + 6.25 * height - 5 * age - 161)
+    : Math.round(10 * weight + 6.25 * height - 5 * age + 5);
+  // קלט מופרך (גיל 200 וכד') נותן מספר שלילי — אין חישוב, לא יעד שלילי
+  return bmr > 0 ? bmr : 0;
 }
 
 export function calculateTDEE(bmr, activityMult) {
   return Math.round(bmr * activityMult);
 }
 
-export function calculateGoalCalories(tdee, goal) {
-  const adjustments = {
-    'weight-loss': -500,    // 500 cal deficit
-    muscle: 300,            // 300 cal surplus
-    strength: 200,          // small surplus
-    endurance: 0,
-    health: 0,
-    rehab: 0,
-    performance: 100,
-    mobility: 0,
-  };
-  return tdee + (adjustments[goal] || 0);
+const GOAL_ADJUST = {
+  'weight-loss': -500,    // 500 cal deficit
+  muscle: 300,            // 300 cal surplus
+  strength: 200,          // small surplus
+  endurance: 0,
+  health: 0,
+  rehab: 0,
+  performance: 100,
+  mobility: 0,
+};
+
+// רצפה ליעד היומי בלי ליווי רפואי: 1,200 קלוריות לאישה, 1,500 לגבר (המלצה מקובלת).
+// הרצפה לא מעלה את היעד מעל התצרוכת — מי שהתצרוכת שלו נמוכה ממנה מקבל את התצרוכת, בלי גירעון.
+// לפני כן אישה של 50 ק"ג, 150 ס"מ, גיל 60, יושבנית — קיבלה יעד של 672 קלוריות (בדיקת קוד 23.10.2026)
+export const MIN_CALORIES = { female: 1200, male: 1500 };
+
+// { calories, limited } — limited: היעד הוגבל ברצפה, והמסך מציג הערה
+export function goalCalories(tdee, goal, { gender } = {}) {
+  const raw = tdee + (GOAL_ADJUST[goal] || 0);
+  const floor = MIN_CALORIES[gender === 'female' ? 'female' : 'male'];
+  if (raw >= floor) return { calories: raw, limited: false };
+  const calories = Math.min(floor, Math.max(tdee, raw));
+  return { calories, limited: calories !== raw };
 }
 
+export function calculateGoalCalories(tdee, goal, opts) {
+  return goalCalories(tdee, goal, opts).calories;
+}
+
+// חלבון לכל היותר 35% מהקלוריות (הטווח המקובל 10%–35%): במשקל גבוה וביעד נמוך החלבון לפי ק"ג
+// "בלע" את כל היעד, והפחמימות יצאו שליליות בדוח למתאמן
+export const MAX_PROTEIN_SHARE = 0.35;
+
 export function calculateMacros(calories, weight, goal) {
-  let proteinPerKg, fatPercent, carbsRest;
+  let proteinPerKg;
 
   // Protein per kg body weight
   if (goal === 'weight-loss' || goal === 'muscle') proteinPerKg = 2.0;
   else if (goal === 'strength' || goal === 'performance') proteinPerKg = 1.8;
   else proteinPerKg = 1.6;
 
-  const protein = Math.round((weight || 70) * proteinPerKg);
+  const cal = calories > 0 ? calories : 0;
+  const protein = Math.min(Math.round((weight || 70) * proteinPerKg), Math.floor((cal * MAX_PROTEIN_SHARE) / 4));
   const proteinCal = protein * 4;
 
   // Fat as % of total
-  fatPercent = goal === 'weight-loss' ? 0.30 : 0.25;
-  const fatCal = calories * fatPercent;
+  const fatPercent = goal === 'weight-loss' ? 0.30 : 0.25;
+  const fatCal = cal * fatPercent;
   const fat = Math.round(fatCal / 9);
 
-  // Carbs fill the rest
-  const carbCal = calories - proteinCal - fatCal;
-  const carbs = Math.round(carbCal / 4);
+  // Carbs fill the rest (לעולם לא שלילי)
+  const carbCal = cal - proteinCal - fatCal;
+  const carbs = Math.max(0, Math.round(carbCal / 4));
 
   return { protein, carbs, fat };
+}
+
+// רמת הפעילות של מתאמן: מהכרטיס; בלי ערך (כרטיס ישן) — "בינוני", מסומן assumed כדי שהמסך יבקש לעדכן
+export function clientActivity(client) {
+  const found = ACTIVITY_LEVELS.find((a) => a.id === client?.activityLevel);
+  if (found) return { ...found, assumed: false };
+  return { ...ACTIVITY_LEVELS.find((a) => a.id === 'moderate'), assumed: true };
+}
+
+// יעדי התזונה של מתאמן — מה שלשונית התזונה ודוח ה-PDF מציגים
+export function clientNutrition(client) {
+  const activity = clientActivity(client);
+  const weight = +client?.weight;
+  const bmr = calculateBMR({ weight, height: +client?.height, age: +client?.age, gender: client?.gender });
+  const tdee = bmr ? calculateTDEE(bmr, activity.mult) : 0;
+  const goal = tdee ? goalCalories(tdee, client.goal, { gender: client.gender }) : { calories: 0, limited: false };
+  const macros = goal.calories ? calculateMacros(goal.calories, weight, client.goal) : { protein: 0, carbs: 0, fat: 0 };
+  return { activity, bmr, tdee, targetCal: goal.calories, limited: goal.limited, macros };
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // Sample meal plans by goal & calorie level
 // ═══════════════════════════════════════════════════════════════════
+
+// סוג כל ארוחה: בשרי / חלבי / פרווה (דג וביצים — פרווה). התפריטים מסודרים בהפרדה בין בשר לחלב:
+// אין חלב בארוחה בשרית, ואחרי ארוחה בשרית — שאר היום פרווה או בשרי (נבדק ב-tests/audit-trainer.test.js)
+export const MEAL_KINDS = {
+  meat: { label: 'בשרי', tone: 'red' },
+  dairy: { label: 'חלבי', tone: 'indigo' },
+  parve: { label: 'פרווה', tone: 'emerald' },
+};
 
 export const MEAL_PLANS = [
   {
@@ -203,27 +251,27 @@ export const MEAL_PLANS = [
         name: 'יום קלאסי',
         meals: [
           {
-            name: 'בוקר (7:00)',
+            name: 'בוקר (7:00)', kind: 'parve',
             items: ['3 חלבונים + 1 ביצה שלמה (אומלט)', '2 פרוסות לחם מחיטה מלאה', '1 עגבנייה ומלפפון', 'קפה שחור'],
             kcal: 380, p: 28, c: 32, f: 14,
           },
           {
-            name: 'ביניים (10:30)',
+            name: 'ביניים (10:30)', kind: 'dairy',
             items: ['יוגורט יווני 0% (200 גרם)', 'חופן שקדים', 'תפוח'],
             kcal: 320, p: 26, c: 28, f: 12,
           },
           {
-            name: 'צהריים (13:00)',
+            name: 'צהריים (13:00)', kind: 'meat',
             items: ['חזה עוף בגריל (150 גרם)', '½ כוס אורז מלא מבושל', 'סלט ירקות גדול עם שמן זית', 'ברוקולי מאודה'],
             kcal: 530, p: 48, c: 50, f: 14,
           },
           {
-            name: 'ביניים (16:00)',
-            items: ['קוטג׳ 5% (150 גרם)', '10 שקדים'],
-            kcal: 240, p: 19, c: 8, f: 16,
+            name: 'ביניים (16:00)', kind: 'parve',
+            items: ['2 ביצים קשות', 'ירקות חתוכים (מלפפון ופלפל)', '10 שקדים'],
+            kcal: 240, p: 16, c: 11, f: 16,
           },
           {
-            name: 'ערב (19:30)',
+            name: 'ערב (19:30)', kind: 'parve',
             items: ['פילה אמנון בתנור (150 גרם)', 'בטטה אפויה (150 גרם)', 'סלט ירוק עם טחינה (כף)'],
             kcal: 420, p: 38, c: 35, f: 12,
           },
@@ -241,29 +289,29 @@ export const MEAL_PLANS = [
         name: 'יום בנייה',
         meals: [
           {
-            name: 'בוקר (7:00)',
+            name: 'בוקר (7:00)', kind: 'dairy',
             items: ['שיבולת שועל 60 גרם עם חלב 1% (200 מ"ל)', 'בננה', '2 כפות חמאת בוטנים', 'אבקת חלבון (מנה)'],
             kcal: 720, p: 48, c: 80, f: 22,
           },
           {
-            name: 'ביניים (10:30)',
+            name: 'ביניים (10:30)', kind: 'parve',
             items: ['5 ביצים (3 שלמות + 2 חלבונים)', '2 פרוסות לחם', 'אבוקדו (חצי)'],
             kcal: 540, p: 32, c: 30, f: 30,
           },
           {
-            name: 'צהריים (13:00)',
+            name: 'צהריים (13:00)', kind: 'meat',
             items: ['חזה עוף (200 גרם)', 'אורז לבן מבושל (150 גרם)', 'סלט עם שמן זית'],
             kcal: 600, p: 60, c: 65, f: 12,
           },
           {
-            name: 'לפני אימון (17:00)',
-            items: ['תפוח', '20 שקדים', 'יוגורט'],
-            kcal: 350, p: 12, c: 38, f: 18,
+            name: 'לפני אימון (17:00)', kind: 'parve',
+            items: ['תפוח', '20 שקדים', 'פרוסת לחם מחיטה מלאה עם ביצה קשה'],
+            kcal: 360, p: 15, c: 39, f: 18,
           },
           {
-            name: 'אחרי אימון (19:30)',
-            items: ['בקר רזה (180 גרם)', 'תפוח אדמה אפוי גדול (250 גרם)', 'סלט ירוק', 'אבקת חלבון'],
-            kcal: 590, p: 60, c: 58, f: 15,
+            name: 'אחרי אימון (19:30)', kind: 'meat',
+            items: ['בקר רזה (200 גרם)', 'תפוח אדמה אפוי גדול (250 גרם)', 'סלט ירוק'],
+            kcal: 590, p: 58, c: 56, f: 15,
           },
         ],
       },
@@ -279,24 +327,25 @@ export const MEAL_PLANS = [
         name: 'שבת',
         meals: [
           {
-            name: 'ארוחת שבת בוקר',
+            name: 'ארוחת שבת בוקר', kind: 'dairy',
             items: ['2 ביצים', 'סלט ירקות חתוכים', 'גבינה בולגרית 5% (50 גרם)', '2 פרוסות לחם / חלה'],
             kcal: 480, p: 28, c: 35, f: 22,
           },
           {
-            name: 'ארוחת שבת צהריים',
-            items: ['חמין מנה (כוס)', 'גפילטע פיש', 'סלט ירקות', 'מנה קטנה של קוגל'],
+            name: 'ארוחת שבת צהריים', kind: 'meat',
+            // דג ובשר אוכלים בנפרד — הדג מנה ראשונה, לפני הבשר
+            items: ['גפילטע פיש (מנה נפרדת בתחילת הסעודה)', 'חמין מנה (כוס)', 'סלט ירקות', 'מנה קטנה של קוגל'],
             kcal: 850, p: 40, c: 75, f: 35,
           },
           {
-            name: 'סעודה שלישית',
-            items: ['חזה הודו פרוס', 'סלט גדול', 'פיתה'],
-            kcal: 380, p: 30, c: 35, f: 10,
+            name: 'סעודה שלישית', kind: 'parve',
+            items: ['סלט טונה במים (100 גרם)', 'סלט גדול', 'פיתה'],
+            kcal: 360, p: 34, c: 43, f: 6,
           },
           {
-            name: 'מוצאי שבת',
-            items: ['יוגורט', 'פרי', '5 שקדים'],
-            kcal: 240, p: 14, c: 28, f: 8,
+            name: 'מוצאי שבת', kind: 'parve',
+            items: ['2 ביצים קשות', 'פרוסת לחם מחיטה מלאה', 'ירקות חתוכים'],
+            kcal: 240, p: 17, c: 19, f: 11,
           },
         ],
         notes: 'חשוב: אכילה איטית והדרגתית. שתיית מים בין מנות. הימנעות ממאכלים מטוגנים.',

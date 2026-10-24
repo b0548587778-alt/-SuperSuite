@@ -53,7 +53,8 @@ test('ביטול רשומה יוצר רשומת היפוך ומאזן נשאר �
   const e = await svc.createEntry({ date: '2026-01-02', description: 'מכירה', lines: [{ account: '1000', debit: 300 }, { account: '4900', credit: 300 }] });
   await svc.reverseEntry(e.id);
   await assert.rejects(svc.reverseEntry(e.id), /כבר בוטלה/);
-  const r = await svc.getReports({ from: '2026-01-01', to: '2026-12-31' });
+  // טווח פתוח: רשומת ההיפוך מקבלת את תאריך היום — טווח סגור ב-2026 נכשל מ-1.1.2027 (בדיקת קוד 23.10.2026, ממצא 44)
+  const r = await svc.getReports({ from: '2026-01-01' });
   assert.equal(r.incomeStatement.totalRevenue, 0);
   assert.equal(r.trialBalance.balanced, true);
 });
@@ -110,7 +111,8 @@ test('ביטול חשבונית: חשבונית זיכוי מאפסת הכנסה
   const inv = await svc.createInvoice({ customer: 'ביטול', date: '2026-02-01', items: [{ unitPrice: 1000 }] });
   await svc.cancelInvoice(inv.id);
   await assert.rejects(svc.cancelInvoice(inv.id), /כבר בוטלה/);
-  const r = await svc.getReports({ from: '2026-01-01', to: '2026-12-31' });
+  // טווח פתוח: חשבונית הזיכוי נרשמת בתאריך היום (ממצא 44 — טווח סגור ב-2026 נכשל מ-1.1.2027)
+  const r = await svc.getReports({ from: '2026-01-01' });
   assert.equal(r.incomeStatement.totalRevenue, 0);
   assert.equal(r.vat.outputVat, 0);
   assert.equal(r.openInvoices, 0);
@@ -170,4 +172,27 @@ test('ביטול חשבונית הוא אטומי: כשלון באמצע לא מ
   // וניתן לבטל אחר כך כרגיל
   await svc.cancelInvoice(inv.id);
   assert.equal((await svc.getInvoices())[0].status, 'cancelled');
+});
+
+// בדיקת קוד 23.10.2026, ממצא 44 ("פצצת תאריך"): הבדיקות של ביטול רשומה וביטול חשבונית נכשלו מ-1.1.2027,
+// כי ההיפוך נרשם בתאריך היום והטווח בבדיקה היה סגור ב-2026. כאן "היום" הוא 5.1.2027 (שעון מוזרק)
+test('ביטול בשנה שאחרי הרשומה: ההיפוך בתאריך היום, וטווח פתוח מאוזן גם בשנה הבאה', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2027, 0, 5, 10, 0) });
+  const { svc } = await freshDb();
+  const e = await svc.createEntry({ date: '2026-12-20', description: 'מכירה', lines: [{ account: '1000', debit: 300 }, { account: '4900', credit: 300 }] });
+  const rev = await svc.reverseEntry(e.id);
+  assert.equal(rev.date, '2027-01-05', 'ההיפוך — בתאריך היום (המקומי)');
+  const open = await svc.getReports({ from: '2026-01-01' });
+  assert.equal(open.incomeStatement.totalRevenue, 0);
+  assert.equal(open.trialBalance.balanced, true);
+  // וזו הסיבה שהטווח הסגור נכשל: ההכנסה ב-2026, ההיפוך ב-2027
+  const closed = await svc.getReports({ from: '2026-01-01', to: '2026-12-31' });
+  assert.equal(closed.incomeStatement.totalRevenue, 300);
+  const inv = await svc.createInvoice({ customer: 'שנה הבאה', date: '2026-12-21', items: [{ unitPrice: 1000 }] });
+  const cancelled = await svc.cancelInvoice(inv.id);
+  assert.equal(cancelled.cancelledAt, '2027-01-05');
+  const r = await svc.getReports({ from: '2026-01-01' });
+  assert.equal(r.incomeStatement.totalRevenue, 0);
+  assert.equal(r.vat.outputVat, 0);
+  assert.equal(r.balanceSheet.balanced, true);
 });

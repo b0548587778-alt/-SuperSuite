@@ -25,6 +25,102 @@ const OPP_CATEGORIES = [
   { k: 'gbook',   name: 'ספר אספנות' },
 ];
 
+// מחיר שהוקלד בחלון (טקסט חופשי) ← שקלים מעוגלים לאגורה, או null. "12,500" = 12500 — פעם parseFloat
+// קטע אותו ל-12, והרווח יצא שגוי (בדיקת קוד 23.10.2026, ממצא 16). הפסיק נקרא כמו בשאר השדות (normalizeNumText)
+function parseMoneyInput(raw) {
+  const s = normalizeNumText(raw);
+  const n = s === null ? NaN : Number(s);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}
+
+// חיפוש בפנקס מבחוץ (חיפוש כללי, אנשי קשר): הסינון נעשה לפי state.ledger.search — פעם רק הטקסט בשדה
+// התעדכן, והרשימה הוצגה בלי סינון. מסנני המצב והקטגוריה מתאפסים — אחרת "נמכר" שנשאר פעיל הסתיר את הפריט שנבחר.
+// איש קשר (sellerKey): הסינון לפי המפתח שלו בלבד (contactKeyOf), והטקסט בשדה רק מראה את מי — הקלדה בשדה מבטלת אותו
+function showLedgerSearch(query, sellerKey = null) {
+  const text = String(query || '');
+  state.ledger.filter = 'all';
+  state.ledger.catFilter = null;
+  state.ledger.sellerKey = sellerKey ? String(sellerKey) : null;
+  state.ledger.search = state.ledger.sellerKey ? '' : text;
+  $$('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+  const input = $('#opp-search');
+  if (input) input.value = text;
+  switchView('ledger');
+}
+
+// פריט פנקס מקובץ JSON, מ-QR או מהאחסון — קלט לא מהימן (ממצא 18). פריט שאינו אובייקט או בלי שם מדולג,
+// ושדה בסוג לא נכון מתוקן או מוסר — כך פריט פגום לא מפיל את המסך הראשי בכל עלייה של המודול.
+// שדות פשוטים נוספים (למשל purchaseId) עוברים כמו שהם; אובייקטים ומערכים — רק המוכרים
+const OPP_STATUSES = ['watching', 'bought', 'sold'];
+function sanitizeOpp(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  const name = typeof o.name === 'string' ? o.name.trim().slice(0, 300) : '';
+  if (!name) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+    if (v === null || typeof v === 'boolean' || typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))) out[k] = v;
+  }
+  const id = typeof o.id === 'number' && Number.isFinite(o.id) ? String(o.id) : o.id;
+  out.id = typeof id === 'string' && /^[\w-]{1,64}$/.test(id) ? id : uid();
+  out.name = name;
+  out.status = OPP_STATUSES.includes(o.status) ? o.status : 'watching';
+  out.category = OPP_CATEGORIES.some(c => c.k === o.category) ? o.category : 'general';
+  // הערות — גם דוח אמיתות מלא (authenticity.js), ולכן תקרה נדיבה
+  out.seller = typeof o.seller === 'string' ? o.seller.slice(0, 500) : '';
+  out.notes = typeof o.notes === 'string' ? o.notes.slice(0, 20000) : '';
+  for (const k of ['asking', 'estimate', 'purchasePrice', 'salePrice']) {
+    const n = typeof o[k] === 'string' && o[k].trim() !== '' ? Number(o[k]) : o[k];
+    if (typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1e12) out[k] = Math.round(n * 100) / 100;
+    else delete out[k];
+  }
+  for (const k of ['created', 'purchaseDate', 'soldDate']) {
+    const t = typeof o[k] === 'string' || typeof o[k] === 'number' ? new Date(o[k]).getTime() : NaN;
+    if (Number.isFinite(t)) out[k] = new Date(t).toISOString(); else delete out[k];
+  }
+  if (!out.created) out.created = new Date().toISOString();
+  out.hasPhoto = o.hasPhoto === true;
+  for (const k of ['reportNo', 'manualOrder']) if (!(Number.isInteger(o[k]) && o[k] >= 0)) delete out[k];
+  if (!(typeof o.reminderAt === 'number' && Number.isFinite(o.reminderAt))) delete out.reminderAt;
+  if (!isImageData(o.photo, IMAGE_LEGACY_MAX_CHARS)) delete out.photo;
+  if (Array.isArray(o.tags)) out.tags = o.tags.filter(t => typeof t === 'string' && t.trim()).map(t => t.slice(0, 50)).slice(0, 50);
+  if (Array.isArray(o.details)) out.details = o.details.filter(d => Array.isArray(d) && d.length === 2).map(([l, v]) => [String(l).slice(0, 200), String(v).slice(0, 500)]).slice(0, 60);
+  if (Array.isArray(o.audioNotes)) {
+    out.audioNotes = o.audioNotes.filter(n => n && typeof n === 'object' && typeof n.id === 'string' && typeof n.data === 'string' && /^data:audio\/[\w.+-]+(;[\w=.+-]+)*;base64,[A-Za-z0-9+/=]+$/.test(n.data))
+      .map(n => ({ id: n.id.slice(0, 64), data: n.data, duration: Number(n.duration) || 0, createdAt: Number(n.createdAt) || 0 }));
+  }
+  // דוח אמיתות שנשמר בפנקס (authenticity.js): קטגוריה, ציון, מסקנה ותוצאה לכל בדיקה — טקסט ומספר בלבד
+  const ar = o.authReport;
+  if (ar && typeof ar === 'object' && !Array.isArray(ar)) {
+    const results = {};
+    if (ar.results && typeof ar.results === 'object' && !Array.isArray(ar.results)) {
+      for (const [k, v] of Object.entries(ar.results).slice(0, 200)) {
+        if (/^[\w-]{1,64}$/.test(k) && typeof v === 'string') results[k] = v.slice(0, 20);
+      }
+    }
+    out.authReport = {
+      category: typeof ar.category === 'string' ? ar.category.slice(0, 64) : '',
+      score: Number.isFinite(Number(ar.score)) ? Number(ar.score) : 0,
+      verdict: typeof ar.verdict === 'string' ? ar.verdict.slice(0, 200) : '',
+      results,
+    };
+  }
+  return out;
+}
+
+// רשימת פריטים ← { items, skipped }: פריטים תקינים בלבד, ומזהה כפול ברשימה עצמה — הראשון נשאר
+function sanitizeOpportunities(list) {
+  const items = [], seen = new Set();
+  let skipped = 0;
+  for (const o of Array.isArray(list) ? list : []) {
+    const s = sanitizeOpp(o);
+    if (!s || seen.has(s.id)) { skipped++; continue; }
+    seen.add(s.id);
+    items.push(s);
+  }
+  return { items, skipped };
+}
+
 function renderLedger() {
   // Stats
   const opps = state.opportunities;
@@ -77,6 +173,11 @@ function renderLedger() {
   if (state.ledger.catFilter) {
     filtered = filtered.filter(o => o.category === state.ledger.catFilter);
   }
+  // "עסקאות" של איש קשר: באותו מפתח שלפיו אנשי הקשר מקובצים (contactKeyOf ב-contacts.js), לא לפי שם —
+  // פעם המילה הראשונה בשם הציגה גם עסקאות של מוכר אחר באותו שם פרטי
+  if (state.ledger.sellerKey) {
+    filtered = filtered.filter(o => o.seller && contactKeyOf(o.seller) === state.ledger.sellerKey);
+  }
   if (state.ledger.search) {
     const q = state.ledger.search.toLowerCase();
     filtered = filtered.filter(o =>
@@ -91,6 +192,8 @@ function renderLedger() {
     case 'profit-desc': filtered.sort((a, b) => oppProfit(b) - oppProfit(a)); break;
     case 'profit-pct':  filtered.sort((a, b) => oppMargin(b) - oppMargin(a)); break;
     case 'name':        filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'he')); break;
+    // סדר ידני (גרירה, inventory.js): סדר הרשימה עצמה. פעם נפל ל"חדש קודם" והגרירה לא השפיעה
+    case 'manual':      break;
     default:            filtered.sort((a, b) => new Date(b.created) - new Date(a.created)); break;
   }
 
@@ -100,7 +203,7 @@ function renderLedger() {
     list.innerHTML = `
       <div class="empty">
         <div class="empty-icon">◎</div>
-        <div>${state.ledger.search || state.ledger.catFilter ? 'אין התאמות' : 'אין הזדמנויות עדיין'}</div>
+        <div>${state.ledger.search || state.ledger.catFilter || state.ledger.sellerKey || state.ledger.filter !== 'all' ? 'אין התאמות' : 'אין הזדמנויות עדיין'}</div>
         <div class="text-faint" style="margin-top:8px;font-size:13px">השתמש בכלי השמאות ושמור פריטים שאתה שוקל לקנות</div>
       </div>
     `;
@@ -240,8 +343,8 @@ async function oppAction(id, action) {
   if (action === 'bought') {
     const actualPrice = await ssDialog.prompt(`כמה שילמת בפועל? (מבוקש: ₪${fmt0(opp.asking)})`, String(opp.asking || ''));
     if (actualPrice === null) return;
-    const price = parseFloat(actualPrice);
-    if (!price || price <= 0) { toast('מחיר לא תקין', 'error'); return; }
+    const price = parseMoneyInput(actualPrice);
+    if (price === null) { toast('מחיר לא תקין', 'error'); return; }
     opp.status = 'bought';
     opp.purchasePrice = price;
     opp.purchaseDate = new Date().toISOString();
@@ -254,8 +357,8 @@ async function oppAction(id, action) {
   if (action === 'sold') {
     const salePrice = await ssDialog.prompt(`באיזה מחיר מכרת? (קנית ב-₪${fmt0(opp.purchasePrice)})`, '');
     if (salePrice === null) return;
-    const price = parseFloat(salePrice);
-    if (!price || price <= 0) { toast('מחיר לא תקין', 'error'); return; }
+    const price = parseMoneyInput(salePrice);
+    if (price === null) { toast('מחיר לא תקין', 'error'); return; }
     opp.status = 'sold';
     opp.salePrice = price;
     opp.soldDate = new Date().toISOString();
@@ -348,9 +451,10 @@ let photoRemoved = false; // בעריכה: המשתמש הסיר את התמונ
 
 async function saveOppFromForm() {
   const name = $('#no-name').value.trim();
-  const asking = parseFloat($('#no-asking').value);
-  const estimate = parseFloat($('#no-est').value);
-  if (!name || !asking) { toast('נדרש שם ומחיר', 'error'); return; }
+  // מעוגל לאגורה, כמו בשמירה מהשמאות (roundMoney ב-calc.js)
+  const asking = roundMoney(parseFloat($('#no-asking').value));
+  const estimate = roundMoney(parseFloat($('#no-est').value));
+  if (!name || !(asking > 0)) { toast('נדרש שם ומחיר', 'error'); return; }
 
   const editId = $('#no-add').dataset.editId;
   if (editId) {
@@ -417,10 +521,11 @@ function saveCurrentAsOpp(category) {
       const w = parseFloat($('#g-weight').value);
       const unit = $('#g-unit').value;
       const spotUsd = g.metal === 'gold' ? state.prices.gold : state.prices.silver;
-      const meltIls = goldValue({ weight: w, unit, purity: g.purity, spotUsd, usdIls: state.prices.usdIls, scrap: false }).meltIls;
+      // כמו במסך: במצב סקראפ — מחיר הרכישה כסקראפ (70%), אחרת שווי ההתכה
+      const scrap = !!$('#g-scrap-mode')?.checked;
       opp.name = `${g.metal === 'gold' ? 'זהב' : 'כסף'} ${(g.purity*1000).toFixed(0)}/1000 - ${w}${unit}`;
       opp.asking = g.asking;
-      opp.estimate = meltIls;
+      opp.estimate = goldValue({ weight: w, unit, purity: g.purity, spotUsd, usdIls: state.prices.usdIls, scrap }).payIls;
       break;
     }
     case 'diamond': {
@@ -436,7 +541,8 @@ function saveCurrentAsOpp(category) {
       const w = state.watch;
       opp.name = `${WATCH_BRANDS.find(b => b.k === w.brand)?.name || ''} ${w.model || ''}`.trim();
       opp.asking = w.asking;
-      opp.estimate = w.retail * (WATCH_CONDITIONS[w.condition]?.mult ?? 1) * (WATCH_PAPERS[w.papers]?.mult ?? 1);
+      // כמו במסך: הרווח מחושב מול מחיר הרכישה לסוחר
+      opp.estimate = watchValue(w).wholesale;
       break;
     }
     case 'antique': {
@@ -470,31 +576,29 @@ function saveCurrentAsOpp(category) {
       const p = state.phone;
       opp.name = `${PHONE_BRANDS.find(b => b.k === p.brand)?.name} ${p.model}`.trim();
       opp.asking = p.asking;
-      const cond = PHONE_CONDITIONS.find(c => c.k === p.condition);
-      opp.estimate = p.retail * (cond?.mult ?? 1) * (PHONE_BRANDS.find(b => b.k === p.brand)?.liquidity ?? 0.5);
+      opp.estimate = phoneValue(p).estValue;
       break;
     }
     case 'art': {
       const a = state.art;
       opp.name = a.artist || 'יצירת אומנות';
       opp.asking = a.asking;
-      opp.estimate = a.market;
+      opp.estimate = artValue(a).estValue;
       break;
     }
     case 'rug': {
       const rg = state.rug;
       opp.name = `שטיח ${RUG_REGIONS.find(r => r.k === rg.region)?.name} ${rg.length}×${rg.width}`;
       opp.asking = rg.asking;
-      opp.estimate = rg.asking ? rg.asking * 1.5 : null; // rough
+      opp.estimate = rugValue(rg).estValue;
       break;
     }
     case 'scrap': {
       const s = state.scrap;
       opp.name = SCRAP_TYPES.find(t => t.k === s.type)?.name + ` ${s.weight}${s.unit}`;
       opp.asking = s.asking;
-      const scrapType = SCRAP_TYPES.find(t => t.k === s.type);
-      const weightKg = s.unit === 'ton' ? s.weight * 1000 : s.weight;
-      opp.estimate = weightKg * scrapType.pricePerLb * state.prices.usdIls / POUND * scrapType.dealerMargin;
+      // כמו במסך: מה שהסוחר משלם, לפי המחיר לק"ג שהוקלד (אם הוקלד)
+      opp.estimate = scrapValue(s, state.prices.usdIls)?.dealerPay;
       break;
     }
     case 'realestate': {
@@ -553,22 +657,10 @@ function saveCurrentAsOpp(category) {
     }
     case 'wine': {
       const w = state.wine;
-      const region = WINE_REGIONS.find(r => r.k === w.region);
       opp.name = `${w.name || 'יין'} ${w.vintage || ''}`.trim();
       opp.asking = w.asking;
       const baseRetail = parseFloat(document.querySelector('#wn-retail')?.value) || 0;
-      const age = w.vintage ? new Date().getFullYear() - w.vintage : 0;
-      let ageMult = 1;
-      if (age >= 30) ageMult = 2.5;
-      else if (age >= 20) ageMult = 1.8;
-      else if (age >= 10) ageMult = 1.3;
-      else if (age >= 5) ageMult = 1.05;
-      let scoreMult = 1;
-      if (w.score >= 98) scoreMult = 3;
-      else if (w.score >= 95) scoreMult = 2;
-      else if (w.score >= 92) scoreMult = 1.4;
-      else if (w.score >= 88) scoreMult = 1.1;
-      opp.estimate = baseRetail * (region?.base ?? 1) * ageMult * scoreMult * (w.kosher ? 1.15 : 1);
+      opp.estimate = wineValue(w, baseRetail).estValue;
       break;
     }
     case 'bag': {
@@ -600,7 +692,10 @@ function saveCurrentAsOpp(category) {
     }
   }
 
-  if (!opp.name || !opp.asking) {
+  // סכומים ביומן — מעוגלים לאגורה (פעם נשמרו בנקודה צפה גולמית)
+  opp.asking = roundMoney(opp.asking);
+  opp.estimate = roundMoney(opp.estimate);
+  if (!opp.name || !(opp.asking > 0)) {
     toast('חסרים פרטים - הזן שם ומחיר', 'error');
     return;
   }

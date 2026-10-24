@@ -3,20 +3,39 @@
 // כל בקשה חתומה במפתח המערכת; התוכן עצמו (רישיון / אישור / הודעות) חתום בנפרד ונבדק בקליטה.
 const L = require('./license');
 const C = require('./crypto-lite');
+const CK = require('./checkin');
 
 const TIMEOUT_MS = 15000;
 // השרת מחזיר את התיבה בחלקים (more). עד כאן בסבב אחד — השאר בסנכרון הבא
 const FETCH_MAX_PAGES = 25;
+// חלק אחד מהשרת: עד 2MB של הודעות + הודעה אחת גדולה. השרת אינו מהימן — גוף גדול יותר נדחה
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+// אישור קבלה (ack): עד כאן הודעות בבקשה אחת — מזהה + תמצית לכל אחת, הרבה מתחת לתקרת הבקשה בשרת
+const ACK_BATCH = 1000;
 
-// כתובת מותרת: https בלבד, או http ל-localhost (פיתוח ובדיקות)
-function validateUrl(url) {
-  let u;
-  try { u = new URL(String(url || '').trim()); } catch { throw new Error('כתובת השרת אינה תקינה'); }
-  const local = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
-  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) throw new Error('כתובת השרת חייבת להתחיל ב-https://');
-  if (u.username || u.password) throw new Error('כתובת השרת לא יכולה לכלול שם משתמש או סיסמה');
-  return u.origin;
+// קריאת גוף התשובה עם תקרה (בלי getReader — למשל fetch מדומה — json() כרגיל, בתוך אותו זמן קצוב)
+async function readJsonCapped(res) {
+  const len = Number(res.headers && typeof res.headers.get === 'function' ? res.headers.get('content-length') : NaN);
+  if (Number.isFinite(len) && len > MAX_RESPONSE_BYTES) throw new Error('too-big');
+  const reader = res.body && typeof res.body.getReader === 'function' ? res.body.getReader() : null;
+  if (!reader) return res.json();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_RESPONSE_BYTES) { try { await reader.cancel(); } catch { /* */ } throw new Error('too-big'); }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { all.set(c, at); at += c.length; }
+  return JSON.parse(new TextDecoder().decode(all));
 }
+
+// כתובת מותרת: https בלבד, או http ל-localhost (פיתוח ובדיקות). אותה בדיקה כמו הכתובת שבתעודת השרת (checkin.js)
+const validateUrl = CK.originOf;
 
 function randomNonce() {
   const b = new Uint8Array(18);
@@ -26,7 +45,7 @@ function randomNonce() {
 }
 
 // signer = מפתח פרטי (JWK) של התיבה. fetchImpl מוזרק לבדיקות
-function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now }) {
+function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now, timeoutMs = TIMEOUT_MS }) {
   const origin = validateUrl(url);
   if (typeof fetchImpl !== 'function') throw new Error('אין גישה לרשת בגרסה זו');
 
@@ -34,41 +53,78 @@ function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now }) {
     const pub = L.publicOf(signer);
     const req = { pub, ts: clock(), nonce: randomNonce(), op, payload };
     req.sig = L.signObject({ pub, ts: req.ts, nonce: req.nonce, op, payload }, signer);
+    // זמן קצוב אחד לכל הבקשה — גם לקריאת גוף התשובה: שרת שעונה בכותרות ואז "מטפטף" לא תוקע את הסנכרון
+    // (בדיקת קוד 23.10.2026, ממצא 39)
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), TIMEOUT_MS) : null;
-    let res;
+    let timer = null;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => { if (ctrl) ctrl.abort(); reject(new Error('timeout')); }, timeoutMs);
+    });
     try {
-      res = await fetchImpl(origin + '/v1', { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(req), signal: ctrl ? ctrl.signal : undefined, redirect: 'error' });
-    } catch {
-      throw new Error('אין חיבור לשרת הרישוי. בדקו את החיבור לאינטרנט ואת כתובת השרת');
-    } finally { if (timer) clearTimeout(timer); }
-    let data;
-    try { data = await res.json(); } catch { throw new Error('תשובה לא תקינה משרת הרישוי'); }
-    if (!res.ok || !data || !data.ok) throw new Error((data && typeof data.error === 'string' && /[֐-׿]/.test(data.error)) ? data.error : 'שרת הרישוי דחה את הבקשה');
-    return data;
+      let res;
+      try {
+        res = await Promise.race([fetchImpl(origin + '/v1', { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(req), signal: ctrl ? ctrl.signal : undefined, redirect: 'error' }), deadline]);
+      } catch {
+        throw new Error('אין חיבור לשרת הרישוי. בדקו את החיבור לאינטרנט ואת כתובת השרת');
+      }
+      let data;
+      try { data = await Promise.race([readJsonCapped(res), deadline]); } catch (e) {
+        throw new Error(e && e.message === 'timeout' ? 'שרת הרישוי לא השלים את התשובה בזמן — נסו שוב מאוחר יותר' : 'תשובה לא תקינה משרת הרישוי');
+      }
+      if (!res.ok || !data || !data.ok) throw new Error((data && typeof data.error === 'string' && /[֐-׿]/.test(data.error)) ? data.error : 'שרת הרישוי דחה את הבקשה');
+      return data;
+    } finally { clearTimeout(timer); }
+  }
+
+  // משיכה בחלקים. challenge — אתגר אקראי לבדיקה החתומה (checkin.js): נשלח בחלק הראשון, והשרת מחזיר עליו
+  // תשובה חתומה במפתח השרת יחד עם התעודה שלו. בלי challenge, או שרת ישן — attestation = null
+  async function fetchMail(signer, { challenge } = {}) {
+    const all = [];
+    const seen = new Set();
+    let after = null;
+    let attestation = null;
+    for (let page = 0; page < FETCH_MAX_PAGES; page++) {
+      let r;
+      const payload = after ? { after } : (challenge ? { checkin: challenge } : {});
+      try { r = await call(signer, 'fetch', payload); } catch (e) { if (!page) throw e; break; }
+      if (!page && challenge && r.checkin && typeof r.relayCert === 'string') attestation = { checkin: r.checkin, cert: r.relayCert };
+      const msgs = Array.isArray(r.messages) ? r.messages : [];
+      for (const m of msgs) if (m && !seen.has(m.id)) { seen.add(m.id); all.push(m); }
+      if (r.more !== true || !msgs.length) break;
+      after = msgs[msgs.length - 1].id;
+    }
+    return { messages: all, attestation };
   }
 
   return {
     origin,
-    send: (signer, items) => call(signer, 'send', { items }),
+    // receipt — אתגר לאישור מסירה חתום (checkin.js, verifySendReceipt): השרת חותם על כל הודעה שנשמרה. שרת ישן מתעלם
+    send: (signer, items, { receipt } = {}) => call(signer, 'send', receipt ? { items, receipt } : { items }),
     // כל חלק בזמן קצוב משלו, כך שתיבה גדולה לא נתקעת (בדיקת קוד 22.10.2026, ממצא 1ד). חלק שנכשל אחרי
     // הראשון — מטפלים במה שכבר הגיע. שרת ישן מחזיר הכול בלי more
-    fetch: async (signer) => {
-      const all = [];
-      const seen = new Set();
-      let after = null;
-      for (let page = 0; page < FETCH_MAX_PAGES; page++) {
-        let r;
-        try { r = await call(signer, 'fetch', after ? { after } : {}); } catch (e) { if (!page) throw e; break; }
-        const msgs = Array.isArray(r.messages) ? r.messages : [];
-        for (const m of msgs) if (m && !seen.has(m.id)) { seen.add(m.id); all.push(m); }
-        if (r.more !== true || !msgs.length) break;
-        after = msgs[msgs.length - 1].id;
+    fetch: async (signer) => (await fetchMail(signer)).messages,
+    fetchMail,
+    // מחיקת הודעות שטופלו. list — ההודעות עצמן (כפי שהתקבלו) או מזהים. עם הודעות נשלחת גם התמצית של כל אחת
+    // (items): השרת מוחק רק הודעה שהתוכן השמור שלה זהה למה שהלקוח קיבל — שרת ביניים שהחליף תוכן של הודעה
+    // (למשל השבתה) בתוכן ישן לא גורם למחיקת ההודעה האמיתית (ממצא 27). ids — לשרת ישן
+    // בחלקים של עד ACK_BATCH — הבקשה נשארת קטנה מהתקרה של השרת (512KB)
+    ack: async (signer, list) => {
+      const objects = list.every(m => m && typeof m === 'object');
+      let removed = 0;
+      for (let i = 0; i < list.length; i += ACK_BATCH) {
+        const part = list.slice(i, i + ACK_BATCH);
+        const ids = part.map(m => String(objects ? m.id : m));
+        const r = await call(signer, 'ack', objects ? { ids, items: part.map(m => [String(m.id), CK.messageDigest(m)]) } : { ids });
+        removed += Number(r.removed) || 0;
       }
-      return all;
+      return { ok: true, removed };
     },
-    ack: (signer, ids) => (ids.length ? call(signer, 'ack', { ids }) : Promise.resolve({ ok: true })),
+    // הוכחה חתומה בלבד (בלי הודעות) — לפני שליחת פרטי הרשמה או פתיחת דף תשלום. null — שרת שלא החזיר הוכחה
+    hello: async (signer, challenge) => {
+      const r = await call(signer, 'checkin', { checkin: challenge });
+      return r.checkin && typeof r.relayCert === 'string' ? { checkin: r.checkin, cert: r.relayCert } : null;
+    },
     setOffer: (signer, offer) => call(signer, 'setOffer', { offer }),
     setPrekey: (signer, bundle) => call(signer, 'setPrekey', { bundle }),
     getPrekey: async (signer, id) => (await call(signer, 'getPrekey', { id })).bundle,
@@ -81,4 +137,4 @@ function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now }) {
 // מזהה התיבה של מפתח — זהה למזהה המערכת (keyId)
 const mailboxOf = (publicJwk) => L.keyId(publicJwk);
 
-module.exports = { createRemote, validateUrl, mailboxOf };
+module.exports = { createRemote, validateUrl, mailboxOf, randomNonce, MAX_RESPONSE_BYTES, TIMEOUT_MS };

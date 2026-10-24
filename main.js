@@ -13,6 +13,7 @@ const DbKey = require('./shell/db-key');
 const SecureStore = require('./shell/secure-store');
 const TrainerCheck = require('./shell/trainer-backup-check');
 const ModCounters = require('./shell/module-counters');
+const Chat = require('./shell/licensing/chat');
 const { issuedAfter } = require('./modules/econ/core/database');
 const CodeGuard = require('./shell/code-guard');
 const PlainBk = require('./shell/plain-backups');
@@ -27,7 +28,8 @@ const { createLogger } = require('./shell/logger');
 const { createCrashGuard, MODULE_NAMES } = require('./shell/crash');
 // יומן תקלות ורשת ביטחון לקריסות (PLAN.md 2.1–2.2) — מותקנים לפני כל דבר אחר, כדי לתפוס גם תקלה בעלייה
 const logger = createLogger({ dir: app.getPath('userData') });
-const crash = createCrashGuard({ logger, dialog, app, getWin: () => win, version: app.getVersion ? String(app.getVersion()) : '' });
+const crash = createCrashGuard({ logger, dialog, app, getWin: () => win, version: app.getVersion ? String(app.getVersion()) : '',
+  beforeExit: () => flushPendingWrites() });
 crash.installProcessHandlers();
 // בדיקת עלייה של הגרסה הארוזה (PLAN.md 3.5, CI בלבד): רק עם תיקיית נתונים נפרדת — לא נוגעים בנתונים אמיתיים
 const Smoke = require('./shell/smoke');
@@ -166,6 +168,9 @@ function sendCmd(cmd) {
   if (win && !win.isDestroyed()) win.webContents.send('shell:cmd', cmd);
 }
 
+// פעולות מכוונות בלבד (לא תזוזת עכבר): לחיצה, גלגלת, מקש, מגע וגלילה. פעם בכמה שניות לכל היותר
+const ACTIVITY_INPUTS = new Set(['mouseDown', 'mouseWheel', 'contextMenu', 'rawKeyDown', 'keyDown', 'touchStart', 'gestureScrollBegin', 'gestureScrollUpdate', 'gestureTap', 'pointerDown']);
+const ACTIVITY_THROTTLE_MS = 2000;
 function wireView(id, wc) {
   wc.setWindowOpenHandler(({ url }) => { if (isExternal(url)) shell.openExternal(url); return { action: 'deny' }; });
   wc.on('will-navigate', (e, url) => {
@@ -173,11 +178,21 @@ function wireView(id, wc) {
     e.preventDefault();
     if (isExternal(url)) shell.openExternal(url);
   });
+  // עבודה במודול שדורש כניסה נחשבת פעילות — אחרת הניתוק האוטומטי מוציא באמצע עבודה.
+  // גם עכבר, גלגלת ומגע (input-event), לא רק מקלדת: עבודה בעכבר בלבד נותקה אחרי 15 דקות והכתיבות נדחו (ממצא 37)
+  let lastTouch = 0;
+  const touchActivity = () => {
+    if (!loginGate.isLocked(id) || !views.econ || !econ || !econ.touchSession) return;
+    const t = Date.now();
+    if (t - lastTouch < ACTIVITY_THROTTLE_MS) return;
+    lastTouch = t;
+    econ.touchSession(views.econ.webContents.id);
+  };
   wc.on('before-input-event', (e, input) => {
-    // עבודה במודול שדורש כניסה נחשבת פעילות — אחרת הניתוק האוטומטי מוציא באמצע עבודה
-    if (loginGate.isLocked(id) && views.econ && econ && econ.touchSession) econ.touchSession(views.econ.webContents.id);
+    touchActivity();
     if (handleShortcut(input, wc)) e.preventDefault();
   });
+  wc.on('input-event', (_e, input) => { if (input && ACTIVITY_INPUTS.has(input.type)) touchActivity(); });
   // מסך שקרס או נתקע — הודעה וטעינה מחדש של המודול בלבד (PLAN.md 2.1)
   crash.wireContents(id, wc, () => { if (!wc.isDestroyed()) wc.loadURL(ENTRY[id]); });
   CodeGuard.wireDevToolsGuard(wc, app.isPackaged);
@@ -412,6 +427,38 @@ function openUserGuide() {
   guideWin.loadFile(USER_GUIDE);
 }
 function closeSplash() { if (splash) { splash.close(); splash = null; } }
+// בזמן העלייה (עד שהחלון הראשי נוצר) סגירת כל החלונות אינה יציאה: מסך הפתיחה נסגר לפני חלון קוד השחזור
+// ולפני הודעות ההתאוששות, ו-window-all-closed סגר את התוכנה לפניהם (בדיקת קוד 23.10.2026, ממצא 2)
+let booting = true;
+// חלונות העלייה שהמשתמש צריך לראות: חלון קוד השחזור, וחלונות ההודעה (bootDialog) שפתוחים כרגע
+let bootWindow = null;
+let bootPrompts = 0;
+// חלון הודעה בזמן העלייה: מסך הפתיחה נסגר לפניו (אחרת ההודעה מוסתרת מאחוריו)
+async function bootDialog(opts) {
+  closeSplash();
+  bootPrompts++;
+  try { return await dialog.showMessageBox(opts); } finally { bootPrompts--; }
+}
+// הפעלה נוספת לפני שהחלון הראשי קיים (עלייה ארוכה — למשל המרת המסד להצפנה): חלון קוד השחזור לחזית; אם אין שום
+// חלון גלוי (מסך הפתיחה נסגר אחרי MAX_MS) — מסך הפתיחה מוצג שוב, כדי שלא ייראה שהתוכנה לא נפתחה (בדיקת קוד, ממצא 2)
+function onSecondInstance() {
+  const front = (w) => { if (w.isMinimized()) w.restore(); w.focus(); };
+  if (win) { front(win); return; }
+  if (!booting || smoke) return;
+  if (bootWindow && !bootWindow.isDestroyed()) { front(bootWindow); return; }
+  if (!bootPrompts && !(splash && splash.isOpen())) openSplash();
+}
+// תקלה בלתי צפויה בעלייה, לפני שהחלון הראשי נוצר: הודעה ויציאה — אחרת התהליך נשאר פתוח בלי חלון
+function bootFailed(err) {
+  logger.error('boot', err);
+  // בדיקת עלייה: השגיאה נרשמת ב-smoke.json (ויציאה 1), במקום יציאה בלי דוח
+  if (smoke) { smoke.add('boot', (err && err.stack) || String(err)); smoke.finish('boot-failed'); return; }
+  if (!booting) return;
+  closeSplash();
+  booting = false;
+  try { dialog.showErrorBox('שגיאה בהפעלת התוכנה', 'התוכנה לא הצליחה לעלות. נסו להפעיל אותה שוב; אם התקלה חוזרת — פנו לתמיכה.\n\nנתיב: ' + app.getPath('userData')); }
+  finally { app.quit(); }
+}
 
 function createWindow() {
   const st = loadState();
@@ -451,17 +498,56 @@ function waitLoaded(wc) {
 // scope: 'all' או שם מודול בודד ('econ' | 'shamai' | 'trainer' | 'tools')
 // כשל בקריאת הכספים = כשל של הגיבוי כולו (code: 'econ-read-failed'): קודם נכתב גיבוי בלי הכספים, הסטטוס
 // הראה "הצליח", והסבב האוטומטי מחק בגללו את הגיבוי התקין הישן ביותר. עכשיו לא נכתב דבר ולא נמחק דבר
-// כך גם כשל בקריאת מודול (code: 'module-read-failed') — קודם נשמר {} בשקט, והגיבוי נראה שלם בלי נתוני המודול
+// כך גם כשל בקריאת מודול (code: 'module-read-failed') — קודם נשמר {} בשקט, והגיבוי נראה שלם בלי נתוני המודול.
+// וכך גם תיבת ההודעות (chat) — חלק מהגיבוי המלא
+const BACKUP_PART_NAMES = { ...MODULE_NAMES, chat: 'תיבת ההודעות' };
 function moduleReadError(id, cause, locked = false) {
   logger.error('backup-module-read', cause);
+  const name = BACKUP_PART_NAMES[id] || id;
   const err = new Error(locked
-    ? `הנתונים המוצפנים של ${MODULE_NAMES[id] || id} לא נפתחו (קובץ פגום או מפתח שאינו מתאים), ולכן הגיבוי לא נשמר — כדי שהגיבויים הקודמים, שבהם הנתונים קיימים, לא יימחקו. שמרו דוח תקלה (F1) ופנו לתמיכה.`
-    : `לא ניתן היה לקרוא את נתוני ${MODULE_NAMES[id] || id}, ולכן הגיבוי לא נשמר. נסו שוב בעוד רגע; אם התקלה חוזרת — שמרו דוח תקלה (F1) ופנו לתמיכה.`);
+    ? `הנתונים המוצפנים של ${name} לא נפתחו (קובץ פגום או מפתח שאינו מתאים), ולכן הגיבוי לא נשמר — כדי שהגיבויים הקודמים, שבהם הנתונים קיימים, לא יימחקו. שמרו דוח תקלה (F1) ופנו לתמיכה.`
+    : `לא ניתן היה לקרוא את נתוני ${name}, ולכן הגיבוי לא נשמר. נסו שוב בעוד רגע; אם התקלה חוזרת — שמרו דוח תקלה (F1) ופנו לתמיכה.`);
   err.code = 'module-read-failed';
   return err;
 }
+const LS_DUMP = 'JSON.stringify(Object.fromEntries(Object.entries(localStorage)))';
+// עולם JavaScript מבודד משלנו בעמוד המודול: בו localStorage הוא האחסון האמיתי של הדפדפן
+// (secure-ls-preload.js מחליף אותו רק בעולם של העמוד). 999 הוא העולם של ה-preload — לא נוגעים בו
+const LEGACY_LS_WORLD = 1099;
+// כל הנתונים של מודול, לגיבוי ולמצב שלפני שחזור. כשל נזרק — לעולם לא {} במקום הנתונים
+async function readModuleItems(id) {
+  if (SecureStore.MODULES.includes(id)) {
+    const s = secureStore(id);
+    // מחסן נעול (קובץ שלא נפתח): העמוד מקבל אחסון ריק, והגיבוי היה נשמר עם {} ומוחק בסבב את הגיבויים הטובים
+    if (s.state === 'locked') throw Object.assign(new Error('המחסן של המודול נעול'), { locked: true });
+    // מחסן מוצפן: קוראים ממנו ישירות — בלי לפתוח את המודול (שבלי כניסה מקבל אחסון ריק)
+    if (s.state === 'encrypted') {
+      if (s.migrated) return s.snapshot();
+      // אחרי שדרוג, עד שהמודול נפתח בכניסה, הנתונים הישנים עדיין ב-localStorage הגלוי ולא במחסן. גיבוי
+      // בלעדיהם הוא גיבוי חלקי, והסבב היה מוחק בגללו גיבויים מלאים (בדיקת קוד 23.10.2026, ממצא 36)
+      const v = ensureView(id);
+      await waitLoaded(v.webContents);
+      const legacy = JSON.parse(await v.webContents.executeJavaScriptInIsolatedWorld(LEGACY_LS_WORLD, [{ code: LS_DUMP }]));
+      if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) throw new Error('הנתונים הישנים של המודול לא נקראו');
+      // כמו בהעברה (secure-store migrate): מה שכבר במחסן גובר. המחסן נקרא אחרי ההמתנה — אם ההעברה קרתה בינתיים
+      return { ...legacy, ...s.snapshot() };
+    }
+    // plain (אין הצפנת Windows): בעולם של העמוד localStorage הוא עותק של ה-preload (ובלי כניסה — ריק);
+    // הנתונים עצמם ב-localStorage של הדפדפן — נקראים מהעולם המבודד שלנו
+    if (s.state === 'plain') {
+      const v = ensureView(id);
+      await waitLoaded(v.webContents);
+      return JSON.parse(await v.webContents.executeJavaScriptInIsolatedWorld(LEGACY_LS_WORLD, [{ code: LS_DUMP }]));
+    }
+  }
+  const v = ensureView(id);
+  await waitLoaded(v.webContents);
+  return JSON.parse(await v.webContents.executeJavaScript(LS_DUMP));
+}
 async function collectBackup(scope = 'all') {
   const out = { suite: 'SuperSuite', version: 2, scope, createdAt: new Date().toISOString(), econ: null, localStorage: {} };
+  // סימוני הרישוי (תחילת הניסיון, "הותקן רישיון") בכל גיבוי — שחזור להתקנה נקייה לא מתחיל ניסיון חדש (ipc.js, ממצא 29)
+  if (econ.licenseMarks) out.licenseMarks = econ.licenseMarks();
   if (scope === 'all' || scope === 'econ') {
     try { out.econ = await econ.getDb().backup(); }
     catch (e) {
@@ -471,20 +557,17 @@ async function collectBackup(scope = 'all') {
       throw err;
     }
   }
-  const DUMP = 'JSON.stringify(Object.fromEntries(Object.entries(localStorage)))';
   for (const id of LS_MODS) {
     if (scope !== 'all' && scope !== id) continue;
-    // מחסן מוצפן: קוראים ממנו ישירות — בלי לפתוח את המודול (שבלי כניסה מקבל אחסון ריק).
-    // מחסן נעול (קובץ שלא נפתח): העמוד מקבל אחסון ריק, והגיבוי היה נשמר עם {} ומוחק בסבב את הגיבויים הטובים
-    if (SecureStore.MODULES.includes(id)) {
-      const s = secureStore(id);
-      if (s.state === 'locked') throw moduleReadError(id, new Error(`secure store locked: ${id}`), true);
-      if (s.state === 'encrypted') { out.localStorage[id] = s.snapshot(); continue; }
-    }
-    const v = ensureView(id);
-    await waitLoaded(v.webContents);
-    try { out.localStorage[id] = JSON.parse(await v.webContents.executeJavaScript(DUMP)); }
-    catch (e) { throw moduleReadError(id, e); }
+    try { out.localStorage[id] = await readModuleItems(id); }
+    catch (e) { throw moduleReadError(id, e, !!e.locked); }
+  }
+  // תיבת ההודעות של המערכת (החלטת הבעלים) — בגיבוי המלא: הודעות, תוויות, הערות פנימיות והגדרות העסק; תוכן הקבצים
+  // המצורפים עד Chat.BACKUP_ATTACHMENT_CHARS (מעבר לזה — רק פרטי הקובץ). נקראת מהזיכרון אחרי כתיבת מה שממתין.
+  // תיבה שלא נקראה (קובץ תפוס) = כשל של הגיבוי כולו, כמו מודול. תיבת מנהל-העל — לא בגיבוי (ipc.js → chatBackup)
+  if (scope === 'all' && typeof econ.chatBackup === 'function') {
+    try { out.chat = econ.chatBackup({ attachmentChars: Chat.BACKUP_ATTACHMENT_CHARS }); }
+    catch (e) { throw moduleReadError('chat', e); }
   }
   // ensureView יוצר תצוגות מוסתרות ואינו משנה את המודול הפעיל — אין צורך להחזיר פוקוס,
   // אחרת הגיבוי האוטומטי גונב את הפוקוס מהמשתמש כל 6 שעות
@@ -493,7 +576,11 @@ async function collectBackup(scope = 'all') {
 
 // מפתח גיבוי אוטומטי לכל התקנה: נשמר מוצפן על ידי מערכת ההפעלה (Windows DPAPI), כך שהגיבוי קריא רק לחשבון הזה
 const autoBackupKeyFile = () => path.join(app.getPath('userData'), 'autobackup.key');
+// מפתח ששוחזר מקוד השחזור בעלייה ולא נשמר בקובץ (db-key.js): בשימוש עד סוף ההפעלה — אחרת autoBackupKey(true)
+// היה יוצר מפתח אחר בשקט, והגיבויים וקוד השחזור (🔑) לא היו של המסד
+let sessionBackupKey = null;
 function autoBackupKey(create = true) {
+  if (sessionBackupKey) return sessionBackupKey;
   return AutoBk.loadAutoBackupKey({ file: autoBackupKeyFile(), safeStorage, create });
 }
 
@@ -504,12 +591,17 @@ let dbAtRest = { status: 'plain' };
 const AT_REST_WARNINGS = {
   'pending-backup': '⚠ הנתונים עוד לא הוצפנו: הגיבוי שלפני ההצפנה נכשל (ננסה שוב בהפעלה הבאה)',
   'plain-no-dpapi': '⚠ הנתונים במחשב הזה אינם מוצפנים: הצפנת Windows אינה זמינה בחשבון',
-  'plain-key-unreadable': '⚠ הנתונים אינם מוצפנים: מפתח הגיבוי האוטומטי אינו קריא בחשבון הזה'
+  'plain-key-unreadable': '⚠ הנתונים אינם מוצפנים: מפתח הגיבוי האוטומטי אינו קריא בחשבון הזה',
+  'vacuum-pending': '⚠ הנתונים הוצפנו, אבל ניקוי העותקים הישנים מהקובץ לא הושלם (ייתכן שהכונן מלא) — ננסה שוב בהפעלה הבאה'
 };
 function dbAtRestOptions() {
   return {
     resolveCipher: async ({ hasSealedData, verify }) => {
-      dbAtRest = await DbKey.resolveDbKey({ fs, file: autoBackupKeyFile(), safeStorage, hasSealedData, verify, promptRecoveryCode });
+      const r = await DbKey.resolveDbKey({ fs, file: autoBackupKeyFile(), safeStorage, hasSealedData, verify, promptRecoveryCode,
+        onError: (scope, e) => logger.error(scope, e) });
+      const { unsavedBackupKey, ...rest } = r;
+      if (unsavedBackupKey) sessionBackupKey = unsavedBackupKey;
+      dbAtRest = rest;
       if (dbAtRest.status === 'plain-no-dpapi' || dbAtRest.status === 'plain-key-unreadable') logger.error('db-at-rest', new Error(dbAtRest.status));
       return dbAtRest;
     },
@@ -535,7 +627,8 @@ function promptRecoveryCode({ message }) {
     const w = new BrowserWindow({ width: 520, height: 420, resizable: false, title: 'SuperSuite — קוד שחזור', autoHideMenuBar: true,
       webPreferences: CodeGuard.guardPrefs({ preload: path.join(__dirname, 'shell', 'recovery-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }, app.isPackaged) });
     let done = false;
-    const finish = (v) => { if (done) return; done = true; ipcMain.removeHandler('recovery:submit'); ipcMain.removeHandler('recovery:info'); if (!w.isDestroyed()) w.close(); resolve(v); };
+    bootWindow = w; // הפעלה נוספת בזמן שהחלון פתוח — מביאה אותו לחזית
+    const finish = (v) => { if (done) return; done = true; if (bootWindow === w) bootWindow = null; ipcMain.removeHandler('recovery:submit'); ipcMain.removeHandler('recovery:info'); if (!w.isDestroyed()) w.close(); resolve(v); };
     ipcMain.handle('recovery:info', (e) => (e.sender.id === w.webContents.id ? { message: message || '' } : null));
     ipcMain.handle('recovery:submit', (e, code) => { if (e.sender.id === w.webContents.id) finish(typeof code === 'string' ? code.slice(0, 200) : null); });
     w.on('closed', () => finish(null));
@@ -565,6 +658,15 @@ function trainerDataForEcon(senderId) {
   if (!LG.moduleAllowed(licenseNow(), 'trainer')) throw new Error('מודול האימונים אינו כלול ברישיון');
   const s = secureStore('trainer');
   if (s.state !== 'encrypted') throw new Error('נתוני האימונים אינם זמינים (המחסן המוצפן של המודול לא נפתח)');
+  return s.snapshot();
+}
+/* עוזר ה-AI: „מה הערכת השווי האחרונה?” — התיק האחרון שננעל בשמאות (shell/ai/module-context.js). אותם תנאים כמו
+   באימונים: קריאה בלבד, רק מתצוגת המודול הכלכלי (ערוץ ai:run, ב-handle()), רק ברישיון לשמאות ורק ממחסן מוצפן */
+function shamaiDataForEcon(senderId) {
+  if (!fromView({ sender: { id: senderId } }, 'econ')) throw new Error('נתוני השמאות זמינים רק מתוך המערכת הכלכלית');
+  if (!LG.moduleAllowed(licenseNow(), 'shamai')) throw new Error('מודול השמאות אינו כלול ברישיון');
+  const s = secureStore('shamai');
+  if (s.state !== 'encrypted') throw new Error('נתוני השמאות אינם זמינים (המחסן המוצפן של המודול לא נפתח)');
   return s.snapshot();
 }
 /* ---------- הגדרות תצוגה (PLAN.md 7.4) ----------
@@ -612,13 +714,14 @@ function wireSecureStore() {
   ipcMain.on('secure-store:load', (e, mod) => {
     if (!fromModuleView(e, mod)) { e.returnValue = null; return; }
     const s = secureStore(mod);
-    // בלי כניסה (PLAN.md 3.3): העמוד מקבל אחסון ריק לקריאה בלבד — נטען מחדש עם הנתונים אחרי הכניסה
-    if (s.state === 'encrypted' && !econSessionAlive()) { e.returnValue = { state: 'no-session', migrated: true, data: {} }; return; }
+    // בלי כניסה (PLAN.md 3.3): העמוד מקבל אחסון ריק לקריאה בלבד — נטען מחדש עם הנתונים אחרי הכניסה.
+    // גם במצב plain (אין הצפנת Windows): ה-preload מחליף שם את localStorage באותו אופן
+    if (s.state !== 'locked' && !econSessionAlive()) { e.returnValue = { state: 'no-session', migrated: true, data: {} }; return; }
     e.returnValue = { state: s.state, migrated: s.migrated, data: s.state === 'plain' ? {} : s.snapshot() };
   });
   // גיבוי מוצפן של הנתונים הישנים לפני ההעברה. בלי גיבוי — אין העברה
   ipcMain.on('secure-store:migrate', (e, mod, items) => {
-    if (!fromModuleView(e, mod)) { e.returnValue = { ok: false }; return; }
+    if (!fromModuleView(e, mod) || !econSessionAlive()) { e.returnValue = { ok: false }; return; }
     e.returnValue = secureStore(mod).migrate(items, (plain) => {
       const dir = loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
       fs.mkdirSync(dir, { recursive: true });
@@ -629,11 +732,35 @@ function wireSecureStore() {
       JSON.parse(BK.decryptBackup(fs.readFileSync(file, 'utf8'), autoBackupKey(false)));
     });
   });
+  // כל כתיבה מקבלת תשובה (sendSync): דחייה נזרקת בעמוד ולא נבלעת בשקט (ממצא 3)
   ipcMain.on('secure-store:write', (e, mod, op, k, v) => {
-    if (!fromModuleView(e, mod) || !econSessionAlive()) return;
-    const s = secureStore(mod);
-    if (op === 'set') s.set(k, v); else if (op === 'remove') s.remove(k); else if (op === 'clear') s.clear();
+    if (!fromModuleView(e, mod)) { e.returnValue = SecureStore.rejectWrite('sender'); return; }
+    try { e.returnValue = secureWriteBlock(mod) || secureStore(mod).write(op, k, v); }
+    catch (err) { logger.error('secure-store', err); e.returnValue = SecureStore.rejectWrite('error'); }
   });
+  // בלי הצפנת Windows (plain), או לפני שהנתונים הישנים הועברו: ה-preload כותב ל-localStorage של הדפדפן בעצמו —
+  // אבל רק אחרי אישור מכאן, באותם תנאים כמו כתיבה למחסן (כניסה, data.edit, רישיון; ממצא 24)
+  ipcMain.on('secure-store:can-write', (e, mod) => {
+    if (!fromModuleView(e, mod)) { e.returnValue = SecureStore.rejectWrite('sender'); return; }
+    try {
+      const s = secureStore(mod);
+      const browserStorage = s.state === 'plain' || (s.state === 'encrypted' && !s.migrated);
+      e.returnValue = !browserStorage ? SecureStore.rejectWrite('unavailable') : (secureWriteBlock(mod) || { ok: true });
+    } catch (err) { logger.error('secure-store', err); e.returnValue = SecureStore.rejectWrite('error'); }
+  });
+}
+// מי רשאי לשנות נתונים בשמאי ובאימונים (ממצא 24): כניסה פעילה עם data.edit — צופה ורואה חשבון קוראים בלבד —
+// ורישיון שמאפשר עבודה (סוף תקופת ניסיון / ממתין לתשלום — קריאה בלבד, כמו במודול הכלכלי).
+// בדיקה שקטה: כתיבה אינה "פעילות" (שמירה אוטומטית לא תמנע ניתוק). null = מותר, אחרת תשובת דחייה לעמוד
+function secureWriteBlock(mod) {
+  if (!econSessionAlive()) return SecureStore.rejectWrite('no-session', 'השינוי לא נשמר: הכניסה למערכת פגה — יש להיכנס שוב');
+  if (!(econ.sessionCan && econ.sessionCan(econSenderId(), 'data.edit'))) return SecureStore.rejectWrite('forbidden', 'השינוי לא נשמר: לתפקיד שלך יש הרשאת צפייה בלבד');
+  const lic = licenseNow();
+  if (lic && lic.mode !== 'unlicensed') {
+    if (!LG.moduleAllowed(lic, mod)) return SecureStore.rejectWrite('license', 'השינוי לא נשמר: המודול אינו כלול ברישיון');
+    if (lic.status !== 'active') return SecureStore.rejectWrite('license', 'השינוי לא נשמר: ' + LG.statusMessage(lic));
+  }
+  return null;
 }
 
 /* ---------- מסד נתונים פגום או נעול בעלייה (PLAN.md 2.3) ----------
@@ -643,9 +770,12 @@ const econInitOptions = () => ({
   isRestTime: syncPaused,
   dbOptions: dbAtRestOptions(),
   trainerData: trainerDataForEcon,
+  shamaiData: shamaiDataForEcon,
   // עוזר ה-AI: מפתח הגיבוי להצפנת ההעדפות (קריאה לא יוצרת מפתח), ופתיחת מודול — לפי הרישיון של ההתקנה
   aiOptions: () => ({ getBackupKey: (create) => autoBackupKey(create) }),
   moduleLicensed: (mod) => LG.moduleAllowed(licenseNow(), mod),
+  // הצפנת תיבות ההודעות בדיסק (messages.bin, ממצא 26) — במפתח שנגזר ממפתח הגיבוי האוטומטי
+  getBackupKey: (create) => autoBackupKey(create),
 });
 const openAutoBackup = (file) => JSON.parse(BK.decryptBackup(fs.readFileSync(file, 'utf8'), autoBackupKey(false)));
 async function recoverDatabase(firstErr) {
@@ -657,7 +787,7 @@ async function recoverDatabase(firstErr) {
     // הגיבוי החדש ביותר שבאמת מכיל את הכספים: גיבויים מלפני תיקון collectBackup עשויים להיות בלעדיהם
     const backup = kind === 'corrupt' ? DbRecovery.latestUsableAutoBackup(backupDir, openAutoBackup) : null;
     const d = DbRecovery.dialogFor(kind, backup);
-    const r = await dialog.showMessageBox({ type: 'error', buttons: d.buttons.map(b => b.label), defaultId: 0, cancelId: d.buttons.length - 1,
+    const r = await bootDialog({ type: 'error', buttons: d.buttons.map(b => b.label), defaultId: 0, cancelId: d.buttons.length - 1,
       noLink: true, message: d.message, detail: d.detail });
     const choice = (d.buttons[r.response] || {}).id || 'quit';
     if (choice === 'quit') return false;
@@ -672,7 +802,9 @@ async function recoverDatabase(firstErr) {
         logger.error('db-open', new Error('damaged database set aside: ' + path.basename(aside)));
         await econ.initEcon(app.getPath('userData'), econInitOptions());
         await econ.getDb().restore(data.econ);
-        await dialog.showMessageBox({ type: 'info', message: 'הנתונים שוחזרו מהגיבוי האוטומטי', detail: `גיבוי מתאריך ${backup.day}. הקובץ הפגום נשמר בצד בתיקיית הנתונים.` });
+        // המסד החדש בלי סימוני הרישוי — מהגיבוי (רק מחמיר: ניסיון ממשיך מהתאריך המקורי)
+        try { if (econ.mergeLicenseMarks) econ.mergeLicenseMarks(data.licenseMarks); } catch (e) { logger.error('restore-license-marks', e); }
+        await bootDialog({ type: 'info', message: 'הנתונים שוחזרו מהגיבוי האוטומטי', detail: `גיבוי מתאריך ${backup.day}. הקובץ הפגום נשמר בצד בתיקיית הנתונים.` });
         return true;
       }
       await econ.initEcon(app.getPath('userData'), econInitOptions()); // נסו שוב
@@ -727,7 +859,7 @@ async function backupAll(passphrase, scope = 'all') {
   // סוג לא מוכר יצר גיבוי ריק (בלי נתונים כספיים ובלי מודולים) שדווח "נשמר" (בדיקת קוד 23.10.2026)
   if (!BACKUP_SCOPES.includes(scope)) throw new Error('סוג הגיבוי אינו מוכר — הגיבוי לא נשמר');
   const out = await collectBackup(scope);
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = AutoBk.localDay(new Date()); // תאריך מקומי — toISOString (UTC) נתן בין חצות ל-03:00 את התאריך של אתמול
   const r = await dialog.showSaveDialog(win, { title: 'שמירת גיבוי מוצפן', defaultPath: `SuperSuite-${scope}-${stamp}.ssbk`, filters: [{ name: 'גיבוי SuperSuite', extensions: ['ssbk'] }] });
   if (r.canceled || !r.filePath) return { ok: false };
   // קובץ זמני, fsync והחלפה: כתיבה ישירה שנכשלה באמצע (דיסק-און-קי מלא או נותק) כבר דרסה את הגיבוי הקודם באותו שם
@@ -794,37 +926,60 @@ function restoreItems(data, id, trainerItems) {
   }
   return Object.keys(clean).length ? clean : null;
 }
-// המצב הנוכחי של מה שעומד להתחלף — אם אי אפשר לקרוא אותו, לא משחזרים
-async function snapshotFor(withEcon, mods) {
-  const out = { econ: null, localStorage: {} };
+// המצב הנוכחי של מה שעומד להתחלף — אם אי אפשר לקרוא אותו, לא משחזרים. withChat — כל תיבת ההודעות, עם כל הקבצים
+async function snapshotFor(withEcon, mods, withChat = false) {
+  const out = { econ: null, localStorage: {}, chat: null };
   if (withEcon) out.econ = await econ.getDb().backup();
-  for (const id of mods) {
-    if (SecureStore.MODULES.includes(id)) {
-      const s = secureStore(id);
-      if (s.state === 'locked') throw new Error('המחסן של המודול נעול');
-      if (s.state === 'encrypted') { out.localStorage[id] = s.snapshot(); continue; }
-    }
-    const v = ensureView(id);
-    await waitLoaded(v.webContents);
-    out.localStorage[id] = JSON.parse(await v.webContents.executeJavaScript('JSON.stringify(Object.fromEntries(Object.entries(localStorage)))'));
-  }
+  for (const id of mods) out.localStorage[id] = await readModuleItems(id);
+  if (withChat) out.chat = econ.chatBackup();
   return out;
 }
-// כתיבת הנתונים: הכספים ואז כל מודול. כל כשל נזרק (גם ערך שהמחסן דחה)
-async function applyRestore(econData, modItems) {
+// המחסן המוצפן של מודול לא נכתב לדיסק בזמן שחזור
+function storeWriteError(id) {
+  return `לא ניתן היה לשמור בדיסק את נתוני ${BACKUP_PART_NAMES[id] || id} — ייתכן שהכונן מלא, או שתוכנה אחרת (למשל אנטי-וירוס) תופסת את הקובץ.`;
+}
+// כתיבת הנתונים: הכספים, כל מודול, ואז תיבת ההודעות. כל כשל נזרק (גם ערך שהמחסן דחה, מחסן שלא נכתב לדיסק,
+// וגם כתיבה של התיבה שנכשלה).
+// chat — { data, except } (chat.js → restoreMailbox): data מהגיבוי (אחרי mailboxFromBackup), או המצב שלפני בהחזרה
+async function applyRestore(econData, modItems, chat = null) {
   if (econData) await econ.getDb().restore(econData);
   for (const [id, clean] of modItems) {
     // מודול עם מחסן מוצפן: כותבים ישירות למחסן (ולא דרך העמוד), כדי שהטעינה מחדש תראה את הנתונים מיד
     if (SecureStore.MODULES.includes(id) && secureStore(id).state === 'encrypted') {
       const s = secureStore(id);
-      s.clear();
-      for (const [k, val] of Object.entries(clean)) if (!s.set(k, val)) throw new Error('הנתונים של המודול גדולים מדי למחסן');
-      s.flush();
+      // הנתונים הישנים עוד לא הועברו (ההעברה נכשלה — למשל הגיבוי שלפניה, כשכונן הגיבוי לא מחובר): העמוד עובד על
+      // ה-localStorage של הדפדפן. השחזור מחליף את כולם — המחסן מסומן "הועבר", ורק אחרי שנכתב לקובץ ה-localStorage הישן
+      // נמחק. בלי זה העמוד המשיך להציג את הישן אחרי "השחזור הושלם", וההעברה הבאה ("המחסן גובר") מחקה בשקט עריכות
+      // שנעשו אחרי השחזור. ההחזרה למצב שלפני עובדת כרגיל: before מכיל את הישן ואת המחסן יחד (readModuleItems)
+      const legacy = !s.migrated;
+      // החלפה בזיכרון בבת אחת, ואז כתיבה אחת לקובץ — בקובץ תמיד המצב שלפני או המצב החדש, לא מחסן חלקי
+      const r = s.replaceAll(clean);
+      if (!r.ok) throw new Error(r.name === 'QuotaExceededError' ? 'הנתונים של המודול גדולים מדי למחסן' : storeWriteError(id));
+      // כתיבה שנכשלה (אנטי-וירוס, כונן מלא) נזרקת — וההחזרה למצב שלפני רצה, כמו בכשל של תיבת ההודעות
+      if (!(legacy ? s.markMigrated() : s.flush())) throw new Error(storeWriteError(id));
+      if (legacy) {
+        // המחסן כבר בקובץ ומסומן "הועבר" — הנתונים בטוחים גם אם המחיקה נכשלת (ה-preload לא קורא יותר את הישן)
+        try {
+          const v = ensureView(id);
+          await waitLoaded(v.webContents);
+          await v.webContents.executeJavaScriptInIsolatedWorld(LEGACY_LS_WORLD, [{ code: 'localStorage.clear()' }]);
+        } catch (e) { logger.error('restore-legacy-clear', e); }
+      }
       continue;
     }
     const v = ensureView(id);
     await waitLoaded(v.webContents);
-    await v.webContents.executeJavaScript(`(()=>{const d=${JSON.stringify(clean)};localStorage.clear();for(const k in d)localStorage.setItem(k,d[k]);})()`);
+    const code = `(()=>{const d=${JSON.stringify(clean)};localStorage.clear();for(const k in d)localStorage.setItem(k,d[k]);})()`;
+    // plain: ישירות ל-localStorage של הדפדפן (העולם המבודד), לא דרך העותק של ה-preload בעמוד — התצוגות נטענות מחדש אחרי השחזור
+    if (SecureStore.MODULES.includes(id) && secureStore(id).state === 'plain') await v.webContents.executeJavaScriptInIsolatedWorld(LEGACY_LS_WORLD, [{ code }]);
+    else await v.webContents.executeJavaScript(code);
+  }
+  if (chat && chat.data) {
+    try { econ.chatRestore(chat.data, chat.except ? { except: chat.except } : undefined); }
+    catch (e) {
+      logger.error('restore-chat', e);
+      throw new Error('לא ניתן היה לשמור את תיבת ההודעות' + (e && e.code ? ` (${e.code})` : '') + '.');
+    }
   }
 }
 
@@ -849,13 +1004,22 @@ async function restoreAllRun(passphrase) {
   if (!data || data.suite !== 'SuperSuite') { dialog.showErrorBox('שגיאה', 'הקובץ אינו גיבוי של SuperSuite'); return { ok: false }; }
   // נתוני האימונים נבדקים לפני האישור ולפני כל מחיקה — קובץ פגום לא נוגע בשום דבר
   let trainerItems = null;
-  if (data.localStorage && data.localStorage.trainer) {
+  // גיבוי מלא בלי נתוני אימונים (trainer = {}) — אין מה לבדוק, ושאר השחזור ממשיך
+  if (data.localStorage && TrainerCheck.hasTrainerItems(data.localStorage.trainer)) {
     const t = TrainerCheck.checkTrainerItems(data.localStorage.trainer);
     if (!t.ok) { dialog.showErrorBox('שגיאה', t.error + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
     trainerItems = t.clean;
   }
+  // תיבת ההודעות (גיבוי מלא מגרסה שכוללת אותה) — נבדקת כאן, לפני האישור ולפני כל מחיקה. גיבוי ישן בלי chat לא נוגע בתיבה
+  let chatData = null;
+  if (data.chat != null) {
+    try { chatData = Chat.mailboxFromBackup(data.chat); }
+    catch (e) { dialog.showErrorBox('שגיאה', e.message + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
+  }
   const scopeText = data.legacy ? '(גיבוי ישן של ניהול האימונים)' : data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
   const mods = LS_MODS.filter(id => restoreItems(data, id, trainerItems));
+  // אין מה לשחזר (למשל גיבוי של מודול האימונים בלבד, בלי מתאמנים): לא מציגים "השחזור הושלם" כשלא שוחזר דבר
+  if (!data.econ && !mods.length && !chatData) { dialog.showErrorBox('שגיאה', 'אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו'); return { ok: false }; }
   // גיבוי ישן מהמסמך האחרון שהופק — אזהרה בחלון האישור (בדיקת קוד 22.10.2026, ממצא 5). קריאה בלבד; כשל — בלי אזהרה
   let missing = '';
   try {
@@ -865,24 +1029,29 @@ async function restoreAllRun(passphrase) {
     }
     missing = ModCounters.issuedAfterText(items);
   } catch (e) { logger.error('restore-missing-docs', e); }
-  const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: (missing ? '⚠ ' + missing + '\n\n' : '') + 'מומלץ לבצע גיבוי לפני כן.' });
+  const chatNote = chatData ? 'תיבת ההודעות תשוחזר מהגיבוי; הודעות שהתקבלו או נשלחו אחרי הגיבוי יישארו בה.\n\n' : '';
+  const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: (missing ? '⚠ ' + missing + '\n\n' : '') + chatNote + 'מומלץ לבצע גיבוי לפני כן.' });
   if (c.response !== 0) return { ok: false };
   // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע (למשל הכספים שוחזרו ומודול אחר נכשל) מחזיר הכול למצב שלפני
   let before;
-  try { before = await snapshotFor(!!data.econ, mods); }
+  try { before = await snapshotFor(!!data.econ, mods, !!chatData); }
   catch (e) { dialog.showErrorBox('שגיאה', 'לא ניתן לשמור את המצב הנוכחי לפני השחזור, ולכן לא שוחזר דבר. ' + (e.message || '')); return { ok: false }; }
   try {
     // מוני המסמכים במודולים (שטרי קנייה, תיקים ודוחות בשמאות) לא חוזרים אחורה — כמו keepCounters בכספים
-    await applyRestore(data.econ, mods.map(id => [id, ModCounters.keepModuleCounters(id, restoreItems(data, id, trainerItems), before.localStorage[id])]));
+    await applyRestore(data.econ, mods.map(id => [id, ModCounters.keepModuleCounters(id, restoreItems(data, id, trainerItems), before.localStorage[id])]),
+      chatData && { data: chatData });
   } catch (e) {
     let back = '';
-    try { await applyRestore(before.econ, mods.map(id => [id, before.localStorage[id] || {}])); back = 'הנתונים הוחזרו למצב שלפני השחזור.'; }
+    // התיבה חוזרת למצב שלפני, בלי מה שהגיע מהגיבוי — אבל עם הודעה שהתקבלה בינתיים (chat.js → restoreMailbox)
+    try { await applyRestore(before.econ, mods.map(id => [id, before.localStorage[id] || {}]), before.chat && { data: before.chat, except: chatData }); back = 'הנתונים הוחזרו למצב שלפני השחזור.'; }
     catch (e2) { logger.error('restore-rollback', e2); back = 'גם ההחזרה למצב הקודם נכשלה — שחזרו מגיבוי אחר, ופנו לתמיכה עם דוח תקלה.'; }
     logger.error('restore', e);
     for (const id of Object.keys(views)) views[id].webContents.reload();
     dialog.showErrorBox('השחזור נכשל', String(e.message || e) + ' ' + back);
     return { ok: false };
   }
+  // סימוני הרישוי מהגיבוי — רק מחמירים (ipc.js, ממצא 29)
+  try { if (econ.mergeLicenseMarks) econ.mergeLicenseMarks(data.licenseMarks); } catch (e) { logger.error('restore-license-marks', e); }
   for (const id of Object.keys(views)) views[id].webContents.reload();
   dialog.showMessageBox(win, { type: 'info', message: 'השחזור הושלם' });
   // שוחזר מקובץ לא מוצפן (PLAN.md 3.6): מציעים להצפין אותו או למחוק — שהמידע לא יישאר גלוי במחשב
@@ -924,7 +1093,15 @@ function registerSyncHandlers() {
   sync.on('changed', () => { if (win && !win.isDestroyed()) win.webContents.send('shell:sync-changed'); });
   const h = (ch, fn) => ipcMain.handle(ch, (e, ...args) => { shellGuard(e, 'users.manage'); return fn(...args); });
   const str = (v) => (typeof v === 'string' ? v : '');
-  h('sync:status', () => sync.status());
+  // מצב הסנכרון מתבקש ברקע בכל אירוע ברשת (משואה של מכשיר מצומד כל 30 שניות, חיבור, ניתוק), ולכן הבדיקה
+  // כאן לא רושמת פעילות. דרך shellGuard (getSession) הפגישה של המנהל לא פקעה לעולם (בדיקת קוד 23.10.2026, ממצא 55)
+  ipcMain.handle('sync:status', (e) => {
+    if (!win || e.sender.id !== win.webContents.id) throw new Error('הפעולה מותרת מתוך המעטפת בלבד');
+    const id = econSenderId();
+    if (!econ || !econ.hasSession(id)) throw new Error('נדרשת כניסה למערכת (או שהפגישה פגה לאחר חוסר פעילות)');
+    if (!econ.sessionCan(id, 'users.manage')) throw new Error('אין הרשאה לפעולה זו');
+    return sync.status();
+  });
   h('sync:set-enabled', (on) => sync.setEnabled(on === true));
   h('sync:rename', (name) => sync.rename(str(name)));
   h('sync:set-port', (port) => sync.setPort(Number(port)));
@@ -941,7 +1118,13 @@ function registerSyncHandlers() {
   sync.on('log', (entry) => { if (entry && entry.level === 'error') logger.error('sync', String(entry.msg || '') + (entry.code ? ' (' + entry.code + ')' : '')); });
   sync.init().catch((err) => logger.error('sync-init', err));
 }
-app.on('will-quit', () => { if (sync) sync.close().catch(() => {}); for (const s of Object.values(secureStores)) s.flush(); });
+// כתיבה לדיסק של מה שעוד ממתין (המחסנים המוצפנים — 300ms אחרונים, וההודעות). גם לפני app.exit בהפעלה מחדש
+// אחרי קריסה — שם will-quit לא נורה
+function flushPendingWrites() {
+  for (const s of Object.values(secureStores)) s.flush();
+  if (econ && econ.flushChat) econ.flushChat();
+}
+app.on('will-quit', () => { if (sync) sync.close().catch(() => {}); flushPendingWrites(); });
 
 /* ---------- הפעלה ---------- */
 // גרסת הפצה עם פרמטר דיבוג (--remote-debugging-port, --inspect...) — לא עולה (PLAN.md 3.5)
@@ -949,7 +1132,7 @@ const debugSwitch = CodeGuard.startupCheck({ argv: process.argv, packaged: app.i
   hasSwitch: (s) => app.commandLine && app.commandLine.hasSwitch(s) });
 if (debugSwitch) { logger.error('code-guard', new Error('debug switch: ' + debugSwitch)); app.exit(1); }
 if (!app.requestSingleInstanceLock()) app.exit(0);
-app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+app.on('second-instance', onSecondInstance);
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
@@ -972,7 +1155,7 @@ app.whenReady().then(async () => {
       if (!err || err.code !== 'db-key-missing') throw err;
       closeSplash();
       // אין קוד שחזור: בלי האפשרות הזו התוכנה לא עולה, ואי אפשר גם לשחזר מגיבוי בסיסמה
-      const c = await dialog.showMessageBox({ type: 'warning', buttons: ['פתיחה ריקה לשחזור מגיבוי', 'יציאה'], defaultId: 1, cancelId: 1,
+      const c = await bootDialog({ type: 'warning', buttons: ['פתיחה ריקה לשחזור מגיבוי', 'יציאה'], defaultId: 1, cancelId: 1,
         message: 'הנתונים מוצפנים ואין קוד שחזור',
         detail: 'אפשר לפתוח את התוכנה ריקה ולשחזר מגיבוי שנשמר בסיסמה (Ctrl+Shift+R). הקובץ המוצפן לא נמחק — הוא נשמר בצד בתיקיית הנתונים, ואם הקוד יימצא אפשר יהיה להחזיר אותו.' });
       if (c.response !== 0) { app.quit(); return; }
@@ -983,10 +1166,13 @@ app.whenReady().then(async () => {
     // ההמרה נדחתה (הגיבוי שלפניה נכשל) — המצב נקבע במסד עצמו
     const dbNow = econ.getDb && econ.getDb();
     if (dbNow && dbNow.atRestStatus === 'pending-backup') { dbAtRest.status = 'pending-backup'; logger.error('db-at-rest', dbNow.atRestError || new Error('pending-backup')); }
+    // הערכים מוצפנים, אבל ה-VACUUM שמנקה את העותקים הגלויים הישנים נכשל (כונן מלא?) — ננסה שוב בעלייה הבאה
+    if (dbNow && dbNow.atRestVacuumError) { dbAtRest.vacuumPending = true; logger.error('db-at-rest-vacuum', dbNow.atRestVacuumError); }
   } catch (err) {
     closeSplash();
     // מסד פגום או נעול (PLAN.md 2.3): הודעה בעברית ואפשרויות, במקום שגיאה טכנית וסגירה
     if (!(DbRecovery.classifyDbError(err) && await recoverDatabase(err))) {
+      closeSplash(); // ייתכן שהפעלה נוספת הציגה אותו שוב בזמן ההתאוששות
       if (!DbRecovery.classifyDbError(err)) dialog.showErrorBox('שגיאה בפתיחת המערכת הכלכלית', String(err && err.message ? err.message : err) + '\n\nנתיב: ' + app.getPath('userData'));
       app.quit(); return;
     }
@@ -1124,6 +1310,12 @@ app.whenReady().then(async () => {
     if (!win || e.sender.id !== win.webContents.id) return false;
     return econLoggedIn();
   });
+  // האם המחובר מנהל — כדי שהמעטפת לא תציע צעדים של מנהל בלבד (יעד גיבוי, קוד שחזור). בדיקה שקטה, בלי לרשום פעילות
+  ipcMain.handle('shell:is-admin', (e) => {
+    if (!win || e.sender.id !== win.webContents.id) return false;
+    return !!(econ && econ.sessionCan && econ.sessionCan(econSenderId(), 'users.manage'));
+  });
+  // data.backup / data.restore — למנהל בלבד (מיגרציה 10 ב-core/database.js; החלטת הבעלים 23.10.2026)
   ipcMain.handle('shell:backup-all', (e, pass, scope) => { shellGuard(e, 'data.backup'); return backupAll(pass, scope || 'all'); });
   ipcMain.handle('shell:restore-all', (e, pass) => { shellGuard(e, 'data.restore'); return restoreAll(pass); });
   // יעד הגיבוי: מחזיר null (ולא שגיאה) כשעדיין אין כניסה, כדי שהמעטפת תדע לחכות ולא לרשום חריגה
@@ -1141,11 +1333,13 @@ app.whenReady().then(async () => {
     // בלי קוד שחזור רשום, תקלה במחשב = אובדן כל הגיבויים האוטומטיים — מזכירים עד שנרשם
     const parts = [text];
     if (dbAtRest.status !== 'encrypted' && dbAtRest.status !== 'plain') parts.push(AT_REST_WARNINGS[dbAtRest.status] || '');
+    if (dbAtRest.vacuumPending) parts.push(AT_REST_WARNINGS['vacuum-pending']);
     // מחסן מוצפן שלא נפתח: המודול נראה ריק, והגיבוי לא נשמר עד שהתקלה מטופלת — מזכירים כאן ולא רק ביומן
     for (const mod of SecureStore.MODULES) {
       if (secureStore(mod).state === 'locked') parts.push(`⚠ הנתונים המוצפנים של ${MODULE_NAMES[mod] || mod} לא נפתחו — פנו לתמיכה עם דוח תקלה (F1)`);
     }
-    if (!s.recoveryCodeSavedAt && safeStorage.isEncryptionAvailable()) parts.push('⚠ טרם נרשם קוד שחזור (🔑)');
+    // קוד השחזור — למנהל בלבד (shellGuard ב-shell:get-recovery-code); לאחרים התזכורת רק מבלבלת
+    if (!s.recoveryCodeSavedAt && safeStorage.isEncryptionAvailable() && econ.sessionCan(econSenderId(), 'users.manage')) parts.push('⚠ טרם נרשם קוד שחזור (🔑)');
     return parts.filter(Boolean).join(' · ');
   });
   // גיבויים ישנים לא מוצפנים בתיקיית הגיבוי (PLAN.md 3.6): רשימה, הצפנה (ואז מחיקת המקור), מחיקה. שום דבר לא אוטומטי
@@ -1170,9 +1364,10 @@ app.whenReady().then(async () => {
     savePlainCount();
     return r;
   });
-  // קוד השחזור של הגיבוי האוטומטי: נוצר מהמפתח (ויוצר אותו אם אין עדיין). מי שמורשה לגבות — מורשה לראות
+  // קוד השחזור של הגיבוי האוטומטי: נוצר מהמפתח (ויוצר אותו אם אין עדיין). מנהל בלבד (החלטת הבעלים 23.10.2026):
+  // הקוד פותח את המסד, את כל הגיבויים האוטומטיים ואת המחסנים המוצפנים
   ipcMain.handle('shell:get-recovery-code', (e) => {
-    shellGuard(e, 'data.backup');
+    shellGuard(e, 'users.manage');
     return AutoBk.recoveryCodeFromKey(autoBackupKey(true));
   });
   // מסך הבית: מדדים ומשימות להיום, ושאלה לעוזר — בשם המודול הכלכלי, דרך אותו שומר (כניסה, הרשאה, רישיון).
@@ -1188,12 +1383,13 @@ app.whenReady().then(async () => {
     return econ.shellCall('ai:run', econSenderId(), String(question || ''));
   });
   ipcMain.handle('shell:recovery-code-saved', (e) => {
-    shellGuard(e, 'data.backup');
+    shellGuard(e, 'users.manage');
     saveJson(backupSettingsFile(), { ...loadJson(backupSettingsFile()), recoveryCodeSavedAt: new Date().toISOString() });
     return true;
   });
+  // יעד הגיבוי האוטומטי — מנהל בלבד (החלטת הבעלים 23.10.2026)
   ipcMain.handle('shell:pick-backup-target', async (e) => {
-    shellGuard(e, 'data.backup');
+    shellGuard(e, 'users.manage');
     const r = await dialog.showOpenDialog(win, { title: 'בחירת יעד לגיבוי אוטומטי (למשל כונן USB)', properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return '';
     // יעד שלא נשמר לא מוצג כאילו נבחר — אחרת הגיבוי ממשיך בשקט ליעד הקודם
@@ -1205,6 +1401,7 @@ app.whenReady().then(async () => {
 
   registerSyncHandlers();
   createWindow();
+  booting = false;
   // בדיקת עלייה: טוענים את המעטפת וכל מודול, ויוצאים. בלי גיבוי אוטומטי (הוא כותב לתיקיית המסמכים האמיתית)
   if (smoke) {
     // --shots: כל מודול מוצג בתורו (בלי הסרגל של הכניסה/הרישוי) ומצולם
@@ -1221,6 +1418,6 @@ app.whenReady().then(async () => {
   }
   setTimeout(autoBackup, 15000);
   setInterval(autoBackup, 6 * 3600 * 1000);
-});
+}).catch(bootFailed);
 
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => { if (!booting) app.quit(); });

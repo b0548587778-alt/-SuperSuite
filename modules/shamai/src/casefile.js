@@ -374,12 +374,13 @@ function loadCases() {
   return Array.isArray(list) ? list.filter(c => c && typeof c === 'object' && c.id && c.client) : [];
 }
 
-function saveCases(list) { Storage.save('cases', list); }
+// true — המחסן קיבל את השמירה (אחרת Storage.save כבר הודיע למשתמש)
+function saveCases(list) { return Storage.save('cases', list); }
 
 function nextCaseNo() {
   const no = (Number(Storage.load('caseSeq', 0)) || 0) + 1;
-  Storage.save('caseSeq', no);
-  return no;
+  // 0 — המספור לא נשמר (ההודעה — מ-Storage.save): לא פותחים תיק במספר שיונפק שוב
+  return Storage.save('caseSeq', no) ? no : 0;
 }
 
 const casePhotoKey = (id) => 'casePhoto_' + id;
@@ -388,7 +389,8 @@ const caseIsPhoto = (s) => typeof s === 'string' && s.length <= CASE_MAX_PHOTO_C
 function saveCasePhoto(dataUrl) {
   if (!caseIsPhoto(dataUrl)) throw new Error('התמונה אינה תקינה או גדולה מדי');
   const id = uid();
-  Storage.save(casePhotoKey(id), dataUrl);
+  // כתיבה שהמחסן דחה (אין מקום, אין כניסה, צפייה בלבד) — הסיבה עולה למסך ("התמונה לא נשמרה: ...")
+  if (!Storage.save(casePhotoKey(id), dataUrl, { quiet: true })) throw new Error(Storage.lastError.replace(/^השינוי לא נשמר:\s*/, '') || 'אין מקום לשמור את התמונה');
   if (Storage.load(casePhotoKey(id), null) !== dataUrl) throw new Error('אין מקום לשמור את התמונה');
   return id;
 }

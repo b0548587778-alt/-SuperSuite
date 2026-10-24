@@ -86,7 +86,9 @@ function encryptFile({ dir, name, key, fsx = fs }) {
   for (let i = 2; fsx.existsSync(dst); i++) dst = path.join(dir, `${base}-${i}.ssbk`);
   const tmp = dst + '.tmp';
   try {
-    fsx.writeFileSync(tmp, BK.encryptBackup(text, key), 'utf8');
+    // fsync לפני ההחלפה ולפני מחיקת המקור: בלעדיו, ניתוק חשמל אחרי המחיקה יכול להשאיר .ssbk ריק — ואין מקור
+    const fd = fsx.openSync(tmp, 'w');
+    try { fsx.writeSync(fd, BK.encryptBackup(text, key), null, 'utf8'); fsx.fsyncSync(fd); } finally { fsx.closeSync(fd); }
     if (BK.decryptBackup(fsx.readFileSync(tmp, 'utf8'), key) !== text) throw new Error('verify');
     fsx.renameSync(tmp, dst);
   } catch (e) {

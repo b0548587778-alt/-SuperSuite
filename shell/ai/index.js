@@ -1,14 +1,15 @@
 // חזית עוזר ה-AI של התוכנה. מאחדת את המנועים: העדפות, מנוע הכללים, המודל המקומי, בחירת מנוע והסתרת מזהים.
 // סדר העבודה: כללים קודם (דטרמיניסטי) ← המודל המקומי (GGUF בתהליך נפרד) רק למה שהכללים לא מבינים,
-// לניסוח מכתבים ולסיכום דוחות. המודל עונה רק מתוך קריאות לכלים (tools.js), וכל מספר בתשובה נבדק
-// מול תוצאות הכלים (grounding.js) — תשובה עם מספר מומצא נדחית ועונים ממנוע הכללים.
+// לניסוח מכתבים ולסיכום דוחות. המודל עונה רק מתוך קריאות לכלים (tools.js) — וזה נאכף: תשובה בלי קריאה מוצלחת
+// לכלי, או שאינה מצטטת ערך מתוצאות הכלים, לא מגיעה למשתמש. כל מספר בתשובה (גם במילים) נבדק מול תוצאות הכלים
+// (grounding.js) — תשובה עם מספר מומצא נדחית ועונים ממנוע הכללים. שאלה כללית בלי מקור — התשובה הקבועה (OFF_TOPIC).
 // אין כאן רשת, אין קריאה למסד ואין לוג של שאלות. הענן — לא מחובר (שלב עתידי, בהסכמה בלבד).
 const fs = require('fs');
 const path = require('path');
 
 const { createPrefs, DEFAULTS } = require('./prefs');
 const { choose, engineLabel, localLicensed, detectTask, routeQuestion } = require('./router');
-const { runRules, detectIntent, detectDomain } = require('./rules');
+const { runRules, detectIntent, detectDomain, OFF_TOPIC } = require('./rules');
 const { redact } = require('./redact');
 const { toolsFor, callTool } = require('./tools');
 const { checkGrounded } = require('./grounding');
@@ -24,6 +25,7 @@ const SYSTEM_PROMPT = [
   'אתה העוזר של תוכנת SuperSuite לניהול חשבונות, עמותות ותרומות. ענה תמיד בעברית, בקצרה ובנימוס.',
   'כל נתון — רק מתוך קריאה לכלים. אל תחשב בעצמך ואל תמציא מספרים, שמות או תאריכים; העתק סכומים בדיוק כפי שהכלי החזיר.',
   'אם הכלי החזיר error או שאין כלי מתאים — אמור שהנתון אינו זמין, בלי לנחש.',
+  'ענה רק על הנתונים שבתוכנה ועל השימוש בה. כתוב סכומים ומספרים בספרות, כפי שהכלי החזיר — לא במילים.',
   'אל תיתן ייעוץ משפטי, מס או השקעות; אפשר להפנות לרואה החשבון.',
 ].join('\n');
 
@@ -98,8 +100,12 @@ function createAI({ userDataPath, getBackupKey, onError = () => {}, clock = () =
     };
   }
 
-  // שאלה אחת למודל המקומי, עם הכלים שפתוחים בהקשר. כל כשל — חזרה לכללים, עם סיבה
-  async function askLocal(p, q, ctx, task, requested) {
+  // התשובה הקבועה — בלי נתונים ובלי טקסט של המודל
+  const fixedAnswer = (p, requested, text, fallback) => ({ text: hide(p, text), engine: 'rules', engineLabel: engineLabel('rules'), requested, fallback });
+
+  // שאלה אחת למודל המקומי, עם הכלים שפתוחים בהקשר. כל כשל — חזרה לכללים, עם סיבה.
+  // general — שאלה בלי כוונה ובלי תחום שהכללים מזהים (ולא ניסוח או סיכום)
+  async function askLocal(p, q, ctx, task, requested, general = false) {
     const t0 = clock();
     try {
       const prompt = (TASK_PROMPT[task] || TASK_PROMPT.answer)(q);
@@ -113,11 +119,18 @@ function createAI({ userDataPath, getBackupKey, onError = () => {}, clock = () =
       });
       const text = String(out.text || '').trim();
       const calls = Array.isArray(out.toolCalls) ? out.toolCalls : [];
-      // מקורות מותרים למספרים: תוצאות הכלים, השאלה, התאריך, וההנחיה שלנו (למשל „סעיף 46”) — לא שום דבר אחר
-      const grounded = checkGrounded(text, [prompt, ctx.today || '', ...calls.map(c => c.result)]);
+      // קריאה מוצלחת = תוצאה בלי error. בלעדיה אין לתשובה מקור, והטקסט החופשי של המודל לא מגיע למשתמש (ממצא 48)
+      const used = calls.filter(c => c && c.result && typeof c.result === 'object' && !Array.isArray(c.result) && !c.result.error);
+      // מקורות מותרים למספרים: תוצאות הכלים, השאלה, התאריך, וההנחיה שלנו (למשל „סעיף 46”) — לא שום דבר אחר.
+      // evidence: התשובה חייבת לצטט ערך מתוצאה מוצלחת — גם תשובה בלי ספרות בכלל
+      const grounded = checkGrounded(text, [prompt, ctx.today || '', ...calls.map(c => c.result)], { evidence: used.map(c => c.result) });
       if (!text || !grounded.ok) {
-        onError('ai-local-ungrounded', new Error(`numbers not from tools: ${grounded.invented.length}`));
-        return rulesAnswer(p, q, ctx, requested, { fallback: 'ungrounded' });
+        const why = grounded.invented.length ? 'ungrounded' : 'no-tools';
+        if (why === 'ungrounded') onError('ai-local-ungrounded', new Error(`numbers not from tools: ${grounded.invented.length}`));
+        // שאלה כללית שהתשובה לה לא נשענת על נתון — התשובה הקבועה, לא סיכום שלא נשאל עליו.
+        // גם כשהמודל קרא לכלי שהצליח ולא ציטט ממנו („ספר לי משהו נחמד” ← סיפור), לא רק כשלא קרא לכלי בכלל
+        if (why === 'no-tools' && general) return fixedAnswer(p, requested, OFF_TOPIC, 'off-topic');
+        return rulesAnswer(p, q, ctx, requested, { fallback: why });
       }
       return {
         text: hide(p, text),
@@ -142,8 +155,9 @@ function createAI({ userDataPath, getBackupKey, onError = () => {}, clock = () =
     const requested = choose({ task: 'answer', prefs: p, status: buildStatus(p) });
     const q = p.conceal ? redact(question).text : String(question || '').trim();
     const task = opts && opts.task ? opts.task : detectTask(q);
-    const route = routeQuestion({ task, intent: detectIntent(q), domain: detectDomain(q), localReady: requested === 'local' });
-    if (route === 'local') return askLocal(p, q, ctx, task, requested);
+    const intent = detectIntent(q), domain = detectDomain(q);
+    const route = routeQuestion({ task, intent, domain, localReady: requested === 'local' });
+    if (route === 'local') return askLocal(p, q, ctx, task, requested, task === 'answer' && intent === 'general' && !domain);
     return rulesAnswer(p, q, ctx, requested);
   }
 

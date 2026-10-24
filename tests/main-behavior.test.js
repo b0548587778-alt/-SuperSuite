@@ -116,12 +116,27 @@ async function boot() {
     require(path.join(ROOT, 'main.js'));
     assert.equal(typeof readyCallback, 'function', 'main.js רושם callback ל-whenReady');
     await readyCallback();
+    // מצב פתיחה קבוע לכל הבדיקות, כדי שכל בדיקה תרוץ גם לבד או בסדר אחר (--test-name-pattern / --test-randomize):
+    // created.views[0] = המודול הכלכלי, created.views[1] = ארגז הכלים, והמשתמש restore_viewer קיים.
+    // מצב הכניסה — כל בדיקה קובעת בעצמה (loginEcon / logoutEcon)
+    await handlers['shell:switch'](shellSender(), 'econ');
+    await handlers['shell:switch'](shellSender(), 'tools');
+    await handlers['auth:setup'](viewSender(created.views[0]), 'restore_viewer', 'viewer-pass-long-1');
+    await handlers['shell:home'](shellSender());
   })();
   return ready;
 }
 
 const shellSender = () => ({ sender: { id: 1 } });
 const viewSender = (view) => ({ sender: { id: view.id } });
+const authService = () => require(path.join(ROOT, 'modules/econ/services/authService')).AuthService;
+// כניסה טרייה של restore_viewer (מנהל) במודול הכלכלי — ההרשאות המלאות, לא מה שבדיקה קודמת הורידה
+async function loginEcon() {
+  await boot();
+  await handlers['auth:login'](viewSender(created.views[0]), 'restore_viewer', 'viewer-pass-long-1');
+  return authService().getSession(created.views[0].id);
+}
+function logoutEcon() { authService().sessions.clear(); }
 
 test('תצוגות מודול מתווספות לחלון ומוחלפות לפי המודול הפעיל', async () => {
   await boot();
@@ -157,6 +172,7 @@ test('shell:open-module: מודול יכול לפתוח מודול אחר, וש�
 
 test('גיבוי מהמעטפת דורש הרשאה של המשתמש במודול הכלכלי ולא "יש כניסה כלשהי"', async () => {
   await boot();
+  logoutEcon();
   // שולח שאינו המעטפת נדחה מיד
   assert.throws(() => handlers['shell:backup-all']({ sender: { id: 999 } }, 'pass', 'all'), /מתוך המעטפת בלבד/);
   // המעטפת בלי כניסה למודול הכלכלי נדחית
@@ -166,9 +182,7 @@ test('גיבוי מהמעטפת דורש הרשאה של המשתמש במודו
 test('שחזור מהמעטפת: מודול כלכלי מחובר בלי הרשאת שחזור נדחה', async () => {
   await boot();
   const econView = created.views[0];
-  const econSender = viewSender(econView);
-  await handlers['auth:setup'](econSender, 'restore_viewer', 'viewer-pass-long-1');
-  await handlers['auth:login'](econSender, 'restore_viewer', 'viewer-pass-long-1');
+  await loginEcon(); // המשתמש נוצר ב-boot
   // מוריד את ההרשאות לצפייה בלבד, כמו במשתמש שאינו רשאי לשחזר
   const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
   AuthService.getSession(econView.id).permissions = ['data.view'];
@@ -176,7 +190,7 @@ test('שחזור מהמעטפת: מודול כלכלי מחובר בלי הרש�
 });
 
 test('גיבוי ידני ליעד שנכשל בכתיבה (USB מלא/מנותק) מחזיר שגיאה בעברית', async () => {
-  await boot();
+  await loginEcon();
   const econView = created.views[0];
   const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
   AuthService.getSession(econView.id).permissions = ['data.view', 'data.backup'];
@@ -188,7 +202,7 @@ test('גיבוי ידני ליעד שנכשל בכתיבה (USB מלא/מנות�
 
 // בדיקת קוד 23.10.2026: סוג גיבוי לא מוכר יצר גיבוי ריק שדווח "נשמר"; כתיבה ישירה שנכשלה דרסה את הגיבוי הקודם
 test('גיבוי ידני: סוג לא מוכר נדחה, וכתיבה שנכשלה לא פוגעת בגיבוי הקודם באותו שם', async () => {
-  await boot();
+  await loginEcon();
   const econView = created.views[0];
   const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
   AuthService.getSession(econView.id).permissions = ['data.view', 'data.backup'];
@@ -208,7 +222,7 @@ test('גיבוי ידני: סוג לא מוכר נדחה, וכתיבה שנכש�
 });
 
 test('שחזור וגיבוי אוטומטי לא רצים יחד: שחזור שני בזמן שחזור — נדחה; הגיבוי האוטומטי מדלג', async () => {
-  await boot();
+  await loginEcon();
   const econView = created.views[0];
   const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
   AuthService.getSession(econView.id).permissions = ['data.view', 'data.restore'];
@@ -263,7 +277,7 @@ test('shell:econ-view: רק המודול הכלכלי מדווח, ורק על ת
 });
 
 test('מסכי האימונים בסרגל האחיד: פתיחה לפי הקטלוג, preload ייעודי, ודיווח רק מהמודול עצמו', async () => {
-  await boot();
+  await loginEcon(); // האימונים נפתחים רק אחרי כניסה
   const Catalog = require(path.join(ROOT, 'shell', 'catalog.js'));
   const econView = created.views[0];
   assert.equal(await handlers['shell:open'](shellSender(), 'trainer', 'nutrition'), true);
@@ -283,7 +297,7 @@ test('מסכי האימונים בסרגל האחיד: פתיחה לפי הקט�
 });
 
 test('trainer:save-pdf: רק מתצוגת האימונים, PDF מהתצוגה עצמה לקובץ שנבחר (PLAN.md 6.4)', async () => {
-  await boot();
+  await loginEcon(); // האימונים נפתחים רק אחרי כניסה
   await handlers['shell:open'](shellSender(), 'trainer', 'nutrition');
   const trainerView = created.views.find(v => /trainer[\\/]preload\.js$/.test((v.opts.webPreferences || {}).preload || ''));
   const econView = created.views[0];
@@ -334,7 +348,7 @@ test('הגדרות לוח: נשמרות מהמעטפת בלבד, קלט לא ת�
 });
 
 test('אחורה/קדימה: חזרה למודול הקודם ולמסך הבית; רק המעטפת רשאית', async () => {
-  await boot();
+  await loginEcon(); // השמאי נפתח רק אחרי כניסה — בלי כניסה ההיסטוריה הייתה אחרת
   await handlers['shell:home'](shellSender());
   await handlers['shell:switch'](shellSender(), 'tools');
   await handlers['shell:switch'](shellSender(), 'shamai');
@@ -358,6 +372,37 @@ test('מכשירים מחוברים: כל ערוצי sync: רשומים, ונד�
   }
   // תצוגת מודול (לא המעטפת) — נדחית גם היא
   assert.throws(() => handlers['sync:set-enabled'](viewSender(created.views[0]), true), /מתוך המעטפת בלבד/);
+});
+
+// בדיקת קוד 23.10.2026, ממצא 55: מסך המכשירים מבקש את המצב בכל אירוע ברשת (משואה כל 30 שניות) — זה לא
+// נחשב פעילות, ולכן לא מונע את הניתוק בחוסר פעילות
+test('sync:status לא מאריך את הפגישה של המנהל; פגישה שפגה — נדחה; פעולה של המנהל כן נחשבת פעילות', async () => {
+  await boot();
+  const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
+  const econView = created.views[0];
+  const prev = AuthService.sessions.get(econView.id);
+  AuthService.sessions.set(econView.id, { id: 1, username: 'admin55', role: 'admin', permissions: ['data.view', 'users.manage'], via: 'password', lastSeen: 0 });
+  const s = AuthService.sessions.get(econView.id);
+  try {
+    const old = AuthService.now() - AuthService.idleMs + 60 * 1000; // דקה לפני הניתוק
+    s.lastSeen = old;
+    for (let i = 0; i < 5; i++) assert.equal(typeof handlers['sync:status'](shellSender()), 'object');
+    assert.equal(s.lastSeen, old, 'בדיקת המצב ברקע לא רשמה פעילות');
+    // בלי הרשאת מנהל — נדחה, גם בבדיקה השקטה
+    s.permissions = ['data.view'];
+    assert.throws(() => handlers['sync:status'](shellSender()), /אין הרשאה/);
+    s.permissions = ['data.view', 'users.manage'];
+    // הפגישה פגה — גם אירועי סנכרון לא מחזירים אותה
+    s.lastSeen = AuthService.now() - AuthService.idleMs - 1000;
+    assert.throws(() => handlers['sync:status'](shellSender()), /נדרשת כניסה/);
+    // פעולה יזומה של המנהל במסך המכשירים — כן פעילות
+    s.lastSeen = old;
+    AuthService.sessions.set(econView.id, s);
+    await handlers['sync:cancel-invite'](shellSender());
+    assert.ok(s.lastSeen > old, 'פעולה של המנהל מאריכה את הפגישה');
+  } finally {
+    if (prev) AuthService.sessions.set(econView.id, prev); else AuthService.sessions.delete(econView.id);
+  }
 });
 
 test('שמאי ואימונים: בלי כניסה — מסך הכניסה, ואחרי כניסה המודול נפתח; יציאה — חזרה למסך הכניסה', async () => {

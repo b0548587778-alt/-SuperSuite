@@ -60,7 +60,8 @@ test('הצפנה: קובץ .ssbk קיים באותו שם לא נדרס', () => 
 test('הצפנה: כישלון בכתיבה או באימות ← המקור נשאר, ואין שארית', () => {
   const dir = tmp();
   const text = write(dir, 'auto-2026-01-01.json', suite);
-  const failWrite = { ...fs, writeFileSync: () => { const e = new Error('full'); e.code = 'ENOSPC'; throw e; } };
+  // הכתיבה עוברת דרך writeSync + fsync (בדיקת קוד 23.10.2026) — הכשל מדומה שם
+  const failWrite = { ...fs, writeSync: () => { const e = new Error('full'); e.code = 'ENOSPC'; throw e; } };
   assert.throws(() => PB.encryptFile({ dir, name: 'auto-2026-01-01.json', key: KEY, fsx: failWrite }), /המקורי לא נמחק.*ENOSPC/);
   // אימות שנכשל: הקובץ שנכתב אינו מה שנקרא בחזרה
   const badRead = { ...fs, readFileSync: (f, enc) => (String(f).endsWith('.tmp') ? 'SSBK1:garbage' : fs.readFileSync(f, enc)) };

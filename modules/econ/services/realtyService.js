@@ -6,6 +6,7 @@ const R = require('../core/realty');
 const B = require('../core/brokerage');
 const I = require('../core/realtyInvest');
 const P = require('../core/devProject');
+const { localDay } = require('../core/dates');
 const M = require('../core/mortgageAdvisor');
 const DM = require('../core/dealMortgage');
 
@@ -86,7 +87,7 @@ class RealtyService {
     const data = await this._load();
     const { properties, clients, deals, orders, settings } = data.realty;
     const ctx = { properties, clients, settings };
-    const t = today || new Date().toISOString().slice(0, 10);
+    const t = today || localDay(); // היום המקומי, לא UTC
     const outDeals = deals.map(d => ({ ...this._dealOut(data, d, ctx), mortgage: this._mortgageStatus(data, d, t, opts) }));
     const open = outDeals.filter(d => d.stage !== 'lost');
     return {

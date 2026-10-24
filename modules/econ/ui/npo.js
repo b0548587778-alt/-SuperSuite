@@ -138,7 +138,7 @@ const campaignSchema = {
     { name: 'startDate', label: 'תאריך התחלה', type: 'date', required: true },
     { name: 'endDate', label: 'תאריך סיום', type: 'date', required: true },
     { name: 'fundId', label: 'קרן', type: 'select', options: [] },
-    { name: 'matchDonor', label: 'תורם מכפיל (לא חובה)', type: 'text' },
+    { name: 'matchDonor', label: 'שם התורם המכפיל — בדיוק כפי שנרשם בתרומות (חובה כשיש הכפלה)', type: 'text' },
     { name: 'matchRatio', label: 'יחס הכפלה (1 = כל שקל מוכפל, 2 = משולש; ריק = בלי)', type: 'number' },
     { name: 'matchCap', label: 'תקרת ההכפלה — הסכום שהמכפיל התחייב אליו (₪)', type: 'number' },
     { name: 'ambassadorsText', label: 'שגרירים — שורה לכל שגריר: שם, קוד, יעד אישי (קוד ויעד לא חובה)', type: 'textarea' },
@@ -173,7 +173,8 @@ function renderNpoCampaigns(list) {
             ${c.donationsCount ? '' : `<button class="icon-btn danger" data-cmp-del="${esc(c.id)}" title="מחיקה">🗑</button>`}</span>
         </div>
         ${bar(c.percent)}
-        <small class="muted">${Number(c.donationsCount)} תרומות · ${Number(c.donorsCount)} תורמים · נאסף ${money(c.raised)}${c.matchRatio ? ` · הכפלה${c.matchDonor ? ' של ' + esc(c.matchDonor) : ''}: ${money(c.matched)} (נותרו ${money(c.matchLeft)} מתוך ${money(c.matchCap)})` : ''}${c.remaining ? ' · חסר ' + money(c.remaining) : ' · היעד הושג ✓'}</small>
+        <small class="muted">${Number(c.donationsCount)} תרומות · ${Number(c.donorsCount)} תורמים · נאסף ${money(c.raised)}${c.matchRatio ? ` · הכפלה${c.matchDonor ? ' של ' + esc(c.matchDonor) : ''}: ${money(c.matched)} (נותרו ${money(c.matchLeft)} מתוך ${money(c.matchCap)})` : ''}${c.matchRatio && !c.matchDonorMissing ? ` · מהמכפיל התקבלו ${money(c.matcherRaised)} (${Number(c.matcherCount) || 0} תרומות)` : ''}${c.remaining ? ' · חסר ' + money(c.remaining) : ' · היעד הושג ✓'}</small>
+        ${c.matchDonorMissing ? '<div><small class="bad">⚠ חסר שם התורם המכפיל — כספו לא מזוהה בתרומות, וההכפלה עלולה להיספר פעמיים. יש לערוך את הקמפיין ולרשום את השם.</small></div>' : ''}
         ${c.ambassadorRows && c.ambassadorRows.length ? `<details><summary><small>שגרירים (${c.ambassadorRows.length})</small></summary>${c.ambassadorRows.map(a => `<div class="acct-row"><span>${esc(a.name)} <small class="muted">קוד ${esc(a.code)} · ${Number(a.count)} תרומות</small></span><span>${money(a.raised)}${a.goal ? ` / ${money(a.goal)} <small>(${Number(a.percent)}%)</small>` : ''}</span></div>`).join('')}</details>` : ''}
         ${c.topDonors && c.topDonors.length ? `<div><small class="muted">מובילים: ${c.topDonors.map(t => esc(t.name) + ' ' + money(t.amount)).join(' · ')}</small></div>` : ''}
       </div>`).join('')}
@@ -479,21 +480,9 @@ const NPO_IMPORT_SOURCES = { nedarim: 'נדרים פלוס', kehilot: 'קהיל�
 // שער לשורות במטבע זר בלי עמודת שער — ההמרה בשרת (core/donationImport.js)
 const NPO_IMPORT_RATES = { USD: 'דולר', EUR: 'אירו', GBP: 'לירה שטרלינג' };
 
+// הזיהוי (UTF-8 או windows-1255) — ב-pickFileText (ui/ports.js), משותף לכל ייבוא CSV
 function pickCsvAnyEncoding() {
-  return new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv,text/csv';
-    input.addEventListener('change', async () => {
-      const file = input.files && input.files[0];
-      if (!file) return resolve(null);
-      if (file.size > 20 * 1024 * 1024) { showError('הקובץ גדול מדי (עד 20MB)'); return resolve(null); }
-      const buf = await file.arrayBuffer();
-      try { resolve(new TextDecoder('utf-8', { fatal: true }).decode(buf)); }
-      catch { resolve(new TextDecoder('windows-1255').decode(buf)); }
-    });
-    input.click();
-  });
+  return pickFileText('.csv,text/csv');
 }
 
 async function importNpoDonations() {

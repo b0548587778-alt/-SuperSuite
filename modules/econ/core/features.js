@@ -6,7 +6,8 @@ const A = require('./accounting');
 const PR = require('./pricing');
 const BK = require('./backupCrypto');
 
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 const MAX_PERSONAL = 5000;
 const MAX_IMPORT_ROWS = 500;
 
@@ -145,24 +146,45 @@ function parseProductsCsv(text) {
 
 // ---------- גיבוי אוטומטי מוצפן ליעד (תיקייה/כונן USB) ----------
 // מחזיר {ok:false, reason} אם היעד לא זמין (למשל כונן לא מחובר). לעולם לא כותב טקסט גלוי.
-function writeEncryptedAutoBackup({ dir, plainText, key, keep = 14, today }) {
+// tag — סימן ההתקנה (shell/auto-backup.js → installTag): auto-YYYY-MM-DD-<tag>.ssbk. הסבב מוחק רק קבצים של
+// ההתקנה הזו, וקבצים בלי סימן מלפני השדרוג שלה; גיבויים של מחשב אחר באותו יעד — מסומנים, או בלי סימן ממחשב שעוד
+// לא שודרג — לא נמחקים (בדיקת קוד 23.10.2026, ממצא 38)
+function writeEncryptedAutoBackup({ dir, plainText, key, keep = 14, today, tag }) {
   if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { ok: false, reason: 'target-missing' };
   if (typeof key !== 'string' || key.length < BK.MIN_PASSPHRASE) return { ok: false, reason: 'no-key' };
   const day = today || new Date().toLocaleDateString('en-CA'); // תאריך מקומי YYYY-MM-DD (לא UTC)
-  const name = `auto-${day}.ssbk`;
-  const existing = fs.readdirSync(dir).filter(f => /^auto-\d{4}-\d{2}-\d{2}\.(json|ssbk)$/.test(f)).sort();
+  const own = typeof tag === 'string' && /^[0-9a-f]{8}$/.test(tag) ? tag : null;
+  const name = own ? `auto-${day}-${own}.ssbk` : `auto-${day}.ssbk`;
+  const legacy = /^auto-\d{4}-\d{2}-\d{2}\.(json|ssbk)$/;
+  // לפי התאריך; באותו יום — הקובץ בלי הסימן (הישן) קודם, כדי שיימחק ראשון
+  const byDay = (a, b) => a.slice(5, 15).localeCompare(b.slice(5, 15)) || (a.length - b.length) || a.localeCompare(b);
+  const files = fs.readdirSync(dir);
+  let existing;
+  if (!own) existing = files.filter(f => legacy.test(f)).sort(byDay);
+  else {
+    const ownRe = new RegExp(`^auto-\\d{4}-\\d{2}-\\d{2}-${own}\\.ssbk$`);
+    const ownFiles = files.filter(f => ownRe.test(f)).sort(byDay);
+    // קובץ בלי סימן הוא של ההתקנה הזו רק אם הוא מלפני הגיבוי המסומן הראשון שלה (מלפני השדרוג), ורק עד שיש לה keep
+    // גיבויים מסומנים — אז הישנים שלה כבר נמחקו (הם הוותיקים ביותר ונמחקים ראשונים). קובץ בלי סימן מאוחר יותר — של
+    // מחשב אחר באותו יעד שעוד לא שודרג: לא נספר ולא נמחק. קבצים בלי סימן שהיו ביעד לפני השדרוג אי אפשר לשייך
+    const since = ownFiles.length ? ownFiles[0].slice(5, 15) : day;
+    const oldOwn = ownFiles.length < keep ? files.filter(f => legacy.test(f) && f.slice(5, 15) < since) : [];
+    existing = oldOwn.concat(ownFiles).sort(byDay);
+  }
   if (existing.includes(name)) return { ok: true, skipped: true, file: path.join(dir, name) };
   const file = path.join(dir, name);
   const tmp = file + '.tmp';
-  // כונן מלא/מוגן מפני כתיבה: מנקים את הקובץ הזמני ומחזירים סיבה, במקום להשאיר שארית על הכונן
+  // כונן מלא/מוגן מפני כתיבה: מנקים את הקובץ הזמני ומחזירים סיבה, במקום להשאיר שארית על הכונן.
+  // fsync לפני ההחלפה ולפני מחיקת הישנים: אחרת ניתוק חשמל/USB יכול להשאיר קובץ חדש ריק אחרי שהישנים כבר נמחקו
   try {
-    fs.writeFileSync(tmp, BK.encryptBackup(plainText, key), 'utf8');
+    const fd = fs.openSync(tmp, 'w');
+    try { fs.writeSync(fd, BK.encryptBackup(plainText, key), null, 'utf8'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, file);
   } catch (e) {
     try { fs.rmSync(tmp, { force: true }); } catch {}
     return { ok: false, reason: 'write-failed', error: e.code || e.message };
   }
-  const all = existing.concat(name).sort();
+  const all = existing.concat(name).sort(byDay);
   const removed = [];
   for (const f of all.slice(0, Math.max(0, all.length - keep))) { fs.unlinkSync(path.join(dir, f)); removed.push(f); }
   return { ok: true, file, removed };

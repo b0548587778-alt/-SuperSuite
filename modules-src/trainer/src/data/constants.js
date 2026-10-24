@@ -45,8 +45,9 @@ export const LEVELS = [
 
 export const ACTIVITY_LEVELS = [
   { id: 'sedentary', label: 'יושבני', mult: 1.2, desc: 'עבודת משרד, ללא פעילות' },
-  { id: 'light', label: 'קל', mult: 1.375, desc: '1-3 אימונים בשבוע' },
+  { id: 'light', label: 'קל', mult: 1.375, desc: '1-2 אימונים בשבוע' },
   { id: 'moderate', label: 'בינוני', mult: 1.55, desc: '3-5 אימונים בשבוע' },
-  { id: 'active', label: 'פעיל', mult: 1.725, desc: '6-7 אימונים בשבוע' },
+  // עד 6 אימונים — בלי שבת (MAX_TRAINING_DAYS ב-lib/program.js)
+  { id: 'active', label: 'פעיל', mult: 1.725, desc: '6 אימונים בשבוע (כל ימי החול)' },
   { id: 'very-active', label: 'פעיל מאוד', mult: 1.9, desc: 'עבודה פיזית + אימונים' },
 ];

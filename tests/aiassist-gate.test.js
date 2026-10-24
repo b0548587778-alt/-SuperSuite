@@ -32,8 +32,15 @@ const one = (init = null) => { let v = init; return { read: () => v, write: (t) 
 const mem = () => { const m = new Map(); return { read: (n) => (m.has(n) ? m.get(n) : null), write: (n, t) => { m.set(n, t); } }; };
 const limits = { maxChildren: 2, maxUsers: 10, maxStorageMb: 1000, maxDepth: 2 };
 const licensed = (features, status = 'active') => ({ mode: 'licensed', status, features, reasons: [] });
-let TMP_DIR = null;
+// תיקייה זמנית אחת לכל הבדיקות, והניקוי שלה ברמת הקובץ. פעם הניקוי נרשם בתוך הבדיקה הראשונה שיצרה אותה —
+// ואז רץ בסוף אותה בדיקה, והבדיקה נכשלה (EPERM) כשהיא פתחה שני מסדים (רק בסדר הרצה אחר)
+const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-ai-gate-'));
 let TENANT_N = 0;
+test.after(() => {
+  // לסגור את המסד קודם — אחרת Windows לא נותן למחוק את התיקייה (EPERM)
+  try { const db = ipc.getDb(); if (db && db.db) db.db.close(); } catch { /* כבר סגור */ }
+  try { fs.rmSync(TMP_DIR, { recursive: true, force: true, maxRetries: 3 }); } catch { /* מסד קודם עוד פתוח — run-tests.js מוחק את התיקייה הזמנית בסוף */ }
+});
 
 // ---------- השער הטהור ----------
 test('featuresForChannel: כל ערוץ ai:* שייך לתחום "ai" בלבד — לא ל-econ', () => {
@@ -102,11 +109,7 @@ async function issuedTenant(features) {
   // הכתיבה דרך ה-API של המחסן בלבד (save) — כמו שהמחסן עצמו עושה אחרי סנכרון
   tenant.setRemoteSettings({ lastSync: T0, lastGoogle: T0 });
 
-  // תיקייה זמנית אחת לכל הבדיקות (initEcon מחליף את אותו שירות בכל קריאה) — נמחקת בסוף, כמו ב-run-tests.js
-  if (!TMP_DIR) { TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-ai-gate-')); test.after(() => { // לסגור את המסד קודם — אחרת Windows לא נותן למחוק את התיקייה (EPERM)
-    try { const db = ipc.getDb(); if (db && db.db) db.db.close(); } catch { /* כבר סגור */ }
-    fs.rmSync(TMP_DIR, { recursive: true, force: true, maxRetries: 3 });
-  }); }
+  // תיקייה זמנית אחת לכל הבדיקות (initEcon מחליף את אותו שירות בכל קריאה) — נמחקת בסוף (test.after למעלה)
   const dir = path.join(TMP_DIR, 'tenant-' + (++TENANT_N));
   // relayUrl ריק — אין פנייה לשרת אמיתי. אותו storage ואותו secret של המחסן שממנו נוצר הרישיון
   await ipc.initEcon(dir, { rootKeys, clock: () => T0 + DAY, licenseStorage: tenantStorage, licenseSecret: tenantSecret, relayUrl: '' });
@@ -164,10 +167,6 @@ test('ipc: ai.cloud נעול בלי רישיון — גם אם בחרו „ענ�
 
 test('ipc: תקופת ניסיון שהסתיימה — קריאה מותרת, שאלה (כתיבה) נחסמת', async () => {
   const root = L.generateKeyPair();
-  if (!TMP_DIR) { TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-ai-gate-')); test.after(() => { // לסגור את המסד קודם — אחרת Windows לא נותן למחוק את התיקייה (EPERM)
-    try { const db = ipc.getDb(); if (db && db.db) db.db.close(); } catch { /* כבר סגור */ }
-    fs.rmSync(TMP_DIR, { recursive: true, force: true, maxRetries: 3 });
-  }); }
   const dir = path.join(TMP_DIR, 'trial');
   await ipc.initEcon(dir, {
     rootKeys: [root.publicJwk], clock: () => T0, relayUrl: '',
@@ -313,8 +312,7 @@ test('ipc: ai:model:install / remove — מנהל בלבד; משתמש צפיי�
 test('ipc: owner:modelSign — מנהל-העל חותם GGUF, התעודה נשמרת לידו ונפתחת במחסן המודלים', async () => {
   const ownerStorage = mem();
   const { publicKey } = createOwnerCore({ storage: ownerStorage, clock: () => T0 }).init(PASS);
-  const dir = fs.mkdtempSync(path.join(TMP_DIR || os.tmpdir(), 'owner-model-'));
-  if (!TMP_DIR) test.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
+  const dir = fs.mkdtempSync(path.join(TMP_DIR, 'owner-model-'));
   await ipc.initEcon(path.join(dir, 'data'), { rootKeys: [publicKey], clock: () => T0, ownerStorage, relayUrl: '' });
   await setupAdmin(25);
   const MP = require(path.join(ROOT, 'shell/ai/model-pack'));
@@ -339,7 +337,7 @@ test('ipc: owner:modelSign — מנהל-העל חותם GGUF, התעודה נש�
   await assert.rejects(handlers['owner:modelSign'](ev(25), input), /אינו מודל GGUF/);
   openDialog = async () => ({ canceled: true, filePaths: [] });
   try { const db = ipc.getDb(); if (db && db.db) db.db.close(); } catch { /* כבר סגור */ }
-  if (TMP_DIR) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
 });
 
 // ---------- ערוצים ארוכים (handleLong): חלון הבחירה וחישוב התמצית מחוץ לתור, ובדיקה חוזרת לפני הכתיבה ----------
@@ -353,8 +351,7 @@ function pendingDialog() {
 test('ipc: owner:modelSign — התור פנוי בזמן הבחירה, חתימה אחת בכל פעם, ובדיקה חוזרת אחרי החישוב', async () => {
   const ownerStorage = mem();
   const { publicKey } = createOwnerCore({ storage: ownerStorage, clock: () => T0 }).init(PASS);
-  const dir = fs.mkdtempSync(path.join(TMP_DIR || os.tmpdir(), 'owner-long-'));
-  if (!TMP_DIR) test.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
+  const dir = fs.mkdtempSync(path.join(TMP_DIR, 'owner-long-'));
   await ipc.initEcon(path.join(dir, 'data'), { rootKeys: [publicKey], clock: () => T0, ownerStorage, relayUrl: '' });
   await setupAdmin(26);
   await handlers['owner:unlock'](ev(26), PASS);
@@ -385,7 +382,7 @@ test('ipc: owner:modelSign — התור פנוי בזמן הבחירה, חתימ
   await handlers['owner:unlock'](ev(26), PASS);
   assert.deepEqual(await handlers['owner:modelSign'](ev(26), input), { ok: false });
   try { const db = ipc.getDb(); if (db && db.db) db.db.close(); } catch { /* כבר סגור */ }
-  if (TMP_DIR) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
 });
 
 test('ipc: ai:model:install — התור פנוי בזמן הבחירה, והסרה / אימות באמצע ההתקנה נדחים', async () => {

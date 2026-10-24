@@ -209,6 +209,12 @@ test('בניית קבצי ה-web לאנדרואיד: הזרקה למודולים
   }
   // אין קוד צד-שרת של הכלכלי בתוך ה-iframe
   assert.ok(!fs.existsSync(path.join(B.WWW, 'econ', 'core')));
+  // רשת רק דרך RelayClient ב-Java — ה-WebView נשאר בלי רשת (ממצא 32, tests/audit-android.test.js)
+  const csp = /Content-Security-Policy" content="([^"]+)"/.exec(shell)[1];
+  assert.match(csp, /connect-src 'self';/);
+  // אודות נארז בבנייה
+  const info = fs.readFileSync(path.join(B.WWW, 'shell', 'build-info.js'), 'utf8');
+  assert.match(info, /"about":\{"license":/);
 });
 
 // שחזור מלא באנדרואיד שנכשל באמצע (מודול לא שמר) ← הכספים והמודולים חוזרים למצב שלפני

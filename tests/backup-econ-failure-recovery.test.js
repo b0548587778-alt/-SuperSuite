@@ -25,7 +25,7 @@ test('סטטוס במסך הבית: econ-read-failed ← אזהרה ברורה �
   assert.doesNotMatch(text, /הצליח/);
 });
 
-test('runAutoBackup: איסוף שנכשל ← השגיאה עולה, בלי כתיבה, בלי מפתח ובלי מחיקת גיבויים ישנים', async () => {
+test('runAutoBackup: איסוף שנכשל ← השגיאה עולה, בלי כתיבה ובלי מחיקת גיבויים ישנים', async () => {
   const dir = tmp('run');
   const old = Array.from({ length: 14 }, (_, i) => `auto-2000-02-${String(i + 1).padStart(2, '0')}.ssbk`);
   for (const f of old) fs.writeFileSync(path.join(dir, f), 'x');
@@ -37,7 +37,8 @@ test('runAutoBackup: איסוף שנכשל ← השגיאה עולה, בלי כ�
     write: (o) => { calls.push('write'); return writeEncryptedAutoBackup(o); },
     now: new Date(2026, 9, 20, 12, 0)
   }), (e) => e.code === 'econ-read-failed');
-  assert.deepEqual(calls, []);
+  // המפתח נקרא לפני האיסוף — ממנו נגזר סימן ההתקנה בשם הקובץ (ממצא 38); אין כתיבה
+  assert.deepEqual(calls, ['key']);
   assert.deepEqual(fs.readdirSync(dir).sort(), old);
 });
 

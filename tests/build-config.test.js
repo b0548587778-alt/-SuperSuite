@@ -24,7 +24,7 @@ test('CI: המתקין אורז את מודול האימונים שנבנה מה
   const yml = require('fs').readFileSync(require('path').join(__dirname, '..', '.github', 'workflows', 'build.yml'), 'utf8').replace(/\r\n/g, '\n');
   const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  report:'));
   const iTrainer = build.indexOf('node tools/build-trainer.js');
-  assert.ok(iTrainer > 0 && iTrainer < build.indexOf('npx electron-builder'), 'המודול נבנה באותה משימה, לפני האריזה');
+  assert.ok(iTrainer > 0 && iTrainer < build.indexOf('node node_modules/electron-builder/out/cli/cli.js'), 'המודול נבנה באותה משימה, לפני האריזה');
   assert.match(yml, /if \[ -f package-lock\.json \]; then CMD="npm ci"/);
 });
 

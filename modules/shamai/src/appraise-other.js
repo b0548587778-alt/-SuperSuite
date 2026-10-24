@@ -40,16 +40,8 @@ function recalcPhone() {
     return;
   }
 
-  const brand = PHONE_BRANDS.find(b => b.k === p.brand);
-  const cond = PHONE_CONDITIONS.find(c => c.k === p.condition);
-  const warrantyMult = p.warranty === 'active' ? 1.10 : 1.00;
-  const batteryMult = p.battery && p.battery >= 90 ? 1.05 : p.battery && p.battery < 80 ? 0.90 : 1.00;
-  // iPhones depreciate slower (50% in 2 years vs 70% for Samsung)
-  // Without year data, assume the phone is 1-2 years old
-  const liquidity = brand.liquidity;
-
-  const estValue = p.retail * cond.mult * warrantyMult * batteryMult * liquidity;
-  const maxPurchase = estValue * 0.70;
+  // אותו חישוב שנשמר ביומן (phoneValue ב-calc.js)
+  const { cond, batteryMult, liquidity, estValue, maxPurchase } = phoneValue(p);
 
   let html = `
     <div class="r-row big">
@@ -147,15 +139,8 @@ function recalcArt() {
 
   if (!a.market || a.market <= 0) { r.innerHTML = ''; $('#ar-save').hidden = true; return; }
 
-  const techMult = ART_TECHNIQUES.find(t => t.k === a.technique)?.mult ?? 1;
-  const condMult = CONDITIONS.find(c => c.k === a.condition)?.mult ?? 1;
-  const signedMult = a.signed ? 1.30 : 1;
-  const provMult = a.prov ? 1.25 : 1;
-  const frameMult = a.frame ? 1.10 : 1;
-  const exhibMult = a.exhibited ? 1.20 : 1;
-
-  const estValue = a.market * techMult * condMult * signedMult * provMult * frameMult * exhibMult;
-  const maxPurchase = estValue * 0.50;
+  // אותו חישוב שנשמר ביומן (artValue ב-calc.js)
+  const { estValue, maxPurchase } = artValue(a);
 
   let html = `
     <div class="r-row big">
@@ -239,24 +224,8 @@ function recalcRug() {
 
   if (!rg.length || !rg.width) { r.innerHTML = ''; $('#rg-save').hidden = true; return; }
 
-  const sqm = (rg.length * rg.width) / 10000;
-  // Base prices per sqm (ILS)
-  const basePerSqm = {
-    silk: 12000,
-    'silk-wool': 6000,
-    wool: 2500,
-    'wool-cotton': 1500,
-    cotton: 600,
-  }[rg.material] || 1500;
-
-  const regionMult = RUG_REGIONS.find(rr => rr.k === rg.region)?.mult ?? 1;
-  const condMult = CONDITIONS.find(c => c.k === rg.condition)?.mult ?? 1;
-  const ageMult = rg.age === 'antique' ? 1.50 : rg.age === 'semi' ? 1.10 : 1.00;
-  const kpsiMult = rg.kpsi ? Math.min(2.0, Math.max(0.5, rg.kpsi / 200)) : 1;
-
-  const baseValue = sqm * basePerSqm;
-  const estValue = baseValue * regionMult * condMult * ageMult * kpsiMult;
-  const maxPurchase = estValue * 0.50;
+  // אותו חישוב שנשמר ביומן (rugValue ב-calc.js)
+  const { sqm, basePerSqm, regionMult, ageMult, kpsiMult, estValue, maxPurchase } = rugValue(rg);
 
   let html = `
     <div class="r-row big">
@@ -345,22 +314,10 @@ function recalcScrap() {
 
   if (!s.weight || s.weight <= 0) { r.innerHTML = ''; $('#sc-save').hidden = true; return; }
 
-  const scrapType = SCRAP_TYPES.find(t => t.k === s.type);
-  if (!scrapType) return;
-
-  const weightKg = s.unit === 'ton' ? s.weight * 1000 : s.weight;
-  // Use manual price if provided, else use default per-lb price
-  let pricePerKg;
-  if (s.priceKg && s.priceKg > 0) {
-    pricePerKg = s.priceKg;
-  } else {
-    pricePerKg = (scrapType.pricePerLb / POUND * 1000) * state.prices.usdIls;
-    pricePerKg = pricePerKg / 1000; // back to per gram, then * 1000 for per kg
-    pricePerKg = scrapType.pricePerLb * state.prices.usdIls / POUND;
-  }
-
-  const marketValue = weightKg * pricePerKg;
-  const dealerPay = marketValue * scrapType.dealerMargin;
+  // אותו חישוב שנשמר ביומן (scrapValue ב-calc.js), כולל מחיר לק"ג שהוקלד
+  const sv = scrapValue(s, state.prices.usdIls);
+  if (!sv) return;
+  const { type: scrapType, weightKg, pricePerKg, marketValue, dealerPay } = sv;
 
   let html = `
     <div class="r-row big">

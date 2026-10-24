@@ -14,10 +14,12 @@ test.before(async () => { St = await import(pathToFileURL(path.join(SRC, 'lib', 
 
 const plan10 = { id: 'p10', name: 'כרטיסיית 10 אימונים', kind: 'punch', sessions: 10, validDays: 120, priceAg: 60000, active: true };
 
-test('תאריכים מקומיים: ימים, שבוע ראשון–שישי בלי שבת, זיהוי שבת', () => {
+test('תאריכים מקומיים: ימים, שבוע ראשון–שבת (בשבת — רק מוצאי שבת), זיהוי שבת', () => {
   assert.equal(St.addDays('2026-10-30', 3), '2026-11-02');
   assert.equal(St.daysBetween('2026-10-19', '2026-10-26'), 7);
-  assert.deepEqual(St.weekDays('2026-10-21'), ['2026-10-18', '2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23']);
+  // מאז שמוצאי שבת מותר (בדיקת קוד 23.10.2026) — עמודת שבת מוצגת ביומן
+  assert.deepEqual(St.weekDays('2026-10-21'), ['2026-10-18', '2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24']);
+  assert.deepEqual(St.weekDays('2026-10-24'), St.weekDays('2026-10-18'), 'שבת שייכת לשבוע שלה');
   assert.equal(St.isShabbat('2026-10-24'), true);
   assert.equal(St.isDateStr('2026-02-30'), false);
   assert.equal(St.todayStr(new Date(2026, 0, 5, 23, 59)), '2026-01-05');

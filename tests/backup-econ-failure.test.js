@@ -39,7 +39,9 @@ class WebContentsViewStub {
     this.opts = opts;
     created.views.push(this);
     this.webContents = chainable({ id: this.id, isDestroyed: () => false, isLoading: () => false, send() {},
-      executeJavaScript: async () => { if (moduleDumpFails) throw new Error('Script failed to execute'); return '{}'; } });
+      executeJavaScript: async () => { if (moduleDumpFails) throw new Error('Script failed to execute'); return '{}'; },
+      // ה-localStorage הישן של מודול שעוד לא הועבר למחסן המוצפן (ממצא 36) — כאן ריק
+      executeJavaScriptInIsolatedWorld: async () => '{}' });
   }
   setVisible(v) { this.visible = v; }
   setBounds() {}
@@ -141,10 +143,17 @@ const OLD = Array.from({ length: 14 }, (_, i) => `auto-2000-01-${String(i + 1).p
 const listDir = () => fs.readdirSync(bkDir).sort();
 const snapshotDir = () => Object.fromEntries(listDir().map(f => [f, fs.readFileSync(path.join(bkDir, f), 'utf8')]));
 const backupSettings = () => JSON.parse(fs.readFileSync(path.join(userData, 'backup-settings.json'), 'utf8'));
+// כל בדיקה מתחילה מתיקיית גיבוי עם 14 גיבויים ישנים בלבד ומהגדרות ידועות — לא ממה שבדיקה אחרת השאירה
+// (גיבוי של היום, יעד אחר), כדי שתרוץ גם לבד או בסדר אחר
+function freshBackupState(settings = {}) {
+  for (const f of fs.readdirSync(bkDir)) fs.rmSync(path.join(bkDir, f), { recursive: true, force: true });
+  for (const f of OLD) fs.writeFileSync(path.join(bkDir, f), 'old-' + f);
+  fs.writeFileSync(path.join(userData, 'backup-settings.json'), JSON.stringify({ targetDir: bkDir, ...settings }));
+}
 
 test('גיבוי אוטומטי: כשל בקריאת הכספים ← סטטוס כשל, לא נכתב קובץ ולא נמחק גיבוי ישן', async () => {
   await boot();
-  for (const f of OLD) fs.writeFileSync(path.join(bkDir, f), 'old-' + f);
+  freshBackupState();
   const before = snapshotDir();
   const status = await withBrokenEcon(() => autoBackup());
   assert.equal(status.ok, false);
@@ -161,6 +170,7 @@ test('גיבוי אוטומטי: כשל בקריאת הכספים ← סטטוס
 
 test('גיבוי אוטומטי תקין (בקרה): נכתב גיבוי עם הכספים, והישן ביותר מתחלף רק אז', async () => {
   await boot();
+  freshBackupState();
   const status = await autoBackup();
   assert.equal(status.ok, true, JSON.stringify(status));
   assert.ok(!listDir().includes(OLD[0]), 'הרוטציה (14) רצה רק אחרי גיבוי תקין');
@@ -224,13 +234,10 @@ test('גיבוי: כשל בקריאת מודול ← שגיאה בעברית, ב
   dialogPlan.save = { canceled: true };
   assert.ok(!fs.existsSync(out), 'לא נכתב קובץ');
   assert.deepEqual(dialogLog, [], 'לא נפתח חלון שמירה ולא הוצגה הודעת "נשמר"');
-  // הגיבוי של היום (מהבדיקה הקודמת) — הצידה, אחרת הסבב מדלג בלי לאסוף
+  // תיקייה בלי גיבוי של היום — אחרת הסבב מדלג בלי לאסוף
+  freshBackupState();
   const before = snapshotDir();
-  const today = listDir().filter(f => /^auto-.*\.ssbk$/.test(f)).pop();
-  const aside = path.join(userData, 'aside-' + today);
-  fs.renameSync(path.join(bkDir, today), aside);
-  let status;
-  try { status = await withBrokenModules(() => autoBackup()); } finally { fs.renameSync(aside, path.join(bkDir, today)); }
+  const status = await withBrokenModules(() => autoBackup());
   assert.equal(status.ok, false);
   assert.equal(status.reason, 'module-read-failed');
   assert.deepEqual(snapshotDir(), before, 'אין קובץ חדש ושום גיבוי ישן לא נמחק');
@@ -290,6 +297,8 @@ test('saveJson: ניתוק באמצע הכתיבה ← הקובץ הקודם ש�
 
 test('saveJson: החלפה שנכשלה ← הקובץ הקודם נשאר; יעד גיבוי שלא נשמר מחזיר שגיאה בעברית', async () => {
   await boot();
+  // הגדרות ידועות עם סטטוס גיבוי קודם — כדי לבדוק שהמיזוג לא מוחק אותו (בלי להסתמך על בדיקה קודמת)
+  freshBackupState({ lastAutoBackup: { ok: true, at: '2026-10-01T08:00:00.000Z' } });
   const settingsFile = path.join(userData, 'backup-settings.json');
   const before = fs.readFileSync(settingsFile, 'utf8');
   const usb = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-bkfail-usb-'));

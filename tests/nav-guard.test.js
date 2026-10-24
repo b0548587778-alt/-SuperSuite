@@ -109,7 +109,8 @@ test('התנהגות: ה-API של econ לא חושף גיבוי גלוי', () =>
 test('רגרסיה: כל ערוץ personalFinance שב-ipc.js חשוף דרך ה-preload', () => {
   const ipc = read('modules/econ/ipc.js');
   const channels = [...ipc.matchAll(/handle\(\s*'(personalFinance:[A-Za-z]+)'/g)].map(m => m[1]);
-  assert.equal(channels.length, 10, `נמצאו ${channels.length} ערוצי personalFinance`);
+  // 9: personalFinance:calculateLoan הוסר — אף מסך לא קרא לו (בדיקת קוד 23.10.2026)
+  assert.equal(channels.length, 9, `נמצאו ${channels.length} ערוצי personalFinance`);
 
   const { exposed } = loadPreload('modules/econ/preload.js');
   const source = read('modules/econ/preload.js');

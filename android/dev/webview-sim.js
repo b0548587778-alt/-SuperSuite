@@ -68,8 +68,20 @@ const B = {
   openText(cb) {
     const f = fs.readdirSync(SAVED).find(x => x.endsWith('.ssbk'));
     return { async: cb, value: f ? { text: fs.readFileSync(path.join(SAVED, f), 'utf8'), name: f } : {} };
-  }
+  },
+  // בוחר תיקייה: בסימולציה — תיקייה בתוך SAVED (נתיב יחסי בלבד, בלי "..")
+  pickFolder(cb) { return { async: cb, value: { uri: 'sim-tree://folder', name: 'folder' } }; },
+  treeExists(uri, rel) { return fs.existsSync(simTree(rel)); },
+  treeMkdirs(uri, rel) { fs.mkdirSync(simTree(rel), { recursive: true }); return true; },
+  treeWrite(uri, rel, b64) { const f = simTree(rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, Buffer.from(b64, 'base64')); return true; },
+  // שרת הרישוי: אין רשת בסימולציה — כמו מכשיר בלי חיבור
+  relayPost(cb) { return { async: cb, value: { error: 'אין רשת בסימולציה' } }; }
 };
+function simTree(rel) {
+  const parts = String(rel || '').split('/').filter(Boolean);
+  if (parts.some(p => p === '..' || p.includes('\\'))) throw new Error('נתיב לא תקין');
+  return path.join(SAVED, 'folder', ...parts);
+}
 ipcMain.on('sim-bridge', (e, method, token, ...args) => {
   try {
     if (token !== TOKEN) throw new Error('forbidden');

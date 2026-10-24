@@ -30,7 +30,8 @@ function missingFieldWarnings(input, checks) {
   const warnings = [];
   for (const c of checks || []) {
     const v = data[c.key];
-    const empty = v === null || v === undefined || String(v).trim() === '';
+    // NaN — שדה מספרי ריק (parseFloat של ''), גם הוא חסר
+    const empty = v === null || v === undefined || (typeof v === 'number' && !Number.isFinite(v)) || String(v).trim() === '';
     if (empty) warnings.push({ key: c.key, label: c.label || c.key, what: c.what || 'החישוב התבצע בלעדיו' });
   }
   return warnings;
@@ -142,7 +143,9 @@ function explainAntique(a, v) {
 // ── מטבעות ──
 // v: coinValue; prices: state.prices
 function explainCoin(c, prices, v) {
-  const isMetal = c.weight > 0 && (c.metal === 'gold' || c.metal === 'silver');
+  // מטבע זהב או כסף בלי משקל — מתכת יקרה שחסר לה משקל, לא "לא ממתכת יקרה" (בדיקת קוד 23.10.2026)
+  const precious = c.metal === 'gold' || c.metal === 'silver';
+  const isMetal = precious && c.weight > 0;
   const steps = [];
   if (isMetal) {
     const spotUsd = c.metal === 'gold' ? prices.gold : prices.silver;
@@ -150,6 +153,8 @@ function explainCoin(c, prices, v) {
     steps.push({ label: 'טוהר', value: `${fmt0(c.purity)}/1000` });
     steps.push({ label: 'מחיר המתכת', value: `$${fmt(spotUsd)} לאונקיה, 1$ = ₪${fmt(prices.usdIls)}` });
     steps.push({ label: 'שווי התכה', value: `₪${fmt0(v.meltIls)} (משקל × טוהר × מגרם לאונקיה × שער)` });
+  } else if (precious) {
+    steps.push({ label: 'אין משקל מתכת', value: 'לא הוזן משקל — אין שווי התכה' });
   } else {
     steps.push({ label: 'אין משקל מתכת', value: 'המטבע לא ממתכת יקרה — אין שווי התכה' });
   }
@@ -159,6 +164,6 @@ function explainCoin(c, prices, v) {
   steps.push({ label: 'רכישה מקסימלית', value: `₪${fmt0(v.maxPurchase)} (65% מהשווי)` });
   if (c.asking) steps.push({ label: 'פוטנציאל רווח', value: `השווי פחות המחיר המבוקש (₪${fmt0(c.asking)})` });
   const checks = [];
-  if (isMetal) checks.push({ key: 'weight', label: 'משקל', what: 'בלי משקל אין שווי התכה — רק פרמיה' });
+  if (precious) checks.push({ key: 'weight', label: 'משקל', what: 'בלי משקל אין שווי התכה — רק פרמיה' });
   return missingFieldPanel(missingFieldWarnings(c, checks)) + explainPanel(steps, { stays: true });
 }

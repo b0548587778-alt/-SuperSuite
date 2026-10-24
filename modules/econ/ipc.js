@@ -3,6 +3,7 @@ const { ipcMain, dialog, BrowserWindow, safeStorage } = require('electron');
 const fs = require('fs');
 const X = require('./core/exports');
 const L = require('./core/npoLetters'); // מכתבים לעמותה — טהור; כאן רק לעטיפת HTML ל-PDF
+const DATES = require('./core/dates'); // תאריך יום: בדיקה מול הלוח (isDay / dayOr)
 const { initializeDatabase, issuedAfter, defaults: DB_DEFAULTS } = require('./core/database');
 const ModCounters = require('../../shell/module-counters');
 const { AuthService: authService } = require('./services/authService');
@@ -56,6 +57,7 @@ const { createLicenseSync } = require('../../shell/licensing/sync');
 const { validateUrl } = require('../../shell/licensing/remote');
 const { DEFAULT_RELAY_URL } = require('../../shell/licensing/default-relay');
 const { createChatStore } = require('../../shell/licensing/chat');
+const ChatStorage = require('../../shell/licensing/chat-storage');
 const UP = require('../../shell/licensing/update');
 const MP = require('../../shell/ai/model-pack');
 const PK = require('../../shell/licensing/prekeys');
@@ -64,6 +66,7 @@ const ACT = require('../../shell/licensing/activation');
 const LIC = require('../../shell/licensing/license');
 const AI = require('../../shell/ai');
 const AI_RULES = require('../../shell/ai/rules'); // טהור — לזיהוי התחום ולקביעת התקופה, כדי שהסיכום והתשובה יתאימו
+const AI_MODS = require('../../shell/ai/module-context'); // טהור — נתוני השמאות והאימונים לעוזר, מתוך המחסן של המודול
 
 let db;
 let licenseStore = null;
@@ -113,8 +116,12 @@ let homeSummaryFn = null;
 let aiRunFn = null;
 // רשימת המודולים לכניסה בעוזר — מוגבלת לרישיון ההתקנה (ופה אין את לקוח השרת) — בלי פונקציה (אנדרואיד, בדיקות) המודול סגור
 let moduleLicensed = null;
-// הקשר זמני לעוזר ה-AI (מקום אחד לכל חלון): { shamai, trainer } — נמחק אחרי כל שאלה ואינו נשמר לדיסק
+// מקור נתוני השמאות לעוזר ה-AI (main.js): (senderId) ← תמונת המחסן המוצפן של השמאות. בלי מקור (אנדרואיד, בדיקות) — לא זמין
+let shamaiSource = null;
+// הקשר זמני לעוזר ה-AI (מקום אחד לכל חלון): { session, data: { shamai, trainer } } — נמחק אחרי כל שאלה, בסוף הפגישה
+// (יציאה, ניתוק, כניסה של משתמש אחר באותו חלון), ואינו נשמר לדיסק
 const aiContextBySender = new Map();
+let aiSessionHooked = false;
 let aiUserDataPath = '';
 // כניסה/קישור עם Google שאומתו מול Google — תנאי ההפעלה מתעדכן, והמערכת נפתחת מיד אם זה היה התנאי החסר
 function markGoogleActivation() {
@@ -139,20 +146,28 @@ function licenseState() {
   return s;
 }
 
-// אחסון הרישוי: באנדרואיד הקוד רץ ב-WebView (יש window.localStorage, ו-fs הוא shim); בשולחן העבודה — קבצים ו-DPAPI
-function licenseAdapters(userDataPath) {
+// אחסון הרישוי: באנדרואיד הקוד רץ ב-WebView (יש window.localStorage, ו-fs הוא shim); בשולחן העבודה — קבצים ו-DPAPI.
+// getBackupKey(create) — מפתח הגיבוי האוטומטי (main.js) להצפנת תיבות ההודעות בדיסק (ממצא 26); בלעדיו — גלוי, כמו קודם
+function licenseAdapters(userDataPath, getBackupKey, onError) {
   const ls = typeof window !== 'undefined' && window.localStorage;
   if (ls) return { storage: LS.webStorage(ls, 'supersuite.license'), secret: LS.webStorage(ls, 'supersuite.license.key'),
+    marks: LS.webStorage(ls, 'supersuite.install.marks'),
     owner: OC.prefixedWebStorage(ls, 'supersuite.owner.'),
-    chat: LS.webStorage(ls, 'supersuite.chat'), ownerChat: LS.webStorage(ls, 'supersuite.owner.chat'),
+    chat: ChatStorage.webChatStorage(ls, 'supersuite.chat', undefined, onError), ownerChat: ChatStorage.webChatStorage(ls, 'supersuite.owner.chat', undefined, onError),
     updates: LS.webStorage(ls, 'supersuite.updates'), platform: 'android',
     prekeys: LS.webStorage(ls, 'supersuite.prekeys'), ownerPrekeys: LS.webStorage(ls, 'supersuite.owner.prekeys') };
   return {
     storage: LS.fileStorage(fs, path.join(userDataPath, 'license.json')),
     secret: LS.encryptedFileSecret(fs, path.join(userDataPath, 'license-key.bin'), safeStorage),
+    // עותק של סימוני הרישוי מחוץ למסד (store.js, markStorage — ממצא 29): מחיקת המסד לבדו לא מתחילה ניסיון חדש
+    marks: LS.fileStorage(fs, path.join(userDataPath, 'install-marks.json')),
+    // קבצי מנהל-העל (הרשמות עם ת"ז וחתימה, לקוחות, בקשות) — מוצפנים במפתח שנגזר ממפתח השורש, בתוך owner-core.js
+    // (ממצא 26): נפתחים רק במצב פתוח, ובכל מחשב עם התיקייה והסיסמה
     owner: OC.dirStorage(fs, path, path.join(userDataPath, 'owner')),
-    chat: LS.fileStorage(fs, path.join(userDataPath, 'messages.json')),
-    ownerChat: LS.fileStorage(fs, path.join(userDataPath, 'owner', 'messages.json')),
+    chat: ChatStorage.encryptedChatStorage({ fs, file: path.join(userDataPath, 'messages.bin'), legacyFile: path.join(userDataPath, 'messages.json'),
+      getBackupKey, scope: 'system', onError }),
+    ownerChat: ChatStorage.encryptedChatStorage({ fs, file: path.join(userDataPath, 'owner', 'messages.bin'),
+      legacyFile: path.join(userDataPath, 'owner', 'messages.json'), getBackupKey, scope: 'owner', onError }),
     updates: LS.fileStorage(fs, path.join(userDataPath, 'updates.json')),
     platform: 'win',
     // מפתחות זמניים להודעות — מוצפנים ב-DPAPI כמו מפתח המערכת
@@ -161,23 +176,52 @@ function licenseAdapters(userDataPath) {
   };
 }
 
+// סימוני הרישוי במסד הנתונים (store.setMark / onMark — בדיקת קוד 23.10.2026, ממצא 29): עותק בלתי תלוי בקבצי
+// הרישוי של תחילת הניסיון ושל "הותקן כאן רישיון" — מחיקת license.json ו-license-key.bin לא נותנת ניסיון חדש.
+// הכתיבה בתור (כלל 3), בלי להמתין לה; כשל — ביומן התקלות, לא מפיל דבר
+function saveLicenseMarks(target, m) {
+  if (!target || typeof target.setLicenseMarks !== 'function' || !m) return;
+  const marks = { ...(m.trialStart ? { trialStart: m.trialStart } : {}), ...(m.hadLicense ? { hadLicense: '1' } : {}) };
+  enqueue(() => target.setLicenseMarks(marks)).catch(e => errorLogger('license-marks', e));
+}
+// בעלייה (לפני שהערוצים פעילים — בלי התור, כמו פתיחת המסד עצמו)
+async function loadLicenseMarks(target, store) {
+  if (!target || typeof target.getLicenseMarks !== 'function') return;
+  try {
+    const r = await target.getLicenseMarks();
+    store.setMark({ trialStart: Number(r.trialStart) || 0, hadLicense: r.hadLicense === '1' });
+  } catch (e) { errorLogger('license-marks', e); }
+}
+// הסימון נכלל בכל גיבוי (main.js / main-android.js → collectBackup) ונקלט בשחזור (restoreAll, recoverDatabase):
+// שחזור גיבוי להתקנה נקייה או למסד חדש לא מתחיל ניסיון חדש. הקליטה רק מחמירה — גיבוי ישן לא מאריך דבר
+function licenseMarks() { return licenseStore ? licenseStore.mark() : {}; }
+function mergeLicenseMarks(m) {
+  if (!licenseStore || !m || typeof m !== 'object') return;
+  licenseStore.importMark(m);
+  licenseState();
+}
+
 // מפתחות השורש שבשימוש בהתקנה הזו — לסימון "המפתח שלך מוגדר בתוכנה"
 let rootKeysInUse = ROOT_KEYS;
 const ROOT_KEYS_IN_USE = () => rootKeysInUse;
 
 async function initEcon(userDataPath, opts = {}) {
   aiContextBySender.clear();
+  // אתחול חוזר: התור מול השרת מתחיל מחדש (פעולה של המופע הקודם לא מעכבת את החדש)
+  relayChain = Promise.resolve();
   const { rootKeys = ROOT_KEYS, relayUrl = DEFAULT_RELAY_URL, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
   updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, trainerData, googleClient } = opts;
   restTime = isRestTime;
   trainerSource = typeof trainerData === 'function' ? trainerData : null;
+  shamaiSource = typeof opts.shamaiData === 'function' ? opts.shamaiData : null;
   // שם הפרמטר חופף למשתנה הגלובלי — כאן מעדכנים רק את הגלובלי (הצהרה מחודשת הייתה אסורה)
   aiOptions = typeof opts.aiOptions === 'function' ? opts.aiOptions : null;
   moduleLicensed = typeof opts.moduleLicensed === 'function' ? opts.moduleLicensed : null;
   clockNow = clock || (() => Date.now());
   googleDeps = { signIn: googleSignIn || GS.signIn, fetchImpl: fetchImpl || globalThis.fetch,
     openBrowser: openExternal || ((url) => { const sh = require('electron').shell; if (!sh || typeof sh.openExternal !== 'function') throw new Error('כניסה עם Google אינה זמינה במכשיר הזה'); return sh.openExternal(url); }) };
-  const ad = licenseAdapters(userDataPath);
+  const chatLog = (scope, e) => errorLogger(scope, e);
+  const ad = licenseAdapters(userDataPath, typeof opts.getBackupKey === 'function' ? opts.getBackupKey : null, chatLog);
   // עדכוני גרסה: קבצים מאומתים נשמרים בתיקיית updates בתוך נתוני המשתמש
   updatesDir = path.join(userDataPath, 'updates');
   updateManager = UP.createUpdateManager({ storage: updateStorage || ad.updates, rootKeys, currentVersion: appVersion || appVersionOf(),
@@ -189,22 +233,36 @@ async function initEcon(userDataPath, opts = {}) {
       fs.renameSync(file + '.part', file);
       return file;
     } });
-  // מצב מנהל-העל: זמין בכל התקנה, אבל נפתח רק בסיסמה. המפתח נשמר מוצפן (SSBK1:)
-  ownerCore = OC.createOwnerCore({ storage: ownerStorage || ad.owner, clock });
+  // מצב מנהל-העל: זמין בכל התקנה, אבל נפתח רק בסיסמה. המפתח נשמר מוצפן (SSBK1:). אתחול חוזר — נעול
+  lockOwner();
+  // legacyCipher — קבצים שהוצפנו במפתח המסד בגרסת ביניים (SSDB1:) נקראים ומומרים למפתח השורש בפתיחה הבאה
+  ownerCore = OC.createOwnerCore({ storage: ownerStorage || ad.owner, clock, legacyCipher: () => (db && db.cipher) || null });
   rootKeysInUse = rootKeys;
   // עבודה מרחוק דרך שרת הרישוי — כתובת ברירת מחדל ב-default-relay.js; המנהל יכול להחליף או למחוק (מחיקה: אופליין לגמרי)
   // קבצים מצורפים שמורים מקומית: באנדרואיד (localStorage מוגבל) — מעט מאוד
   const maxAttachmentBytes = ad.platform === 'android' ? 1024 * 1024 : 40 * 1024 * 1024;
-  chatStore = createChatStore({ storage: chatStorage || ad.chat, clock, maxAttachmentBytes });
-  ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock, maxAttachmentBytes });
+  // התיבות כותבות באיחור קצר (ממצא 51): לפני החלפתן (אתחול חוזר) — מה שעוד בזיכרון נכתב, כדי שהחדשות יקראו אותו
+  flushChat();
+  // באנדרואיד אין יציאה מסודרת שבה נכתב מה שממתין (will-quit) — כל שינוי נכתב מיד (localStorage, זול)
+  const writeDelayMs = ad.platform === 'android' ? 0 : undefined;
+  chatStore = createChatStore({ storage: chatStorage || ad.chat, clock, maxAttachmentBytes, onError: chatLog, writeDelayMs });
+  ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock, maxAttachmentBytes, onError: chatLog, writeDelayMs });
   // מחסן הרישוי נוצר לפני הסנכרון: createLicenseSync שומר את ההפניה, ו-null כאן הפיל כל פעולה מרחוק
-  licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock, defaultUrl: relayUrl });
+  // סימוני הרישוי נשמרים במסד של האתחול הזה (marksDb) — מוגדר אחרי שהמסד נפתח
+  let marksDb = null;
+  licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock, defaultUrl: relayUrl,
+    onMark: (m) => saveLicenseMarks(marksDb, m), markStorage: opts.licenseMarkStorage || ad.marks });
   licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock,
     chat: chatStore, ownerChat: ownerChatStore, updates: updateManager, isRestTime: () => restTime(),
     prekeys: PK.createPrekeyStore({ storage: prekeyStorage || ad.prekeys, clock: clock || Date.now }),
     ownerPrekeys: PK.createPrekeyStore({ storage: ownerPrekeyStorage || ad.ownerPrekeys, clock: clock || Date.now }) });
   // dbOptions: הצפנת המסד (PLAN.md 3.1) — המפתח והגיבוי לפני ההמרה מגיעים מ-main.js
   db = await initializeDatabase(userDataPath, dbOptions);
+  marksDb = db;
+  // תיבות ההודעות נקראות בכל עלייה (אחרי שמפתח המסד נקבע — כולל קוד שחזור): messages.json גלוי מומר עכשיו,
+  // ולא רק כשנפתח מסך ההודעות או בקבלה האוטומטית — שלא רצה בהתקנה אופליין ובשבת (ממצא 26). כשל — ביומן, וננסה בפעולה הבאה
+  for (const box of [chatStore, ownerChatStore]) { try { box.settings(); } catch { /* נרשם ביומן התקלות (chat-read) */ } }
+  await loadLicenseMarks(db, licenseStore);
   // עוזר ה-AI: מקבל את מפתח הגיבוי האוטומטי דרך aiOptions (קריאה לא יוצרת מפתח). בלי find-backupKey — אין העדפות שמורות וקוראים ברירת מחדל
   const aiOpts = (aiOptions ? aiOptions() : null) || {};
   aiUserDataPath = userDataPath;
@@ -271,6 +329,10 @@ function permissionFor(channel) {
   if (channel === 'mlab:verifyRule' || channel === 'mlab:unverifyRule') return 'users.manage';
   // הגדרות הנהלת החשבונות: תאריך הנעילה (פתיחה מחדש של תקופת מע"מ שדווחה), שיעור המע"מ ומספר העוסק — מנהל בלבד
   if (channel === 'acct:saveSettings' || channel === 'acct:setVatRate') return 'users.manage';
+  // הגדרות שמודפסות על מסמכים או קובעות לאן נכנס כסף — מנהל בלבד (בדיקת קוד 23.10.2026, ממצא 23):
+  // מספר אישור סעיף 46 בקבלות, הגדרות הגמ"ח, קוד המוסד במס"ב והלוגו במסמכי המכירה
+  if (channel === 'npo:saveSettings' || channel === 'gemach:saveSettings' || channel === 'acct:setLogo') return 'users.manage';
+  if (channel === 'npo:saveMasavSettings' || channel === 'gemach:saveMasavSettings') return 'users.manage';
   // הגדרות משרד הייעוץ (מי רואה אילו תיקים) — מנהל בלבד
   if (channel === 'madv:saveSettings' || channel === 'madv:saveBrand' || channel === 'madv:setBrandLogo') return 'users.manage';
   // פרטי המשרד בהזמנת התיווך (שם, רישיון, עוסק פטור) — מנהל בלבד
@@ -320,12 +382,59 @@ function permissionFor(channel) {
   return 'data.edit';
 }
 
+// ערוצים שרק מנהל רשאי להפעיל — בנוסף להרשאה לפי סוג הפעולה, שנשארת כמו שהיא כי לפיה הרישיון קובע
+// מה מותר במצב "קריאה בלבד" (צפייה מותרת גם אז — gate.js → READ_ONLY_PERMS).
+// גיבוי ושחזור ידניים — מנהל בלבד דרך התפקידים: data.backup / data.restore רק לתפקיד admin (מיגרציה 10 ב-core/database.js)
+function requiresAdmin(channel) {
+  // התוכנית הפיננסית וההוצאות האישיות/משפחתיות של בעל העסק — גם הצפייה (החלטת הבעלים 23.10.2026, ממצא 25)
+  return channel.startsWith('personalFinance:') || channel.startsWith('personal:');
+}
+function assertAdmin(event) {
+  if (!authService.hasPermission(event.sender.id, 'users.manage')) throw new Error('אין הרשאה לפעולה זו');
+}
+
 // בדיקת גישה לפי מזהה חלון (ה-session נשמר לפי מזהה ה-webContents שבו בוצעה הכניסה).
 // משמשת קוד שלא עובר דרך handle — למשל גיבוי/שחזור מהמעטפת.
 function assertAccess(senderId, permission) {
   if (!authService.getSession(senderId)) throw new Error('נדרשת כניסה למערכת (או שהפגישה פגה לאחר חוסר פעילות)');
   if (permission && !authService.hasPermission(senderId, permission)) throw new Error('אין הרשאה לפעולה זו');
   return authService.getSession(senderId);
+}
+
+// ---------- מצב מנהל-העל קשור לפגישה שפתחה אותו (בדיקת קוד 23.10.2026, ממצא 4) ----------
+// מפתח השורש בזיכרון רק בזמן הפגישה של מי שפתח אותו בסיסמה. יציאה, ניתוק בחוסר פעילות, חסימת המשתמש או
+// כניסה מחדש — נועלים; מנהל אחר שנכנס אחר כך מקבל מצב נעול. קודי השחזור דורשים שוב את הסיסמה (owner-core.js)
+let ownerHolder = null; // { senderId, session }
+let ownerTimer = null;
+let ownerHooked = false;
+function lockOwner() {
+  ownerHolder = null;
+  if (ownerTimer) { clearInterval(ownerTimer); ownerTimer = null; }
+  if (ownerCore) ownerCore.lock();
+}
+function bindOwner(event) {
+  if (!ownerHooked) {
+    ownerHooked = true;
+    authService.onSessionEnd((senderId, s) => { if (ownerHolder && ownerHolder.session === s) lockOwner(); });
+  }
+  ownerHolder = { senderId: event.sender.id, session: authService.sessions.get(event.sender.id) || null };
+  if (!ownerTimer) {
+    // ניתוק בחוסר פעילות כשאין שום פעולה אחריו — נבדק גם ברקע, בלי להאריך את הפגישה
+    ownerTimer = setInterval(ownerAlive, 15000);
+    if (typeof ownerTimer.unref === 'function') ownerTimer.unref();
+  }
+}
+// בדיקה שקטה: המצב הפתוח עדיין שייך לפגישה שפתחה אותו? אחרת — נעילה
+function ownerAlive() {
+  if (!ownerCore || !ownerCore.isUnlocked()) { if (ownerHolder || ownerTimer) lockOwner(); return false; }
+  const h = ownerHolder;
+  if (!h || !h.session || !authService.peekSession(h.senderId) || authService.sessions.get(h.senderId) !== h.session) { lockOwner(); return false; }
+  return true;
+}
+// לפני כל ערוץ owner:* / chat:* — פגישה אחרת (משתמש אחר או חלון אחר) מקבלת מצב נעול
+function ownerCheck(event) {
+  if (!ownerCore || !ownerCore.isUnlocked()) return;
+  if (!ownerAlive() || ownerHolder.senderId !== event.sender.id) lockOwner();
 }
 
 // רשת ביטחון לכלל 8: שגיאה שאינה בעברית (SQLite, מערכת קבצים, באג) לא מוצגת למשתמש כמו שהיא.
@@ -351,6 +460,8 @@ function shellCall(channel, senderId, ...args) {
   const fn = get && get();
   if (!fn) return Promise.reject(new Error('הפעולה אינה זמינה מהמעטפת'));
   const event = { sender: { id: senderId } };
+  // ערוץ ארוך (שאלה לעוזר — המודל המקומי עונה עד כמה דקות): ההמתנה מחוץ לתור, בדיוק כמו מהמודול (runLong)
+  if (typeof fn === 'object') return runLong(channel, fn, event, args);
   return enqueue(async () => {
     try { return await runGuarded(channel, fn, event, args); }
     catch (e) { throw toUserError(e); }
@@ -373,6 +484,8 @@ async function runGuarded(channel, fn, event, args) {
   if (perm && !authService.hasPermission(event.sender.id, perm)) {
     throw new Error('אין הרשאה לפעולה זו');
   }
+  if (requiresAdmin(channel)) assertAdmin(event);
+  if (channel.startsWith('owner:') || channel.startsWith('chat:')) ownerCheck(event);
   // מדיניות: ההודעות (החלק המקוון שמזהה את השולח) רק למי שנכנס עם Google — כשהמנהל הפעיל זאת
   const gDenied = googleOnlineDenied(channel, authService.getSession(event.sender.id));
   if (gDenied) throw new Error(gDenied);
@@ -420,22 +533,93 @@ function googleOnlineDenied(channel, session) {
 
 /* ערוץ עם המתנה ארוכה (דפדפן, חלון בחירת קובץ, תמצית של קובץ גדול). ההמתנה (work) רצה מחוץ לתור של מסד הנתונים —
    אחרת כל התוכנה נתקעת; before ו-after רצים בתור, דרך אותה אכיפת הרשאות כמו כל ערוץ (after — בדיקה חוזרת אחרי ההמתנה).
-   lock — משותף לערוצים שאסור שירוצו יחד. work שמחזיר longDone(ערך) מסיים בלי after (למשל ביטול בחלון הבחירה) */
+   lock (אופציונלי) — משותף לערוצים שאסור שירוצו יחד. work שמחזיר longDone(ערך) מסיים בלי after (למשל ביטול בחלון הבחירה) */
 const LONG_DONE = Symbol('long-done');
 const longDone = (value) => ({ [LONG_DONE]: value });
-function handleLong(channel, { lock, busy, before, work, after }) {
-  ipcMain.handle(channel, async (event, ...args) => {
+async function runLong(channel, { lock, busy, before, work, after }, event, args) {
+  try {
+    if (lock && lock.busy) throw new Error(busy);
+    if (lock) lock.busy = true;
     try {
-      if (lock.busy) throw new Error(busy);
-      lock.busy = true;
-      try {
-        const pre = await enqueue(() => runGuarded(channel, async (ev) => (before ? before(ev, ...args) : undefined), event, []));
-        const mid = await work(pre, ...args);
-        if (mid && Object.hasOwn(mid, LONG_DONE)) return mid[LONG_DONE];
-        return await enqueue(() => runGuarded(channel, (ev) => after(ev, mid, ...args), event, []));
-      } finally { lock.busy = false; }
-    } catch (e) { throw toUserError(e); }
+      const pre = await enqueue(() => runGuarded(channel, async (ev) => (before ? before(ev, ...args) : undefined), event, []));
+      const mid = await work(pre, ...args);
+      if (mid && Object.hasOwn(mid, LONG_DONE)) return mid[LONG_DONE];
+      return await enqueue(() => runGuarded(channel, (ev) => after(ev, mid, ...args), event, []));
+    } finally { if (lock) lock.busy = false; }
+  } catch (e) { throw toUserError(e); }
+}
+function handleLong(channel, spec) {
+  ipcMain.handle(channel, (event, ...args) => runLong(channel, spec, event, args));
+}
+
+/* פנייה לרשת (שרת הרישוי: סנכרון, הודעות, הרשמה; הורדת עדכון) וכל פעולה ארוכה שאי אפשר להחזיר אחורה
+   (בדיקת קוד 23.10.2026, ממצא 39): השומר והנתונים בתור (before); work — מחוץ לתור, ומול שרת הרישוי אחת בכל פעם
+   (relayRun — הסדר שהתור הבטיח עד עכשיו, גם מול הקבלה האוטומטית). record (רישום ביומן, סימון תשלום שנוצל) — שוב בתור,
+   אבל בלי בדיקה חוזרת של הכניסה: הפעולה ברשת כבר בוצעה, והרישום שלה חייב להישמר. relay: false — בלי התור של השרת */
+let relayChain = Promise.resolve();
+function relayRun(task) {
+  const run = relayChain.then(task);
+  relayChain = run.catch(() => {});
+  return run;
+}
+function handleNet(channel, { lock, busy, before, work, record, relay = true }) {
+  handleLong(channel, {
+    lock, busy,
+    before: async (ev, ...args) => ({ ev, pre: before ? await before(ev, ...args) : undefined }),
+    work: async ({ ev, pre }, ...args) => {
+      const r = await (relay ? relayRun(() => work(pre, ...args)) : work(pre, ...args));
+      if (r && Object.hasOwn(r, LONG_DONE)) return r;
+      return longDone(record ? await enqueue(() => record(ev, r, pre, ...args)) : r);
+    },
   });
+}
+
+/* שמירה לקובץ (ייצוא PDF / CSV, קובץ רישוי) — ממצא 39: הנתונים נקראים בתור (prepare מחזיר { name, html } ל-PDF,
+   או { name, filters, data, encoding }); יצירת ה-PDF וחלון השמירה — מחוץ לתור; הכתיבה לקובץ ו-done (רישום ביומן) —
+   שוב בתור, אחרי בדיקה חוזרת של הכניסה וההרשאה. ביטול — בלי כתיבה ובלי רישום.
+   התוצאה: { ok: true, path, ...spec.result } או { ok: false }; spec.extra — בשתיהן. חלון שמירה אחד לכל ערוץ */
+const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }];
+const CSV_FILTERS = [{ name: 'CSV', extensions: ['csv'] }];
+const SAVE_BUSY = 'חלון השמירה כבר פתוח — השלימו את השמירה או סגרו את החלון';
+const PICK_BUSY = 'חלון בחירת הקובץ כבר פתוח — השלימו את הבחירה או סגרו את החלון';
+function handleSave(channel, prepare, done) {
+  handleLong(channel, {
+    lock: { busy: false }, busy: SAVE_BUSY,
+    before: prepare,
+    work: async (spec) => {
+      const body = spec.html != null ? await renderPdf(spec.html) : spec.data;
+      const file = await pickSavePath(spec.name, spec.filters === undefined ? PDF_FILTERS : spec.filters);
+      return file ? { spec, file, body } : longDone({ ok: false, ...(spec.extra || {}) });
+    },
+    after: async (ev, { spec, file, body }, ...args) => {
+      writeFileDurable(file, body, spec.encoding);
+      if (done) await done(ev, spec, ...args);
+      return { ok: true, path: file, ...(spec.result || {}), ...(spec.extra || {}) };
+    },
+  });
+}
+// כתיבה לקובץ שנבחר: קובץ זמני באותה תיקייה, fsync והחלפה (כמו backupAll ב-main.js). כתיבה ישירה שנקטעה באמצע
+// (דיסק-און-קי נותק או מלא) כבר דרסה את הקובץ הקודם באותו שם — למשל גיבוי מנהל-העל, שתמיד נשמר באותו שם
+function writeFileDurable(file, body, encoding) {
+  // אנדרואיד (android/web/node-shims.js): אין קבצים אמיתיים — היעד שנבחר נכתב דרך הגשר, כמו שהוא
+  if (typeof fs.openSync !== 'function' || typeof fs.fsyncSync !== 'function') { fs.writeFileSync(file, body, encoding); return; }
+  const tmp = file + '.tmp';
+  try {
+    const fd = fs.openSync(tmp, 'w');
+    try { fs.writeFileSync(fd, body, encoding); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* הכונן נותק */ }
+    try { errorLogger('econ-save-file', e); } catch { /* היומן לא מפיל פעולה */ }
+    throw new Error('שמירת הקובץ נכשלה, והקובץ הקודם באותו שם (אם היה) לא נפגע — ייתכן שהכונן מלא, מוגן מפני כתיבה, נותק, או שהקובץ פתוח בתוכנה אחרת (' + (e.code || 'שגיאה') + ')');
+  }
+}
+// טבלה לקובץ CSV (rows בתוצאה — מספר השורות)
+const csvSpec = ({ headers, rows, name }) => ({ name: `${name}.csv`, filters: CSV_FILTERS, data: X.toCsv(headers, rows), encoding: 'utf8', rows: rows.length, result: { rows: rows.length } });
+// חלון שמירה של המערכת — הנתיב שנבחר, או null בביטול
+async function pickSavePath(defaultPath, filters) {
+  const r = await dialog.showSaveDialog(filters ? { defaultPath, filters } : { defaultPath });
+  return r.canceled || !r.filePath ? null : r.filePath;
 }
 
 // כניסה בדפדפן (עד 3 דקות). כניסה וקישור — לא יחד
@@ -470,16 +654,12 @@ async function auditEvent(event, action, details) {
   try { await db.audit(user && user.id, action, JSON.stringify(details || {})); } catch (e) { console.error('audit failed', e); }
 }
 
-// הפקת PDF מ-HTML: רינדור בחלון נסתר בלי JavaScript, ואז שמירה במקום שהמשתמש בוחר
-async function saveHtmlAsPdf(html, defaultPath) {
+// הפקת PDF מ-HTML: רינדור בחלון נסתר בלי JavaScript (מחוץ לתור — handleSave)
+async function renderPdf(html, opts = { preferCSSPageSize: true }) {
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false, devTools: !(require('electron').app && require('electron').app.isPackaged) } });
   try {
     await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64'));
-    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true });
-    const r = await dialog.showSaveDialog({ defaultPath, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
-    if (r.canceled || !r.filePath) return { ok: false };
-    fs.writeFileSync(r.filePath, pdf);
-    return { ok: true, path: r.filePath };
+    return await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, ...opts });
   } finally {
     win.destroy();
   }
@@ -495,13 +675,6 @@ function econFromBackup(data) {
   }
   if (!Object.keys(DB_DEFAULTS).some(k => k !== 'version' && Object.hasOwn(data, k))) throw new Error('הקובץ אינו גיבוי של המערכת הכלכלית');
   return data;
-}
-
-async function saveCsv({ headers, rows, name }) {
-  const r = await dialog.showSaveDialog({ defaultPath: `${name}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] });
-  if (r.canceled || !r.filePath) return { ok: false };
-  fs.writeFileSync(r.filePath, X.toCsv(headers, rows), 'utf8');
-  return { ok: true, path: r.filePath, rows: rows.length };
 }
 
 function registerIpcHandlers() {
@@ -566,18 +739,12 @@ function registerIpcHandlers() {
     return r;
   });
   
-  handle('auth:change-password', async (event, currentPassword, newPassword) => {
-    const user = authService.getSession(event.sender.id);
-    return await authService.changePassword(user.id, currentPassword, newPassword);
-  });
+  // auth:change-password, financial:exportCSV, personalFinance:calculateLoan, mortgage:calculateLoan ו-acct:setVatRate הוסרו:
+  // אף מסך לא קרא להם (בדיקת קוד 23.10.2026). exportCSV כתב קובץ לכל נתיב שהמסך ביקש (ממצא 6)
 
   // Financial handlers
   handle('financial:calculateMetrics', async (event, data) => {
     return await financialService.calculateMetrics(data);
-  });
-  
-  handle('financial:exportCSV', async (event, data, filename) => {
-    return await financialService.exportToCSV(data, filename);
   });
 
   // Market Intelligence handlers
@@ -596,10 +763,6 @@ function registerIpcHandlers() {
   
   handle('personalFinance:update', async (event, financeData) => {
     return await personalFinanceService.updateFinance(event.sender.id, financeData);
-  });
-  
-  handle('personalFinance:calculateLoan', async (event, loanData) => {
-    return await personalFinanceService.calculateLoan(loanData);
   });
   
   handle('personalFinance:addIncome', async (event, incomeData) => {
@@ -638,10 +801,6 @@ function registerIpcHandlers() {
   
   handle('mortgage:deleteScenario', async (event, scenarioId) => {
     return await mortgageService.deleteScenario(event.sender.id, scenarioId);
-  });
-  
-  handle('mortgage:calculateLoan', async (event, loanData) => {
-    return await mortgageService.calculateLoan(loanData);
   });
 
   // Business handlers
@@ -902,33 +1061,35 @@ function registerIpcHandlers() {
     await auditEvent(event, 'acct.credit.create', { number: result.number, invoice: result.invoiceNumber, total: result.total });
     return result;
   });
-  handle('acct:exportSalesDocPdf', async (event, docId) => {
+  handleSave('acct:exportSalesDocPdf', async (event, docId) => {
     const d = await accountingService.getSalesDoc(docId);
     const { business } = await accountingService.getSettings();
     const html = d.kind === 'receipt' ? X.renderReceiptHtml(d, business) : X.renderInvoiceHtml(d, business);
-    const r = await saveHtmlAsPdf(html, `${d.kindLabel}-${d.number}.pdf`.replace(/[\\/:*?"<>|]/g, ''));
-    if (r.ok) await auditEvent(event, 'acct.doc.pdf', { kind: d.kind, number: d.number });
-    return r;
-  });
-  // לוגו למסמכים: בחירת קובץ PNG / JPEG מקומי (עד 200KB). remove — הסרת הלוגו
-  handle('acct:setLogo', async (event, remove) => {
-    if (remove === true) {
-      const result = await accountingService.setLogo(null);
-      await auditEvent(event, 'acct.settings.logo', { removed: true });
-      return result;
-    }
-    const pick = await dialog.showOpenDialog({ title: 'בחירת לוגו למסמכים', properties: ['openFile'], filters: [{ name: 'תמונה', extensions: ['png', 'jpg', 'jpeg'] }] });
-    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { canceled: true };
+    return { html, name: `${d.kindLabel}-${d.number}.pdf`.replace(/[\\/:*?"<>|]/g, ''), d };
+  }, (event, { d }) => auditEvent(event, 'acct.doc.pdf', { kind: d.kind, number: d.number }));
+  // לוגו (מסמכים / דוח ללקוח): חלון הבחירה וקריאת הקובץ (PNG / JPEG עד 200KB) — מחוץ לתור; השמירה — בתור,
+  // אחרי בדיקה חוזרת (ממצא 39). remove — הסרת הלוגו, בלי חלון
+  const pickLogo = async (title) => {
+    const pick = await dialog.showOpenDialog({ title, properties: ['openFile'], filters: [{ name: 'תמונה', extensions: ['png', 'jpg', 'jpeg'] }] });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return longDone({ canceled: true });
     const file = pick.filePaths[0];
     if (fs.statSync(file).size > 200 * 1024) throw new Error('קובץ הלוגו גדול מדי (עד 200KB)');
-    const result = await accountingService.setLogo(fs.readFileSync(file), path.extname(file).slice(1));
-    await auditEvent(event, 'acct.settings.logo', { removed: false });
-    return result;
+    return { bytes: fs.readFileSync(file), ext: path.extname(file).slice(1).toLowerCase() };
+  };
+  handleLong('acct:setLogo', {
+    lock: { busy: false }, busy: PICK_BUSY,
+    work: async (pre, remove) => (remove === true ? { remove: true } : pickLogo('בחירת לוגו למסמכים')),
+    after: async (event, logo) => {
+      const result = await accountingService.setLogo(logo.remove ? null : logo.bytes, logo.remove ? undefined : logo.ext);
+      await auditEvent(event, 'acct.settings.logo', { removed: !!logo.remove });
+      return result;
+    },
   });
   handle('acct:getReports', async (event, range) => accountingService.getReports(range || {}));
   // דוחות לעסק (PLAN.md 9.5) — "היום" נקבע כאן לפי השעון המקומי, לא מהממשק
   const bizStr = (v, n = 200) => String(v ?? '').slice(0, n);
-  const bizDay = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : undefined);
+  // גבול טווח: ריק ← בלי גבול; תאריך שאינו קיים בלוח (2026-02-31) ← שגיאה בעברית, לא כרטסת על טווח אחר בשקט
+  const bizDay = (v) => DATES.dayOr(v, null) || undefined;
   handle('acct:getBizSettings', async () => accountingService.getBizSettings());
   handle('acct:saveBizSettings', async (event, input) => {
     const saved = await accountingService.saveBizSettings(input || {});
@@ -943,30 +1104,22 @@ function registerIpcHandlers() {
   handle('acct:getAdvancesReport', async (event, year) => accountingService.getAdvancesReport({ year: Number(year) || undefined, today: localDay(Date.now()) }));
   handle('acct:getBizDashboard', async () => accountingService.getBizDashboard({ today: localDay(Date.now()) }));
   // כרטסת לקוח לקובץ: הנתונים נקראים שוב מהספרים, לא מהממשק
-  handle('acct:exportCustomerLedger', async (event, customer, range) => {
+  handleSave('acct:exportCustomerLedger', async (event, customer, range) => {
     const l = await accountingService.getCustomerLedger(bizStr(customer), { from: bizDay(range && range.from), to: bizDay(range && range.to) });
     const n = (ag) => (ag / 100).toFixed(2);
     const rows = [...(l.from ? [[l.from, '', 'יתרת פתיחה', '', '', n(l.openingAg)]] : []),
       ...l.rows.map(r => [r.date, r.ref, r.label, r.debitAg ? n(r.debitAg) : '', r.creditAg ? n(r.creditAg) : '', n(r.balanceAg)])];
     const name = 'כרטסת ' + l.customer.replace(/[\\/:*?"<>|]/g, '_');
-    const result = await saveCsv({ headers: ['תאריך', 'מסמך', 'פרטים', 'חובה', 'זכות', 'יתרה'], rows, name });
-    if (result.ok) await auditEvent(event, 'acct.export.ledger', { rows: rows.length });
-    return result;
-  });
+    return csvSpec({ headers: ['תאריך', 'מסמך', 'פרטים', 'חובה', 'זכות', 'יתרה'], rows, name });
+  }, (event, spec) => auditEvent(event, 'acct.export.ledger', { rows: spec.rows }));
   // כרטסת לקוח להדפסה (PDF) — מאותם נתונים, ובלוגו ובפרטי העסק
-  handle('acct:exportCustomerLedgerPdf', async (event, customer, range) => {
+  handleSave('acct:exportCustomerLedgerPdf', async (event, customer, range) => {
     const l = await accountingService.getCustomerLedger(bizStr(customer), { from: bizDay(range && range.from), to: bizDay(range && range.to) });
     const { business } = await accountingService.getSettings();
     const safe = l.customer.replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'לקוח';
-    const r = await saveHtmlAsPdf(X.renderCustomerLedgerHtml(l, business), `כרטסת-${safe}.pdf`);
-    if (r.ok) await auditEvent(event, 'acct.export.ledger.pdf', { rows: l.rows.length });
-    return r;
-  });
-  handle('acct:setVatRate', async (event, rate) => {
-    const vatRate = await accountingService.setVatRate(rate);
-    await auditEvent(event, 'acct.settings.vatRate', { vatRate });
-    return vatRate;
-  });
+    return { html: X.renderCustomerLedgerHtml(l, business), name: `כרטסת-${safe}.pdf`, rows: l.rows.length };
+  }, (event, spec) => auditEvent(event, 'acct.export.ledger.pdf', { rows: spec.rows }));
+  // שיעור המע"מ נשמר רק דרך acct:saveSettings (מנהל בלבד) — הערוץ הנפרד acct:setVatRate הוסר
   handle('acct:getSettings', async () => accountingService.getSettings());
   handle('acct:getProducts', async () => accountingService.getProducts());
   handle('acct:importProducts', async (event, csvText) => {
@@ -1027,63 +1180,48 @@ function registerIpcHandlers() {
     await auditEvent(event, 'acct.settings.save', { lockDate: saved.lockDate, vatRate: saved.vatRate });
     return saved;
   });
-  handle('acct:exportInvoicePdf', async (event, invoiceId) => {
+  // רינדור בחלון נסתר ואז הדפסה ל-PDF, כך שהפלט זהה למה שרואים
+  handleSave('acct:exportInvoicePdf', async (event, invoiceId) => {
     const inv = await accountingService.getInvoice(invoiceId);
     const { business } = await accountingService.getSettings();
-    const html = X.renderInvoiceHtml(inv, business);
-    // רינדור במופע חלון נסתר ואז הדפסה ל-PDF, כך שהפלט זהה למה שרואים
-    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false, devTools: !(require('electron').app && require('electron').app.isPackaged) } });
-    try {
-      await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64'));
-      const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true });
-      const r = await dialog.showSaveDialog({ defaultPath: `חשבונית-${inv.number}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
-      if (r.canceled || !r.filePath) return { ok: false };
-      fs.writeFileSync(r.filePath, pdf);
-      await auditEvent(event, 'acct.invoice.pdf', { number: inv.number });
-      return { ok: true, path: r.filePath };
-    } finally {
-      win.destroy();
-    }
-  });
+    return { html: X.renderInvoiceHtml(inv, business), name: `חשבונית-${inv.number}.pdf`, number: inv.number };
+  }, (event, spec) => auditEvent(event, 'acct.invoice.pdf', { number: spec.number }));
   // קבצים במבנה אחיד (PLAN.md 9.1): בחירת תיקייה, כתיבת OPENFRMT\<עוסק>.<שנה>\<MMDDhhmm>\ עם INI.TXT, BKMVDATA.zip
-  // ודוח ההפקה (PDF). הקבצים עצמם אינם מוצפנים — הם מיועדים להעברה לרשות המסים או לרואה החשבון
-  handle('acct:exportUniformFile', async (event, range) => {
-    const user = authService.getSession(event.sender.id);
-    const out = await accountingService.getUniformFile(range || {}, { user: (user && (user.username || user.name)) || '', version: appVersionOf() });
-    const pick = await dialog.showOpenDialog({ title: 'בחירת תיקייה לשמירת הקבצים במבנה אחיד', properties: ['openDirectory', 'createDirectory'] });
-    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { ok: false };
-    const dir = path.join(pick.filePaths[0], out.folder.root, out.folder.company, out.folder.run);
-    if (fs.existsSync(path.join(dir, 'INI.TXT'))) throw new Error('בתיקייה הזו כבר יש הפקה מאותה דקה — נסו שוב בעוד דקה');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'INI.TXT'), out.iniTxt);
-    fs.writeFileSync(path.join(dir, 'BKMVDATA.zip'), out.zip);
-    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false, devTools: !(require('electron').app && require('electron').app.isPackaged) } });
-    try {
-      await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(X.renderUniformReportHtml(out.report), 'utf8').toString('base64'));
-      fs.writeFileSync(path.join(dir, 'דוח-הפקה.pdf'), await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true }));
-    } finally {
-      win.destroy();
-    }
-    await auditEvent(event, 'acct.export.uniform', { from: out.report.from, to: out.report.to, records: out.report.total });
-    return { ok: true, path: dir, report: out.report };
+  // ודוח ההפקה (PDF). הקבצים עצמם אינם מוצפנים — הם מיועדים להעברה לרשות המסים או לרואה החשבון.
+  // הנתונים בתור; חלון הבחירה ודוח ההפקה — מחוץ לתור; הכתיבה — בתור, אחרי בדיקה חוזרת (ממצא 39)
+  handleLong('acct:exportUniformFile', {
+    lock: { busy: false }, busy: PICK_BUSY,
+    before: async (event, range) => {
+      const user = authService.getSession(event.sender.id);
+      return accountingService.getUniformFile(range || {}, { user: (user && (user.username || user.name)) || '', version: appVersionOf() });
+    },
+    work: async (out) => {
+      const pick = await dialog.showOpenDialog({ title: 'בחירת תיקייה לשמירת הקבצים במבנה אחיד', properties: ['openDirectory', 'createDirectory'] });
+      if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return longDone({ ok: false });
+      return { out, base: pick.filePaths[0], pdf: await renderPdf(X.renderUniformReportHtml(out.report), {}) };
+    },
+    after: async (event, { out, base, pdf }) => {
+      const dir = path.join(base, out.folder.root, out.folder.company, out.folder.run);
+      if (fs.existsSync(path.join(dir, 'INI.TXT'))) throw new Error('בתיקייה הזו כבר יש הפקה מאותה דקה — נסו שוב בעוד דקה');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'INI.TXT'), out.iniTxt);
+      fs.writeFileSync(path.join(dir, 'BKMVDATA.zip'), out.zip);
+      fs.writeFileSync(path.join(dir, 'דוח-הפקה.pdf'), pdf);
+      await auditEvent(event, 'acct.export.uniform', { from: out.report.from, to: out.report.to, records: out.report.total });
+      return { ok: true, path: dir, report: out.report };
+    },
   });
   // דוח מע"מ מפורט — קובץ PCN874 (PLAN.md 9.16). הקובץ נשמר במחשב; ההגשה — באתר רשות המסים, בידי המשתמש
-  handle('acct:exportPcn874', async (event, input) => {
+  handleSave('acct:exportPcn874', async (event, input) => {
     const out = await accountingService.getPcn874(input || {});
-    const r = await dialog.showSaveDialog({ defaultPath: out.fileName, filters: [{ name: 'קובץ טקסט', extensions: ['txt'] }] });
-    if (r.canceled || !r.filePath) return { ok: false };
-    fs.writeFileSync(r.filePath, out.text, 'ascii');
-    await auditEvent(event, 'acct.export.pcn874', { month: out.month, months: out.months, records: out.counts, issues: out.issues.length });
-    return { ok: true, path: r.filePath, totals: out.totals, issues: out.issues, counts: out.counts, journalVat: out.journalVat, difference: out.difference, range: out.range };
-  });
-  handle('acct:exportCsv', async (event, kind, range) => {
-    const { headers, rows, name } = await accountingService.getExportData(kind, range || {});
-    const r = await dialog.showSaveDialog({ defaultPath: `${name}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] });
-    if (r.canceled || !r.filePath) return { ok: false };
-    fs.writeFileSync(r.filePath, X.toCsv(headers, rows), 'utf8');
-    await auditEvent(event, 'acct.export.csv', { kind, rows: rows.length });
-    return { ok: true, path: r.filePath };
-  });
+    return { name: out.fileName, filters: [{ name: 'קובץ טקסט', extensions: ['txt'] }], data: out.text, encoding: 'ascii', out,
+      result: { totals: out.totals, issues: out.issues, counts: out.counts, journalVat: out.journalVat, difference: out.difference, range: out.range } };
+  }, (event, { out }) => auditEvent(event, 'acct.export.pcn874', { month: out.month, months: out.months, records: out.counts, issues: out.issues.length }));
+  handleSave('acct:exportCsv', async (event, kind, range) => {
+    // ההוצאות האישיות/משפחתיות — מנהל בלבד, גם בייצוא (כמו personal:*)
+    if (kind === 'personal') assertAdmin(event);
+    return { ...csvSpec(await accountingService.getExportData(kind, range || {})), result: {} };
+  }, (event, spec, kind) => auditEvent(event, 'acct.export.csv', { kind, rows: spec.rows }));
 
   // עמותות: תרומות וקבלות סעיף 46, קרנות, תמיכות ודוח שנתי — נפרד מהיומן העסקי
   handle('npo:getOverview', async (event, year) => npoService.getOverview(year));
@@ -1140,13 +1278,10 @@ function registerIpcHandlers() {
     await auditEvent(event, 'npo.grant.delete', { id });
     return true;
   });
-  handle('npo:exportCsv', async (event, kind, year) => {
-    const r = await saveCsv(await npoService.getExportData(kind, year));
-    if (r.ok) await auditEvent(event, 'npo.export.csv', { kind, year, rows: r.rows });
-    return r;
-  });
+  handleSave('npo:exportCsv', async (event, kind, year) => csvSpec(await npoService.getExportData(kind, year)),
+    (event, spec, kind, year) => auditEvent(event, 'npo.export.csv', { kind, year, rows: spec.rows }));
   // הוראות קבע — מעקב בלבד. סימון "התקבל" מפיק קבלה רגילה
-  handle('npo:getStandingOrders', async (event, today) => npoService.getStandingOrders(today));
+  handle('npo:getStandingOrders', async (event, today) => npoService.getStandingOrders(today || localDay(Date.now())));
   handle('npo:saveStandingOrder', async (event, id, input) => {
     const o = await npoService.saveStandingOrder(id || null, input);
     await auditEvent(event, id ? 'npo.standing.update' : 'npo.standing.create', { id: o.id, amount: o.amount });
@@ -1164,16 +1299,24 @@ function registerIpcHandlers() {
       await auditEvent(event, `${prefix}.masav.settings`, { institution: s.institution });
       return s;
     });
-    handle(`${prefix}:createMasavFile`, async (event, input) => {
-      const args = { month: String((input && input.month) || ''), chargeDate: String((input && input.chargeDate) || '') };
-      const today = localDay(Date.now());
-      const pv = await svc.createMasavBatch(args, { today, preview: true });
-      const r = await dialog.showSaveDialog({ defaultPath: pv.fileName, filters: [{ name: 'קובץ מס"ב', extensions: ['txt', 'msv'] }] });
-      if (r.canceled || !r.filePath) return { ok: false };
-      const out = await svc.createMasavBatch(args, { today });
-      fs.writeFileSync(r.filePath, out.text, 'latin1');
-      await auditEvent(event, `${prefix}.masav.file`, { batchId: out.batchId, month: args.month, chargeDate: args.chargeDate, count: out.count, totalAg: out.totalAg });
-      return { ok: true, path: r.filePath, count: out.count, totalAg: out.totalAg };
+    // תצוגה מקדימה בתור; חלון השמירה — מחוץ לתור; האצווה נשמרת והקובץ נכתב — בתור, אחרי בדיקה חוזרת (ממצא 39)
+    handleLong(`${prefix}:createMasavFile`, {
+      lock: { busy: false }, busy: SAVE_BUSY,
+      before: async (event, input) => {
+        const args = { month: String((input && input.month) || ''), chargeDate: String((input && input.chargeDate) || '') };
+        const today = localDay(Date.now());
+        return { args, today, pv: await svc.createMasavBatch(args, { today, preview: true }) };
+      },
+      work: async (pre) => {
+        const file = await pickSavePath(pre.pv.fileName, [{ name: 'קובץ מס"ב', extensions: ['txt', 'msv'] }]);
+        return file ? { ...pre, file } : longDone({ ok: false });
+      },
+      after: async (event, { args, today, file }) => {
+        const out = await svc.createMasavBatch(args, { today });
+        fs.writeFileSync(file, out.text, 'latin1');
+        await auditEvent(event, `${prefix}.masav.file`, { batchId: out.batchId, month: args.month, chargeDate: args.chargeDate, count: out.count, totalAg: out.totalAg });
+        return { ok: true, path: file, count: out.count, totalAg: out.totalAg };
+      },
     });
     handle(`${prefix}:importMasavReturns`, async (event, text) => {
       if (typeof text !== 'string' || text.length > 20 * 1024 * 1024) throw new Error('קובץ ההחזרות אינו תקין או גדול מדי (עד 20MB)');
@@ -1220,7 +1363,7 @@ function registerIpcHandlers() {
     return true;
   });
   // הנצחות ויארצייטים — לפי תאריך עברי
-  handle('npo:getMemorials', async (event, today, days) => npoService.getMemorials(today, days));
+  handle('npo:getMemorials', async (event, today, days) => npoService.getMemorials(today || localDay(Date.now()), days));
   handle('npo:saveMemorial', async (event, id, input) => {
     const m = await npoService.saveMemorial(id || null, input);
     await auditEvent(event, id ? 'npo.memorial.update' : 'npo.memorial.create', { id: m.id });
@@ -1231,11 +1374,8 @@ function registerIpcHandlers() {
     await auditEvent(event, 'npo.memorial.delete', { id });
     return true;
   });
-  handle('npo:exportMemorialsCsv', async (event) => {
-    const r = await saveCsv(await npoService.getMemorialsExport());
-    if (r.ok) await auditEvent(event, 'npo.memorial.export', { rows: r.rows });
-    return r;
-  });
+  handleSave('npo:exportMemorialsCsv', async () => csvSpec(await npoService.getMemorialsExport(localDay(Date.now()))),
+    (event, spec) => auditEvent(event, 'npo.memorial.export', { rows: spec.rows }));
   // ייבוא תרומות מקובץ של ערוץ חיצוני (נדרים פלוס וכדומה) — קובץ בלבד, ללא חיבור לרשת
   handle('npo:previewImport', async (event, csvText, source) => npoService.previewImport(csvText, source));
   handle('npo:importDonations', async (event, csvText, options) => {
@@ -1243,53 +1383,43 @@ function registerIpcHandlers() {
     await auditEvent(event, 'npo.donation.import', { source: options && options.source, receipts: options && options.receipts, imported: r.imported, total: r.total, skipped: r.skipped, errors: r.errors.length });
     return r;
   });
-  handle('npo:exportDonorStatementPdf', async (event, donorKey, year) => {
+  handleSave('npo:exportDonorStatementPdf', async (event, donorKey, year) => {
     const st = await npoService.getDonorStatement(donorKey, year);
     const safe = String(st.donor.name).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'תורם';
-    const r = await saveHtmlAsPdf(X.renderDonorStatementHtml(st), `סיכום-תרומות-${st.year}-${safe}.pdf`);
-    if (r.ok) await auditEvent(event, 'npo.statement.pdf', { year: st.year, receipts: st.receipts.length });
-    return r;
-  });
+    return { html: X.renderDonorStatementHtml(st), name: `סיכום-תרומות-${st.year}-${safe}.pdf`, st };
+  }, (event, { st }) => auditEvent(event, 'npo.statement.pdf', { year: st.year, receipts: st.receipts.length }));
   // תיק תורם לשנה: הסיכום השנתי וכל הקבלות שהופקו במערכת — בקובץ אחד
-  handle('npo:exportDonorFilePdf', async (event, donorKey, year) => {
+  handleSave('npo:exportDonorFilePdf', async (event, donorKey, year) => {
     const { statement: st, donations } = await npoService.getDonorFile(donorKey, year);
     const safe = String(st.donor.name).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'תורם';
-    const r = await saveHtmlAsPdf(X.renderDonorFileHtml(st, donations), `תיק-תורם-${st.year}-${safe}.pdf`);
-    if (r.ok) await auditEvent(event, 'npo.donorfile.pdf', { year: st.year, receipts: st.receipts.length });
-    return r;
-  });
-  handle('npo:exportReceiptPdf', async (event, id) => {
+    return { html: X.renderDonorFileHtml(st, donations), name: `תיק-תורם-${st.year}-${safe}.pdf`, st };
+  }, (event, { st }) => auditEvent(event, 'npo.donorfile.pdf', { year: st.year, receipts: st.receipts.length }));
+  handleSave('npo:exportReceiptPdf', async (event, id) => {
     const d = await npoService.getDonation(id);
     if (d.receipt && d.receipt.external) throw new Error('הקבלה לתרומה זו הופקה בערוץ התרומה עצמו — יש להפיק אותה משם');
-    const r = await saveHtmlAsPdf(X.renderDonationReceiptHtml(d), `קבלה-${d.receipt.number}.pdf`);
-    if (r.ok) await auditEvent(event, 'npo.receipt.pdf', { receipt: d.receipt.number });
-    return r;
-  });
+    return { html: X.renderDonationReceiptHtml(d), name: `קבלה-${d.receipt.number}.pdf`, receipt: d.receipt.number };
+  }, (event, spec) => auditEvent(event, 'npo.receipt.pdf', { receipt: spec.receipt }));
   // מכתבים ותבניות (core/npoLetters.js) — טיוטה לתצוגה ולעריכה במסך. שום דבר לא נשמר בשרת.
   // החישוב על נתוני השנה בלבד דרך המנוע הקיים (donorAnnualStatement / annualReport)
   handle('npo:getThankYouLetter', async (event, donorKey, year, options) => npoService.getThankYouLetter(donorKey, year, options));
   handle('npo:getAnnualNarrative', async (event, year, options) => npoService.getAnnualNarrative(year, options));
   handle('npo:getGrantDraft', async (event, year, input) => npoService.getGrantDraft(year, input));
-  handle('npo:exportThankYouPdf', async (event, donorKey, year, options) => {
+  // כותרת ה-PDF: בהגדרות העמותה השם נשמר ב-orgName (לא name)
+  const letterOrg = (s) => ({ name: (s && s.orgName) || '', address: (s && s.address) || '', phone: (s && s.phone) || '' });
+  handleSave('npo:exportThankYouPdf', async (event, donorKey, year, options) => {
     const { letter, org } = await npoService.getThankYouLetter(donorKey, year, options);
     const safe = String(letter.donor).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'תורם';
-    const r = await saveHtmlAsPdf(L.renderLetterHtml(letter, org), `מכתב-תודה-${letter.year}-${safe}.pdf`);
-    if (r.ok) await auditEvent(event, 'npo.letters.thankyou.pdf', { year: letter.year });
-    return r;
-  });
-  handle('npo:exportAnnualNarrativePdf', async (event, year, options) => {
+    return { html: L.renderLetterHtml(letter, letterOrg(org)), name: `מכתב-תודה-${letter.year}-${safe}.pdf`, year: letter.year };
+  }, (event, spec) => auditEvent(event, 'npo.letters.thankyou.pdf', { year: spec.year }));
+  handleSave('npo:exportAnnualNarrativePdf', async (event, year, options) => {
     const { letter, org } = await npoService.getAnnualNarrative(year, options);
-    const r = await saveHtmlAsPdf(L.renderLetterHtml(letter, org), `נרטיב-לדוח-שנתי-${letter.year}.pdf`);
-    if (r.ok) await auditEvent(event, 'npo.letters.narrative.pdf', { year: letter.year });
-    return r;
-  });
-  handle('npo:exportGrantDraftPdf', async (event, year, input) => {
+    return { html: L.renderLetterHtml(letter, letterOrg(org)), name: `נרטיב-לדוח-שנתי-${letter.year}.pdf`, year: letter.year };
+  }, (event, spec) => auditEvent(event, 'npo.letters.narrative.pdf', { year: spec.year }));
+  handleSave('npo:exportGrantDraftPdf', async (event, year, input) => {
     const { letter, org } = await npoService.getGrantDraft(year, input);
     const safe = String(letter.fundName).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'קרן';
-    const r = await saveHtmlAsPdf(L.renderLetterHtml(letter, org), `בקשת-מענק-${safe}.pdf`);
-    if (r.ok) await auditEvent(event, 'npo.letters.grant.pdf', { year: letter.year });
-    return r;
-  });
+    return { html: L.renderLetterHtml(letter, letterOrg(org)), name: `בקשת-מענק-${safe}.pdf`, year: letter.year };
+  }, (event, spec) => auditEvent(event, 'npo.letters.grant.pdf', { year: spec.year }));
 
   // גמ"ח: הלוואות ללא ריבית, ערבים, לוח סילוקין, הפקדות ופיגורים — נפרד מהעמותה ומהיומן העסקי
   // ---------- גבייה מלקוחות של הארגון (core/collect.js) ----------
@@ -1376,17 +1506,15 @@ function registerIpcHandlers() {
     return { id: inv.id, number: inv.number, total: inv.total, customer: inv.customer, exempt, ...(inv.receiptNumber ? { receiptNumber: inv.receiptNumber } : {}) };
   });
 
-  handle('gemach:getOverview', async (event, asOf) => gemachService.getOverview(asOf));
+  handle('gemach:getOverview', async (event, asOf) => gemachService.getOverview(asOf || localDay(Date.now())));
   handle('gemach:getLoan', async (event, id) => gemachService.getLoan(id));
   // דף חשבון ללווה (PDF): לוח הסילוקין, מה ששולם ומה שנותר; חשבון הבנק ממוסך בלבד
-  handle('gemach:exportLoanStatementPdf', async (event, id) => {
+  handleSave('gemach:exportLoanStatementPdf', async (event, id) => {
     const { loan, fundName } = await gemachService.getLoanStatement(id);
     const asOf = localDay(Date.now());
     const safe = String(loan.borrowerName).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'לווה';
-    const r = await saveHtmlAsPdf(X.renderLoanStatementHtml(loan, { fundName, asOf }), `דף-חשבון-${safe}-${asOf}.pdf`);
-    if (r.ok) await auditEvent(event, 'gemach.statement.pdf', { id: loan.id });
-    return r;
-  });
+    return { html: X.renderLoanStatementHtml(loan, { fundName, asOf }), name: `דף-חשבון-${safe}-${asOf}.pdf`, loanId: loan.id };
+  }, (event, spec) => auditEvent(event, 'gemach.statement.pdf', { id: spec.loanId }));
   handle('gemach:saveSettings', async (event, input) => {
     const saved = await gemachService.saveSettings(input || {});
     await auditEvent(event, 'gemach.settings.save', { fundName: saved.fundName });
@@ -1454,11 +1582,8 @@ function registerIpcHandlers() {
     await auditEvent(event, 'gemach.item.return', { itemId: id, depositReturned: l.depositReturned });
     return l;
   });
-  handle('gemach:exportCsv', async (event, kind) => {
-    const r = await saveCsv(await gemachService.getExportData(kind));
-    if (r.ok) await auditEvent(event, 'gemach.export.csv', { kind, rows: r.rows });
-    return r;
-  });
+  handleSave('gemach:exportCsv', async (event, kind) => csvSpec(await gemachService.getExportData(kind, localDay(Date.now()))),
+    (event, spec, kind) => auditEvent(event, 'gemach.export.csv', { kind, rows: spec.rows }));
 
   // חסד וחלוקות: נזקקים, מתנדבים וסבבי חלוקה. פרטי נזקק חסוי (מתן בסתר) — למנהל בלבד
   const canSeeConfidential = (event) => authService.hasPermission(event.sender.id, 'users.manage');
@@ -1517,8 +1642,22 @@ function registerIpcHandlers() {
   });
   // מזעור לפי סוג — רק בתחום שפתוח ברישיון (אחרת: רשימת שמות ושינוי נתונים של תחום סגור)
   const RETENTION_DOMAIN = { beneficiaries: 'chesed:x', donors: 'npo:x', borrowers: 'gemach:x', mortgageClients: 'madv:x', realtyClients: 'rlty:x' };
+  // תיבות ההודעות במיפוי (ממצא 26) — רק תיבה שקיימת במחשב הזה: של המערכת — כששרת ההודעות מוגדר או שיש בה שיחות;
+  // של מנהל-העל — כשהמצב הוגדר כאן (מספר השיחות — רק כשהוא פתוח בסיסמה). הודעות אינן תחום ברישוי (chat: תמיד פתוח ב-gate.js)
+  const mailboxPeers = (box) => {
+    try { return new Set(box.exportMailbox({ attachmentChars: 0 }).messages.map(x => x.peer)).size; } catch { return null; }
+  };
+  const privacyMailboxes = () => {
+    const out = { platform: typeof window !== 'undefined' && window.localStorage ? 'android' : 'win' };
+    let remote = false;
+    try { remote = !!(licenseStore && licenseStore.getRemoteSettings().url); } catch { remote = false; }
+    const sys = chatStore ? mailboxPeers(chatStore) : null;
+    if (remote || sys) out.system = { count: sys };
+    if (ownerCore && ownerCore.isInitialized()) out.owner = { count: ownerCore.isUnlocked() && ownerChatStore ? mailboxPeers(ownerChatStore) : null };
+    return out;
+  };
   handle('privacy:getMap', async () => {
-    const m = await privacyService.getMap(await db.listUsers());
+    const m = await privacyService.getMap(await db.listUsers(), { mailboxes: privacyMailboxes() });
     const open = Object.entries(m.retentionKinds || {}).filter(([k]) => !LG.checkChannel(licenseState(), RETENTION_DOMAIN[k] || 'econ:x', 'data.view'));
     return { ...m, retentionKinds: Object.fromEntries(open) };
   });
@@ -1537,23 +1676,14 @@ function registerIpcHandlers() {
     return r;
   });
   // מסמכים לתיקון 13 (PLAN.md 9.15) — PDF במקום שהמנהל בוחר
-  handle('privacy:exportDefinitionPdf', async (event) => {
-    const r = await saveHtmlAsPdf(await privacyService.definitionHtml(await db.listUsers()), 'מסמך-הגדרות-מאגר.pdf');
-    if (r.ok) await auditEvent(event, 'privacy.doc.export', { doc: 'definition' });
-    return r;
-  });
-  handle('privacy:exportProcedurePdf', async (event) => {
-    const r = await saveHtmlAsPdf(await privacyService.procedureHtml(await db.listUsers()), 'נוהל-אבטחת-מידע.pdf');
-    if (r.ok) await auditEvent(event, 'privacy.doc.export', { doc: 'procedure' });
-    return r;
-  });
-  handle('privacy:exportNoticePdf', async (event, kind) => {
-    const r = await saveHtmlAsPdf(await privacyService.noticeHtml(kind), `הודעת-יידוע-${String(kind).replace(/[^a-z]/gi, '')}.pdf`);
-    if (r.ok) await auditEvent(event, 'privacy.doc.export', { doc: 'notice', kind });
-    return r;
-  });
+  handleSave('privacy:exportDefinitionPdf', async () => ({ html: await privacyService.definitionHtml(await db.listUsers(), { mailboxes: privacyMailboxes() }), name: 'מסמך-הגדרות-מאגר.pdf' }),
+    (event) => auditEvent(event, 'privacy.doc.export', { doc: 'definition' }));
+  handleSave('privacy:exportProcedurePdf', async () => ({ html: await privacyService.procedureHtml(await db.listUsers(), { mailboxes: privacyMailboxes() }), name: 'נוהל-אבטחת-מידע.pdf' }),
+    (event) => auditEvent(event, 'privacy.doc.export', { doc: 'procedure' }));
+  handleSave('privacy:exportNoticePdf', async (event, kind) => ({ html: await privacyService.noticeHtml(kind), name: `הודעת-יידוע-${String(kind).replace(/[^a-z]/gi, '')}.pdf` }),
+    (event, spec, kind) => auditEvent(event, 'privacy.doc.export', { doc: 'notice', kind }));
   // זכות עיון: מנהל בלבד (permissionFor), התחומים הפתוחים ברישיון בלבד, והייצוא נרשם ביומן
-  handle('privacy:exportSubjectPdf', async (event, idNumber) => {
+  handleSave('privacy:exportSubjectPdf', async (event, idNumber) => {
     const { report, html } = await privacyService.subject(idNumber, {
       canSeeConfidential: canSeeConfidential(event), sources: LG.peopleSources(licenseState()),
       acct: !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view'),
@@ -1561,10 +1691,8 @@ function registerIpcHandlers() {
       madv: !LG.checkChannel(licenseState(), 'madv:getOverview', 'data.view'),
       realestate: !LG.checkChannel(licenseState(), 'realestate:getOverview', 'data.view')
     });
-    const r = await saveHtmlAsPdf(html, `מידע-על-${report.idNumber}.pdf`);
-    if (r.ok) await auditEvent(event, 'privacy.subject.export', { idNumber: report.idNumber, records: report.count });
-    return { ...r, count: report.count };
-  });
+    return { html, name: `מידע-על-${report.idNumber}.pdf`, report, extra: { count: report.count } };
+  }, (event, { report }) => auditEvent(event, 'privacy.subject.export', { idNumber: report.idNumber, records: report.count }));
   handle('privacy:addRequest', async (event, input) => {
     const r = await privacyService.addRequest(input);
     await auditEvent(event, 'privacy.request.add', { id: r.id, type: r.type });
@@ -1635,11 +1763,10 @@ function registerIpcHandlers() {
     await auditEvent(event, 'chesed.round.delete', { id: roundId });
     return true;
   });
-  handle('chesed:exportCsv', async (event, kind, roundId) => {
-    const r = await saveCsv(await chesedService.getExportData(kind, canSeeConfidential(event), roundId));
-    if (r.ok) await auditEvent(event, 'chesed.export.csv', { kind, roundId: roundId || '', rows: r.rows, confidential: canSeeConfidential(event) });
-    return r;
-  });
+  handleSave('chesed:exportCsv', async (event, kind, roundId) => {
+    const confidential = canSeeConfidential(event);
+    return { ...csvSpec(await chesedService.getExportData(kind, confidential, roundId)), confidential };
+  }, (event, spec, kind, roundId) => auditEvent(event, 'chesed.export.csv', { kind, roundId: roundId || '', rows: spec.rows, confidential: spec.confidential }));
 
   // ייעוץ משכנתאות: משרד עם כמה יועצים — כל פעולה מקבלת את המשתמש (madvActor), והשירות מסנן לפי ההרשאה
   const madvActor = (event) => {
@@ -1670,12 +1797,12 @@ function registerIpcHandlers() {
   handle('madv:getMissingDocsMessage', async (event, id) => mortgageAdvisorService.getMissingDocsMessage(id, madvActor(event)));
   // אישורים עקרוניים: נשמרים בתיק, ומושווים במנוע של מעבדת התמהיל (אותה תחזית, אותו חישוב)
   handle('madv:saveApprovals', async (event, id, list) => {
-    const r = await mortgageAdvisorService.saveApprovals(id, list, madvActor(event));
+    const r = await mortgageAdvisorService.saveApprovals(id, list, madvActor(event), localDay(Date.now()));
     await auditEvent(event, 'madv.approvals.save', { id, count: r.length });
     return r;
   });
   handle('madv:chooseApproval', async (event, id, approvalId) => {
-    const r = await mortgageAdvisorService.chooseApproval(id, approvalId, madvActor(event));
+    const r = await mortgageAdvisorService.chooseApproval(id, approvalId, madvActor(event), localDay(Date.now()));
     await auditEvent(event, 'madv.approvals.choose', { id, approvalId: approvalId || null });
     return r;
   });
@@ -1706,7 +1833,8 @@ function registerIpcHandlers() {
     if (denied) throw new Error(denied);
     if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
     const p = await mortgageAdvisorService.feePaymentForInvoice(id, paymentId, madvActor(event));
-    const inv = await accountingService.createAdvisoryReceipt({ ...p, exempt: opts.exempt === true });
+    // עוסק פטור (הגדרות המשרד או בחירה מפורשת) — חשבונית עסקה בלי מע"מ + קבלה
+    const inv = await accountingService.createAdvisoryReceipt({ ...p, exempt: opts.exempt === true || p.exempt === true });
     await mortgageAdvisorService.linkFeeInvoice(id, paymentId, inv);
     await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'madv', amountAg: p.grossAgorot });
     return { id: inv.id, number: inv.number, total: inv.total };
@@ -1718,33 +1846,26 @@ function registerIpcHandlers() {
     await auditEvent(event, 'madv.brand.save', { officeName: b.officeName });
     return { ...b, logo: undefined, hasLogo: !!b.logo };
   });
-  handle('madv:setBrandLogo', async (event, remove) => {
-    if (remove === true) {
-      const r = await mortgageAdvisorService.setBrandLogo('');
-      await auditEvent(event, 'madv.brand.logo', { removed: true });
+  handleLong('madv:setBrandLogo', {
+    lock: { busy: false }, busy: PICK_BUSY,
+    work: async (pre, remove) => (remove === true ? { remove: true } : pickLogo('בחירת לוגו לדוח ללקוח')),
+    after: async (event, logo) => {
+      const r = await mortgageAdvisorService.setBrandLogo(logo.remove ? ''
+        : `data:image/${logo.ext === 'png' ? 'png' : 'jpeg'};base64,` + logo.bytes.toString('base64'));
+      await auditEvent(event, 'madv.brand.logo', { removed: !!logo.remove });
       return r;
-    }
-    const pick = await dialog.showOpenDialog({ title: 'בחירת לוגו לדוח ללקוח', properties: ['openFile'], filters: [{ name: 'תמונה', extensions: ['png', 'jpg', 'jpeg'] }] });
-    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { canceled: true };
-    const file = pick.filePaths[0];
-    if (fs.statSync(file).size > 200 * 1024) throw new Error('קובץ הלוגו גדול מדי (עד 200KB)');
-    const ext = path.extname(file).slice(1).toLowerCase();
-    const r = await mortgageAdvisorService.setBrandLogo(`data:image/${ext === 'png' ? 'png' : 'jpeg'};base64,` + fs.readFileSync(file).toString('base64'));
-    await auditEvent(event, 'madv.brand.logo', { removed: false });
-    return r;
+    },
   });
   // דוח ממותג ללקוח (PDF): ההשוואה והתוצאה של האישור הנבחר — מהמנוע של המעבדה
-  handle('madv:exportClientReportPdf', async (event, id) => {
+  handleSave('madv:exportClientReportPdf', async (event, id) => {
     const d = await mortgageAdvisorService.reportData(id, madvActor(event));
     const comparison = d.approvalsInput ? await mortgageLabService.calcApprovals(d.approvalsInput) : null;
     const hit = comparison && d.chosen && comparison.offers.find(x => x.offer.id === d.chosen.id);
     const asOf = localDay(Date.now());
     const html = MR.renderClientReportHtml({ ...d, asOf, comparison, chosenResult: hit && hit.result }, designTokensCss());
     const safe = String(d.client.name).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'לקוח';
-    const r = await saveHtmlAsPdf(html, `סיכום-ייעוץ-${safe}-${asOf}.pdf`);
-    if (r.ok) await auditEvent(event, 'madv.report.pdf', { id });
-    return r;
-  });
+    return { html, name: `סיכום-ייעוץ-${safe}-${asOf}.pdf` };
+  }, (event, spec, id) => auditEvent(event, 'madv.report.pdf', { id }));
   // ---------- נדל"ן ותיווך (rlty ← econ.realestate) ----------
   const rltyUser = (event) => { const s = authService.getSession(event.sender.id); return s && s.id; };
   // ייעוץ המשכנתאות פתוח ברישיון — רק אז מוצג ונפתח תיק משכנתא מתוך עסקה
@@ -1811,13 +1932,10 @@ function registerIpcHandlers() {
     await auditEvent(event, 'realty.order.delete', { id });
     return true;
   });
-  handle('rlty:exportOrderPdf', async (event, id) => {
+  handleSave('rlty:exportOrderPdf', async (event, id) => {
     const d = await realtyService.orderDocument(String(id || ''));
-    const html = BR.renderOrderHtml(d.order, d, designTokensCss());
-    const r = await saveHtmlAsPdf(html, `הזמנת-שירותי-תיווך-${d.order.date}.pdf`);
-    if (r.ok) await auditEvent(event, 'realty.order.pdf', { id });
-    return r;
-  });
+    return { html: BR.renderOrderHtml(d.order, d, designTokensCss()), name: `הזמנת-שירותי-תיווך-${d.order.date}.pdf` };
+  }, (event, spec, id) => auditEvent(event, 'realty.order.pdf', { id }));
   // כדאיות השקעה ומס רכישה: טבלאות המדרגות מוקלדות או נטענות מקובץ — אין ערכים בקוד ואין רשת
   handle('rlty:calcInvestment', async (event, input) => realtyService.calcInvestment(input || {}));
   handle('rlty:saveTaxTable', async (event, input) => {
@@ -1826,12 +1944,16 @@ function registerIpcHandlers() {
     return t;
   });
   // קובץ טקסט / CSV מקומי: "עד סכום, שיעור" בכל שורה. התוכן מוחזר למסך לבדיקה לפני שמירה
-  handle('rlty:readTaxTableFile', async () => {
-    const pick = await dialog.showOpenDialog({ title: 'טבלת מדרגות מס רכישה', properties: ['openFile'], filters: [{ name: 'טבלה', extensions: ['csv', 'txt'] }] });
-    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { canceled: true };
-    if (fs.statSync(pick.filePaths[0]).size > 64 * 1024) throw new Error('הקובץ גדול מדי לטבלת מדרגות');
-    const text = fs.readFileSync(pick.filePaths[0], 'utf8').replace(/^﻿/, '');
-    return { text: RI.bracketsText(RI.parseBrackets(text)) };
+  // חלון הבחירה — מחוץ לתור (ממצא 39); שום דבר לא נשמר כאן
+  handleLong('rlty:readTaxTableFile', {
+    lock: { busy: false }, busy: PICK_BUSY,
+    work: async () => {
+      const pick = await dialog.showOpenDialog({ title: 'טבלת מדרגות מס רכישה', properties: ['openFile'], filters: [{ name: 'טבלה', extensions: ['csv', 'txt'] }] });
+      if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return longDone({ canceled: true });
+      if (fs.statSync(pick.filePaths[0]).size > 64 * 1024) throw new Error('הקובץ גדול מדי לטבלת מדרגות');
+      const text = fs.readFileSync(pick.filePaths[0], 'utf8').replace(/^﻿/, '');
+      return longDone({ text: RI.bracketsText(RI.parseBrackets(text)) });
+    },
   });
   handle('rlty:deleteTaxTable', async (event, id) => {
     await realtyService.deleteTaxTable(String(id || ''));
@@ -1894,11 +2016,8 @@ function registerIpcHandlers() {
     await auditEvent(event, 'madv.settings.save', s);
     return s;
   });
-  handle('madv:exportSchedule', async (event, offerId) => {
-    const r = await saveCsv(await mortgageAdvisorService.getScheduleExport(offerId, madvActor(event)));
-    if (r.ok) await auditEvent(event, 'madv.export.schedule', { offerId });
-    return r;
-  });
+  handleSave('madv:exportSchedule', async (event, offerId) => csvSpec(await mortgageAdvisorService.getScheduleExport(offerId, madvActor(event))),
+    (event, spec, offerId) => auditEvent(event, 'madv.export.schedule', { offerId }));
 
   // שמאות מקרקעין: תיק שומה, עסקאות השוואה (הקלדה או קובץ — בלי רשת), שלוש גישות, נעילה ודוח
   // isManager — פרטי השמאי (בכל דוח) משתנים רק בידי מנהל
@@ -1935,24 +2054,17 @@ function registerIpcHandlers() {
   handle('realestate:deletePhoto', async (event, id, photoId) => realEstateService.deletePhoto(String(id || ''), String(photoId || '')));
   handle('realestate:saveSettings', async (event, input) => realEstateService.saveSettings(input || {}));
   handle('realestate:getReportHtml', async (event, id) => realEstateService.getReportHtml(String(id || '')));
-  handle('realestate:exportRegister', async (event) => {
-    const r = await saveCsv(await realEstateService.getRegisterExport());
-    if (r.ok) await auditEvent(event, 'realestate.register.export', { rows: r.rows });
-    return r;
-  });
-  handle('realestate:exportReport', async (event, id) => {
+  handleSave('realestate:exportRegister', async () => csvSpec(await realEstateService.getRegisterExport()),
+    (event, spec) => auditEvent(event, 'realestate.register.export', { rows: spec.rows }));
+  handleSave('realestate:exportReport', async (event, id) => {
     const d = await realEstateService.getReportHtml(String(id || ''));
-    const r = await saveHtmlAsPdf(d.html, d.name.replace(/[\\/:*?"<>|]/g, '') + '.pdf');
-    if (r && r.ok) await auditEvent(event, 'realestate.report.export', { id, final: d.final });
-    return r;
-  });
+    return { html: d.html, name: d.name.replace(/[\\/:*?"<>|]/g, '') + '.pdf', final: d.final };
+  }, (event, spec, id) => auditEvent(event, 'realestate.report.export', { id, final: spec.final }));
   // הדוח של גרסה קודמת שנמסרה (לפני גרסה מתוקנת)
-  handle('realestate:exportRevisionReport', async (event, id, rev) => {
+  handleSave('realestate:exportRevisionReport', async (event, id, rev) => {
     const d = await realEstateService.getRevisionReportHtml(String(id || ''), Number(rev));
-    const r = await saveHtmlAsPdf(d.html, d.name.replace(/[\\/:*?"<>|]/g, '') + '.pdf');
-    if (r && r.ok) await auditEvent(event, 'realestate.report.export', { id, rev: Number(rev), final: true });
-    return r;
-  });
+    return { html: d.html, name: d.name.replace(/[\\/:*?"<>|]/g, '') + '.pdf' };
+  }, (event, spec, id, rev) => auditEvent(event, 'realestate.report.export', { id, rev: Number(rev), final: true }));
 
   // מעבדת תמהיל: מנוע התמהיל המלא, סלים אחידים, כושר החזר, מחזור, אישורים, עמלת פירעון ואופטימייזר
   handle('mlab:getOverview', async (event) => mortgageLabService.getOverview(madvActor(event)));
@@ -1964,6 +2076,10 @@ function registerIpcHandlers() {
   handle('mlab:calcPrepayment', async (event, input) => mortgageLabService.calcPrepayment(input || {}));
   handle('mlab:calcOptimize', async (event, input) => mortgageLabService.calcOptimize(input || {}));
   handle('mlab:saveForecast', async (event, input) => {
+    // תחזית "מאומתת" מבטלת את האזהרה לכל המשתמשים — מנהל בלבד, כמו אימות כלל (ממצא 23)
+    if (input && input.verified && !authService.hasPermission(event.sender.id, 'users.manage')) {
+      throw new Error('רק מנהל יכול לסמן תחזית כמאומתת');
+    }
     const r = await mortgageLabService.saveForecast(input || {});
     await auditEvent(event, 'mlab.forecast.save', { id: r.id });
     return r;
@@ -1994,26 +2110,28 @@ function registerIpcHandlers() {
     await auditEvent(event, 'mlab.scenario.delete', { id });
     return true;
   });
-  handle('mlab:exportScenario', async (event, id) => {
-    const r = await saveCsv(await mortgageLabService.getScenarioExport(id, madvActor(event)));
-    if (r.ok) await auditEvent(event, 'mlab.export.schedule', { id });
-    return r;
-  });
+  handleSave('mlab:exportScenario', async (event, id) => csvSpec(await mortgageLabService.getScenarioExport(id, madvActor(event))),
+    (event, spec, id) => auditEvent(event, 'mlab.export.schedule', { id }));
 
   // ---------- הגדרות מתקדמות ----------
   const VIEWS_ALLOWED = ['dashboard', 'acct-reports', 'acct-invoices', 'acct-journal', 'personal-finance', 'finance', 'contacts', 'tasks', 'npo', 'gemach', 'chesed', 'people', 'mortgage-advisor', 'mortgage-lab', 'realestate'];
+  // מסכים שכל הנתונים בהם של מנהל בלבד (requiresAdmin) — לא מסך פתיחה של משתמש אחר
+  const ADMIN_VIEWS = ['personal-finance', 'finance', 'acct-personal'];
   handle('settings:getAdvanced', async (event) => {
     const data = await db.load();
     const st = data.settings || {};
     const me = authService.getSession(event.sender.id);
+    const isAdmin = !!(me && me.permissions.includes('users.manage'));
+    // סוגי הנתונים של מנהל בלבד (adminOnly) — גם לא הכמות שלהם
+    const kinds = DP.listKinds(undefined, { admin: isAdmin });
     const counts = {};
-    for (const k of DP.listKinds()) counts[k.id] = DP.KINDS[k.id].store.get(data).length;
+    for (const k of kinds) counts[k.id] = DP.KINDS[k.id].store.get(data).length;
+    const startView = VIEWS_ALLOWED.includes(st.startView) && (isAdmin || !ADMIN_VIEWS.includes(st.startView)) ? st.startView : 'dashboard';
     return {
       idleMinutes: Math.round(authService.idleMs / 60000), idleRange: IDLE_MIN_RANGE,
-      startView: VIEWS_ALLOWED.includes(st.startView) ? st.startView : 'dashboard',
-      views: VIEWS_ALLOWED, isAdmin: !!(me && me.permissions.includes('users.manage')),
+      startView, views: VIEWS_ALLOWED, isAdmin,
       me: me ? { id: me.id, username: me.username, roles: me.roles } : null,
-      kinds: DP.listKinds(), counts
+      kinds, counts
     };
   });
   handle('settings:saveAdvanced', async (event, input = {}) => {
@@ -2082,17 +2200,13 @@ function registerIpcHandlers() {
     await auditEvent(event, 'users.resetPassword', { id });
     return true;
   });
-  // שמירת קובץ רישוי (בקשה / רישיון / אישור / הודעות) בבוחר שמירה — המשתמש מעביר אותו בעצמו
-  async function saveLicenseFile(text, name) {
-    const safe = String(name || 'license').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').slice(0, 60) || 'license';
-    const r = await dialog.showSaveDialog({ defaultPath: safe + '.sslic', filters: [{ name: 'קובץ רישוי', extensions: ['sslic'] }] });
-    if (r.canceled || !r.filePath) return { ok: false };
-    fs.writeFileSync(r.filePath, String(text), 'utf8');
-    return { ok: true, path: r.filePath };
-  }
-  handle('license:saveFile', async (event, text, name) => {
+  // שמירת קובץ רישוי (בקשה / רישיון / אישור / הודעות) בבוחר שמירה — המשתמש מעביר אותו בעצמו.
+  // חלון השמירה — מחוץ לתור (handleSave, ממצא 39)
+  const LICENSE_FILTERS = [{ name: 'קובץ רישוי', extensions: ['sslic'] }];
+  const licenseFileName = (name) => (String(name || 'license').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').slice(0, 60) || 'license') + '.sslic';
+  handleSave('license:saveFile', async (event, text, name) => {
     if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('תוכן הקובץ אינו תקין');
-    return saveLicenseFile(text, name);
+    return { name: licenseFileName(name), filters: LICENSE_FILTERS, data: text, encoding: 'utf8' };
   });
 
   // ---------- מצב מנהל-העל (Owner) ----------
@@ -2104,16 +2218,18 @@ function registerIpcHandlers() {
     const configured = (ROOT_KEYS_IN_USE() || []).some(k => k.x === ownerCore.pubkey().x);
     return { initialized, unlocked, publicKey: ownerCore.pubkey(), configured, recovery: ownerCore.recoveryInfo(), ...ownerCore.list() };
   });
+  // כל פתיחה (הגדרה, סיסמה, שחזור מקודים) — נקשרת לפגישה של מי שפתח (ממצא 4)
   handle('owner:init', async (event, passphrase) => {
     const r = ownerCore.init(passphrase);
+    bindOwner(event);
     await ownerAudit(event, 'init', { keyId: r.keyId });
     return { keyId: r.keyId, publicKey: r.publicKey };
   });
   handle('owner:unlock', async (event, passphrase) => {
-    try { const r = ownerCore.unlock(passphrase); await ownerAudit(event, 'unlock', r); return r; }
+    try { const r = ownerCore.unlock(passphrase); bindOwner(event); await ownerAudit(event, 'unlock', r); return r; }
     catch (e) { await ownerAudit(event, 'unlock.failed', {}); throw e; }
   });
-  handle('owner:lock', async () => { ownerCore.lock(); return true; });
+  handle('owner:lock', async () => { lockOwner(); return true; });
   handle('owner:openRequest', async (event, text) => {
     if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('הקובץ אינו תקין');
     return ownerCore.openRequest(text);
@@ -2159,7 +2275,11 @@ function registerIpcHandlers() {
   handle('license:getRemote', async () => {
     const r = licenseStore.getRemoteSettings();
     const info = licenseStore.syncInfo();
-    return { url: r.url || '', lastSync: r.lastSync || null, myCode: info.nodeId,
+    // checkinError — השרת ענה, אבל בלי תשובה חתומה תקפה (checkin.js): החיבור לא נספר לתנאי ההפעלה.
+    // certExpiresAt — תפוגת התעודה של שרת הרישוי (מהתשובה החתומה השמורה): מסך הרישוי מזהיר 60 יום לפני (ממצא 4)
+    const proof = typeof licenseStore.syncProof === 'function' ? licenseStore.syncProof() : null;
+    const certExpiresAt = proof ? proof.certExpiresAt : (Number.isSafeInteger(r.certExpiresAt) ? r.certExpiresAt : null);
+    return { url: r.url || '', lastSync: r.lastSync || null, checkinError: r.checkinError || null, certExpiresAt, myCode: info.nodeId,
       pending: await Promise.all((r.pendingChildRequests || []).map(async ({ keyId, name, at }) => ({ keyId, name, at, payment: await collectService.licensePayment(keyId) }))) };
   });
   handle('license:setRemote', async (event, url) => {
@@ -2168,30 +2288,42 @@ function registerIpcHandlers() {
     await auditEvent(event, 'license.remote.set', { url: clean });
     return { url: clean };
   });
-  handle('license:remoteRequest', async (event, name) => {
-    const r = await licenseSync.sendLicenseRequest(name);
-    await auditEvent(event, 'license.remote.request', r);
-    return r;
+  // הפניות לשרת — מחוץ לתור (handleNet, ממצא 39); הרישום ביומן — בתור, אחרי שהפעולה ברשת בוצעה
+  handleNet('license:remoteRequest', {
+    work: (pre, name) => licenseSync.sendLicenseRequest(name),
+    record: async (event, r) => { await auditEvent(event, 'license.remote.request', r); return r; },
   });
-  handle('license:remoteRequestFromParent', async (event, name, parentCode) => {
-    const r = await licenseSync.sendRequestToParent(name, parentCode);
-    await auditEvent(event, 'license.remote.requestParent', { parent: parentCode, keyId: r.keyId });
-    return r;
+  handleNet('license:remoteRequestFromParent', {
+    work: (pre, name, parentCode) => licenseSync.sendRequestToParent(name, parentCode),
+    record: async (event, r, pre, name, parentCode) => {
+      await auditEvent(event, 'license.remote.requestParent', { parent: parentCode, keyId: r.keyId });
+      return r;
+    },
   });
-  handle('license:remoteSync', async (event) => {
-    const r = await licenseSync.receive();
-    if (r.handled) await auditEvent(event, 'license.remote.sync', { handled: r.handled, errors: r.errors.length });
-    licenseStore.invalidate();
-    licenseState();
-    return r;
+  handleNet('license:remoteSync', {
+    work: () => licenseSync.receive(),
+    record: async (event, r) => {
+      if (r.handled) await auditEvent(event, 'license.remote.sync', { handled: r.handled, errors: r.errors.length });
+      licenseStore.invalidate();
+      licenseState();
+      return r;
+    },
   });
-  handle('license:remoteForwardChild', async (event, input = {}) => {
-    const { keyId, ...terms } = input || {};
-    const pay = await requireChildPayment(keyId);
-    const r = await licenseSync.forwardChildRequest(keyId, { ...terms, months: pay.months });
-    await collectService.useLicensePayment(pay.id, { childId: keyId });
-    await auditEvent(event, 'license.remote.childApprovalRequest', { childId: r.childId, features: terms.features, limits: terms.limits, paid: pay.ref });
-    return r;
+  // תשלום אחד לבקשה אחת: בקשת אישור בקובץ ודרך השרת — אחת בכל פעם (התשלום נבדק בתור, ונוצל אחרי השליחה / השמירה)
+  const childPayLock = { busy: false };
+  const CHILD_PAY_BUSY = 'בקשת אישור למערכת בת כבר מתבצעת — המתינו לסיומה';
+  handleNet('license:remoteForwardChild', {
+    lock: childPayLock, busy: CHILD_PAY_BUSY,
+    before: async (event, input = {}) => {
+      const { keyId, ...terms } = input || {};
+      return { keyId, terms, pay: await requireChildPayment(keyId) };
+    },
+    work: ({ keyId, terms, pay }) => licenseSync.forwardChildRequest(keyId, { ...terms, months: pay.months }),
+    record: async (event, r, { keyId, terms, pay }) => {
+      await collectService.useLicensePayment(pay.id, { childId: keyId });
+      await auditEvent(event, 'license.remote.childApprovalRequest', { childId: r.childId, features: terms.features, limits: terms.limits, paid: pay.ref });
+      return r;
+    },
   });
   // תשלום מערכת בת להורה: דרישת תשלום במסך הגבייה, לפי קוד המערכת (בקשה מהשרת) או לפי קובץ הבקשה
   handle('license:childPaymentRequest', async (event, input = {}) => {
@@ -2221,97 +2353,129 @@ function registerIpcHandlers() {
     return true;
   });
   // השבתה/החזרה/סיום של מערכת בת — ומיד שליחה אליה כשיש שרת
-  handle('license:remotePushChild', async (event, childId) => {
-    const pkg = licenseStore.noticesForChild(String(childId || ''));
-    if (!pkg) throw new Error('מערכת הבת לא נמצאה');
-    await licenseSync.pushToChild(childId, pkg);
-    return true;
+  handleNet('license:remotePushChild', {
+    before: (event, childId) => {
+      const pkg = licenseStore.noticesForChild(String(childId || ''));
+      if (!pkg) throw new Error('מערכת הבת לא נמצאה');
+      return pkg;
+    },
+    work: async (pkg, childId) => { await licenseSync.pushToChild(childId, pkg); return true; },
   });
 
-  // מנהל-העל מרחוק: קליטת בקשות, אישור/דחייה ושליחה ישירה, ועדכון כל הלקוחות
-  handle('owner:remoteReceive', async () => licenseSync.ownerReceive());
+  // מנהל-העל מרחוק: קליטת בקשות, אישור/דחייה ושליחה ישירה, ועדכון כל הלקוחות. הרשת — מחוץ לתור (handleNet)
+  handleNet('owner:remoteReceive', { work: () => licenseSync.ownerReceive() });
   handle('owner:inbox', async () => ownerCore.inbox().map(({ id, from, at, summary }) => ({ id, from, at, summary })));
-  handle('owner:inboxIssue', async (event, input = {}) => {
-    const m = ownerCore.peekInbox(String((input || {}).id || ''));
-    const r = ownerCore.issue({ ...(input || {}), request: m.body });
-    await licenseSync.ownerReply(m.from, 'license', r.package);
-    ownerCore.takeFromInbox(m.id);
-    await ownerAudit(event, 'tenant.issue', { id: r.id, name: r.name, slot: r.slot, renewal: r.renewal, remote: true });
-    return { id: r.id, name: r.name, slot: r.slot };
+  // הנפקה / אישור — רק לבקשה שנשלחה מהמערכת שביקשה אותה (inboxRequest). דחייה — לכל בקשה בתיבה.
+  // טיפול אחד בכל פעם (מנעול): בקשה לא תונפק פעמיים בזמן שהתשובה הראשונה עוד בדרך לשרת
+  const ownerReplyLock = { busy: false };
+  const OWNER_REPLY_BUSY = 'הטיפול בבקשה קודמת עוד נשלח לשרת — המתינו לסיומו';
+  handleNet('owner:inboxIssue', {
+    lock: ownerReplyLock, busy: OWNER_REPLY_BUSY,
+    before: (event, input = {}) => {
+      const m = ownerCore.inboxRequest(String((input || {}).id || ''));
+      return { m, r: ownerCore.issue({ ...(input || {}), request: m.body }) };
+    },
+    work: async ({ m, r }) => { await licenseSync.ownerReply(m.from, 'license', r.package); return true; },
+    record: async (event, sent, { m, r }) => {
+      ownerCore.takeFromInbox(m.id);
+      await ownerAudit(event, 'tenant.issue', { id: r.id, name: r.name, slot: r.slot, renewal: r.renewal, remote: true });
+      return { id: r.id, name: r.name, slot: r.slot };
+    },
   });
-  handle('owner:inboxApprove', async (event, id) => {
-    const m = ownerCore.peekInbox(String(id || ''));
-    const r = ownerCore.approve({ request: m.body });
-    await licenseSync.ownerReply(m.from, 'approval', r.package);
-    ownerCore.takeFromInbox(m.id);
-    await ownerAudit(event, 'child.approve', { childId: r.childId, name: r.name, parent: r.parentName, slot: r.slot, remote: true });
-    return { childId: r.childId, name: r.name, parentName: r.parentName };
+  handleNet('owner:inboxApprove', {
+    lock: ownerReplyLock, busy: OWNER_REPLY_BUSY,
+    before: (event, id) => {
+      const m = ownerCore.inboxRequest(String(id || ''));
+      return { m, r: ownerCore.approve({ request: m.body }) };
+    },
+    work: async ({ m, r }) => { await licenseSync.ownerReply(m.from, 'approval', r.package); return true; },
+    record: async (event, sent, { m, r }) => {
+      ownerCore.takeFromInbox(m.id);
+      await ownerAudit(event, 'child.approve', { childId: r.childId, name: r.name, parent: r.parentName, slot: r.slot, remote: true });
+      return { childId: r.childId, name: r.name, parentName: r.parentName };
+    },
   });
-  handle('owner:inboxReject', async (event, id, reason) => {
-    const why = String(reason || '').trim();
-    if (!why) throw new Error('חובה לציין סיבה');
-    const m = ownerCore.peekInbox(String(id || ''));
-    const name = (m.summary && m.summary.name) || '';
-    await licenseSync.ownerReply(m.from, 'rejection', JSON.stringify({ name, reason: why }));
-    ownerCore.takeFromInbox(m.id);
-    await ownerAudit(event, 'request.reject', { from: m.from, name, reason: why, remote: true });
-    return true;
+  handleNet('owner:inboxReject', {
+    lock: ownerReplyLock, busy: OWNER_REPLY_BUSY,
+    before: (event, id, reason) => {
+      const why = String(reason || '').trim();
+      if (!why) throw new Error('חובה לציין סיבה');
+      const m = ownerCore.peekInbox(String(id || ''));
+      return { m, why, name: (m.summary && m.summary.name) || '' };
+    },
+    work: async ({ m, why, name }) => { await licenseSync.ownerReply(m.from, 'rejection', JSON.stringify({ name, reason: why })); return true; },
+    record: async (event, sent, { m, why, name }) => {
+      ownerCore.takeFromInbox(m.id);
+      await ownerAudit(event, 'request.reject', { from: m.from, name, reason: why, remote: true });
+      return true;
+    },
   });
-  handle('owner:remotePush', async (event) => {
-    const r = await licenseSync.ownerPushNotices();
-    await ownerAudit(event, 'notices.push', r);
-    return r;
+  handleNet('owner:remotePush', {
+    work: () => licenseSync.ownerPushNotices(),
+    record: async (event, r) => { await ownerAudit(event, 'notices.push', r); return r; },
   });
 
-  // ---------- הרשמה, תשלום וחתימה על התקנון ----------
-  handle('license:getOffer', async () => {
-    const r = await licenseSync.getOffer();
-    return { text: r.text, offer: r.offer };
+  // ---------- הרשמה, תשלום וחתימה על התקנון (פניות לשרת — מחוץ לתור) ----------
+  handleNet('license:getOffer', {
+    work: async () => {
+      const r = await licenseSync.getOffer();
+      return { text: r.text, offer: r.offer };
+    },
   });
-  handle('license:signup', async (event, input = {}) => {
-    const r = await licenseSync.signup(input || {});
-    await auditEvent(event, 'license.signup', { id: r.id, planId: (input || {}).planId, free: r.free });
-    return r;
+  handleNet('license:signup', {
+    work: (pre, input = {}) => licenseSync.signup(input || {}),
+    record: async (event, r, pre, input = {}) => {
+      await auditEvent(event, 'license.signup', { id: r.id, planId: (input || {}).planId, free: r.free });
+      return r;
+    },
   });
-  handle('license:signupStatus', async () => licenseSync.signupStatus());
+  handleNet('license:signupStatus', { work: () => licenseSync.signupStatus() });
   // פתיחת דף התשלום של הספק בדפדפן — רק הכתובת שהשרת החזיר להרשמה הזו, ורק https (או localhost בבדיקות)
-  handle('license:openPayment', async () => {
-    const cur = licenseStore.getRemoteSettings().signup;
-    if (!cur || !cur.url) throw new Error('אין תשלום פתוח');
-    const u = new URL(cur.url);
-    if (u.protocol !== 'https:' && !(u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname))) throw new Error('כתובת התשלום אינה מאובטחת');
-    await require('electron').shell.openExternal(u.toString());
-    return true;
+  // במערכת עם מפתח שורש — רק אחרי הוכחה חתומה מהשרת שהקישור הגיע ממנו (paymentUrl ב-sync.js; כתובת שעברה
+  // לבעלים אחרים לא תפנה לדף תשלום מזויף). פנייה לרשת — מחוץ לתור (handleNet)
+  handleNet('license:openPayment', {
+    work: async () => {
+      // באנדרואיד אין shell (node-shims.js) — הודעה בעברית לפני הפנייה לשרת, ולא TypeError ("שגיאה פנימית")
+      const sh = require('electron').shell;
+      if (!sh || typeof sh.openExternal !== 'function') throw new Error('מעבר לדף התשלום אינו זמין באנדרואיד — התשלום נפתח רק בגרסת המחשב');
+      const u = new URL(await licenseSync.paymentUrl());
+      if (u.protocol !== 'https:' && !(u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname))) throw new Error('כתובת התשלום אינה מאובטחת');
+      await sh.openExternal(u.toString());
+      return true;
+    },
   });
 
   // ---------- שמירה על מפתח מנהל-העל ----------
   handle('owner:changePassphrase', async (event, oldPass, newPass) => {
     const r = ownerCore.changePassphrase(String(oldPass || ''), String(newPass || ''));
+    bindOwner(event); // הסיסמה הישנה פותחת את המצב — עכשיו בפגישה הזו
     await ownerAudit(event, 'passphrase.change', r);
     return true;
   });
-  handle('owner:recoveryCodes', async (event, n, k) => {
-    const r = ownerCore.recoveryCodes(Number(n) || 5, Number(k) || 3);
-    await ownerAudit(event, 'recovery.create', { setId: r.setId, n: r.n, k: r.k });
-    return r;
+  // קודי השחזור = המפתח עצמו — רק עם הסיסמה, גם כשהמצב כבר פתוח (ממצא 4)
+  handle('owner:recoveryCodes', async (event, passphrase, n, k) => {
+    try {
+      const r = ownerCore.recoveryCodes(String(passphrase || ''), Number(n) || 5, Number(k) || 3);
+      await ownerAudit(event, 'recovery.create', { setId: r.setId, n: r.n, k: r.k });
+      return r;
+    } catch (e) { await ownerAudit(event, 'recovery.create.failed', {}); throw e; }
   });
   handle('owner:recoveryInfo', async () => ownerCore.recoveryInfo());
   handle('owner:recover', async (event, codes, newPass) => {
     const r = ownerCore.recoverFromCodes(Array.isArray(codes) ? codes.map(String).slice(0, 255) : [], String(newPass || ''));
+    bindOwner(event);
     await ownerAudit(event, 'recovery.use', { keyId: r.keyId });
     return r;
   });
-  handle('owner:exportBackup', async (event, passphrase) => {
-    const text = ownerCore.exportBackup(String(passphrase || ''));
-    const r = await dialog.showSaveDialog({ defaultPath: 'גיבוי-מנהל-העל.ssowner', filters: [{ name: 'גיבוי מנהל-העל', extensions: ['ssowner'] }] });
-    if (r.canceled || !r.filePath) return { ok: false };
-    fs.writeFileSync(r.filePath, text, 'utf8');
-    await ownerAudit(event, 'backup.export', {});
-    return { ok: true, path: r.filePath };
-  });
+  // הגיבוי (מוצפן בסיסמה) נוצר בתור; חלון השמירה — מחוץ לתור (handleSave)
+  handleSave('owner:exportBackup', async (event, passphrase) => ({
+    name: 'גיבוי-מנהל-העל.ssowner', filters: [{ name: 'גיבוי מנהל-העל', extensions: ['ssowner'] }],
+    data: ownerCore.exportBackup(String(passphrase || '')), encoding: 'utf8',
+  }), (event) => ownerAudit(event, 'backup.export', {}));
   handle('owner:importBackup', async (event, text, passphrase) => {
     if (typeof text !== 'string' || text.length > 50 * 1024 * 1024) throw new Error('קובץ הגיבוי אינו תקין');
     const r = ownerCore.importBackup(text, String(passphrase || ''));
+    lockOwner(); // אחרי שחזור — כניסה מחדש בסיסמה
     await ownerAudit(event, 'backup.import', r);
     return r;
   });
@@ -2322,67 +2486,86 @@ function registerIpcHandlers() {
     await ownerAudit(event, 'offer.set', { plans: r.offer.plans.map(p => ({ id: p.id, priceAgorot: p.priceAgorot })), terms: r.offer.terms.version });
     return r.offer;
   });
-  handle('owner:publishOffer', async (event) => {
-    const r = await licenseSync.ownerPublishOffer();
-    await ownerAudit(event, 'offer.publish', {});
-    return r;
+  handleNet('owner:publishOffer', {
+    work: () => licenseSync.ownerPublishOffer(),
+    record: async (event, r) => { await ownerAudit(event, 'offer.publish', {}); return r; },
   });
   handle('owner:signups', async () => ownerCore.signups().map(({ signup, ...x }) => x));
-  handle('owner:signupIssue', async (event, id) => {
-    const sid = String(id || '');
-    const x = ownerCore.signups().find(y => y.id === sid);
-    if (!x) throw new Error('ההרשמה לא נמצאה');
-    // חשבונית קודם (אם שולם ועוד אין) — כך שלא יונפק רישיון בתשלום בלי מסמך חשבונאי
-    let invoice = x.invoice || null;
-    if (!invoice && x.payment && x.payment.amountAgorot > 0) {
-      const inv = await accountingService.createPaidInvoice({ customer: x.customer.org, customerTaxId: x.customer.taxId,
-        description: `מנוי SuperSuite — ${x.planName} (${x.months} חודשים)`, grossAgorot: x.payment.amountAgorot,
-        ref: x.payment.providerRef, date: localDay(x.payment.paidAt || Date.now()) });
-      invoice = { id: inv.id, number: inv.number };
-      ownerCore.setSignupInvoice(sid, invoice);
-      await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'signup', signup: sid });
-    }
-    const r = ownerCore.issueSignup(sid);
-    await licenseSync.ownerReply(r.keyId, 'license', r.package);
-    await ownerAudit(event, 'signup.issue', { id: sid, tenant: r.id, name: r.name, invoice: invoice && invoice.number });
-    return { name: r.name, invoice };
+  // opts.force — אחרי בדיקה ידנית של הרשמה שסומנה "לבדיקה" (לפי הצעה שכבר הוחלפה — ממצא 31). הבדיקה לפני החשבונית
+  // החשבונית וההנפקה — בתור; השליחה לשרת — מחוץ לתור (handleNet), והרישום ביומן — שוב בתור
+  handleNet('owner:signupIssue', {
+    lock: ownerReplyLock, busy: OWNER_REPLY_BUSY,
+    before: async (event, id, opts = {}) => {
+      const sid = String(id || '');
+      const force = !!(opts && opts.force === true);
+      const x = ownerCore.signups().find(y => y.id === sid);
+      if (!x) throw new Error('ההרשמה לא נמצאה');
+      if (x.status === 'review' && !force) throw new Error(x.problem || 'ההרשמה ממתינה לבדיקה');
+      // חשבונית קודם (אם שולם ועוד אין) — כך שלא יונפק רישיון בתשלום בלי מסמך חשבונאי
+      let invoice = x.invoice || null;
+      if (!invoice && x.payment && x.payment.amountAgorot > 0) {
+        const inv = await accountingService.createPaidInvoice({ customer: x.customer.org, customerTaxId: x.customer.taxId,
+          description: `מנוי SuperSuite — ${x.planName} (${x.months} חודשים)`, grossAgorot: x.payment.amountAgorot,
+          ref: x.payment.providerRef, date: localDay(x.payment.paidAt || Date.now()) });
+        invoice = { id: inv.id, number: inv.number };
+        ownerCore.setSignupInvoice(sid, invoice);
+        await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'signup', signup: sid });
+      }
+      return { sid, force, invoice, r: ownerCore.issueSignup(sid, { force }) };
+    },
+    work: async ({ r }) => { await licenseSync.ownerReply(r.keyId, 'license', r.package); return true; },
+    record: async (event, sent, { sid, force, invoice, r }) => {
+      await ownerAudit(event, 'signup.issue', { id: sid, tenant: r.id, name: r.name, invoice: invoice && invoice.number, ...(force ? { force: true } : {}) });
+      return { name: r.name, invoice };
+    },
   });
-  handle('owner:signupDocument', async (event, id) => {
+  handleSave('owner:signupDocument', async (event, id) => {
     const d = ownerCore.signedDocument(String(id || ''));
-    return saveHtmlAsPdf(d.html, d.name.replace(/[\\/:*?"<>|]/g, '') + '.pdf');
+    return { html: d.html, name: d.name.replace(/[\\/:*?"<>|]/g, '') + '.pdf' };
   });
 
   // ---------- עדכוני גרסה חתומים ----------
   handle('update:getStatus', async () => updateManager.status());
-  handle('update:download', async (event) => {
-    const r = await updateManager.download();
-    await auditEvent(event, 'update.download', { version: r.version });
-    return r;
+  // הורדה (כ-95MB) והתקנה מקובץ — מחוץ לתור, אחת בכל פעם; הרישום ביומן — בתור, אחרי שהקובץ נשמר
+  const updateLock = { busy: false };
+  const UPDATE_BUSY = 'פעולת עדכון כבר מתבצעת — המתינו לסיומה';
+  handleNet('update:download', {
+    lock: updateLock, busy: UPDATE_BUSY, relay: false,
+    work: () => updateManager.download(),
+    record: async (event, r) => { await auditEvent(event, 'update.download', { version: r.version }); return r; },
   });
-  // התקנה מקובץ (USB): בוחרים את תעודת הגרסה (.ssupdate) ואת קובץ ההתקנה שלידה
-  handle('update:fromFile', async (event) => {
-    const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ עדכון (.ssupdate)', properties: ['openFile'],
-      filters: [{ name: 'עדכון SuperSuite', extensions: ['ssupdate'] }] });
-    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { ok: false };
-    const relFile = pick.filePaths[0];
-    if (fs.statSync(relFile).size > 64 * 1024) throw new Error('קובץ העדכון אינו תקין');
-    const text = fs.readFileSync(relFile, 'utf8');
-    const p = UP.verifyRelease(text, ROOT_KEYS_IN_USE());
-    // קובץ ההתקנה — ליד התעודה בשם שבתעודה, ואם אינו שם — המשתמש בוחר
-    let bin = path.join(path.dirname(relFile), path.basename(p.fileName));
-    if (!fs.existsSync(bin)) {
-      const pb = await dialog.showOpenDialog({ title: 'בחירת קובץ ההתקנה ' + p.fileName, properties: ['openFile'],
-        filters: [{ name: 'קובץ התקנה', extensions: UP.PLATFORMS[p.platform] }] });
-      if (pb.canceled || !pb.filePaths || !pb.filePaths[0]) return { ok: false };
-      bin = pb.filePaths[0];
-    }
-    if (fs.statSync(bin).size !== p.size) throw new Error('גודל הקובץ אינו תואם לעדכון החתום — הקובץ נדחה');
-    const r = await updateManager.fromFile(text, fs.readFileSync(bin));
-    await auditEvent(event, 'update.fromFile', { version: r.version });
-    return { ok: true, ...r };
+  // התקנה מקובץ (USB): בוחרים את תעודת הגרסה (.ssupdate) ואת קובץ ההתקנה שלידה. החלונות, הבדיקה והשמירה — מחוץ לתור
+  handleNet('update:fromFile', {
+    lock: updateLock, busy: UPDATE_BUSY, relay: false,
+    work: async () => {
+      const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ עדכון (.ssupdate)', properties: ['openFile'],
+        filters: [{ name: 'עדכון SuperSuite', extensions: ['ssupdate'] }] });
+      if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return longDone({ ok: false });
+      const relFile = pick.filePaths[0];
+      if (fs.statSync(relFile).size > 64 * 1024) throw new Error('קובץ העדכון אינו תקין');
+      const text = fs.readFileSync(relFile, 'utf8');
+      const p = UP.verifyRelease(text, ROOT_KEYS_IN_USE());
+      // קובץ ההתקנה — ליד התעודה בשם שבתעודה, ואם אינו שם — המשתמש בוחר
+      let bin = path.join(path.dirname(relFile), path.basename(p.fileName));
+      if (!fs.existsSync(bin)) {
+        const pb = await dialog.showOpenDialog({ title: 'בחירת קובץ ההתקנה ' + p.fileName, properties: ['openFile'],
+          filters: [{ name: 'קובץ התקנה', extensions: UP.PLATFORMS[p.platform] }] });
+        if (pb.canceled || !pb.filePaths || !pb.filePaths[0]) return longDone({ ok: false });
+        bin = pb.filePaths[0];
+      }
+      if (fs.statSync(bin).size !== p.size) throw new Error('גודל הקובץ אינו תואם לעדכון החתום — הקובץ נדחה');
+      return updateManager.fromFile(text, fs.readFileSync(bin));
+    },
+    record: async (event, r) => {
+      await auditEvent(event, 'update.fromFile', { version: r.version });
+      return { ok: true, ...r };
+    },
   });
   // הפעלת ההתקנה: בדיקה חוזרת של הקובץ בדיסק (אולי הוחלף), ואז פתיחת המתקין וסגירת התוכנה
   handle('update:install', async (event) => {
+    // באנדרואיד אין shell.openPath (node-shims.js) — מתקינים את ה-APK ידנית; הודעה בעברית לפני כל בדיקה
+    const sh = require('electron').shell;
+    if (!sh || typeof sh.openPath !== 'function') throw new Error('באנדרואיד מתקינים את קובץ ה-APK ידנית — ההתקנה מכאן זמינה רק בגרסת המחשב');
     const r = updateManager.readyToInstall();
     const file = path.resolve(r.path);
     if (path.dirname(file) !== path.resolve(updatesDir)) throw new Error('קובץ ההתקנה אינו במקום הצפוי');
@@ -2395,24 +2578,32 @@ function registerIpcHandlers() {
     return { ok: true, version: r.version };
   });
 
-  // מנהל-העל: שחרור גרסה — בוחרים קובץ התקנה, מחושבת תמצית, נחתמת תעודה ונשמרת ליד הקובץ
-  handle('owner:releaseCreate', async (event, input = {}) => {
-    const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ ההתקנה (EXE / APK)', properties: ['openFile'],
-      filters: [{ name: 'קובץ התקנה', extensions: ['exe', 'apk'] }] });
-    if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return { ok: false };
-    const bin = pick.filePaths[0];
-    const st = fs.statSync(bin);
-    if (st.size > UP.MAX_SIZE) throw new Error('הקובץ גדול מדי');
-    const bytes = fs.readFileSync(bin);
-    const text = UP.createRelease(ownerCore.rootSigner(), { version: (input || {}).version, url: (input || {}).url, notes: (input || {}).notes,
-      fileName: path.basename(bin), size: bytes.length, sha256: UP.hashBytes(bytes) });
-    const payload = UP.verifyRelease(text, [ownerCore.pubkey()]);
-    ownerCore.addRelease(text, payload);
-    // התעודה נשמרת ליד קובץ ההתקנה — כך מעבירים את שניהם יחד ב-USB
-    const relPath = bin.replace(/\.(exe|apk)$/i, '') + '.ssupdate';
-    fs.writeFileSync(relPath, text, 'utf8');
-    await ownerAudit(event, 'release.create', { version: payload.version, platform: payload.platform, sha256: payload.sha256 });
-    return { ok: true, version: payload.version, platform: payload.platform, path: relPath, sha256: payload.sha256 };
+  // מנהל-העל: שחרור גרסה — בוחרים קובץ התקנה, מחושבת תמצית, נחתמת תעודה ונשמרת ליד הקובץ.
+  // כמו owner:modelSign: חלון הבחירה וחישוב התמצית — מחוץ לתור; החתימה והרישום — בתור, אחרי בדיקה חוזרת
+  handleLong('owner:releaseCreate', {
+    lock: { busy: false }, busy: 'שחרור גרסה כבר מתבצע — המתינו לסיומו',
+    before: () => { ownerCore.rootSigner(); },
+    work: async () => {
+      const pick = await dialog.showOpenDialog({ title: 'בחירת קובץ ההתקנה (EXE / APK)', properties: ['openFile'],
+        filters: [{ name: 'קובץ התקנה', extensions: ['exe', 'apk'] }] });
+      if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) return longDone({ ok: false });
+      const bin = pick.filePaths[0];
+      const st = fs.statSync(bin);
+      if (st.size > UP.MAX_SIZE) throw new Error('הקובץ גדול מדי');
+      const bytes = fs.readFileSync(bin);
+      return { bin, size: bytes.length, sha256: UP.hashBytes(bytes) };
+    },
+    after: async (event, f, input = {}) => {
+      const text = UP.createRelease(ownerCore.rootSigner(), { version: (input || {}).version, url: (input || {}).url, notes: (input || {}).notes,
+        fileName: path.basename(f.bin), size: f.size, sha256: f.sha256 });
+      const payload = UP.verifyRelease(text, [ownerCore.pubkey()]);
+      ownerCore.addRelease(text, payload);
+      // התעודה נשמרת ליד קובץ ההתקנה — כך מעבירים את שניהם יחד ב-USB
+      const relPath = f.bin.replace(/\.(exe|apk)$/i, '') + '.ssupdate';
+      fs.writeFileSync(relPath, text, 'utf8');
+      await ownerAudit(event, 'release.create', { version: payload.version, platform: payload.platform, sha256: payload.sha256 });
+      return { ok: true, version: payload.version, platform: payload.platform, path: relPath, sha256: payload.sha256 };
+    },
   });
   // מנהל-העל: חתימת מודל AI מקומי — בוחרים קובץ GGUF, מחושבת תמצית (בזרימה, בלי לטעון 1GB לזיכרון),
   // ונשמרת לידו תעודה ‎.ssmodel. אותו מסלול אמון כמו שחרור גרסה: המפתח הפרטי נשאר בתוך ownerCore.
@@ -2452,12 +2643,17 @@ function registerIpcHandlers() {
     },
   });
   handle('owner:releases', async () => ownerCore.releases().map(({ text, ...r }) => r));
-  handle('owner:releasePublish', async (event, version, platform) => {
-    const rel = ownerCore.releases().find(r => r.version === String(version) && r.platform === String(platform));
-    if (!rel) throw new Error('הגרסה לא נמצאה');
-    const r = await licenseSync.ownerPublishUpdate(rel.text);
-    await ownerAudit(event, 'release.publish', { version: rel.version, platform: rel.platform, sent: r.sent });
-    return r;
+  handleNet('owner:releasePublish', {
+    before: (event, version, platform) => {
+      const rel = ownerCore.releases().find(r => r.version === String(version) && r.platform === String(platform));
+      if (!rel) throw new Error('הגרסה לא נמצאה');
+      return rel;
+    },
+    work: (rel) => licenseSync.ownerPublishUpdate(rel.text),
+    record: async (event, r, rel) => {
+      await ownerAudit(event, 'release.publish', { version: rel.version, platform: rel.platform, sent: r.sent });
+      return r;
+    },
   });
 
   // ---------- הודעות מאובטחות בין המערכות (מוצפנות מקצה לקצה) ----------
@@ -2479,43 +2675,53 @@ function registerIpcHandlers() {
     return { conversations: box.conversations(contacts, str(filter, 40) || 'all'), contacts, remote: !!licenseStore.getRemoteSettings().url,
       unread: box.unreadTotal(), labels: s.labels, quickReplies: s.quickReplies, lists: s.lists.map(({ id, name, members }) => ({ id, name, count: members.length })) };
   });
-  // השיחה + פרטי איש הקשר (תוויות, הערה פנימית, הפרופיל העסקי שלו)
-  handle('chat:thread', async (event, peerId, as) => {
-    const owner = asOwner(event, as);
-    const box = chatBox(owner);
-    const id = str(peerId);
-    const thread = box.thread(id);
-    try { await licenseSync.chatOps(owner).markRead(id); } catch { /* לא קריטי */ }
-    return { messages: thread, meta: box.meta(id), now: Date.now() };
+  // השיחה + פרטי איש הקשר (תוויות, הערה פנימית, הפרופיל העסקי שלו). השיחה נקראת בתור; אישור הקריאה לשולח — מחוץ לתור.
+  // כל שליחה / קבלה מול השרת — מחוץ לתור (handleNet, ממצא 39), והרישום ביומן — בתור
+  handleNet('chat:thread', {
+    relay: false,
+    before: (event, peerId, as) => {
+      const owner = asOwner(event, as);
+      const box = chatBox(owner);
+      const id = str(peerId);
+      return { owner, id, messages: box.thread(id), meta: box.meta(id) };
+    },
+    // אישור הקריאה אינו קריטי — נשלח בתור של השרת בלי שהמסך יחכה לו (קבלה אוטומטית / קובץ מצורף גדול שכבר בתור)
+    work: ({ owner, id, messages, meta }) => {
+      relayRun(() => licenseSync.chatOps(owner).markRead(id)).catch(() => {});
+      return longDone({ messages, meta, now: Date.now() });
+    },
   });
-  handle('chat:send', async (event, input = {}, as) => {
-    const owner = asOwner(event, as);
-    const { peerId, subject, text, replyTo, att } = input || {};
-    const r = await licenseSync.chatOps(owner).send(str(peerId), { subject, text, replyTo, att });
-    await auditEvent(event, 'chat.send', { to: peerId, mid: r.mid, owner, attachment: att ? str(att.name, 100) : undefined });
-    return r;
+  const chatOwner = (event, input, as) => asOwner(event, as);
+  handleNet('chat:send', {
+    before: chatOwner,
+    work: (owner, input = {}) => {
+      const { peerId, subject, text, replyTo, att } = input || {};
+      return licenseSync.chatOps(owner).send(str(peerId), { subject, text, replyTo, att });
+    },
+    record: async (event, r, owner, input = {}) => {
+      const { peerId, att } = input || {};
+      await auditEvent(event, 'chat.send', { to: peerId, mid: r.mid, owner, attachment: att ? str(att.name, 100) : undefined });
+      return r;
+    },
   });
-  handle('chat:edit', async (event, input = {}, as) => {
-    const owner = asOwner(event, as);
-    const r = await licenseSync.chatOps(owner).edit(str(input.mid), input.text);
-    await auditEvent(event, 'chat.edit', { mid: input.mid, owner });
-    return r;
+  handleNet('chat:edit', {
+    before: chatOwner,
+    work: (owner, input = {}) => licenseSync.chatOps(owner).edit(str(input.mid), input.text),
+    record: async (event, r, owner, input = {}) => { await auditEvent(event, 'chat.edit', { mid: input.mid, owner }); return r; },
   });
-  handle('chat:deleteForAll', async (event, mid, as) => {
-    const owner = asOwner(event, as);
-    const r = await licenseSync.chatOps(owner).deleteForAll(str(mid));
-    await auditEvent(event, 'chat.deleteForAll', { mid, owner });
-    return r;
+  handleNet('chat:deleteForAll', {
+    before: chatOwner,
+    work: (owner, mid) => licenseSync.chatOps(owner).deleteForAll(str(mid)),
+    record: async (event, r, owner, mid) => { await auditEvent(event, 'chat.deleteForAll', { mid, owner }); return r; },
   });
   handle('chat:deleteForMe', async (event, mids, as) => {
     const owner = asOwner(event, as);
     return chatBox(owner).deleteForMe((Array.isArray(mids) ? mids : [mids]).slice(0, 500).map(m => str(m)));
   });
-  handle('chat:forward', async (event, input = {}, as) => {
-    const owner = asOwner(event, as);
-    const r = await licenseSync.chatOps(owner).forward(str(input.mid), str(input.peerId));
-    await auditEvent(event, 'chat.forward', { mid: input.mid, to: input.peerId, owner });
-    return r;
+  handleNet('chat:forward', {
+    before: chatOwner,
+    work: (owner, input = {}) => licenseSync.chatOps(owner).forward(str(input.mid), str(input.peerId)),
+    record: async (event, r, owner, input = {}) => { await auditEvent(event, 'chat.forward', { mid: input.mid, to: input.peerId, owner }); return r; },
   });
   handle('chat:star', async (event, input = {}, as) => chatBox(asOwner(event, as)).star(str(input.mid), !!input.on));
   handle('chat:starred', async (event, as) => chatBox(asOwner(event, as)).starred());
@@ -2525,12 +2731,16 @@ function registerIpcHandlers() {
     if (!chatContacts(owner).some(c => c.id === peerId)) throw new Error('איש הקשר אינו מוכר');
     return chatBox(owner).setMeta(str(peerId), patch);
   });
-  handle('chat:broadcast', async (event, input = {}, as) => {
-    const owner = asOwner(event, as);
-    const { listId, subject, text, att } = input || {};
-    const r = await licenseSync.chatOps(owner).broadcast(str(listId), { subject, text, att });
-    await auditEvent(event, 'chat.broadcast', { listId, sent: r.sent, failed: r.failed.length, owner });
-    return r;
+  handleNet('chat:broadcast', {
+    before: chatOwner,
+    work: (owner, input = {}) => {
+      const { listId, subject, text, att } = input || {};
+      return licenseSync.chatOps(owner).broadcast(str(listId), { subject, text, att });
+    },
+    record: async (event, r, owner, input = {}) => {
+      await auditEvent(event, 'chat.broadcast', { listId: (input || {}).listId, sent: r.sent, failed: r.failed.length, owner });
+      return r;
+    },
   });
   handle('chat:getSettings', async (event, as) => {
     const owner = asOwner(event, as);
@@ -2542,17 +2752,39 @@ function registerIpcHandlers() {
     await auditEvent(event, 'chat.settings', { owner, greeting: s.greeting.enabled, away: s.away.enabled, autoFetch: s.autoFetch });
     return s;
   });
-  handle('chat:publishProfile', async (event, as) => licenseSync.chatOps(asOwner(event, as)).publishProfile());
-  // שמירת קובץ מצורף לדיסק — בחלון שמירה של מערכת ההפעלה
-  handle('chat:saveAttachment', async (event, mid, as) => {
-    const owner = asOwner(event, as);
-    const a = chatBox(owner).attachment(str(mid));
-    const r = await dialog.showSaveDialog({ defaultPath: path.basename(a.name) });
-    if (r.canceled || !r.filePath) return { saved: false };
-    fs.writeFileSync(r.filePath, Buffer.from(a.data, 'base64'));
-    return { saved: true };
+  handleNet('chat:publishProfile', { before: (event, as) => asOwner(event, as), work: (owner) => licenseSync.chatOps(owner).publishProfile() });
+  // שמירת קובץ מצורף לדיסק — בחלון שמירה של מערכת ההפעלה, מחוץ לתור; הכתיבה — בתור, אחרי בדיקה חוזרת
+  handleLong('chat:saveAttachment', {
+    lock: { busy: false }, busy: SAVE_BUSY,
+    before: (event, mid, as) => chatBox(asOwner(event, as)).attachment(str(mid)),
+    work: async (a) => {
+      const file = await pickSavePath(path.basename(a.name), null);
+      return file ? { a, file } : longDone({ saved: false });
+    },
+    after: async (event, { a, file }) => {
+      fs.writeFileSync(file, Buffer.from(a.data, 'base64'));
+      return { saved: true };
+    },
   });
-  handle('chat:refresh', async (event, as) => licenseSync.chatOps(asOwner(event, as)).receive());
+  // קבלת הודעות: הסנכרון המלא מתקין רישיונות, קולט הודעות סטטוס ומנפיק רישיון למערכת בת — מנהל בלבד, עם רישום
+  // ביומן. שאר המשתמשים (צפייה, רואה חשבון) — הודעות הצ'אט בלבד (בדיקת קוד 23.10.2026)
+  handleNet('chat:refresh', {
+    before: (event, as) => {
+      const owner = asOwner(event, as);
+      return { owner, admin: !owner && authService.hasPermission(event.sender.id, 'users.manage') };
+    },
+    work: ({ owner, admin }) => {
+      if (owner) return licenseSync.chatOps(true).receive();
+      return admin ? licenseSync.receive() : licenseSync.receiveMessages();
+    },
+    record: async (event, r, { admin }) => {
+      if (!admin) return r;
+      if (r.handled) await auditEvent(event, 'license.remote.sync', { handled: r.handled, errors: r.errors.length, via: 'chat' });
+      licenseStore.invalidate();
+      licenseState();
+      return r;
+    },
+  });
   handle('chat:search', async (event, q, as) => chatBox(asOwner(event, as)).search(str(q, 200)));
 
   // מצב הרישיון — לכל משתמש מחובר (פתוח גם במערכת מושבתת, כדי להציג את הסיבה)
@@ -2591,14 +2823,29 @@ function registerIpcHandlers() {
   });
   handle('license:listChildren', async () => licenseStore.listChildren());
   // מערכת בת: קודם בקשת אישור ממנהל-העל, ורק עם האישור החתום — הנפקה
-  handle('license:requestChildApproval', async (event, input = {}) => {
+  handleLong('license:requestChildApproval', {
+    lock: childPayLock, busy: CHILD_PAY_BUSY,
     // קודם בדיקת הבקשה והתנאים (בלי תופעות לוואי), ואז התשלום — ומשך הרישיון לפי מה ששולם
-    const { childId } = licenseStore.requestChildApproval(input || {});
-    const pay = await requireChildPayment(childId);
-    const r = licenseStore.requestChildApproval({ ...(input || {}), months: pay.months });
-    await collectService.useLicensePayment(pay.id, { childId });
-    await auditEvent(event, 'license.child.approvalRequest', { childId: r.childId, features: (input || {}).features, limits: (input || {}).limits, paid: pay.ref });
-    return r;
+    before: async (event, input = {}) => {
+      const { childId } = licenseStore.requestChildApproval(input || {});
+      const pay = await requireChildPayment(childId);
+      return { childId, pay, r: licenseStore.requestChildApproval({ ...(input || {}), months: pay.months }) };
+    },
+    // קובץ הבקשה נשמר כאן, והתשלום מסומן "נוצל" רק אחרי שנשמר: ביטול חלון השמירה השאיר תשלום שנוצל בלי
+    // בקשה (בדיקת קוד 23.10.2026). ביטול — התשלום נשאר זמין לניסיון הבא. חלון השמירה — מחוץ לתור (ממצא 39)
+    work: async (pre, input = {}) => {
+      const file = await pickSavePath(licenseFileName('בקשת-אישור-' + String((input || {}).name || pre.r.childId)), LICENSE_FILTERS);
+      return file ? { ...pre, file } : longDone({ childId: pre.r.childId, saved: false });
+    },
+    after: async (event, { childId, pay, r, file }, input = {}) => {
+      // בזמן שחלון השמירה היה פתוח הדרישה בוטלה או נוצלה — בלי קובץ ובלי סימון
+      const again = await requireChildPayment(childId);
+      if (again.id !== pay.id) throw new Error('דרישת התשלום על הרישיון השתנתה בזמן השמירה — נסו שוב');
+      fs.writeFileSync(file, String(r.package), 'utf8');
+      await collectService.useLicensePayment(pay.id, { childId });
+      await auditEvent(event, 'license.child.approvalRequest', { childId: r.childId, features: (input || {}).features, limits: (input || {}).limits, paid: pay.ref });
+      return { ...r, saved: true };
+    },
   });
   handle('license:issueChild', async (event, input = {}) => {
     const r = licenseStore.issueChild(input || {});
@@ -2615,25 +2862,37 @@ function registerIpcHandlers() {
   handle('license:releaseChild', childNotice('release'));
   handle('license:terminateChild', childNotice('terminate'));
   handle('audit:list', async (event, filter = {}) => db.listAudit(filter || {}));
-  handle('audit:export', async (event, filter = {}) => {
+  handleSave('audit:export', async (event, filter = {}) => {
     const rows = await db.listAudit({ ...(filter || {}), limit: 5000 });
-    return saveCsv({ name: 'יומן-ביקורת-' + new Date().toISOString().slice(0, 10), headers: ['מועד', 'משתמש', 'פעולה', 'פרטים'], rows: rows.map(r => [r.at, r.user, r.action, r.details]) });
+    // המועד נשמר ב-UTC — בקובץ ובשמו לפי השעון המקומי (אחרת השעות מוקדמות ב-2–3 שעות)
+    const at = (v) => {
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) return String(v ?? '');
+      return localDay(d.getTime()) + ' ' + [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
+    };
+    return csvSpec({ name: 'יומן-ביקורת-' + localDay(Date.now()), headers: ['מועד', 'משתמש', 'פעולה', 'פרטים'], rows: rows.map(r => [at(r.at), r.user, r.action, r.details]) });
   });
 
   // ---------- ייבוא וייצוא לכל סוגי הנתונים ----------
   // סוג של תחום שנפתח ברישיון בנפרד (מחירון ← הנה"ח, תיקי משכנתא ← ייעוץ, תמיכות ← עמותה) נבדק כמו הערוצים של התחום עצמו
   const portDenied = (kind, perm) => { const d = DP.kindDomain(kind); return d ? LG.checkChannel(licenseState(), d + ':x', perm) : null; };
-  const assertPortKind = (kind, perm) => { const denied = portDenied(kind, perm); if (denied) throw new Error(denied); };
-  handle('ports:listKinds', async () => DP.listKinds((domain) => !LG.checkChannel(licenseState(), domain + ':x', 'data.view')));
-  handle('ports:export', async (event, kind) => {
-    assertPortKind(kind, 'data.export');
-    const r = await saveCsv(DP.exportTable(kind, await db.load()));
-    if (r.ok) await auditEvent(event, 'ports.export', { kind, rows: r.rows });
-    return r;
-  });
-  handle('ports:exportTemplate', async (event, kind) => { assertPortKind(kind, 'data.export'); return saveCsv(DP.templateTable(kind)); });
+  // סוג של מנהל בלבד (הוצאות אישיות, התוכנית הפיננסית) — כמו הערוצים personal:* / personalFinance:*
+  const assertPortKind = (kind, perm, event) => {
+    const denied = portDenied(kind, perm);
+    if (denied) throw new Error(denied);
+    if (DP.kindAdminOnly(kind)) assertAdmin(event);
+  };
+  handle('ports:listKinds', async (event) => DP.listKinds((domain) => !LG.checkChannel(licenseState(), domain + ':x', 'data.view'),
+    { admin: authService.hasPermission(event.sender.id, 'users.manage') }));
+  // הנתונים נקראים בתור; חלון השמירה — מחוץ לתור (handleSave, ממצא 39)
+  handleSave('ports:export', async (event, kind) => {
+    assertPortKind(kind, 'data.export', event);
+    // תיקי משכנתא: רק מה שהיועץ רואה במסך (ownOnly) — ממצא 22
+    return csvSpec(DP.exportTable(kind, await db.load(), { actor: madvActor(event) }));
+  }, (event, spec, kind) => auditEvent(event, 'ports.export', { kind, rows: spec.rows }));
+  handleSave('ports:exportTemplate', async (event, kind) => { assertPortKind(kind, 'data.export', event); return csvSpec(DP.templateTable(kind)); });
   handle('ports:import', async (event, kind, csvText) => {
-    assertPortKind(kind, 'data.edit');
+    assertPortKind(kind, 'data.edit', event);
     if (typeof csvText !== 'string' || csvText.length > 20 * 1024 * 1024) throw new Error('קובץ הייבוא אינו תקין או גדול מדי (עד 20MB)');
     const data = await db.load();
     const r = DP.parseImport(kind, csvText, data);
@@ -2649,14 +2908,9 @@ function registerIpcHandlers() {
     await auditEvent(event, 'ports.import', { kind: 'contacts-vcard', added: r.records.length, skipped: r.skipped });
     return { added: r.records.length, skipped: r.skipped, errors: r.errors.slice(0, 50) };
   });
-  handle('ports:exportVcard', async (event) => {
-    const text = DP.contactsToVcard(await db.load());
-    const res = await dialog.showSaveDialog({ defaultPath: 'אנשי-קשר.vcf', filters: [{ name: 'vCard', extensions: ['vcf'] }] });
-    if (res.canceled || !res.filePath) return { ok: false };
-    fs.writeFileSync(res.filePath, text, 'utf8');
-    await auditEvent(event, 'ports.export', { kind: 'contacts-vcard' });
-    return { ok: true, path: res.filePath };
-  });
+  handleSave('ports:exportVcard', async () => ({ name: 'אנשי-קשר.vcf', filters: [{ name: 'vCard', extensions: ['vcf'] }],
+    data: DP.contactsToVcard(await db.load()), encoding: 'utf8' }),
+  (event) => auditEvent(event, 'ports.export', { kind: 'contacts-vcard' }));
 
   // גיבוי ושחזור: ההצפנה נעשית כאן, והממשק מקבל ומחזיר רק טקסט מוצפן (SSBK1:)
   handle('data:backupEncrypted', async (event, passphrase) => {
@@ -2720,9 +2974,16 @@ function registerIpcHandlers() {
     return { from, to, label: clipText(r.label, 40) || null };
   }
 
+  // נתוני מודול (שמאות / אימונים) מהמחסן המוצפן שלו, דרך main.js — קריאה בלבד. בלי מקור או בכשל — null
+  const readModule = (source, event) => {
+    if (!source) return null;
+    try { return source(event.sender.id); } catch (e) { errorLogger('ai-module-context', e); return null; }
+  };
+
   // הקשר מהמנוע הקיים. כל קריאה כפופה להרשאה ולרישיון של התחום שלה
-  // range (אופציונלי) — הטווח המבוקש; הסיכום נטען לתקופה עצמה, לא לכל הזמן
-  async function aiRulesContext(event, today, range = null) {
+  // range (אופציונלי) — הטווח המבוקש; הסיכום נטען לתקופה עצמה, לא לכל הזמן.
+  // opts.npoYear — שנת התרומות שבשאלה (donorYear); opts.modules — לקרוא גם את נתוני השמאות והאימונים (שאלה, לא חיפוש)
+  async function aiRulesContext(event, today, range = null, opts = {}) {
     const ctx = { today, opened: {} };
     const lic = licenseState();
     const acctCanSee = !LG.checkChannel(lic, 'acct:getInvoices', 'data.view') && canRead(event, 'data.view');
@@ -2738,14 +2999,25 @@ function registerIpcHandlers() {
       try { ctx.analytics = await accountingService.getInvoiceAnalytics(); } catch { ctx.analytics = null; }
     }
     if (npoCanSee) {
-      try { ctx.npo = await npoService.getOverview(Number(String(today).slice(0, 4)) || undefined); } catch { ctx.npo = null; }
+      // רק מה שהעוזר צריך: תורמי השנה המבוקשת (שם, מספר, סכום) ושמות התורמים מכל השנים לחיפוש —
+      // לא כל התרומות עם ת״ז, כתובות וטלפונים. „תרומות השנה” היו פעם סכום כל השנים (ממצא 46)
+      const year = Number(opts.npoYear) || Number(String(today).slice(0, 4)) || undefined;
+      try {
+        const ov = await npoService.getOverview(year);
+        const row = (d) => ({ name: d.name, count: d.count, total: d.total });
+        ctx.npo = { year: ov.year, donors: (ov.yearDonors || []).map(row), names: (ov.donors || []).map(d => d.name) };
+      } catch { ctx.npo = null; }
     }
-    // הקשר הזמני שהועבר מהשמאות או מהאימונים — נשרף אחרי השימוש, ולא נשמר
-    const extra = aiContextBySender.get(event.sender.id);
+    // הקשר הזמני שהועבר בערוץ ai:context — נשרף אחרי השימוש, ונוצל רק באותה פגישה שבה נשלח
+    const held = aiContextBySender.get(event.sender.id);
     aiContextBySender.delete(event.sender.id);
+    const extra = held && held.session && held.session === authService.sessions.get(event.sender.id) ? held.data : null;
+    // נתוני המודולים עצמם (המחסן המוצפן) קודמים להקשר שנשלח מהמסך
+    if (opts.modules && ctx.opened.trainer) ctx.trainer = AI_MODS.trainerContext(readModule(trainerSource, event), today);
+    if (opts.modules && ctx.opened.shamai) ctx.shamai = AI_MODS.shamaiContext(readModule(shamaiSource, event));
     if (extra) {
-      if (ctx.opened.shamai && extra.shamai) ctx.shamai = extra.shamai;
-      if (ctx.opened.trainer && extra.trainer) ctx.trainer = extra.trainer;
+      if (ctx.opened.shamai && !ctx.shamai && extra.shamai) ctx.shamai = extra.shamai;
+      if (ctx.opened.trainer && !ctx.trainer && extra.trainer) ctx.trainer = extra.trainer;
     }
     return ctx;
   }
@@ -2809,43 +3081,57 @@ function registerIpcHandlers() {
     return saved;
   });
   handle('ai:modules', async (event) => aiModules(event));
+  // ההקשר קשור לפגישה שבה נשלח: בסוף הפגישה (יציאה, ניתוק, כניסה אחרת באותו חלון) הוא נמחק,
+  // ומשתמש אחר שנכנס באותו חלון לא מקבל אותו בשאלה שלו
+  if (!aiSessionHooked) {
+    aiSessionHooked = true;
+    authService.onSessionEnd((senderId) => { aiContextBySender.delete(senderId); });
+  }
   handle('ai:context', async (event, raw) => {
-    aiContextBySender.set(event.sender.id, cleanAiContext(raw));
+    aiContextBySender.set(event.sender.id, { session: authService.sessions.get(event.sender.id) || null, data: cleanAiContext(raw) });
     return { ok: true };
   });
-  // שאלה — נתוני קריאה בלבד. חוסר הרשאה לתחום אינו שגיאה: עונים בשפה פשוטה שהתחום סגור (runRules)
-  aiRunFn = async (event, question, extra = {}) => {
-    const q = String(question || '');
-    if (!q.trim()) throw new Error('כתבו שאלה');
-    if (q.length > 500) throw new Error('השאלה ארוכה מדי — עד 500 תווים');
-    const today = localDay(clockNow());
-    // התקופה של הסיכום חייבת להיות בדיוק זו שעליה runRules מדווח. runRules גוזר את הטווח בעצמו
-    // (resolveRange) ודורס ctx.range — ולכן הטווח כאן חייב להסכים איתו, אחרת הסיכום ייספר מתקופה אחרת
-    // מהתקופה שמוצגת בתשובה. טווח מפורש מהממשק („החודש שעבר” וכו') מתקבל רק לתחום החשבונות ולמי שרשאי לראותו,
-    // ורק כשהוא מסכים עם הטווח של השאלה (rangeAgrees); אחרת — הטווח של הכללים
-    const wantsRange = !!extra && typeof extra.range === 'object' && !Array.isArray(extra.range);
-    const domain = AI_RULES.detectDomain(q);
-    const acctOpen = canRead(event, 'data.view') && !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view');
-    const fallback = AI_RULES.resolveRange(q, today);
-    const hint = (wantsRange && acctOpen && (!domain || domain === 'acct')) ? cleanAiRange(extra.range) : null;
-    // הרמז מתקבל רק כשהוא מסכים עם הטווח שהכללים גזרו מהשאלה (ראו rangeAgrees) — אחרת השאלה קובעת
-    const range = hint && AI_RULES.rangeAgrees(hint, fallback) ? hint : fallback;
-    const ctx = await aiRulesContext(event, today, range);
-    if (ctx.opened.acct) ctx.range = range;
-    const result = aiAssistant.run(q, ctx);
-    // קשר השמאות/האימונים נשרף בכל שאלה — גם כשהוא לא נוצל (בלי כשירות לאימות/canRead) — והוא לא נשמר
-    aiContextBySender.delete(event.sender.id);
-    return result;
+  // שאלה — נתוני קריאה בלבד. חוסר הרשאה לתחום אינו שגיאה: עונים בשפה פשוטה שהתחום סגור (runRules).
+  // ההקשר נקרא מהמסד בתור (before); התשובה — מחוץ לתור (work): המודל המקומי נטען ועונה עד כמה דקות (ממצא 39).
+  // אותו מבנה גם מהמעטפת (shellCall ← runLong)
+  aiRunFn = {
+    before: async (event, question, extra = {}) => {
+      const q = String(question || '');
+      if (!q.trim()) throw new Error('כתבו שאלה');
+      if (q.length > 500) throw new Error('השאלה ארוכה מדי — עד 500 תווים');
+      const today = localDay(clockNow());
+      // התקופה של הסיכום חייבת להיות בדיוק זו שעליה runRules מדווח. runRules גוזר את הטווח בעצמו
+      // (resolveRange) ודורס ctx.range — ולכן הטווח כאן חייב להסכים איתו, אחרת הסיכום ייספר מתקופה אחרת
+      // מהתקופה שמוצגת בתשובה. טווח מפורש מהממשק („החודש שעבר” וכו') מתקבל רק לתחום החשבונות ולמי שרשאי לראותו,
+      // ורק כשהוא מסכים עם הטווח של השאלה (rangeAgrees); אחרת — הטווח של הכללים
+      const wantsRange = !!extra && typeof extra.range === 'object' && !Array.isArray(extra.range);
+      const domain = AI_RULES.detectDomain(q);
+      const acctOpen = canRead(event, 'data.view') && !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view');
+      const fallback = AI_RULES.resolveRange(q, today);
+      const hint = (wantsRange && acctOpen && (!domain || domain === 'acct')) ? cleanAiRange(extra.range) : null;
+      // הרמז מתקבל רק כשהוא מסכים עם הטווח שהכללים גזרו מהשאלה (ראו rangeAgrees) — אחרת השאלה קובעת
+      const range = hint && AI_RULES.rangeAgrees(hint, fallback) ? hint : fallback;
+      const ctx = await aiRulesContext(event, today, range, { npoYear: AI_RULES.donorYear(q, today), modules: true });
+      if (ctx.opened.acct) ctx.range = range;
+      // קשר השמאות/האימונים נשרף בכל שאלה — גם כשהוא לא נוצל (בלי כשירות לאימות/canRead) — והוא לא נשמר.
+      // כאן ולא אחרי התשובה: הקשר חדש שנשלח בזמן שהמודל עונה שייך לשאלה הבאה
+      aiContextBySender.delete(event.sender.id);
+      return { q, ctx };
+    },
+    work: async ({ q, ctx }) => longDone(await aiAssistant.run(q, ctx)),
   };
-  handle('ai:run', aiRunFn);
+  handleLong('ai:run', aiRunFn);
   handle('ai:explain', async (event, payload) => aiAssistant.explain(payload || {}));
   // חיפוש בשפה טבעית (Ctrl+K): מסכים מהרשימה הסגורה ורשומות קיימות בלבד — לעולם לא טקסט חופשי של המודל.
   // ההקשר זהה לשאלה (aiRulesContext) — רשומות רק מתחומים שפתוחים למשתמש ולרישיון
-  handle('ai:search', async (event, text) => {
-    const q = String(text || '');
-    if (q.length > 200) throw new Error('החיפוש ארוך מדי — עד 200 תווים');
-    const ctx = await aiRulesContext(event, localDay(clockNow()));
-    return aiAssistant.search(q, ctx);
+  // ההקשר — בתור; החיפוש (כשאין התאמה, המודל המקומי בוחר כלי) — מחוץ לתור
+  handleLong('ai:search', {
+    before: async (event, text) => {
+      const q = String(text || '');
+      if (q.length > 200) throw new Error('החיפוש ארוך מדי — עד 200 תווים');
+      return { q, ctx: await aiRulesContext(event, localDay(clockNow())) };
+    },
+    work: async ({ q, ctx }) => longDone(await aiAssistant.search(q, ctx)),
   });
   // המודל המקומי (תוסף): מצב — לכל משתמש; התקנה, אימות והסרה — מנהל בלבד (permissionFor).
   // הקבצים נבחרים בחלון של המערכת כאן בתהליך הראשי — נתיב לא מתקבל מהמסך.
@@ -2879,21 +3165,23 @@ function registerIpcHandlers() {
     after: async (ev, res) => { await auditEvent(ev, 'ai.model.remove', {}); return res; },
   });
   // העוזר מצביע על המסך שבו אפשר לראות את הנתונים. רשימת יעדים סגורה — בלי ניווט חופשי
-  const AI_VIEW_TARGETS = new Set(['acct-invoices', 'acct-reports', 'npo', 'realestate', 'trainer']);
+  // trainer / shamai — מודולים (הממשק פותח אותם ב-openModule); השאר — מסכים במודול הכלכלי
+  const AI_VIEW_TARGETS = new Set(['acct-invoices', 'acct-reports', 'npo', 'realestate', 'trainer', 'shamai']);
   handle('ai:open', async (event, target) => {
     const view = AI_VIEW_TARGETS.has(target) ? target : null;
     if (!view) throw new Error('המסך המבוקש אינו מוכר');
     await auditEvent(event, 'ai.open', { view });
     return { view };
   });
-  // דוגמת שאלות — לפי התחומים שפתוחים למשתמש הזה
+  // דוגמת שאלות — לפי התחומים שפתוחים למשתמש הזה. שמאות ואימונים — רק כשיש מקור לנתונים שלהם במכשיר הזה
+  // (main.js); בלעדיו השאלה הייתה נענית תמיד „אין נתונים”
   handle('ai:sample', async (event) => {
     const open = await aiModules(event);
     const qs = [];
     if (open.find(m => m.id === 'acct').opened) qs.push('כמה גבייתי החודש?', 'מי לא שילם?', 'מה דוח המע"מ של החודש?');
     if (open.find(m => m.id === 'npo').opened) qs.push('אילו תורמים תרמו השנה?');
-    if (open.find(m => m.id === 'shamai').opened) qs.push('מה הערכת השווי האחרונה?');
-    if (open.find(m => m.id === 'trainer').opened) qs.push('איזה מתאמנים דורשים תשומת לב?');
+    if (shamaiSource && open.find(m => m.id === 'shamai').opened) qs.push('מה הערכת השווי האחרונה?');
+    if (trainerSource && open.find(m => m.id === 'trainer').opened) qs.push('איזה מתאמנים דורשים תשומת לב?');
     qs.push('איך מוציאים חשבונית?');
     return qs;
   });
@@ -2910,18 +3198,43 @@ async function chatAutoFetch() {
     // מערכת ברישיון מסתנכרנת תמיד (תנאי ההפעלה: חיבור לשרת כל 7 ימים) — לא רק כשקבלת הודעות אוטומטית מופעלת.
     // בשבת וביום טוב אין סנכרון (למעלה) — 7 ימים מספיקים גם אחרי יום טוב של שלושה ימים
     const licensed = licenseStore.current().mode === 'licensed' && !!licenseStore.leafPayload();
-    if ((chatStore.settings().autoFetch || licensed) && licenseStore.syncKey(false)) {
-      try { out.system = await licenseSync.receive(); licenseStore.invalidate(); licenseState(); } catch (e) { out.systemError = e.message; }
+    // relayRun — לא במקביל לפעולה מול השרת שהתחילה מהמסך (handleNet)
+    if ((autoFetchOn(chatStore) || licensed) && licenseStore.syncKey(false)) {
+      try { out.system = await relayRun(() => licenseSync.receive()); licenseStore.invalidate(); licenseState(); } catch (e) { out.systemError = e.message; }
     }
-    if (ownerChatStore.settings().autoFetch && ownerCore && ownerCore.isUnlocked()) { try { out.owner = await licenseSync.ownerReceive(); } catch (e) { out.ownerError = e.message; } }
+    // ownerAlive — המצב עדיין שייך לפגישה פעילה (בדיקה שקטה; פגישה שפגה — נעילה, ממצא 4)
+    if (autoFetchOn(ownerChatStore) && ownerAlive()) { try { out.owner = await relayRun(() => licenseSync.ownerReceive()); } catch (e) { out.ownerError = e.message; } }
   } finally { autoFetchBusy = false; }
   return out;
 }
+// תיבת הודעות שלא נקראה (קובץ תפוס) לא עוצרת את סנכרון הרישוי — רק את הקבלה האוטומטית של ההודעות
+function autoFetchOn(box) {
+  try { return !!(box && box.settings().autoFetch); } catch { return false; }
+}
+// כתיבת השינויים שעוד בזיכרון של תיבות ההודעות — ביציאה מהתוכנה (main.js) ולפני אתחול חוזר
+function flushChat() {
+  for (const box of [chatStore, ownerChatStore]) {
+    try { if (box) box.flush(); } catch (e) { errorLogger('chat-write', e); }
+  }
+}
+// תיבת ההודעות של המערכת בגיבוי המלא ובשחזור (main.js / main-android.js; chat.js → exportMailbox / restoreMailbox).
+// תיבת מנהל-העל — לא: היא של בעל התוכנה, נפתחת רק בסיסמת מנהל-העל, ושאר קבצי owner/ אינם בגיבוי של הארגון
+function systemChat() {
+  if (!chatStore) throw new Error('תיבת ההודעות אינה זמינה');
+  return chatStore;
+}
+const chatBackup = (opts) => systemChat().exportMailbox(opts);
+const chatRestore = (data, opts) => systemChat().restoreMailbox(data, opts);
 
-module.exports = { toUserError, setErrorLogger, initEcon, chatAutoFetch, permissionFor, licenseState, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
+module.exports = { toUserError, setErrorLogger, initEcon, chatAutoFetch, flushChat, chatBackup, chatRestore, permissionFor, requiresAdmin, licenseState, licenseMarks, mergeLicenseMarks, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
   // מודולים שדורשים כניסה: בדיקה שקטה, רישום פעילות (עבודה במודול כזה מונעת ניתוק), ואירוע כניסה/יציאה
   hasSession: (senderId) => authService.peekSession(senderId),
   touchSession: (senderId) => { authService.getSession(senderId); },
+  // הרשאה בפגישה פעילה — בלי לרשום פעילות (כתיבה במחסן של שמאי / אימונים ב-main.js)
+  sessionCan: (senderId, permission) => {
+    const s = authService.peekSession(senderId) && authService.sessions.get(senderId);
+    return !!(s && Array.isArray(s.permissions) && s.permissions.includes(permission));
+  },
   // המעטפת (main.js) בשם המודול הכלכלי: אותו ערוץ, אותו תור ואותו שומר (כניסה, הרשאה, רישיון) — כמו קריאה מהמודול
   shellCall,
   onAuthChange: (fn) => { authListeners.push(fn); } };

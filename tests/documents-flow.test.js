@@ -127,7 +127,8 @@ test('זיכוי חלקי: באותו שיעור מע"מ; מעבר ליתרה נ
   const part = await svc.createCreditNote(inv.id, { date: '2026-07-02', reason: 'הנחה', items: [{ description: 'הנחה', quantity: 1, unitPrice: 100 }] });
   assert.deepEqual([part.net, part.vat, part.total], [100, 18, 118]);
   assert.equal(part.full, false);
-  await assert.rejects(svc.createCreditNote(inv.id, { date: '2026-07-02', reason: 'שוב' }), /לפרט את השורות/);
+  // ההודעה מציגה את יתרת הנטו המדויקת להקלדה בזיכוי חלקי (בדיקת קוד 23.10.2026, ממצא 10)
+  await assert.rejects(svc.createCreditNote(inv.id, { date: '2026-07-02', reason: 'שוב' }), /זיכוי חלקי[\s\S]*לפני מע"מ: 900\.00 ₪/);
   await assert.rejects(svc.createCreditNote(inv.id, { date: '2026-07-02', reason: 'יותר מדי', items: [{ description: 'x', quantity: 1, unitPrice: 901 }] }), /גבוה מהיתרה/);
   const paid = await svc.recordPayment(inv.id, { date: '2026-07-05', method: 'transfer', reference: 'TR-77' });
   assert.equal(paid.paymentMethod, 'transfer');
@@ -259,11 +260,13 @@ test('ערוצים: הרשאות, חשיפה ב-preload ובממשק', () => {
   assert.equal(permissionFor('acct:cancelSalesDoc'), 'data.delete');
   assert.equal(permissionFor('acct:createCreditNote'), 'data.edit');
   assert.equal(permissionFor('acct:exportSalesDocPdf'), 'data.export');
-  assert.equal(permissionFor('acct:setLogo'), 'data.edit');
+  // הלוגו מודפס על כל מסמך — מנהל בלבד (בדיקת קוד 23.10.2026, ממצא 23)
+  assert.equal(permissionFor('acct:setLogo'), 'users.manage');
   const ipc = fs.readFileSync(path.join(__dirname, '../modules/econ/ipc.js'), 'utf8');
   const preload = fs.readFileSync(path.join(__dirname, '../modules/econ/preload.js'), 'utf8');
   for (const ch of ['getSalesDocs', 'createSalesDoc', 'convertSalesDoc', 'cancelSalesDoc', 'createCreditNote', 'exportSalesDocPdf', 'setLogo']) {
-    assert.match(ipc, new RegExp(`handle\\('acct:${ch}'`), ch);
+    // handleSave / handleLong — חלונות השמירה והבחירה מחוץ לתור (ממצא 39), אותו שומר
+    assert.match(ipc, new RegExp(`handle(?:Save|Long)?\\('acct:${ch}'`), ch);
     assert.match(preload, new RegExp(`'acct:${ch}'`), ch);
   }
   const ui = fs.readFileSync(path.join(__dirname, '../modules/econ/ui/accounting.js'), 'utf8');

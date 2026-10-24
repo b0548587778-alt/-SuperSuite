@@ -17,7 +17,8 @@ const ADAR_RULES = { adar1: 'באדר א׳', adar2: 'באדר ב׳', both: 'בש
 
 const isLeap = (y) => ((7 * y + 1) % 19) < 7;
 const iso = (t) => new Date(t).toISOString().slice(0, 10);
-const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) && !isNaN(Date.parse(s + 'T00:00:00Z'));
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 const str = (v, max, label) => {
   const s = String(v ?? '').trim();
   if (s.length > max) throw new Error(`${label} ארוך מדי (עד ${max} תווים)`);

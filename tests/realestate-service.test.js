@@ -133,7 +133,7 @@ test('רישוי, קטלוג ומסד: תחום נפרד econ.realestate', () =>
   assert.match(dbSrc, /realEstate: \{ cases: \[\], seq: 0, settings: \{\} \}/);
   const ipc = fs.readFileSync(path.join(ROOT, 'modules/econ/ipc.js'), 'utf8');
   for (const ch of ['getOverview', 'getCase', 'createCase', 'updateCase', 'deleteCase', 'importComparables', 'finalizeCase', 'reopenCase', 'saveSettings', 'getReportHtml', 'exportReport']) {
-    assert.match(ipc, new RegExp(`handle\\('realestate:${ch}'`), ch);
+    assert.match(ipc, new RegExp(`handle(?:Save)?\\('realestate:${ch}'`), ch);
   }
 });
 

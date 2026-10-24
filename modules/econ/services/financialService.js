@@ -1,5 +1,5 @@
 // Financial Service - Handles financial calculations and analysis
-const { calculateFinancialMetrics, exportToCSV, escapeCSV, validateCSVData } = require('../core/financial');
+const { calculateFinancialMetrics } = require('../core/financial');
 
 class FinancialService {
   constructor(db) {
@@ -53,18 +53,7 @@ class FinancialService {
     };
   }
 
-  async exportToCSV(data, filename = 'export.csv') {
-    if (!Array.isArray(data) || data.length === 0) {
-      throw new Error('אין נתונים לייצוא');
-    }
-    
-    // Validate data structure
-    if (!validateCSVData(data)) {
-      throw new Error('מבנה הנתונים אינו מתאים לייצוא');
-    }
-    
-    return exportToCSV(data, filename);
-  }
+  // exportToCSV הוסר: כתב קובץ לכל נתיב שהמסך ביקש, בלי חלון שמירה (בדיקת קוד 23.10.2026, ממצא 6)
 
   // חישובי ROI וריבית דריבית חיים ב-utils/calculations.js בלבד.
   // היו כאן שתי עטיפות duplicate שאיש לא קרא להן (ל-service אין require ל-utils) — הוסרו.

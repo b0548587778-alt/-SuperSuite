@@ -87,26 +87,40 @@ def _xor_bytes(a: bytes, b: bytes) -> bytes:
     return bytes(x ^ y for x, y in zip(a, b))
 
 
+# כותרת לכל חלק (בתוך ההצפנה): גרסה, מזהה פיצול אקראי, מספר החלק ומספר החלקים.
+# בלעדיה, חלקים משני פיצולים שונים (או חלק כפול) באותו אורך הורכבו בשקט לנתון שגוי.
+SHARE_MAGIC = b"SSP2"
+SPLIT_ID_BYTES = 16
+MAX_PARTS = 255
+_HEADER_LEN = len(SHARE_MAGIC) + SPLIT_ID_BYTES + 2
+
+
 def split_encrypted(secret: str, n_parts: int, key: bytes) -> list[str]:
     """מפצלת נתון רגיש ל-n_parts חלקים מוצפנים, כך שכולם נדרשים לשחזור.
 
     פרמטרים:
         secret:  הנתון הרגיש (מחרוזת).
-        n_parts: מספר החלקים (מספר שלם, לפחות 2).
+        n_parts: מספר החלקים (מספר שלם, 2 עד 255).
         key:     מפתח ההצפנה של Fernet, המשמש להצפנת כל חלק.
 
     מחזירה: רשימה של n_parts טוקנים מוצפנים. כל חלק נראה כרעש, ושחזור דורש את כולם.
+    לכל חלק מצורף (בתוך ההצפנה) מזהה הפיצול ומספר החלק, כדי ש-join_decrypted
+    יזהה חלקים מפיצולים שונים או חלק שהוכנס פעמיים.
     """
-    if not isinstance(n_parts, int) or n_parts < 2:
-        raise ValueError("מספר החלקים חייב להיות מספר שלם, לפחות 2")
+    if not isinstance(n_parts, int) or isinstance(n_parts, bool) or not 2 <= n_parts <= MAX_PARTS:
+        raise ValueError(f"מספר החלקים חייב להיות מספר שלם, בין 2 ל-{MAX_PARTS}")
     data = secret.encode("utf-8")
     shares = [secrets.token_bytes(len(data)) for _ in range(n_parts - 1)]
     last = data
     for share in shares:
         last = _xor_bytes(last, share)
     shares.append(last)
+    split_id = secrets.token_bytes(SPLIT_ID_BYTES)
     fernet = Fernet(_normalize_key(key))
-    return [fernet.encrypt(share).decode("ascii") for share in shares]
+    return [
+        fernet.encrypt(SHARE_MAGIC + split_id + bytes([index, n_parts]) + share).decode("ascii")
+        for index, share in enumerate(shares)
+    ]
 
 
 def join_decrypted(encrypted_parts: list[str], key: bytes, n_parts: int) -> str:
@@ -117,21 +131,38 @@ def join_decrypted(encrypted_parts: list[str], key: bytes, n_parts: int) -> str:
         key:             אותו מפתח ששימש לפיצול.
         n_parts:         מספר החלקים שנוצרו בפיצול.
 
-    זורקת ValueError אם חסר חלק, אם יש יותר מדי חלקים, או אם חלק פגום.
+    זורקת ValueError אם חסר חלק, אם יש יותר מדי חלקים, אם חלק פגום,
+    אם החלקים שייכים לפיצולים שונים, או אם אותו חלק הופיע פעמיים.
     """
-    if not isinstance(n_parts, int) or n_parts < 2:
-        raise ValueError("מספר החלקים חייב להיות מספר שלם, לפחות 2")
+    if not isinstance(n_parts, int) or isinstance(n_parts, bool) or not 2 <= n_parts <= MAX_PARTS:
+        raise ValueError(f"מספר החלקים חייב להיות מספר שלם, בין 2 ל-{MAX_PARTS}")
     if len(encrypted_parts) != n_parts:
         raise ValueError(f"נדרשים {n_parts} חלקים, התקבלו {len(encrypted_parts)}")
     fernet = Fernet(_normalize_key(key))
-    shares: list[bytes] = []
+    plains: list[bytes] = []
     for token in encrypted_parts:
         try:
-            shares.append(fernet.decrypt(token.encode("ascii")))
-        except (InvalidToken, ValueError, UnicodeError) as exc:
+            plains.append(fernet.decrypt(token.encode("ascii")))
+        except (InvalidToken, ValueError, UnicodeError, AttributeError) as exc:
             raise ValueError("חלק אחד או יותר פגום, או שהמפתח שגוי") from exc
-    lengths = {len(s) for s in shares}
-    if len(lengths) != 1:
+    split_ids = set()
+    indexes = set()
+    shares: list[bytes] = []
+    for plain in plains:
+        if len(plain) < _HEADER_LEN or not plain.startswith(SHARE_MAGIC):
+            raise ValueError("חלק שאינו במבנה של split_encrypted (או מגרסה ישנה)")
+        pos = len(SHARE_MAGIC)
+        split_ids.add(plain[pos:pos + SPLIT_ID_BYTES])
+        index, total = plain[pos + SPLIT_ID_BYTES], plain[pos + SPLIT_ID_BYTES + 1]
+        if total != n_parts or index >= n_parts:
+            raise ValueError(f"החלק שייך לפיצול של {total} חלקים, ולא של {n_parts}")
+        indexes.add(index)
+        shares.append(plain[_HEADER_LEN:])
+    if len(split_ids) != 1:
+        raise ValueError("החלקים שייכים לפיצולים שונים")
+    if len(indexes) != n_parts:
+        raise ValueError("אותו חלק הופיע יותר מפעם אחת")
+    if len({len(s) for s in shares}) != 1:
         raise ValueError("החלקים אינם תואמים לאותו נתון")
     result = shares[0]
     for share in shares[1:]:

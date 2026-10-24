@@ -1,6 +1,7 @@
 // חשבוניות ישראל — מספר הקצאה בנתיב הידני (PLAN.md 9.2א), בלי רשת: בעל העסק מבקש את המספר בשירות של
 // רשות המסים ל"תוכנה שאינה מחוברת לשירות" ומקליד אותו כאן. מקור הספים: docs/LEGAL-REQUIREMENTS.md, סעיף 1.
 // פונקציות טהורות. סכומים באגורות.
+const { isDay } = require('./dates');
 
 // הסף לפי תאריך החשבונית: נדרש מספר כשהסכום לפני מע"מ *גבוה* מהסף (לא שווה לו)
 // לפני 2025 — לא בודקים (לא מסמנים חשבוניות ישנות). מקור: דף השירות ב-gov.il
@@ -26,7 +27,7 @@ const WAIVE_REASONS = {
 const MANUAL_SERVICE_URL = 'https://www.gov.il/he/service/request-assignment-number-for-tax-invoice';
 
 function thresholdFor(date) {
-  const d = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : '9999-12-31';
+  const d = isDay(date) ? date : '9999-12-31'; // תאריך שקיים בלוח בלבד (core/dates.js)
   let t = null;
   for (const x of THRESHOLDS) if (d >= x.from) t = x;
   return t ? t.agorot : Infinity;

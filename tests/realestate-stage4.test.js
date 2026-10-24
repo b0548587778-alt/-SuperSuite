@@ -111,9 +111,10 @@ test('יומן שומות: עמודות בעברית, שווי בשקלים, מ�
 
 test('יומן שומות: ערוץ ייצוא בהרשאת ייצוא, נרשם ביומן הפעולות, וכפתור במסך הרשימה', () => {
   const ipc = read('modules/econ/ipc.js');
-  const h = ipc.slice(ipc.indexOf("handle('realestate:exportRegister'"));
-  assert.ok(ipc.includes("handle('realestate:exportRegister'"));
-  assert.match(h.slice(0, 400), /saveCsv\(await realEstateService\.getRegisterExport\(\)\)/);
+  // handleSave — חלון השמירה מחוץ לתור (בדיקת קוד 23.10.2026, ממצא 39)
+  const h = ipc.slice(ipc.indexOf("handleSave('realestate:exportRegister'"));
+  assert.ok(ipc.includes("handleSave('realestate:exportRegister'"));
+  assert.match(h.slice(0, 400), /csvSpec\(await realEstateService\.getRegisterExport\(\)\)/);
   assert.match(h.slice(0, 400), /auditEvent\(event, 'realestate\.register\.export'/);
   assert.match(read('modules/econ/preload.js'), /exportRealEstateRegister: \(\) => ipcRenderer\.invoke\('realestate:exportRegister'\)/);
 

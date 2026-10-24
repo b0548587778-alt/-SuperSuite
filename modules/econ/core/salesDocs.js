@@ -27,7 +27,8 @@ const PAYMENT_METHODS = {
 const methodOf = (m) => (PAYMENT_METHODS[m] ? m : 'other');
 const methodCode = (m) => PAYMENT_METHODS[methodOf(m)].code;
 
-const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(v));
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10))).toISOString().slice(0, 10) === v;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 
 // מספור נפרד לכל סוג מסמך, במונה שלא יורד (כמו בחשבוניות — קובץ קבוע)
@@ -77,10 +78,10 @@ function assertConvertible(doc, to) {
 }
 
 // ---------- חשבונית זיכוי
-// סך הזיכויים הפעילים לחשבונית (אגורות)
-function creditedAg(docs, invoiceId) {
+// סך הזיכויים הפעילים לחשבונית (אגורות). field — 'total' (ברירת מחדל) או 'net'
+function creditedAg(docs, invoiceId, field = 'total') {
   return docs.filter(d => d.kind === 'credit' && d.invoiceId === invoiceId && d.status !== 'cancelled')
-    .reduce((t, d) => t + A.toAg(d.total), 0);
+    .reduce((t, d) => t + A.toAg(d[field] || 0), 0);
 }
 
 // זיכוי מלא (בלי פריטים) או חלקי (פריטים). המע"מ באותו שיעור של החשבונית המקורית
@@ -95,6 +96,7 @@ function validateCredit(invoice, input, docs) {
   const already = creditedAg(docs, invoice.id);
   const remaining = A.toAg(invoice.total) - already;
   if (remaining <= 0) throw new Error(`חשבונית ${invoice.number} כבר זוכתה במלואה`);
+  const remainingNet = A.toAg(invoice.net) - creditedAg(docs, invoice.id, 'net');
   // השיעור שנשמר בחשבונית בזמן ההפקה; בחשבונית ישנה — היחס מע"מ/נטו
   const stored = Number(invoice.vatRate);
   const rate = invoice.vatRate != null && Number.isFinite(stored) && stored >= 0 && stored < 1 ? stored
@@ -104,7 +106,8 @@ function validateCredit(invoice, input, docs) {
     const fallback = (invoice.items[0] && invoice.items[0].account) || A.SYS.SALES;
     items = input.items.map(it => ({ ...it, account: it.account || fallback }));
   } else if (already) {
-    throw new Error('החשבונית כבר זוכתה בחלקה — יש לפרט את השורות לזיכוי');
+    // הסכום המדויק בהודעה: הקלדת יתרת הנטו סוגרת את החשבונית עד האגורה (יתרת המע"מ נלקחת למטה)
+    throw new Error(`החשבונית כבר זוכתה בחלקה — לזיכוי היתרה יש לבחור "זיכוי חלקי" ולרשום את יתרת הסכום לפני מע"מ: ${A.fromAg(Math.max(remainingNet, 0)).toFixed(2)} ₪`);
   } else {
     items = invoice.items.map(it => ({ description: it.description, quantity: it.quantity, unitPrice: it.unitPrice, account: it.account }));
   }
@@ -114,6 +117,12 @@ function validateCredit(invoice, input, docs) {
   const computed = full
     ? { items: invoice.items.map(it => ({ ...it })), net: invoice.net, vat: invoice.vat, total: invoice.total, vatExempt: !!invoice.vatExempt }
     : A.computeInvoice({ items, vatExempt: !!invoice.vatExempt }, rate);
+  // זיכוי שמכסה את כל יתרת הנטו — המע"מ הוא יתרת המע"מ, בלי חישוב מחדש.
+  // אחרת עיגול לכל זיכוי בנפרד משאיר אגורה שאי אפשר לזכות (10.25 + 10.25 ב-18%: 12.10, ואז 12.10 מול יתרה 12.09)
+  if (!full && A.toAg(computed.net) === remainingNet && remaining >= remainingNet) {
+    computed.vat = A.fromAg(remaining - remainingNet);
+    computed.total = A.fromAg(remaining);
+  }
   if (A.toAg(computed.total) > remaining) throw new Error(`סכום הזיכוי גבוה מהיתרה לזיכוי (${A.fromAg(remaining)} ₪)`);
   return {
     kind: 'credit', date, invoiceId: invoice.id, invoiceNumber: invoice.number, customer: invoice.customer,

@@ -1,7 +1,7 @@
 // מודול האימונים — nutrition.jsx: הועבר מ-App.jsx כמו שהוא (PLAN.md 6.2)
 import React, { useState } from 'react';
 import { GOALS, ACTIVITY_LEVELS } from '../data/constants.js';
-import { FOODS, calculateBMR, calculateTDEE, calculateGoalCalories, calculateMacros, MEAL_PLANS, NUTRITION_TIPS } from '../data/nutrition.js';
+import { FOODS, calculateBMR, calculateTDEE, goalCalories, calculateMacros, clientNutrition, MEAL_PLANS, MEAL_KINDS, MIN_CALORIES, NUTRITION_TIPS } from '../data/nutrition.js';
 import { FONT_HEADING, FONT_BODY, Btn, Card, Field, Input, Badge, Modal, Toggle } from '../components/legacy-ui.jsx';
 import { savePdf, printNow } from '../lib/print.js';
 
@@ -50,7 +50,8 @@ function NutritionCalculator() {
   const bmr = calculateBMR({ weight: +data.weight, height: +data.height, age: +data.age, gender: data.gender });
   const activity = ACTIVITY_LEVELS.find(a => a.id === data.activity);
   const tdee = bmr ? calculateTDEE(bmr, activity?.mult || 1.2) : 0;
-  const targetCal = tdee ? calculateGoalCalories(tdee, data.goal) : 0;
+  const goalInfo = tdee ? goalCalories(tdee, data.goal, { gender: data.gender }) : { calories: 0, limited: false };
+  const targetCal = goalInfo.calories;
   const macros = targetCal ? calculateMacros(targetCal, +data.weight, data.goal) : { protein: 0, carbs: 0, fat: 0 };
 
   return (
@@ -101,6 +102,7 @@ function NutritionCalculator() {
               <div className="text-xs text-emerald-500/70">קלוריות ליום</div>
             </div>
           </div>
+          {goalInfo.limited && <CalorieFloorNote />}
 
           <div>
             <div className="text-sm text-slate-400 mb-2">חלוקת מקרו-נוטריינטים</div>
@@ -125,6 +127,15 @@ function NutritionCalculator() {
           </div>
         </div>
       </Card>
+    </div>
+  );
+}
+
+// היעד הוגבל ברצפה (data/nutrition.js → goalCalories)
+function CalorieFloorNote() {
+  return (
+    <div className="bg-amber-950/20 border border-amber-900/40 rounded-lg p-3 text-sm text-amber-100/80">
+      ⚠ היעד הוגבל: לא פחות מ-{MIN_CALORIES.female.toLocaleString('he-IL')} קלוריות ליום לאישה ו-{MIN_CALORIES.male.toLocaleString('he-IL')} לגבר, ולא מעל התצרוכת היומית. יעד נמוך יותר — רק בליווי דיאטנית או רופא.
     </div>
   );
 }
@@ -212,7 +223,10 @@ function MealPlansList() {
                   {day.meals.map((meal, mi) => (
                     <div key={mi} className="bg-slate-800/40 border border-slate-700 rounded-xl p-4">
                       <div className="flex justify-between items-center mb-2">
-                        <div className="font-semibold text-indigo-300">{meal.name}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-indigo-300">{meal.name}</span>
+                          {MEAL_KINDS[meal.kind] && <Badge tone={MEAL_KINDS[meal.kind].tone}>{MEAL_KINDS[meal.kind].label}</Badge>}
+                        </div>
                         <div className="text-sm text-slate-400">
                           {meal.kcal} קלו׳ · {meal.p}ח · {meal.c}פ · {meal.f}ש
                         </div>
@@ -258,13 +272,9 @@ function NutritionTipsList() {
 
 export function ClientNutritionTab({ client }) {
   const [printMode, setPrintMode] = useState(false);
-  const activity = ACTIVITY_LEVELS.find(a => a.id === (client.activityLevel || 'moderate'));
-  const bmr = calculateBMR({
-    weight: +client.weight, height: +client.height, age: +client.age, gender: client.gender,
-  });
-  const tdee = bmr ? calculateTDEE(bmr, activity?.mult || 1.55) : 0;
-  const targetCal = tdee ? calculateGoalCalories(tdee, client.goal) : 0;
-  const macros = targetCal ? calculateMacros(targetCal, +client.weight, client.goal) : { protein: 0, carbs: 0, fat: 0 };
+  // רמת הפעילות מכרטיס המתאמן (בכרטיס ישן בלי הערך — "בינוני", עם הערה)
+  const { activity, bmr, tdee, targetCal, limited, macros } = clientNutrition(client);
+  const deficit = tdee - targetCal;
 
   const hasData = client.weight && client.height && client.age;
 
@@ -277,7 +287,7 @@ export function ClientNutritionTab({ client }) {
   }
 
   if (printMode) {
-    return <PrintableNutrition client={client} bmr={bmr} tdee={tdee} targetCal={targetCal} macros={macros} activity={activity} onClose={() => setPrintMode(false)} />;
+    return <PrintableNutrition client={client} bmr={bmr} tdee={tdee} targetCal={targetCal} macros={macros} activity={activity} limited={limited} onClose={() => setPrintMode(false)} />;
   }
 
   return (
@@ -303,6 +313,10 @@ export function ClientNutritionTab({ client }) {
           <div className="text-xs text-emerald-500/70">{GOALS.find(g => g.id === client.goal)?.label}</div>
         </div>
       </div>
+      {activity.assumed && (
+        <div className="text-xs text-slate-400">ⓘ בכרטיס המתאמן לא נבחרה רמת פעילות — החישוב לפי "{activity.label}". אפשר לעדכן בעריכת המתאמן.</div>
+      )}
+      {limited && <CalorieFloorNote />}
 
       <Card>
         <h3 className="font-semibold mb-4" style={{ fontFamily: FONT_HEADING }}>חלוקת מקרו-נוטריינטים</h3>
@@ -331,7 +345,9 @@ export function ClientNutritionTab({ client }) {
           <li>· חלבון: {Math.round(macros.protein / +client.weight * 10) / 10} גרם לק״ג משקל גוף</li>
           <li>· פיזור חלבון על פני 4-5 ארוחות ({Math.round(macros.protein / 4)} גרם לארוחה)</li>
           <li>· מים: {Math.round(+client.weight * 35 / 100) / 10} ליטר ביום + 500 מ״ל לכל שעת אימון</li>
-          {client.goal === 'weight-loss' && <li>· גירעון של 500 קל׳ ליום ⇐ ירידה צפויה של ~0.4 ק״ג בשבוע</li>}
+          {client.goal === 'weight-loss' && (limited
+            ? <li>· {deficit > 0 ? `גירעון של ${deficit} קל׳ ליום (מוגבל ברצפת הקלוריות)` : 'בלי גירעון — היעד הוגבל לתצרוכת היומית'}</li>
+            : <li>· גירעון של 500 קל׳ ליום ⇐ ירידה צפויה של ~0.4 ק״ג בשבוע</li>)}
           {client.goal === 'muscle' && <li>· עודף של 300 קל׳ ליום ⇐ עלייה צפויה של ~0.3 ק״ג בשבוע</li>}
         </ul>
       </Card>
@@ -339,7 +355,7 @@ export function ClientNutritionTab({ client }) {
   );
 }
 
-function PrintableNutrition({ client, bmr, tdee, targetCal, macros, activity, onClose }) {
+function PrintableNutrition({ client, bmr, tdee, targetCal, macros, activity, limited, onClose }) {
   const waterL = Math.round(+client.weight * 35 / 100) / 10;
   const proteinPerMeal = Math.round(macros.protein / 4);
 
@@ -356,18 +372,18 @@ function PrintableNutrition({ client, bmr, tdee, targetCal, macros, activity, on
         </div>
         <div className="p-4 md:p-8 max-w-3xl mx-auto">
           <div style={{ background: 'white', color: '#1e293b', padding: '40px', borderRadius: '8px' }}>
-            <NutritionPrintContent client={client} bmr={bmr} tdee={tdee} targetCal={targetCal} macros={macros} activity={activity} waterL={waterL} proteinPerMeal={proteinPerMeal} />
+            <NutritionPrintContent client={client} bmr={bmr} tdee={tdee} targetCal={targetCal} macros={macros} activity={activity} limited={limited} waterL={waterL} proteinPerMeal={proteinPerMeal} />
           </div>
         </div>
       </div>
       <div className="print-only" style={{ background: 'white', color: '#1e293b', padding: '0', direction: 'rtl' }}>
-        <NutritionPrintContent client={client} bmr={bmr} tdee={tdee} targetCal={targetCal} macros={macros} activity={activity} waterL={waterL} proteinPerMeal={proteinPerMeal} />
+        <NutritionPrintContent client={client} bmr={bmr} tdee={tdee} targetCal={targetCal} macros={macros} activity={activity} limited={limited} waterL={waterL} proteinPerMeal={proteinPerMeal} />
       </div>
     </div>
   );
 }
 
-function NutritionPrintContent({ client, bmr, tdee, targetCal, macros, activity, waterL, proteinPerMeal }) {
+function NutritionPrintContent({ client, bmr, tdee, targetCal, macros, activity, limited, waterL, proteinPerMeal }) {
   return (
     <div style={{ fontFamily: FONT_BODY, color: '#0f172a', direction: 'rtl', lineHeight: 1.6 }}>
       <div style={{ borderBottom: '3px solid #10b981', paddingBottom: '12px', marginBottom: '20px' }}>
@@ -384,12 +400,18 @@ function NutritionPrintContent({ client, bmr, tdee, targetCal, macros, activity,
         <div style={{ background: '#f0fdf4', padding: '14px', borderRadius: '8px', textAlign: 'center', border: '1px solid #bbf7d0' }}>
           <div style={{ fontSize: '11px', color: '#15803d' }}>תצרוכת יומית (TDEE)</div>
           <div style={{ fontSize: '24px', fontWeight: 700, color: '#14532d' }}>{tdee}</div>
+          {activity?.label && <div style={{ fontSize: '10px', color: '#15803d' }}>פעילות: {activity.label}</div>}
         </div>
         <div style={{ background: '#10b981', padding: '14px', borderRadius: '8px', textAlign: 'center' }}>
           <div style={{ fontSize: '11px', color: '#d1fae5' }}>יעד יומי</div>
           <div style={{ fontSize: '28px', fontWeight: 900, color: 'white' }}>{targetCal}</div>
         </div>
       </div>
+      {limited && (
+        <div style={{ background: '#fef3c7', border: '1px solid #fbbf24', padding: '10px 14px', borderRadius: '8px', marginBottom: '20px', fontSize: '12px', color: '#78350f' }}>
+          היעד הוגבל: לא פחות מ-{MIN_CALORIES.female.toLocaleString('he-IL')} קלוריות ליום לאישה ו-{MIN_CALORIES.male.toLocaleString('he-IL')} לגבר, ולא מעל התצרוכת היומית. יעד נמוך יותר — רק בליווי דיאטנית או רופא.
+        </div>
+      )}
 
       <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', marginBottom: '20px' }}>
         <div style={{ fontWeight: 700, fontSize: '15px', color: '#334155', marginBottom: '12px', fontFamily: FONT_HEADING }}>חלוקת מקרו-נוטריינטים יומית</div>
@@ -429,7 +451,7 @@ function NutritionPrintContent({ client, bmr, tdee, targetCal, macros, activity,
           <div><strong>בוקר:</strong> 3 ביצים + 2 פרוסות לחם מחיטה מלאה + ירקות (~450 קל׳, 25ג׳ חלבון)</div>
           <div><strong>ביניים:</strong> יוגורט יווני 0% + חופן שקדים + פרי (~300 קל׳, 20ג׳ חלבון)</div>
           <div><strong>צהריים:</strong> 150ג׳ חזה עוף + ½ כוס אורז + סלט גדול (~500 קל׳, 45ג׳ חלבון)</div>
-          <div><strong>ביניים:</strong> קוטג׳ 5% + ירקות (~200 קל׳, 18ג׳ חלבון)</div>
+          <div><strong>ביניים:</strong> טונה במים + ירקות חתוכים (~180 קל׳, 27ג׳ חלבון)</div>
           <div><strong>ערב:</strong> 150ג׳ דג + תפוח אדמה אפוי + ירקות (~450 קל׳, 35ג׳ חלבון)</div>
         </div>
       </div>

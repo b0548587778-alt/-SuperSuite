@@ -3,6 +3,8 @@
 .ss-frames{position:fixed;inset:var(--ss-top) 0 0 0;z-index:5;pointer-events:none}
 .ss-frame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;pointer-events:auto}
 .ss-frame[hidden]{display:none}
+/* כפתור שמוסתר באנדרואיד (mobile.js) — .tools button קובע display:grid, שגובר על המאפיין hidden */
+.tools button[hidden]{display:none}
 .ss-top{position:fixed;top:0;left:0;right:0;height:var(--ss-top);z-index:30;display:flex;align-items:center;gap:10px;padding:0 10px;
   background:linear-gradient(90deg,var(--navy-1),var(--navy-2));color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.25)}
 .ss-top button{width:42px;height:38px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.08);color:#fff;font-size:20px;line-height:1}

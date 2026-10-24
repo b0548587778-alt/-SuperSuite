@@ -1,4 +1,4 @@
-const VERSION = 'shamai-v3.2.0';
+const VERSION = 'shamai-v3.2.2'; // הוסר OCR, תוקנו מס רכישה, יומן, לוח עברי, סינון איש קשר ו-QR (23.10.2026)
 const STATIC_CACHE = `static-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
 

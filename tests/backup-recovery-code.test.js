@@ -133,11 +133,13 @@ function boot() {
   return ready;
 }
 
-// גיבוי אוטומטי "ממחשב אחר": מוצפן במפתח שאינו המפתח המקומי
+// גיבוי אוטומטי "ממחשב אחר": מוצפן במפתח שאינו המפתח המקומי.
+// עם תוכן (ארגז הכלים) — גיבוי ריק נדחה לפני חלון האישור ("אין בקובץ נתונים לשחזור")
+const SOME_DATA = { tools: { 'tools-note': 'x' } };
 function foreignBackup() {
   const key = newKey();
   const file = path.join(userData, 'auto-foreign-' + crypto.randomBytes(4).toString('hex') + '.ssbk');
-  fs.writeFileSync(file, BK.encryptBackup(JSON.stringify({ suite: 'SuperSuite', scope: 'all', localStorage: {} }), key), 'utf8');
+  fs.writeFileSync(file, BK.encryptBackup(JSON.stringify({ suite: 'SuperSuite', scope: 'all', localStorage: SOME_DATA }), key), 'utf8');
   return { file, code: A.recoveryCodeFromKey(key) };
 }
 async function restoreWith(file, pass) {
@@ -184,6 +186,6 @@ test('בלי קוד — הודעה שמזכירה את קוד השחזור; קו
 test('גיבוי ידני עם סיסמה רגילה ממשיך לעבוד', async () => {
   await boot();
   const file = path.join(userData, 'manual.ssbk');
-  fs.writeFileSync(file, BK.encryptBackup(JSON.stringify({ suite: 'SuperSuite', scope: 'all' }), 'סיסמה-של-גיבוי'), 'utf8');
+  fs.writeFileSync(file, BK.encryptBackup(JSON.stringify({ suite: 'SuperSuite', scope: 'all', localStorage: SOME_DATA }), 'סיסמה-של-גיבוי'), 'utf8');
   assert.equal((await restoreWith(file, 'סיסמה-של-גיבוי')).reachedConfirm, true);
 });

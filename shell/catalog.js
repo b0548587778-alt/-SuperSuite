@@ -71,7 +71,7 @@
         { mod: 'trainer', view: 'programs',    label: 'תוכניות מוכנות',  icon: '📋', name: 'תוכניות מוכנות',     desc: '5×5, PPL, Upper/Lower ועוד' },
         { mod: 'trainer', view: 'exercises',   label: 'ספריית תרגילים',  icon: '≣',  name: 'ספריית תרגילים',     desc: 'תרגילים לפי שריר וציוד' },
         { mod: 'trainer', view: 'nutrition',   label: 'תזונה',           icon: '🥗', name: 'תזונה למתאמנים',     desc: 'מחשבון קלוריות, מאגר מאכלים ותפריטים' },
-        { mod: 'trainer', view: 'flexibility', label: 'גמישות ויוגה',    icon: '🤸', name: 'גמישות ומתיחות',     desc: 'שגרות גמישות והתאוששות' },
+        { mod: 'trainer', view: 'flexibility', label: 'גמישות ומתיחות',  icon: '🤸', name: 'גמישות ומתיחות',     desc: 'שגרות גמישות והתאוששות' },
         { mod: 'trainer', view: 'cardio',      label: 'קרדיו',           icon: '🏃', name: 'קרדיו',              desc: 'HIIT, ריצה ואזורי דופק' },
         { mod: 'trainer', view: 'knowledge',   label: 'ידע מקצועי',      icon: '📚', name: 'ידע מקצועי',         desc: 'פציעות, עקרונות אימון ומקורות' },
         { mod: 'trainer', view: 'tools',       label: 'כלים',            icon: '🛠', name: 'כלי מאמן',           desc: '1RM, טיימר, הערכת תנועה ו-PAR-Q' },

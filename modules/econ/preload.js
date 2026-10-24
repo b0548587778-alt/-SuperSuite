@@ -22,7 +22,6 @@ contextBridge.exposeInMainWorld('systemAPI', {
   setupAdmin: (username, password) => ipcRenderer.invoke('auth:setup', username, password),
   login: (username, password) => ipcRenderer.invoke('auth:login', username, password),
   logout: () => ipcRenderer.invoke('auth:logout'),
-  changePassword: (currentPassword, newPassword) => ipcRenderer.invoke('auth:change-password', currentPassword, newPassword),
   googleLogin: () => ipcRenderer.invoke('auth:google-login'),
   googleLink: () => ipcRenderer.invoke('auth:google-link'),
   googleUnlink: () => ipcRenderer.invoke('auth:google-unlink'),
@@ -32,7 +31,6 @@ contextBridge.exposeInMainWorld('systemAPI', {
 
   // Financial
   calculateFinancialMetrics: (data) => ipcRenderer.invoke('financial:calculateMetrics', data),
-  exportToCSV: (data, filename) => ipcRenderer.invoke('financial:exportCSV', data, filename),
 
   // Market Intelligence
   getMarketIntel: () => ipcRenderer.invoke('marketIntel:get'),
@@ -43,7 +41,6 @@ contextBridge.exposeInMainWorld('systemAPI', {
   // Personal Finance
   getPersonalFinance: () => ipcRenderer.invoke('personalFinance:get'),
   updatePersonalFinance: (financeData) => ipcRenderer.invoke('personalFinance:update', financeData),
-  calculateLoan: (loanData) => ipcRenderer.invoke('personalFinance:calculateLoan', loanData),
   // הוספת פריט בודד לתוכנית — במקום לדרוס את כל האוסף דרך updatePersonalFinance
   addPersonalIncome: (incomeData) => ipcRenderer.invoke('personalFinance:addIncome', incomeData),
   addPersonalExpense: (expenseData) => ipcRenderer.invoke('personalFinance:addExpense', expenseData),
@@ -58,7 +55,6 @@ contextBridge.exposeInMainWorld('systemAPI', {
   saveMortgageScenario: (scenarioData) => ipcRenderer.invoke('mortgage:saveScenario', scenarioData),
   deleteMortgageScenario: (scenarioId) => ipcRenderer.invoke('mortgage:deleteScenario', scenarioId),
   updateMortgageScenario: (scenarioId, updates) => ipcRenderer.invoke('mortgage:updateScenario', scenarioId, updates),
-  calculateMortgageLoan: (loanData) => ipcRenderer.invoke('mortgage:calculateLoan', loanData),
 
   // Business
   getBusinessPlans: () => ipcRenderer.invoke('business:getPlans'),
@@ -125,7 +121,6 @@ contextBridge.exposeInMainWorld('systemAPI', {
   createInvoice: (invoice) => ipcRenderer.invoke('acct:createInvoice', invoice),
   recordPayment: (invoiceId, payment) => ipcRenderer.invoke('acct:recordPayment', invoiceId, payment),
   getAccountingReports: (range) => ipcRenderer.invoke('acct:getReports', range),
-  setVatRate: (rate) => ipcRenderer.invoke('acct:setVatRate', rate),
   getAccountingSettings: () => ipcRenderer.invoke('acct:getSettings'),
   cancelInvoice: (invoiceId) => ipcRenderer.invoke('acct:cancelInvoice', invoiceId),
   setAllocation: (invoiceId, input) => ipcRenderer.invoke('acct:setAllocation', invoiceId, input),
@@ -414,7 +409,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   licenseOpenPayment: () => ipcRenderer.invoke('license:openPayment'),
   ownerGetOffer: () => ipcRenderer.invoke('owner:getOffer'),
   ownerChangePassphrase: (oldPass, newPass) => ipcRenderer.invoke('owner:changePassphrase', oldPass, newPass),
-  ownerRecoveryCodes: (n, k) => ipcRenderer.invoke('owner:recoveryCodes', n, k),
+  ownerRecoveryCodes: (passphrase, n, k) => ipcRenderer.invoke('owner:recoveryCodes', passphrase, n, k),
   ownerRecoveryInfo: () => ipcRenderer.invoke('owner:recoveryInfo'),
   ownerRecover: (codes, newPass) => ipcRenderer.invoke('owner:recover', codes, newPass),
   ownerExportBackup: (passphrase) => ipcRenderer.invoke('owner:exportBackup', passphrase),
@@ -422,7 +417,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   ownerSetOffer: (input) => ipcRenderer.invoke('owner:setOffer', input),
   ownerPublishOffer: () => ipcRenderer.invoke('owner:publishOffer'),
   ownerSignups: () => ipcRenderer.invoke('owner:signups'),
-  ownerSignupIssue: (id) => ipcRenderer.invoke('owner:signupIssue', id),
+  ownerSignupIssue: (id, opts) => ipcRenderer.invoke('owner:signupIssue', id, opts),
   ownerSignupDocument: (id) => ipcRenderer.invoke('owner:signupDocument', id),
   updateDownload: () => ipcRenderer.invoke('update:download'),
   updateFromFile: () => ipcRenderer.invoke('update:fromFile'),

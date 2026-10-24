@@ -93,13 +93,13 @@ function renderJewishWidget() {
     <div class="jw-row">
       <div class="jw-item">
         <div class="jw-label">פרשת השבוע</div>
-        <div class="jw-value">${parsha || '—'}</div>
+        <div class="jw-value">${escapeHtml(parsha || '—')}</div>
       </div>
       ${holiday ? `
         <div class="jw-item">
           <div class="jw-label">חג קרוב</div>
-          <div class="jw-value">${holiday.name}</div>
-          <div class="jw-sub">בעוד ${holiday.daysAway} ימים</div>
+          <div class="jw-value">${escapeHtml(holiday.name)}</div>
+          <div class="jw-sub">${holiday.daysAway === 0 ? 'היום' : holiday.daysAway === 1 ? 'מחר' : `בעוד ${holiday.daysAway} ימים`}</div>
         </div>
       ` : ''}
       <div class="jw-item">
@@ -136,9 +136,12 @@ window.renderDashboard = function() {
     });
 
     // Calc tool actions
+    // רק כפתורי המחשבון: גם לפעולות המהירות במסך הבית יש data-quick
     document.addEventListener('click', e => {
-      if (e.target.dataset.calc) calcAction(e.target.dataset.calc);
-      if (e.target.dataset.quick) calcQuick(e.target.dataset.quick);
+      const btn = e.target.closest ? e.target.closest('.calc-btn, .calc-quick') : null;
+      if (!btn) return;
+      if (btn.dataset.calc) calcAction(btn.dataset.calc);
+      if (btn.dataset.quick) calcQuick(btn.dataset.quick);
     });
 
     // Photo zoom on opp cards

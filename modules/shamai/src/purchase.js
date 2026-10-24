@@ -287,9 +287,10 @@ async function savePurchase() {
     const p = { ...preview, no };
     const list = Storage.load('purchases', []) || [];
     list.unshift(p);
-    Storage.save('purchaseSeq', no);
-    Storage.save('purchases', list);
+    // שטר שלא נשמר לא מודפס: המספר שלו היה מונפק שוב לשטר הבא (ההודעה — מ-Storage.save)
+    if (!Storage.save('purchaseSeq', no) || !Storage.save('purchases', list)) return;
     state.opportunities.unshift(purchaseToOpp(p));
+    // השטר כבר שמור; רישום ביומן שנדחה נשאר בזיכרון ויישמר בשמירה הבאה של היומן
     Storage.save('opportunities', state.opportunities);
     toast(`שטר קנייה ${no} נשמר ונרשם ביומן ✓`, 'success');
     state.purchase = null;

@@ -16,6 +16,7 @@ const crypto = require('crypto');
 const L = require('../shell/licensing/license');
 const OF = require('../shell/licensing/offer');
 const SU = require('../shell/licensing/signup');
+const CK = require('../shell/licensing/checkin');
 const { createProvider } = require('./payments');
 
 const MAX_BODY = 512 * 1024;          // בקשה
@@ -54,11 +55,15 @@ const FETCH_MAX_BYTES = 2 * 1024 ** 2;
 const MAX_INDEX_CACHE = 20000;                 // אינדקסים של תיבות בזיכרון
 const MAX_CONTACT_PAIRS = 200000;              // "בעל התיבה כתב לשולח" — בזיכרון
 const MAX_OWNER_CONTACTS = 100000;             // של מנהל-העל — גם בקובץ
+// הרשמה נחתמת במכשיר רגע לפני התשלום — הרשמה ישנה יותר היא שידור חוזר (בדיקת קוד 23.10.2026, ממצא 31)
+const SIGNUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function httpError(status, message) { const e = new Error(message); e.status = status; return e; }
 
-// billing (אופציונלי): { rootKeys, provider } — הרשמה ותשלום. בלי billing השרת הוא ממסר בלבד
-function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes = MAX_STORE_BYTES }) {
+// billing (אופציונלי): { rootKeys, provider } — הרשמה ותשלום. בלי billing השרת הוא ממסר בלבד.
+// identity (אופציונלי): { privateJwk, certText } — מפתח השרת ותעודה ממנהל-העל (loadRelayIdentity): כל משיכה עם
+// אתגר מקבלת תשובה חתומה (shell/licensing/checkin.js). בלעדיו התוכנה לא מאריכה את תנאי ההפעלה מול השרת הזה
+function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes = MAX_STORE_BYTES, identity = null }) {
   fs.mkdirSync(dataDir, { recursive: true });
   const signupDir = path.join(dataDir, 'signups'); // נוצרת בתשלום הראשון
 
@@ -129,9 +134,13 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
   const msgBytes = (m) => Buffer.byteLength(JSON.stringify(m));
   function indexAdd(ix, m, sign = 1) {
     if (m.from === 'relay') { ix.relay += sign; if (m.free) ix.free += sign; return; }
+    // הודעת סטטוס של השורש — במקום השמור שלה (rootNotice), לא בתקרות של השולחים
+    if (isRootNotice(m)) return;
     const b = msgBytes(m);
-    const s = ix.senders.get(m.from) || { n: 0, bytes: 0 };
+    const s = ix.senders.get(m.from) || { n: 0, bytes: 0, nn: 0, nb: 0 };
     s.n += sign; s.bytes += sign * b;
+    // הודעות סטטוס של השולח (nn / nb) — מוחלפות בשליחה הבאה שלו לאותה תיבה, ולכן לא נספרות פעמיים
+    if (m.kind === 'notices') { s.nn += sign; s.nb += sign * b; }
     if (s.n > 0) ix.senders.set(m.from, s); else ix.senders.delete(m.from);
     ix.n += sign; ix.bytes += sign * b;
   }
@@ -159,6 +168,23 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
   // מי שבעל התיבה כתב לו — "מוכר" לה: לא כפוף למכסה לכתובת לתיבה, ואצל מנהל-העל לא נספר במכסה של שולחים
   // לא מוכרים. בזיכרון; של מנהל-העל — גם בקובץ, כדי שהלקוחות יוכרו אחרי הפעלה מחדש של השרת
   const ownerId = billing && billing.rootKeys && billing.rootKeys.length ? L.keyId(billing.rootKeys[0]) : null;
+  // מפתח השורש — לזיהוי הודעות הסטטוס של מנהל-העל (סקירת אבטחה 24.10.2026, ממצא 3): מ---root-pub, ובלעדיו — המנפיק
+  // שבתעודת השרת (identity). השולח מזוהה בחתימה על הבקשה, ולכן from === rootId מוכיח שזה בעל מפתח השורש
+  let rootIdMemo;
+  function rootId() {
+    if (ownerId) return ownerId;
+    if (rootIdMemo !== undefined) return rootIdMemo;
+    if (!identity) return (rootIdMemo = null);
+    let issuer = typeof identity.issuer === 'string' ? identity.issuer : null;
+    if (!issuer && typeof identity.certText === 'string') { try { issuer = JSON.parse(identity.certText).payload.issuer; } catch { issuer = null; } }
+    if (!issuer && !identity.certText) return null; // התעודה עוד לא נטענה — ננסה שוב בבקשה הבאה
+    return (rootIdMemo = typeof issuer === 'string' && ID_RE.test(issuer) ? issuer : null);
+  }
+  // הודעת סטטוס של מנהל-העל: מקום שמור אחד בכל תיבה — לא נספרת בתקרות (MAX_MAILBOX, MAX_FROM_SENDER), לא פגה
+  // אחרי 60 יום, ולא נמחקת באישור קבלה (ack). רק הודעת סטטוס חדשה יותר של השורש מחליפה אותה. כך מערכת שמילאה את
+  // התיבה של עצמה, מערכת שלא התחברה חודשיים, או מי שמחזיק את מפתח המערכת ומאשר "קבלה" לפני שהתוכנה סנכרנה —
+  // לא מונעים ממנהל-העל למסור השבתה, והיא נכללת בכל תשובה חתומה (checkin.js)
+  const isRootNotice = (m) => !!m && m.kind === 'notices' && typeof m.from === 'string' && m.from === rootId();
   const contacts = new Map();
   let contactPairs = 0;
   let ownerContacts = null;
@@ -217,7 +243,8 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
       if (!m) continue;
       let box;
       try { box = readBox(m[1]); } catch { continue; } // קובץ שלא נקרא — לא נוגעים בו
-      const live = box.filter(x => x.from === 'relay' || now - x.at < MESSAGE_TTL_MS);
+      // הודעת הסטטוס של השורש לא פגה (ממצא 3): מערכת שלא התחברה יותר מ-60 יום עדיין מקבלת את ההשבתה
+      const live = box.filter(x => x.from === 'relay' || isRootNotice(x) || now - x.at < MESSAGE_TTL_MS);
       if (live.length !== box.length) writeBox(m[1], live);
     }
   }
@@ -305,12 +332,17 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
     });
   }
 
-  // הרשמה: נבדקת מול ההצעה החתומה; הסכום נקבע לפי ההצעה בלבד. תכנית חינם — נמסרת מיד
+  // הרשמה: נבדקת מול ההצעה החתומה; הסכום נקבע לפי ההצעה בלבד. תכנית חינם — נמסרת מיד.
+  // ההצעה שבהרשמה חייבת להיות זו שמפורסמת עכשיו (offer.json): הצעה חתומה ישנה עם תכנית זולה או חינמית
+  // לא מתקבלת (ממצא 31). ההרשמה עצמה — מהיממה האחרונה
   async function checkout(from, p, ip = '') {
     needBilling();
+    const cur = readJsonFile('offer.json', null);
+    if (!cur || typeof cur.text !== 'string') throw httpError(404, 'הספק עדיין לא פרסם תכניות');
     let v;
-    try { v = SU.verifySignup(p.signup, billing.rootKeys); } catch (e) { throw httpError(400, e.message); }
+    try { v = SU.verifySignup(p.signup, billing.rootKeys, { current: OF.verifyOffer(cur.text, billing.rootKeys) }); } catch (e) { throw httpError(400, e.message); }
     if (v.body.keyId !== from) throw httpError(403, 'ההרשמה אינה של המכשיר השולח');
+    if (!Number.isSafeInteger(v.body.signedAt) || Math.abs(clock() - v.body.signedAt) > SIGNUP_MAX_AGE_MS) throw httpError(400, 'ההרשמה ישנה — יש לפתוח מחדש את מסך הרכישה ולהירשם שוב');
     if (v.plan.priceAgorot === 0) {
       quota('frees', ip, FREE_SIGNUP_PER_IP_DAY, 1, 'יותר מדי הרשמות מהכתובת הזו היום — נסו שוב מחר');
       deliver(ownerBox(), 'signup', JSON.stringify({ type: 'supersuite-signup-delivery', signup: p.signup, payment: null }), { free: true });
@@ -389,7 +421,7 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
     return { ok: true };
   }
 
-  // פעולות: send (לתיבה של אחר), fetch (התיבה שלי), ack (מחיקת הודעות שטופלו)
+  // פעולות: send (לתיבה של אחר), fetch (התיבה שלי), ack (מחיקת הודעות שטופלו), checkin (הוכחה חתומה בלבד)
   // הרשמה: setOffer, getOffer, checkout (אסינכרוני — מחזיר Promise), paymentStatus
   function handle(body, ip = '') {
     rateLimit(ip);
@@ -424,7 +456,10 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
     if (body.op === 'send') {
       const items = Array.isArray(p.items) ? p.items : [];
       if (!items.length || items.length > 50) throw httpError(400, 'אין מה לשלוח');
+      const at = clock(); // זמן אחד לכל ההודעות בבקשה — הוא נחתם באישור המסירה (receipt)
+      const root = rootId();
       const byBox = new Map();
+      const rootItems = new Map(); // הודעות הסטטוס של השורש: לתיבה ← ההודעה (האחרונה בבקשה)
       for (const it of items) {
         // 'signup' נמסר רק על ידי השרת אחרי תשלום — לא בשליחה ישירה
         if (it && it.kind === 'signup') throw httpError(400, 'הרשמה נשלחת דרך התשלום');
@@ -432,39 +467,73 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
           throw httpError(400, 'הודעה לא תקינה');
         }
         if (it.to === from) throw httpError(400, 'הודעה לא תקינה');
-        const msg = { id: crypto.randomUUID(), from, kind: it.kind, body: it.body, at: clock() };
-        byBox.set(it.to, [...(byBox.get(it.to) || []), msg]);
+        const msg = { id: crypto.randomUUID(), from, kind: it.kind, body: it.body, at };
+        if (root && from === root && it.kind === 'notices') { rootItems.set(it.to, msg); continue; }
+        const list = byBox.get(it.to) || [];
+        // הודעת סטטוס מחליפה את הקודמת של אותו שולח לאותה תיבה שטרם נקראה (סקירת אבטחה 24.10.2026, ממצא 2) —
+        // חבילת הסטטוס תמיד מלאה, והישנה מיותרת. כך עדכונים חוזרים לא ממלאים את התיבה עד 429
+        byBox.set(it.to, it.kind === 'notices' ? [...list.filter(m => m.kind !== 'notices'), msg] : [...list, msg]);
       }
-      // כל הבדיקות לפני כתיבה כלשהי — שליחה נכשלת כולה או מצליחה כולה. התקרות נבדקות מול האינדקס,
+      // כל הבדיקות לפני כתיבה כלשהי — שליחה רגילה נכשלת כולה או מצליחה כולה. התקרות נבדקות מול האינדקס,
       // ושליחה שנדחית לא קוראת את התיבה (ממצא 2). התקרה סופרת רק הודעות של שולחים — הודעות מהשרת
-      // (הרשמות ששולמו) לא תופסות מקום של אחרים
-      const limits = [
-        ['sends', from, SEND_PER_HOUR, items.length, 'יותר מדי הודעות בשעה האחרונה — נסו מאוחר יותר'],
-        ['ipSends', ip, SEND_PER_IP_HOUR, items.length, 'יותר מדי הודעות מהכתובת הזו בשעה האחרונה — נסו מאוחר יותר'],
-      ];
+      // (הרשמות ששולמו) והודעות הסטטוס של השורש (מקום שמור) לא תופסות מקום של אחרים
+      const regular = [...byBox.values()].reduce((n, l) => n + l.length, 0);
+      const limits = regular ? [
+        ['sends', from, SEND_PER_HOUR, regular, 'יותר מדי הודעות בשעה האחרונה — נסו מאוחר יותר'],
+        ['ipSends', ip, SEND_PER_IP_HOUR, regular, 'יותר מדי הודעות מהכתובת הזו בשעה האחרונה — נסו מאוחר יותר'],
+      ] : [];
       let total = 0;
       for (const [to, msgs] of byBox) {
         const ix = indexOf(to);
         const add = msgs.reduce((t, m) => t + msgBytes(m), 0);
         total += add + msgs.length;
-        if (ix.n + msgs.length > MAX_MAILBOX || ix.bytes + add > MAX_BOX_BYTES) throw httpError(507, 'תיבת היעד מלאה');
-        const mine = ix.senders.get(from) || { n: 0 };
-        if (mine.n + msgs.length > MAX_FROM_SENDER_IN_BOX) throw httpError(429, 'יותר מדי הודעות שטרם נקראו אצל הנמען');
+        const mine = ix.senders.get(from) || { n: 0, bytes: 0, nn: 0, nb: 0 };
+        // הודעות הסטטוס הקודמות של השולח בתיבה הזו יוחלפו — לא נספרות
+        const rep = msgs.some(m => m.kind === 'notices') ? { n: mine.nn || 0, bytes: mine.nb || 0 } : { n: 0, bytes: 0 };
+        if (ix.n - rep.n + msgs.length > MAX_MAILBOX || ix.bytes - rep.bytes + add > MAX_BOX_BYTES) throw httpError(507, 'תיבת היעד מלאה');
+        if (mine.n - rep.n + msgs.length > MAX_FROM_SENDER_IN_BOX) throw httpError(429, 'יותר מדי הודעות שטרם נקראו אצל הנמען');
         if (knows(to, from)) continue;
         // שולח שבעל התיבה לא כתב לו: מכסה לכתובת לתיבה (ממצא 1א), ואצל מנהל-העל — חלק מוגבל מהתיבה (1ב)
         if (to === ownerId) {
           let n = 0, bytes = 0;
           for (const [s, v] of ix.senders) if (!knows(to, s)) { n += v.n; bytes += v.bytes; }
-          if (n + msgs.length > MAX_UNKNOWN_IN_OWNER_BOX || bytes + add > MAX_UNKNOWN_BYTES_IN_OWNER_BOX) throw httpError(507, 'תיבת היעד מלאה — נסו שוב מאוחר יותר');
+          if (n - rep.n + msgs.length > MAX_UNKNOWN_IN_OWNER_BOX || bytes - rep.bytes + add > MAX_UNKNOWN_BYTES_IN_OWNER_BOX) throw httpError(507, 'תיבת היעד מלאה — נסו שוב מאוחר יותר');
         }
         limits.push(['ipBox', ip + '>' + to, SEND_PER_IP_TO_BOX_HOUR, msgs.length, 'יותר מדי הודעות לנמען הזה מהכתובת הזו בשעה האחרונה — נסו מאוחר יותר']);
       }
-      assertRoom(total);
+      if (regular) assertRoom(total);
       const boxes = [...byBox].map(([to, msgs]) => [to, readBox(to), msgs]); // קובץ שלא נקרא — נכשל לפני שנספר במכסות
       quotas(limits);
-      for (const [to, box, msgs] of boxes) writeBox(to, [...box, ...msgs], { added: msgs });
-      remember(from, [...byBox.keys()]);
-      return { ok: true, sent: items.length };
+      const stored = [];
+      for (const [to, box, msgs] of boxes) {
+        const replaced = msgs.some(m => m.kind === 'notices') ? box.filter(m => m.from === from && m.kind === 'notices' && !isRootNotice(m)) : [];
+        const keep = replaced.length ? box.filter(m => !replaced.includes(m)) : box;
+        writeBox(to, [...keep, ...msgs], { added: msgs, removed: replaced });
+        for (const m of msgs) stored.push([to, m]);
+      }
+      // הודעות הסטטוס של השורש (ממצא 3) — כל תיבה בנפרד, בלי התקרות של השולחים ובלי מכסות השליחה (המקום השמור:
+      // אחת לתיבה, במקום הקודמת, בראש התיבה — כך היא בחלק הראשון של כל משיכה). כישלון אצל נמען אחד לא עוצר את האחרים
+      const failed = [];
+      for (const [to, msg] of rootItems) {
+        try {
+          const box = readBox(to);
+          const removed = box.filter(isRootNotice);
+          assertRoom(msgBytes(msg) - removed.reduce((t, m) => t + msgBytes(m), 0), true);
+          writeBox(to, [msg, ...box.filter(m => !isRootNotice(m))], { added: [msg], removed });
+          stored.push([to, msg]);
+        } catch (e) { failed.push({ to, error: e && e.status ? e.message : 'שגיאה בשרת' }); }
+      }
+      // הכול נכשל (רק הודעות של השורש) — שגיאה, כדי שגם תוכנה ישנה שלא קוראת את failed תדע
+      if (!stored.length && failed.length) throw httpError(507, failed[0].error);
+      remember(from, [...new Set(stored.map(([to]) => to))]);
+      const res = { ok: true, sent: stored.length, ...(failed.length ? { failed } : {}) };
+      // אישור מסירה חתום (ממצא 5): [נמען, מזהה, תמצית] לכל הודעה שנשמרה, על האתגר של השולח
+      if (identity && identity.certText && CK.validChallenge(p.receipt)) {
+        res.receipt = CK.signSendReceipt(identity.privateJwk, { origin: identity.origin, box: from, challenge: p.receipt, at,
+          items: stored.map(([to, m]) => [to, m.id, CK.messageDigest(m)]) });
+        res.relayCert = identity.certText;
+      }
+      return res;
     }
     // משיכה בחלקים (ממצא 1ד): עד FETCH_MAX_MESSAGES / FETCH_MAX_BYTES (לפחות הודעה אחת), אחרי ההודעה after.
     // more — יש עוד; הלקוח ממשיך עם after = ההודעה האחרונה שקיבל. after שכבר נמחק — מההתחלה
@@ -479,14 +548,41 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
         out.push(box[i]);
         bytes += b;
       }
-      return { ok: true, messages: out, more: start + out.length < box.length };
+      const res = { ok: true, messages: out, more: start + out.length < box.length };
+      // בדיקה חתומה (ממצא 27): חתימה על האתגר של הלקוח, התיבה שלו, הזמן, הכתובת שבתעודה — וכל ההודעות שבתיבה
+      // ברגע זה (מזהה + תמצית), כך שהלקוח מזהה תשובה שהודעה נמחקה ממנה או שתוכנה הוחלף בדרך
+      if (identity && CK.validChallenge(p.checkin)) {
+        res.checkin = CK.signCheckin(identity.privateJwk, { purpose: 'fetch', origin: identity.origin, box: from, challenge: p.checkin,
+          at: clock(), items: CK.boxItems(box) });
+        res.relayCert = identity.certText;
+      }
+      return res;
     }
+    // הוכחה בלבד (בלי הודעות): התוכנה מוודאת שזה השרת של הספק לפני שליחת פרטי הרשמה או פתיחת דף תשלום
+    if (body.op === 'checkin') {
+      if (!identity) throw httpError(404, 'השרת אינו מוגדר לבדיקה חתומה');
+      if (!CK.validChallenge(p.checkin)) throw httpError(400, 'בקשה לא תקינה');
+      return { ok: true, checkin: CK.signCheckin(identity.privateJwk, { purpose: 'hello', origin: identity.origin, box: from, challenge: p.checkin, at: clock() }),
+        relayCert: identity.certText };
+    }
+    // items: [[מזהה, תמצית]] — נמחקת רק הודעה שהתוכן השמור שלה זהה למה שהלקוח קיבל: שרת ביניים שהחליף את התוכן
+    // של הודעת השבתה לא יכול לגרום למחיקתה (ממצא 27). ids בלבד — תוכנה ישנה
     if (body.op === 'ack') {
-      const ids = new Set(Array.isArray(p.ids) ? p.ids.map(String) : []);
-      if (!ids.size) return { ok: true, removed: 0 };
+      let match;
+      if (Array.isArray(p.items)) {
+        const want = new Map(p.items.slice(0, CK.MAX_ITEMS).filter(CK.validAckItem));
+        if (!want.size) return { ok: true, removed: 0 };
+        match = (m) => want.has(m.id) && want.get(m.id) === CK.messageDigest(m);
+      } else {
+        const ids = new Set(Array.isArray(p.ids) ? p.ids.map(String) : []);
+        if (!ids.size) return { ok: true, removed: 0 };
+        match = (m) => ids.has(m.id);
+      }
+      // הודעת הסטטוס של השורש לא נמחקת באישור קבלה (ממצא 3) — רק הודעה חדשה יותר של השורש מחליפה אותה
+      const drop = (m) => match(m) && !isRootNotice(m);
       const box = readBox(from);
-      const removed = box.filter(m => ids.has(m.id));
-      if (removed.length) writeBox(from, box.filter(m => !ids.has(m.id)), { removed });
+      const removed = box.filter(drop);
+      if (removed.length) writeBox(from, box.filter(m => !drop(m)), { removed });
       return { ok: true, removed: removed.length };
     }
     throw httpError(400, 'פעולה לא מוכרת');
@@ -518,8 +614,56 @@ function clientAddress(req, trustProxy) {
   return fwd.length ? fwd[fwd.length - 1] : direct;
 }
 
-function createServer({ dataDir, cert, key, clock, billing, trustProxy = false }) {
-  const relay = createRelay({ dataDir, clock, billing });
+// מפתח השרת לבדיקה החתומה (shell/licensing/checkin.js). נוצר על השרת עצמו — המפתח הפרטי לא יוצא ממנו:
+//   node server/license-relay.js --gen-relay-key /var/lib/supersuite-relay/relay-key.json
+// נכתבים relay-key.json (פרטי, הרשאה 600, לא נדרס) ו-relay-key.pub.json (ציבורי — עובר למנהל-העל לתעודה)
+function generateRelayKey(file) {
+  if (fs.existsSync(file)) throw new Error('כבר קיים מפתח שרת ב-' + file + ' — לא נדרס. מפתח חדש מחייב תעודה חדשה');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const k = L.generateKeyPair();
+  fs.writeFileSync(file, JSON.stringify(k.privateJwk), { mode: 0o600, flag: 'wx' });
+  const pubFile = file.replace(/\.json$/i, '') + '.pub.json';
+  fs.writeFileSync(pubFile, JSON.stringify(k.publicJwk));
+  return { keyId: k.keyId, publicJwk: k.publicJwk, pubFile };
+}
+
+// טעינת מפתח השרת והתעודה. אין אף אחד מהם — null (ממסר בלי בדיקה חתומה; התוכנה לא תאריך מולו את ההפעלה).
+// רק אחד מהם, תעודה של מפתח אחר, או תעודה שאינה של מפתח השורש (כשהוא ידוע) — שגיאה, והשרת לא עולה
+function loadRelayIdentity({ keyFile, certFile, rootKeys = null, now = Date.now() }) {
+  const hasKey = fs.existsSync(keyFile), hasCert = fs.existsSync(certFile);
+  if (!hasKey && !hasCert) return null;
+  if (!hasKey) throw new Error('נמצאה תעודת שרת (' + certFile + ') בלי מפתח השרת (' + keyFile + ')');
+  if (!hasCert) throw new Error('נמצא מפתח שרת (' + keyFile + ') בלי תעודה ממנהל-העל (' + certFile + ')');
+  let privateJwk, certText, cert;
+  // המפתח הפרטי חייב להתאים לחלק הציבורי שבקובץ (x) — אחרת כל חתימה תיפסל אצל הלקוחות
+  let pairOk = false;
+  try { privateJwk = JSON.parse(fs.readFileSync(keyFile, 'utf8')); pairOk = L.verifyObject({ t: 1 }, L.signObject({ t: 1 }, privateJwk), privateJwk); } catch { pairOk = false; }
+  if (!pairOk) throw new Error('קובץ מפתח השרת פגום: ' + keyFile);
+  certText = fs.readFileSync(certFile, 'utf8').trim();
+  try { cert = JSON.parse(certText).payload; } catch { cert = null; }
+  if (!cert || cert.type !== CK.CERT_TYPE) throw new Error('קובץ התעודה פגום: ' + certFile);
+  // תעודה מגרסה קודמת (בלי כתובת השרת) — התוכנה דוחה אותה, ולכן גם השרת לא עולה איתה
+  if (typeof cert.origin !== 'string') throw new Error('התעודה בלי כתובת השרת (גרסה קודמת) — יש להנפיק תעודה חדשה עם --url: ' + certFile);
+  if (rootKeys && rootKeys.length) cert = CK.verifyRelayCert(certText, rootKeys, now, { allowExpired: true });
+  if (!cert.relayKey || cert.relayKey.x !== privateJwk.x) throw new Error('התעודה שייכת למפתח שרת אחר — יש להנפיק תעודה למפתח הנוכחי');
+  return { privateJwk, certText, relayId: cert.relayId, origin: cert.origin, issuer: cert.issuer, expiresAt: cert.expiresAt, expired: now > cert.expiresAt };
+}
+
+// תפוגת התעודה של מפתח השרת (סקירת אבטחה 24.10.2026, ממצא 4): אחרי התפוגה התוכנות לא מאריכות את ההפעלה, וכל
+// המערכות ננעלות 30 יום אחר כך. השרת בודק פעם ביום (לא רק בעלייה) וכותב אזהרה ביומן — מ-30 יום לפני התפוגה.
+// מחזיר את שורת היומן, או null כשאין מה להזהיר
+const CERT_WARN_DAYS = 30;
+function certWarning(identity, now = Date.now()) {
+  if (!identity || !Number.isSafeInteger(identity.expiresAt)) return null;
+  const days = Math.ceil((identity.expiresAt - now) / (24 * 60 * 60 * 1000));
+  const date = new Date(identity.expiresAt).toLocaleDateString('he-IL');
+  if (days <= 0) return `⚠ תוקף התעודה של מפתח השרת פג (${date}) — התוכנות לא מאריכות את ההפעלה מול השרת, וכל המערכות ננעלות 30 יום אחרי התפוגה. יש להנפיק תעודה חדשה (docs/LICENSING-ACTIVATION.md, שלב 7)`;
+  if (days <= CERT_WARN_DAYS) return `⚠ התעודה של מפתח השרת תפוג בעוד ${days} ימים (${date}) — יש להנפיק תעודה חדשה ולהתקין אותה בשרת (docs/LICENSING-ACTIVATION.md, שלב 7, "חידוש")`;
+  return null;
+}
+
+function createServer({ dataDir, cert, key, clock, billing, trustProxy = false, identity = null }) {
+  const relay = createRelay({ dataDir, clock, billing, identity });
   const readBody = (req, res, max, cb) => {
     let size = 0;
     const chunks = [];
@@ -606,16 +750,38 @@ if (require.main === module) {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i += 2) a[argv[i].replace(/^--/, '')] = argv[i + 1];
   const port = Number(a.port || process.env.PORT || 8443);
+  // יצירת מפתח השרת לבדיקה החתומה (פעם אחת, על השרת): --gen-relay-key <קובץ>
+  if (a['gen-relay-key']) {
+    try {
+      const r = generateRelayKey(path.resolve(String(a['gen-relay-key'])));
+      console.log('נוצר מפתח שרת ' + r.keyId + '. המפתח הציבורי (למנהל-העל, ליצירת התעודה): ' + r.pubFile);
+      console.log(JSON.stringify(r.publicJwk));
+      process.exit(0);
+    } catch (e) { console.error('שגיאה: ' + e.message); process.exit(1); }
+  }
   // הרשמה ותשלום: --root-pub <קובץ המפתח הציבורי של מנהל-העל> --pay test|<ספק> --public-url https://...
   // מאחורי פרוקסי TLS: --trust-proxy 1 (הגבלת הקצב לפי X-Forwarded-For)
+  // בדיקה חתומה: relay-key.json + relay-cert.json בתיקיית הנתונים (או --relay-key / --relay-cert)
   let billing = null;
+  let identity = null;
+  const dataDir = path.resolve(a.data || 'relay-data');
   try {
+    let rootKeys = null;
     if (a['root-pub']) {
-      const rootKeys = [JSON.parse(fs.readFileSync(a['root-pub'], 'utf8'))];
+      rootKeys = [JSON.parse(fs.readFileSync(a['root-pub'], 'utf8'))];
       assertPaymentConfig({ pay: a.pay, cert: a.cert, publicUrl: a['public-url'], env: process.env });
       const provider = a.pay ? createProvider(a.pay, { publicUrl: a['public-url'], secret: process.env.SS_PAY_SECRET, env: process.env }) : null;
       if (provider && provider.name === 'test') console.warn('⚠ ספק תשלום לבדיקות — אין חיוב אמיתי');
       billing = { rootKeys, provider };
+    }
+    identity = loadRelayIdentity({ keyFile: path.resolve(a['relay-key'] || path.join(dataDir, 'relay-key.json')),
+      certFile: path.resolve(a['relay-cert'] || path.join(dataDir, 'relay-cert.json')), rootKeys });
+    if (!identity) console.warn('⚠ אין מפתח שרת ותעודה — התוכנות לא יאריכו את תנאי ההפעלה מול השרת הזה (docs/LICENSING-ACTIVATION.md, שלב 7)');
+    else {
+      // בעלייה ואחר כך פעם ביום — שרת שרץ חודשים בלי הפעלה מחדש עדיין מזהיר לפני התפוגה (ממצא 4)
+      const warnCert = () => { const w = certWarning(identity); if (w) console.warn(w); };
+      warnCert();
+      setInterval(warnCert, 24 * 60 * 60 * 1000).unref();
     }
   } catch (e) {
     console.error('שגיאה בהגדרות השרת: ' + e.message);
@@ -624,9 +790,9 @@ if (require.main === module) {
   // מאחורי שרת TLS (Caddy / nginx): --trust-proxy 1 (או yes). --host 127.0.0.1 — כשהשרת הקדמי באותו מחשב
   const trustProxy = a['trust-proxy'] === '1' || a['trust-proxy'] === 'yes';
   const host = a.host || '0.0.0.0';
-  const server = createServer({ dataDir: path.resolve(a.data || 'relay-data'), cert: a.cert, key: a.key, billing, trustProxy });
-  server.listen(port, host, () => console.log(`שרת הרישוי פועל ב-${host}:${port}${a.cert ? ' (HTTPS)' : ' (HTTP — יש להפעיל מאחורי TLS)'}${trustProxy ? ', מאחורי שרת קדמי' : ''}`));
+  const server = createServer({ dataDir, cert: a.cert, key: a.key, billing, trustProxy, identity });
+  server.listen(port, host, () => console.log(`שרת הרישוי פועל ב-${host}:${port}${a.cert ? ' (HTTPS)' : ' (HTTP — יש להפעיל מאחורי TLS)'}${trustProxy ? ', מאחורי שרת קדמי' : ''}${identity ? ', בדיקה חתומה: ' + identity.relayId + ' (' + identity.origin + ')' : ''}`));
 }
 
-module.exports = { createRelay, createServer, KINDS, clientAddress, assertPaymentConfig, MAX_MAILBOX,
+module.exports = { createRelay, createServer, generateRelayKey, loadRelayIdentity, certWarning, CERT_WARN_DAYS, MESSAGE_TTL_MS, MAX_FROM_SENDER_IN_BOX, KINDS, clientAddress, assertPaymentConfig, MAX_MAILBOX, SIGNUP_MAX_AGE_MS,
   MAX_BOX_BYTES, SEND_PER_IP_TO_BOX_HOUR, MAX_UNKNOWN_IN_OWNER_BOX, FETCH_MAX_MESSAGES, FETCH_MAX_BYTES };

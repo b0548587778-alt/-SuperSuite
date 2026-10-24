@@ -134,7 +134,8 @@ test('ערוצים: דרך handle(), חשופים ב-preload, נרשמים בי�
   const ipc = read('modules/econ/ipc.js');
   const preload = read('modules/econ/preload.js');
   for (const [ch, audit] of [['gemach:exportLoanStatementPdf', 'gemach.statement.pdf'], ['acct:exportCustomerLedgerPdf', 'acct.export.ledger.pdf'], ['npo:exportDonorFilePdf', 'npo.donorfile.pdf']]) {
-    assert.match(ipc, new RegExp(`handle\\('${ch}'[\\s\\S]{0,700}saveHtmlAsPdf[\\s\\S]{0,300}auditEvent\\(event, '${audit.replace(/\./g, '\\.')}'`), ch);
+    // handleSave: הנתונים בתור, ה-PDF וחלון השמירה מחוץ לתור (בדיקת קוד 23.10.2026, ממצא 39), ואז רישום ביומן
+    assert.match(ipc, new RegExp(`handleSave\\('${ch}'[\\s\\S]{0,700}html: [\\s\\S]{0,300}auditEvent\\(event, '${audit.replace(/\./g, '\\.')}'`), ch);
     assert.match(preload, new RegExp(`'${ch}'`), ch);
   }
   const { permissionFor } = require('../modules/econ/ipc');

@@ -7,7 +7,35 @@
 const SENSITIVITY = { regular: 'רגיל', sensitive: 'רגיש — מצב כלכלי', high: 'רגיש מאוד — מתן בסתר' };
 const len = (v) => (Array.isArray(v) ? v.length : 0);
 
-function dataMap(data, userCounts = {}) {
+// ---------- תיבות ההודעות שבתוכנה (ממצא 26) — אינן במסד, ולכן מגיעות מבחוץ (ipc.js, privacy:getMap).
+// mailboxes: { platform: 'win' | 'android', system?: { count }, owner?: { count } }. תיבה מופיעה רק כשהיא קיימת במחשב הזה
+// (המערכת: שרת ההודעות מוגדר או שיש בה שיחות; מנהל-העל: המצב הוגדר כאן). count — מספר השיחות, null — לא נספר
+const MAILBOX_RETENTION = 'בשרת ההודעות — מוצפנות מקצה לקצה, והודעה שלא נקראה נמחקת אחרי 60 יום; במחשב — נשמרות עד שנמחקות (עד 5,000 ההודעות האחרונות בכל תיבה)';
+function mailboxRows(mb) {
+  if (!mb || typeof mb !== 'object') return [];
+  const android = mb.platform === 'android';
+  const encryption = android ? 'באחסון של האפליקציה במכשיר, בלי הצפנה נוספת של התוכנה'
+    : 'מוצפן (AES-256-GCM) במפתח שנגזר ממפתח הגיבוי האוטומטי (DPAPI); בלי הצפנת מערכת — גלוי, כמו המסד';
+  const count = (x) => (x && Number.isSafeInteger(x.count) && x.count >= 0 ? x.count : null);
+  const where = (file) => (android ? 'האחסון המקומי של האפליקציה' : `הקובץ ${file} בתיקיית נתוני התוכנה`);
+  const rows = [];
+  if (mb.system) {
+    rows.push({ area: 'הודעות בתוכנה — תיבת המערכת', count: count(mb.system),
+      fields: 'לכל שיחה: שם המערכת או איש הקשר, תוכן ההודעות והקבצים המצורפים (עשויים לכלול פרטים אישיים), פרופיל עסקי (טלפון, דוא"ל, כתובת), תוויות והערות פנימיות',
+      sensitivity: 'regular', access: 'כל המשתמשים המחוברים — קריאה; שליחה — עורך ומנהל',
+      storedAt: where('messages.bin'), encryption, retention: MAILBOX_RETENTION, backup: 'נכלל בגיבוי המלא של התוכנה (מוצפן)' });
+  }
+  if (mb.owner) {
+    rows.push({ area: 'הודעות בתוכנה — תיבת מנהל-העל', count: count(mb.owner),
+      fields: 'לכל שיחה: שם המערכת (הלקוח) או איש הקשר, תוכן ההודעות והקבצים המצורפים, פרופיל עסקי, תוויות והערות פנימיות',
+      sensitivity: 'regular', access: 'מנהל בלבד, אחרי פתיחת מצב מנהל-העל בסיסמה',
+      storedAt: where('owner/messages.bin'), encryption, retention: MAILBOX_RETENTION, backup: 'לא נכלל בגיבוי של הארגון (כמו שאר קבצי מנהל-העל)' });
+  }
+  return rows;
+}
+
+// opts.mailboxes — תיבות ההודעות (mailboxRows למעלה); בלעדיו — רק המאגרים שבמסד
+function dataMap(data, userCounts = {}, opts = {}) {
   const npo = data.npo || {};
   const gm = data.gemach || {};
   const ch = data.chesed || {};
@@ -29,14 +57,17 @@ function dataMap(data, userCounts = {}) {
     { area: 'נדל"ן ותיווך — עסקאות', count: len(data.realty && data.realty.deals), fields: 'קונה ומוכר (מהרשימה), מחיר, מועדים, עמלות ותשלומים; קישור לתיק משכנתא', sensitivity: 'regular', access: all },
     { area: 'שמאות מקרקעין — תיקי שומה', count: len(data.realEstate && data.realEstate.cases), fields: 'שם מזמין השומה, ת.ז, טלפון, כתובת הנכס, גוש/חלקה ושווי', sensitivity: 'sensitive', access: all },
     { area: 'אנשי קשר', count: len(data.contacts), fields: 'שם, טלפון, דוא"ל, כתובת', sensitivity: 'regular', access: all }
-  ].map(r => ({ ...r, sensitivityLabel: SENSITIVITY[r.sensitivity] }));
+  ];
+  const mail = mailboxRows(opts && opts.mailboxes);
+  rows.push(...mail);
   return {
-    rows,
+    rows: rows.map(r => ({ ...r, sensitivityLabel: SENSITIVITY[r.sensitivity] })),
     users: { admin: userCounts.admin || 0, editor: userCounts.editor || 0, viewer: userCounts.viewer || 0, accountant: userCounts.accountant || 0 },
     storage: [
       'מסד נתונים מקומי במחשב (תיקיית נתוני המשתמש של התוכנה) — לא נשלח לאינטרנט',
       'גיבוי ידני ואוטומטי — מוצפן בסיסמה (קובץ ‎.ssbk)',
-      'קובצי ייצוא (CSV / PDF) — נשמרים במקום שהמשתמש בוחר, ללא הצפנה. יש לשמור ולמחוק אותם בהתאם'
+      'קובצי ייצוא (CSV / PDF) — נשמרים במקום שהמשתמש בוחר, ללא הצפנה. יש לשמור ולמחוק אותם בהתאם',
+      ...mail.map(r => `${r.area}: ${r.storedAt}; ${r.encryption}. ${r.retention}. גיבוי: ${r.backup}`)
     ],
     disclaimer: 'כלי עזר בלבד ואינו ייעוץ משפטי. לבירור החובות של המוסד לפי תיקון 13 — יש לפנות לעורך דין או לממונה הגנת הפרטיות.'
   };
@@ -257,7 +288,8 @@ const REQUEST_STATUSES = { open: 'פתוחה', done: 'טופלה', rejected: 'נ
 // מועד יעד לתשובה: 30 יום מהקבלה — לבדוק מול התקנות ועם עורך דין
 const RESPONSE_DAYS = 30;
 const MAX_REQUESTS = 5000;
-const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(v));
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDay = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10))).toISOString().slice(0, 10) === v;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 
 function addDays(isoDay, n) {

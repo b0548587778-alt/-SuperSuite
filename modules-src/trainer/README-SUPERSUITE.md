@@ -13,7 +13,14 @@ npm test
 ```
 `node tools/build-trainer.js --check` בודק מה חסר, בלי לבנות.
 
-**מאחורי NetFree** ההורדה של vite נחסמת (418). לכן הבנייה רצה ב-GitHub Actions: בכל דחיפה ל-`master` נבנה המודול, הבדיקות רצות, והתוצר זמין להורדה (Artifacts → `trainer-module`).
+**מאחורי NetFree** ההורדה של vite נחסמת (418). לכן הבנייה רצה ב-GitHub Actions: בכל דחיפה ל-`master` או לענף `build/**` נבנה המודול והבדיקות רצות. אין Artifacts (ההורדה שלהם חסומה ב-NetFree); המודול הבנוי נשלח לענף `ci-status`, בתיקייה `trainer-module`:
+```bash
+git fetch origin ci-status
+git checkout FETCH_HEAD -- trainer-module
+```
+ואז מעתיקים את תוכן `trainer-module` אל `modules/trainer` (בלי `preload.js` — הוא נשמר כמו שהוא), ומוציאים את `trainer-module` מהמאגר (`git rm -r --cached trainer-module` ומחיקת התיקייה). הסיכום של הריצה — `summary.txt` ו-`build.log` באותו ענף.
+
+`tools/build-trainer.js` בודק את התוצר (ערכת הצבעים, קובץ השילוב, פנייה לרשת) **לפני** שהוא נוגע ב-`modules/trainer`, ומחליף את התיקייה רק אחרי שהעותק החדש שלם — בנייה שנכשלה משאירה את המודול הקודם.
 
 ## מה שונה מהמקור (TrainerPro 1.0.0, אפריל 2026)
 הקוד הגיע כ-`TrainerPro-source.zip`. התיקונים שנעשו קודם ידנית בתוך החבילה המהודרת הועברו לכאן, כדי שבנייה חדשה לא תחזיר אותם:

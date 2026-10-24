@@ -13,11 +13,21 @@ const DAY = 86400000;
 const T0 = Date.UTC(2026, 9, 1);
 
 const handlers = {};
+// חלון השמירה של קובץ בקשת האישור: saveTo = null ← המשתמש ביטל
+const saveDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-pay-save-'));
+test.after(() => fs.rmSync(saveDir, { recursive: true, force: true }));
+let saveTo = null;
+// נקרא בזמן שחלון השמירה פתוח (החלון רץ מחוץ לתור — בדיקת קוד 23.10.2026, ממצא 39)
+let onSave = null;
 const Module = require('module');
 const origResolve = Module._resolveFilename;
 Module._resolveFilename = function (req, ...rest) { return req === 'electron' ? '/__electron_stub_pay__.js' : origResolve.call(this, req, ...rest); };
 require.cache['/__electron_stub_pay__.js'] = { id: '/__electron_stub_pay__.js', filename: '/__electron_stub_pay__.js', loaded: true,
-  exports: { ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } } } };
+  exports: { ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } },
+    dialog: { showSaveDialog: async () => {
+      if (onSave) await onSave();
+      return saveTo ? { canceled: false, filePath: saveTo } : { canceled: true };
+    } } } };
 const ipc = require('../modules/econ/ipc');
 const ev = { sender: { id: 41 } };
 
@@ -39,7 +49,8 @@ async function parentSystem() {
     features: ['econ', 'tools'], limits: { maxChildren: 3, maxUsers: 5, maxStorageMb: 1000, maxDepth: 3 },
     issuedAt: T0, expiresAt: T0 + 3 * 365 * DAY, graceDays: 7 });
   await handlers['license:install'](ev, JSON.stringify({ type: 'supersuite-license', v: 1, chain: [lic], notices: [] }));
-  markActivated(dir, now);
+  // המפתח נוצר כאן (בקשת הרישיון) — הזמן נרשם גם בשומר, כמו בסנכרון אמיתי (ממצא 28)
+  markActivated(dir, now, { read: () => secret, write: (t) => { secret = t; } });
   ipc.invalidateLicense();
   return { dir, now };
 }
@@ -77,8 +88,17 @@ test('ipc: בקשת אישור למערכת בת נחסמת עד שהתשלום 
   const st = await handlers['license:childPaymentStatus'](ev, req.keyId);
   assert.equal(st.ready, true);
 
+  // ביטול חלון השמירה — התשלום לא נוצל (בדיקת קוד 23.10.2026: תשלום אבד כשהקובץ לא נשמר)
+  saveTo = null;
+  const cancelled = await handlers['license:requestChildApproval'](ev, { request: text, ...terms });
+  assert.equal(cancelled.saved, false);
+  assert.equal((await handlers['license:childPaymentStatus'](ev, req.keyId)).ready, true, 'התשלום נשאר זמין');
+
   // התנאים מהטופס, התוקף — לפי מה ששולם (גם אם בטופס ביקשו אחרת)
+  saveTo = path.join(saveDir, 'request.sslic');
   const r = await handlers['license:requestChildApproval'](ev, { request: text, ...terms, months: 60 });
+  assert.equal(r.saved, true);
+  assert.equal(fs.readFileSync(saveTo, 'utf8'), r.package, 'קובץ הבקשה נשמר בערוץ עצמו');
   const child = JSON.parse(r.package).child;
   assert.equal(child.expiresAt - now, 730 * DAY);
 
@@ -89,6 +109,51 @@ test('ipc: בקשת אישור למערכת בת נחסמת עד שהתשלום 
   const used = overview.requests.find(x => x.id === pay.id);
   assert.equal(used.usedFor.childId, req.keyId);
   assert.ok(used.usedAt);
+});
+
+test('ipc: חלון השמירה של בקשת האישור מחוץ לתור; בקשה שנייה נחסמת; תשלום שנוצל בינתיים — בלי קובץ (ממצא 39)', async () => {
+  await parentSystem();
+  const req = childRequest('סניף ביתר');
+  const text = JSON.stringify(req);
+  const pay = await handlers['license:childPaymentRequest'](ev, { request: text, amount: 1200 });
+  await handlers['collect:markPaid'](ev, pay.id, {});
+  saveTo = path.join(saveDir, 'busy.sslic');
+  let ran = false;
+  onSave = async () => {
+    // התור פנוי: ערוץ אחר עונה בזמן שהחלון פתוח (בתוך התור זה היה נתקע עד סגירת החלון)
+    const ov = await handlers['collect:getOverview'](ev);
+    assert.ok(ov.requests.some(x => x.id === pay.id));
+    // בקשה נוספת על אותו תשלום — בקובץ או דרך השרת — נחסמת עד שהראשונה מסתיימת
+    await assert.rejects(handlers['license:requestChildApproval'](ev, { request: text, ...terms }), /כבר מתבצעת/);
+    await assert.rejects(handlers['license:remoteForwardChild'](ev, { keyId: req.keyId, ...terms }), /כבר מתבצעת/);
+    ran = true;
+  };
+  try {
+    const r = await handlers['license:requestChildApproval'](ev, { request: text, ...terms });
+    assert.equal(r.saved, true);
+    assert.ok(ran);
+    assert.equal(fs.readFileSync(saveTo, 'utf8'), r.package);
+  } finally { onSave = null; }
+
+  // התשלום נוצל בזמן שהחלון היה פתוח — הבקשה נכשלת, בלי קובץ
+  const req2 = childRequest('סניף מודיעין');
+  const text2 = JSON.stringify(req2);
+  const pay2 = await handlers['license:childPaymentRequest'](ev, { request: text2, amount: 1200 });
+  await handlers['collect:markPaid'](ev, pay2.id, {});
+  const usedFile = path.join(saveDir, 'used.sslic');
+  saveTo = usedFile;
+  onSave = async () => {
+    const db = ipc.getDb();
+    const data = await db.load();
+    const r = data.payments.requests.find(x => x.id === pay2.id);
+    r.usedAt = new Date().toISOString();
+    r.usedFor = { childId: 'אחר' };
+    await db.save(data);
+  };
+  try {
+    await assert.rejects(handlers['license:requestChildApproval'](ev, { request: text2, ...terms }), /דרישת תשלום/);
+  } finally { onSave = null; saveTo = null; }
+  assert.equal(fs.existsSync(usedFile), false, 'בלי קובץ בקשה');
 });
 
 test('ipc: בקשה ממערכת בת דרך השרת — מצב התשלום מוצג ליד הבקשה', async () => {

@@ -79,16 +79,23 @@ test('מסלול מלא דרך שרת אמיתי: פרסום הצעה ← הרש
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-signup-relay-'));
   let provider;
   const billing = { rootKeys };
-  const server = createServer({ dataDir, billing });
+  // מפתח שרת ותעודה ממנהל-העל לכתובת השרת (בדיקה חתומה — לפני שליחת פרטי ההרשמה, checkin.js). הכתובת ידועה רק
+  // אחרי שהשרת עלה, ולכן התעודה נכנסת לאובייקט לפני הבקשה הראשונה
+  const relayKp = L.generateKeyPair();
+  const identity = { privateJwk: relayKp.privateJwk, certText: null, origin: null };
+  const server = createServer({ dataDir, billing, identity });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${server.address().port}`;
+  identity.origin = url;
+  // שרת על 127.0.0.1 — תעודה לכתובת מקומית רק במצב בדיקה מפורש (allowLocal / allowLocalRelay, סקירה 24.10.2026)
+  identity.certText = owner.relayCert(relayKp.publicJwk, { origin: url, allowLocal: true }).text;
   provider = createProvider('test', { publicUrl: url });
   billing.provider = provider;
   try {
     const mk = (withOwner) => {
       const store = createLicenseStore({ storage: one(), secret: one(), rootKeys });
       store.setRemoteSettings({ url });
-      return { store, sync: createLicenseSync({ store, owner: withOwner ? owner : null, rootKeys, fetchImpl: fetch }) };
+      return { store, sync: createLicenseSync({ store, owner: withOwner ? owner : null, rootKeys, fetchImpl: fetch, allowLocalRelay: true }) };
     };
     const O = mk(true); const T = mk(false); const F = mk(false);
 
@@ -137,12 +144,13 @@ test('מסלול מלא דרך שרת אמיתי: פרסום הצעה ← הרש
     // webhook מזויף נדחה
     const bad = await fetch(url + '/pay/webhook', { method: 'POST', body: JSON.stringify({ checkoutId: 'x', status: 'paid', amountAgorot: 1 }), headers: { 'x-test-signature': 'a'.repeat(64) } });
     assert.equal(bad.status, 400);
-  } finally { await new Promise(r => server.close(r)); }
+  } finally { await new Promise(r => server.close(r)); fs.rmSync(dataDir, { recursive: true, force: true }); }
 });
 
 test('הרשאות: ערוצי ההרשמה דרך handle() — למנהל', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/ipc.js'), 'utf8');
   for (const ch of ['license:getOffer', 'license:signup', 'license:signupStatus', 'license:openPayment', 'owner:setOffer', 'owner:publishOffer', 'owner:signups', 'owner:signupIssue', 'owner:signupDocument']) {
-    assert.match(src, new RegExp(`handle\\('${ch}'`), ch);
+    // handleNet / handleSave — הפנייה לשרת וחלון השמירה מחוץ לתור (ממצא 39), אותו שומר
+    assert.match(src, new RegExp(`handle(?:Net|Save)?\\('${ch}'`), ch);
   }
 });

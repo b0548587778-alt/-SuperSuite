@@ -130,9 +130,11 @@ test('מחולל: רק ציוד שיש למתאמן, ולמתחיל אין תר�
 });
 
 test('מחולל: מספר הימים, סטים וחזרות לפי המטרה, בלי תרגיל כפול באותו יום, ותוצאה קבועה לאותו seed', () => {
+  // 6 ימים — תוכנית של 6 ימים (פעם יצאה בשקט תוכנית של 5; בדיקת קוד 23.10.2026). 7 — נדחה: אין אימונים בשבת
+  assert.throws(() => P.generateProgram(client({ daysPerWeek: 7 }), { random: seeded(3) }), /בין 1 ל-6/);
   for (const days of [1, 2, 3, 4, 5, 6]) {
     const prog = P.generateProgram(client({ daysPerWeek: days }), { random: seeded(3) });
-    assert.equal(prog.days.length, Math.min(days, 5), 'ימים: ' + days);
+    assert.equal(prog.days.length, days, 'ימים: ' + days);
     for (const d of prog.days) {
       assert.ok(d.name && d.exercises.length >= 3, d.name);
       const ids = d.exercises.map(x => x.exerciseId);

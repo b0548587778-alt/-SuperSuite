@@ -278,9 +278,18 @@
 
   $('dv').onclick = show;
   $('devClose').onclick = hide;
+  // מצב שבת: מסך השבת במעטפת, או שהשירות מדווח "מושהה" (ייתכן שהמסך עוד לא התעדכן)
+  const restTime = (s) => document.body.classList.contains('shabbat') || !!(s && s.paused);
   api.onChanged(() => {
-    // בקשת צימוד נכנסת כשהמסך סגור — פותחים אותו, כדי שהמשתמש יראה את הקוד להשוואה
-    if (!open) { api.status().then((s) => { if (s.approvals.length) show(); }).catch(() => {}); return; }
-    refresh();
+    // בקשת צימוד נכנסת כשהמסך סגור — פותחים אותו, כדי שהמשתמש יראה את הקוד להשוואה. לא בשבת: בקשה שלא נענתה
+    // לפני כניסת השבת פתחה את החלון מעל מסך השבת (בדיקת קוד 23.10.2026)
+    if (!open) { api.status().then((s) => { if (s.approvals.length && !restTime(s)) show(); }).catch(() => {}); return; }
+    // החלון פתוח (למשל נפתח מעצמו ביום שישי) והשבת נכנסה: showModal שם אותו בשכבה העליונה, מעל מסך השבת — סוגרים
+    api.status().then((s) => { if (restTime(s)) hide(); else refresh(); }).catch(() => refresh());
   });
+  // מסך השבת עולה בלי אירוע של הסנכרון (הסנכרון כבוי, או שהשירות עוד לא בדק) — סוגרים גם אז
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(() => { if (open && document.body.classList.contains('shabbat')) hide(); })
+      .observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  }
 })();

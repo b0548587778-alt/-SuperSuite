@@ -123,6 +123,7 @@ test('הרשאות: מצב עדכון לכל משתמש, הורדה/התקנה �
   assert.match(src, /channel === 'update:getStatus'\) return 'data\.view'/);
   assert.match(src, /channel\.startsWith\('update:'\)\) return 'users\.manage'/);
   for (const ch of ['update:getStatus', 'update:download', 'update:fromFile', 'update:install', 'owner:releaseCreate', 'owner:releases', 'owner:releasePublish']) {
-    assert.match(src, new RegExp(`handle\\('${ch}'`), ch + ' דרך handle()');
+    // handleNet / handleLong — ההורדה וחלונות הבחירה מחוץ לתור (ממצא 39), אותו שומר
+    assert.match(src, new RegExp(`handle(?:Net|Long)?\\('${ch}'`), ch + ' דרך השומר');
   }
 });

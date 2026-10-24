@@ -1,6 +1,6 @@
 // מודול האימונים — mobility.jsx: הועבר מ-App.jsx כמו שהוא (PLAN.md 6.2)
 import React, { useState } from 'react';
-import { MOBILITY_ROUTINES, YOGA_FLOWS, RECOVERY_METHODS } from '../data/mobility.js';
+import { MOBILITY_ROUTINES, STRETCH_FLOWS, RECOVERY_METHODS } from '../data/mobility.js';
 import { FONT_HEADING, Card, Badge } from '../components/legacy-ui.jsx';
 
 
@@ -13,14 +13,14 @@ export function MobilityView() {
   return (
     <div className="p-4 md:p-8 max-w-6xl">
       <header className="mb-6">
-        <h1 className="text-3xl md:text-4xl font-bold mb-1" style={{ fontFamily: FONT_HEADING }}>גמישות, יוגה והתאוששות</h1>
-        <div className="text-sm text-slate-400">שגרות מובנות, יוגה, שיטות התאוששות</div>
+        <h1 className="text-3xl md:text-4xl font-bold mb-1" style={{ fontFamily: FONT_HEADING }}>גמישות, מתיחות והתאוששות</h1>
+        <div className="text-sm text-slate-400">שגרות מובנות, רצפי מתיחות, שיטות התאוששות</div>
       </header>
 
       <div className="flex gap-1 border-b border-slate-800 mb-6 overflow-x-auto">
         {[
           { id: 'routines', label: 'שגרות מובילות' },
-          { id: 'yoga', label: 'יוגה' },
+          { id: 'flows', label: 'רצפי מתיחות' },
           { id: 'recovery', label: 'התאוששות' },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -31,7 +31,7 @@ export function MobilityView() {
       </div>
 
       {tab === 'routines' && <MobilityRoutinesList />}
-      {tab === 'yoga' && <YogaList />}
+      {tab === 'flows' && <StretchFlowList />}
       {tab === 'recovery' && <RecoveryList />}
     </div>
   );
@@ -71,10 +71,10 @@ function MobilityRoutinesList() {
   );
 }
 
-function YogaList() {
+function StretchFlowList() {
   return (
     <div className="space-y-4">
-      {YOGA_FLOWS.map(f => (
+      {STRETCH_FLOWS.map(f => (
         <Card key={f.id}>
           <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
             <h4 className="font-semibold" style={{ fontFamily: FONT_HEADING }}>{f.name}</h4>
@@ -82,9 +82,9 @@ function YogaList() {
           </div>
           <div className="text-xs text-slate-400 mb-3">🎯 {f.purpose}</div>
           <div className="bg-slate-800/40 rounded-lg p-3">
-            <div className="text-xs text-slate-400 mb-2">רצף תנוחות</div>
+            <div className="text-xs text-slate-400 mb-2">סדר התרגילים</div>
             <div className="space-y-1 text-sm">
-              {f.poses.map((p, i) => (
+              {f.steps.map((p, i) => (
                 <div key={i} className="flex justify-between border-b border-slate-800/50 py-1">
                   <span className="text-slate-200">{i + 1}. {p.name}</span>
                   <span className="text-indigo-300 text-xs">{p.breath}</span>

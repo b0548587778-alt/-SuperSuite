@@ -16,7 +16,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 /**
  * הגשר בין JavaScript ל-Java (window.SuperSuiteBridge). מחליף את מה שב-Electron עשה Node:
- * SQLite, scrypt, AES-GCM, קבצים והדפסה.
+ * SQLite, scrypt, AES-GCM, קבצים, הדפסה, והחיבור לשרת הרישוי (הפנייה היחידה לרשת).
  * כל קריאה דורשת אסימון שנמסר רק למסגרת הראשית (המעטפת) — iframe של מודול לא יכול להשתמש בגשר.
  * תשובה: JSON {"r": תוצאה} או {"e": "הודעה"}.
  */
@@ -122,6 +122,37 @@ final class Bridge {
     @JavascriptInterface
     public String openText(String t, int cb) {
         return guard(t, () -> { activity.openText(cb); return true; });
+    }
+
+    /* ---------- תיקייה שנבחרה (קבצים במבנה אחיד) ---------- */
+    @JavascriptInterface
+    public String pickFolder(String t, int cb) {
+        return guard(t, () -> { activity.pickFolder(cb); return true; });
+    }
+
+    @JavascriptInterface
+    public String treeExists(String t, String tree, String rel) {
+        return guard(t, () -> activity.treeExists(tree, rel));
+    }
+
+    @JavascriptInterface
+    public String treeMkdirs(String t, String tree, String rel) {
+        return guard(t, () -> { activity.treeMkdirs(tree, rel); return true; });
+    }
+
+    @JavascriptInterface
+    public String treeWrite(String t, String tree, String rel, String data) {
+        return guard(t, () -> { activity.treeWrite(tree, rel, b64(data)); return true; });
+    }
+
+    /* ---------- שרת הרישוי — הפנייה היחידה לרשת (RelayClient) ---------- */
+    @JavascriptInterface
+    public String relayPost(String t, int cb, String origin, String body) {
+        return guard(t, () -> {
+            RelayClient.endpoint(origin); // כתובת לא תקינה — נדחית מיד, בלי חיבור
+            activity.relayPost(cb, origin, body);
+            return true;
+        });
     }
 
     /* ---------- הדפסה ויציאה ---------- */

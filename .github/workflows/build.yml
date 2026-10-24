@@ -45,9 +45,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: mkdir -p ci-logs
-      # "גרסה להפצה" — ראשון: לא תלוי בחבילות, ונכשל בתוך שניות ולא אחרי ההתקנות והבדיקות
+      # "גרסה להפצה" — ראשון: לא תלוי בחבילות, ונכשל בתוך שניות ולא אחרי ההתקנות והבדיקות.
+      # גם בכל פרסום (תגית v* או publish): מתקין לציבור לא יוצא בלי מפתח שורש ושרת https (בדיקת קוד 23.10.2026).
+      # התנאי חייב לכסות את התנאי של משימת publish (tests/audit-ci-tools-tests.test.js)
       - name: Release check
-        if: ${{ inputs.release }}
+        if: ${{ inputs.release || inputs.publish || startsWith(github.ref, 'refs/tags/v') }}
         run: set -o pipefail; { echo "== release-check"; node tools/release-check.js 2>&1; } | tee -a "$LOG"
       # עם קובץ נעילה — אותן גרסאות בדיוק בכל בנייה (npm ci); בלעדיו — npm install, והקובץ שנוצר נשמר ב-ci-status
       - name: npm install (trainer)
@@ -58,7 +60,8 @@ jobs:
           { echo "== $CMD (trainer)"; $CMD 2>&1; } | tee -a "$LOG"
           cp package-lock.json "$GITHUB_WORKSPACE/ci-logs/trainer-package-lock.json"
       # גם בשורש: npm ci רק כשקובץ הנעילה כולל את node-llama-cpp (אחרת npm ci נכשל על אי-התאמה).
-      # הקובץ שנוצר נשמר ב-ci-status (root-package-lock.json) — אחרי commit שלו, כל בנייה מקבלת אותן גרסאות בדיוק
+      # הקובץ שנוצר נשמר ב-ci-status (root-package-lock.json) — אחרי commit שלו, כל בנייה מקבלת אותן גרסאות בדיוק.
+      # node-llama-cpp בגרסה מדויקת ב-package.json: הוא נפרס ל-app.asar.unpacked, מחוץ לבדיקת השלמות של app.asar
       - name: npm install
         run: |
           set -o pipefail
@@ -75,10 +78,18 @@ jobs:
       # הבדיקות רצות על הקוד המקורי, לפני הכיווץ
       - name: npm test
         run: set -o pipefail; { echo "== npm test"; npm test 2>&1; } | tee -a "$LOG"
+      # כיווץ הקוד (PLAN.md 3.5) — במקום, בעותק של GitHub בלבד, אחרי הבדיקות.
+      # צעד נפרד בלי סודות החתימה, ובלי npm install: esbuild הנעול של מודול האימונים (modules-src/trainer/package-lock.json)
+      - name: minify
+        env:
+          NODE_PATH: ${{ github.workspace }}/modules-src/trainer/node_modules
+        run: set -o pipefail; { echo "== minify"; node tools/minify.js 2>&1; } | tee -a "$LOG"
       # --publish never: בלי זה electron-builder מזהה CI ומנסה לפרסם ל-GitHub Releases (ונכשל בלי GH_TOKEN).
       # פרסום גרסאות — משימת publish למטה (PLAN.md 1.1), למאגר ההורדות הציבורי.
       # חתימת קוד — רק אם הוגדרו סודות במאגר (docs/CODE-SIGNING.md). בלי סודות: בנייה לא חתומה, כמו קודם.
       # טוקן USB אינו זמין בשרת של GitHub — כאן אפשר רק PFX או Azure Trusted Signing.
+      # הסודות רק בצעד הזה, ובו אין התקנת חבילות — רק electron-builder מקובץ הנעילה, שחותם בעצמו.
+      # node ישירות על cli.js (כמו build-local.js), לא npx: בלי הורדה מה-registry כשהחבילה חסרה, ובלי cmd.exe בדרך
       - name: Build
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -91,12 +102,12 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: |
-          set -o pipefail
-          ARGS="$(node tools/code-signing.js --args)"
+          set -eo pipefail
+          # דגל אחד בכל שורה, למערך: ערך עם רווח (SS_SIGN_PUBLISHER="Bunim Seller") נשאר ארגומנט אחד
+          node tools/code-signing.js --args > "$RUNNER_TEMP/sign-args.txt"
+          mapfile -t ARGS < "$RUNNER_TEMP/sign-args.txt"
           { echo "== code-signing"; node tools/code-signing.js 2>&1; } | tee -a "$LOG"
-          # כיווץ הקוד (PLAN.md 3.5) — במקום, בעותק של GitHub בלבד, אחרי הבדיקות
-          { echo "== minify"; npm install --no-save esbuild 2>&1 && node tools/minify.js 2>&1; } | tee -a "$LOG"
-          { echo "== electron-builder"; npx electron-builder --win nsis portable --publish never $ARGS 2>&1; } | tee -a "$LOG"
+          { echo "== electron-builder"; node node_modules/electron-builder/out/cli/cli.js --win nsis portable --publish never "${ARGS[@]}" 2>&1; } | tee -a "$LOG"
       # הגרסה הארוזה והמכווצת: עולה בלי שגיאות, ומסרבת לעלות עם פרמטר דיבוג או עם app.asar שהשתנה.
       # נכשל ← אין פרסום (הצעדים הבאים מדולגים)
       - name: Smoke test (packaged)

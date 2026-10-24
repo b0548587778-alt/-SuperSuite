@@ -8,6 +8,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const Identity = require('./identity');
+const Pairing = require('./pairing');
 const Transport = require('./transport');
 const Discovery = require('./discovery');
 
@@ -180,6 +181,18 @@ function createSyncService({ dir, safeStorage, isPaused = () => false, now = Dat
     if (!a || now() > a.exp) throw fail('approval-expired', 'הבקשה פגה — התחילו את הצימוד מחדש');
     return a;
   }
+  // האישור חל על הצומת הפעיל, ולא על זה שקיבל את הבקשה: אם הרשת הופעלה מחדש מאז (שינוי פורט, צאת שבת),
+  // לצומת הישן יש מצב ישן, והכתיבה שלו החזירה את המונה ואת חלונות השידור החוזר אחורה (בדיקת קוד 23.10.2026)
+  function acceptPeer(peer) {
+    if (node) return node.acceptPeer(peer);
+    // הרשת כבויה כרגע: החלון של המכשיר מתאפס במצב השמור, והצומת הבא ייטען ממנו
+    const replay = data.transport && data.transport.replay;
+    if (replay && replay[peer.id]) {
+      const { [peer.id]: _gone, ...rest } = replay;
+      data.transport = { ...data.transport, replay: rest };
+    }
+    data.peers = Pairing.addPeer(data.peers, peer, { now: now() });
+  }
 
   async function connectPeer(peerId, endpoint) {
     if (!node) throw fail('disabled', 'הסנכרון כבוי');
@@ -277,7 +290,7 @@ function createSyncService({ dir, safeStorage, isPaused = () => false, now = Dat
     const ep = parseEndpoint(host || lanAddresses()[0] || '127.0.0.1', listening.port);
     if (!ep) throw fail('bad-endpoint', 'כתובת לא תקינה');
     const code = node.openPairing(ep);
-    const inv = require('./pairing').parseInvite(code, now());
+    const inv = Pairing.parseInvite(code, now());
     invite = { code, exp: inv.exp };
     changed();
     return { code, expiresAt: inv.exp, endpoint: `${ep.host}:${ep.port}` };
@@ -289,18 +302,18 @@ function createSyncService({ dir, safeStorage, isPaused = () => false, now = Dat
     let ep;
     if (endpoint) { ep = parseEndpoint(endpoint); if (!ep) throw fail('bad-endpoint', 'כתובת לא תקינה. דוגמה: 192.168.1.20:47700'); }
     const req = await node.joinPairing(String(code || '').trim(), { endpoint: ep });
-    const inv = require('./pairing').parseInvite(String(code).trim(), now());
-    const target = ep || inv.endpoint;
-    const reqId = addApproval({
-      ...req,
-      approve: () => { req.approve(); data.endpoints[req.peer.id] = { ...target, via: 'pairing' }; saveState(); },
-    }, 'outgoing');
+    // הכתובת שאליה התחברנו מגיעה מהצימוד עצמו (req.endpoint). פענוח חוזר של ההזמנה כאן דחה צימוד שכבר
+    // הושלם, אם תוקף הקוד פג באמצע (בדיקת קוד 23.10.2026)
+    const reqId = addApproval(req, 'outgoing');
     return { reqId, name: req.peer.name, code: req.code };
   };
 
   svc.approve = async (reqId) => {
+    // בשבת וביום טוב אין צימוד — גם אם חלון האישור נשאר פתוח מלפני כניסתם (בדיקת קוד 23.10.2026)
+    if (isPaused()) throw fail('paused', 'הסנכרון מושהה בשבת וביום טוב — אפשר לצמד מחדש אחרי צאת השבת / החג');
     const a = takeApproval(reqId);
-    a.approve();
+    acceptPeer(a.peer);
+    if (a.direction === 'outgoing' && a.endpoint) data.endpoints[a.peer.id] = { host: a.endpoint.host, port: a.endpoint.port, via: 'pairing' };
     if (a.direction === 'incoming') { invite = null; }
     saveState();
     changed();
@@ -350,7 +363,7 @@ function createSyncService({ dir, safeStorage, isPaused = () => false, now = Dat
   svc.revoke = (peerId) => {
     if (!data.peers.some(p => p.id === peerId)) throw fail('unknown', 'המכשיר לא נמצא');
     if (node) node.revoke(peerId);
-    else data.peers = require('./pairing').revokePeer(data.peers, peerId, { now: now() });
+    else data.peers = Pairing.revokePeer(data.peers, peerId, { now: now() });
     delete data.endpoints[peerId];
     saveState();
     changed();

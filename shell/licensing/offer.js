@@ -15,7 +15,9 @@ function cleanPlan(p, i) {
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) throw new Error('מזהה תכנית אינו תקין');
   const name = clean(p.name, 60);
   if (!name) throw new Error('לכל תכנית חייב להיות שם');
-  const priceAgorot = Number(p.priceAgorot);
+  // מחיר חסר (null / '' — גם NaN שעבר JSON) אינו 0: אחרת נוצרת תכנית חינם
+  const rawPrice = p.priceAgorot;
+  const priceAgorot = typeof rawPrice === 'number' || (typeof rawPrice === 'string' && rawPrice.trim()) ? Number(rawPrice) : NaN;
   if (!Number.isSafeInteger(priceAgorot) || priceAgorot < 0 || priceAgorot > 100000000) throw new Error(`המחיר בתכנית "${name}" אינו תקין`);
   const months = Number(p.months);
   if (!Number.isSafeInteger(months) || months < 12 || months > 60) throw new Error(`התקופה בתכנית "${name}" אינה תקינה — הרישיון שנתי (12–60 חודשים)`);

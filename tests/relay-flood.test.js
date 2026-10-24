@@ -47,6 +47,8 @@ test.after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: 
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-relay-fl-')); dirs.push(d); return d; };
 const relayWith = (opts = {}) => {
   const dir = tmp();
+  // ההצעה מפורסמת בשרת — הרשמה נבדקת מול ההצעה שבתוקף (בדיקת קוד 23.10.2026, ממצא 31)
+  fs.writeFileSync(path.join(dir, 'offer.json'), JSON.stringify({ text: offerText, issuedAt: JSON.parse(offerText).payload.issuedAt }));
   return { dir, relay: R.createRelay({ dataDir: dir, billing: { rootKeys: [root.publicJwk], provider: opts.provider || fakeProvider() }, ...opts }) };
 };
 const box = (dir, id) => { try { return JSON.parse(fs.readFileSync(path.join(dir, id + '.json'), 'utf8')); } catch { return []; } };

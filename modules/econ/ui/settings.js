@@ -5,7 +5,7 @@
 // ============================================================
 // הגדרות מתקדמות: כללי, משתמשים ותפקידים, יומן ביקורת, מרכז ייבוא/ייצוא
 // ============================================================
-const ROLE_LABELS = { admin: 'מנהל — הכל כולל משתמשים', editor: 'עורך — צפייה, הזנה, ייצוא וגיבוי', viewer: 'צופה — קריאה בלבד',
+const ROLE_LABELS = { admin: 'מנהל — הכל כולל משתמשים', editor: 'עורך — צפייה, הזנה וייצוא', viewer: 'צופה — קריאה בלבד',
   accountant: 'רואה חשבון — צפייה וייצוא בלבד' };
 const START_LABELS = { dashboard: 'לוח בקרה', 'acct-reports': 'דוחות ומע"מ', 'acct-invoices': 'חשבוניות מס', 'acct-journal': 'יומן חשבונאי',
   'personal-finance': 'התוכנית הפיננסית', finance: 'תכנון פיננסי', contacts: 'אנשי קשר', tasks: 'משימות', npo: 'עמותה ותרומות', gemach: 'גמ"ח', chesed: 'חסד וחלוקות', 'mortgage-advisor': 'ייעוץ משכנתאות', 'mortgage-lab': 'מעבדת תמהיל' };
@@ -36,7 +36,7 @@ function renderPrivacyCard(pv) {
     <p class="muted">${esc(pv.disclaimer)}</p>
     <div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>מאגר</th><th>רשומות</th><th>שדות</th><th>רגישות</th><th>מי רואה</th></tr></thead>
-      <tbody>${pv.rows.map(r => `<tr><td>${esc(r.area)}</td><td>${Number(r.count) || 0}</td><td><small>${esc(r.fields)}</small></td>
+      <tbody>${pv.rows.map(r => `<tr><td>${esc(r.area)}</td><td>${r.count == null ? '—' : Number(r.count) || 0}</td><td><small>${esc(r.fields)}</small></td>
         <td><small class="${r.sensitivity === 'regular' ? 'muted' : 'bad'}">${esc(r.sensitivityLabel)}</small></td><td><small>${esc(r.access)}</small></td></tr>`).join('')}</tbody>
     </table></div>
     <div class="acct-row"><span>משתמשים פעילים</span><span>מנהלים ${Number(pv.users.admin)} · עורכים ${Number(pv.users.editor)} · צופים ${Number(pv.users.viewer)}</span></div>
@@ -161,6 +161,13 @@ async function runPrivacyRetention() {
   } catch (error) { showError('שגיאה במזעור: ' + errMsg(error)); }
 }
 
+// מועד ביומן הביקורת — נשמר ב-UTC, מוצג לפי השעון המקומי ("YYYY-MM-DD HH:MM")
+function auditAtLocal(at) {
+  const d = new Date(at);
+  if (!at || Number.isNaN(d.getTime())) return String(at ?? '').slice(0, 16).replace('T', ' ');
+  return `${isoDate(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 function renderSettings(d) {
   const st = d && typeof d === 'object' ? d : {};
   const users = Array.isArray(st.users) ? st.users : [];
@@ -228,7 +235,7 @@ function renderSettings(d) {
         </div>
         <div class="acct-scroll"><table class="acct-table">
           <thead><tr><th>מועד</th><th>משתמש</th><th>פעולה</th><th>פרטים</th></tr></thead>
-          <tbody>${audit.map(a => `<tr><td>${esc(String(a.at).slice(0, 16).replace('T', ' '))}</td><td>${esc(a.user)}</td><td>${esc(a.action)}</td><td><small>${esc(String(a.details).slice(0, 120))}</small></td></tr>`).join('') || '<tr><td colspan="4" class="muted">אין אירועים</td></tr>'}</tbody>
+          <tbody>${audit.map(a => `<tr><td>${esc(auditAtLocal(a.at))}</td><td>${esc(a.user)}</td><td>${esc(a.action)}</td><td><small>${esc(String(a.details).slice(0, 120))}</small></td></tr>`).join('') || '<tr><td colspan="4" class="muted">אין אירועים</td></tr>'}</tbody>
         </table></div>
       </div>` : ''}
     </div>`;

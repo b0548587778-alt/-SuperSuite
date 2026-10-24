@@ -21,13 +21,25 @@ function fakeElement() {
   };
 }
 
-function load(overrides = {}) {
+// שעון קבוע לבדיקה: Date שבו "עכשיו" הוא nowMs (רק בתוך ה-vm)
+function fixedDate(nowMs) {
+  return class extends Date {
+    constructor(...a) { if (a.length) super(...a); else super(nowMs); }
+    static now() { return nowMs; }
+  };
+}
+
+// opts.now — "עכשיו" בתוך המעטפת (ברירת המחדל: השעון האמיתי)
+function load(overrides = {}, opts = {}) {
   const elements = {};
   const listeners = { active: null, cmd: null, activeView: null };
   const calls = { getBackupTarget: 0, isLoggedIn: 0, open: [], overlay: [] };
   let loggedIn = false;
   let target = '/backups/east';
   const shellAPI = {
+    // מצב שבת כבוי כברירת מחדל: בלי זה, בשבת וביום טוב (מצב שבת דלוק כברירת מחדל ב-hebcal) מסך המנוחה
+    // מסתיר את המודול, והבדיקות שסופרות את setOverlay נכשלו לפי היום בשבוע. מצב שבת עצמו נבדק עם שעון קבוע
+    getCalendar: async () => ({ shabbatMode: false }),
     switchTo: async () => true,
     backupAll: async () => ({ ok: false }),
     restoreAll: async () => ({ ok: false }),
@@ -52,7 +64,8 @@ function load(overrides = {}) {
     body: fakeElement(),
   };
   const context = { document, window: {}, console, confirm: () => true, alert() {}, prompt: () => null, setTimeout, clearTimeout,
-    setInterval: () => 0, clearInterval() {}, Intl, Date, Math, localStorage: { getItem: () => null, setItem() {} } };
+    setInterval: () => 0, clearInterval() {}, Intl, Date: opts.now == null ? Date : fixedDate(opts.now), Math,
+    localStorage: { getItem: () => null, setItem() {} } };
   context.window = context;
   context.shellAPI = shellAPI;
   context.window.shellAPI = shellAPI;
@@ -149,4 +162,33 @@ test('דיאלוג המדריך מסתיר את המודול הפעיל ומחז
   assert.deepEqual(s.calls.overlay, [true]);
   s.elements.guideOk.onclick();
   assert.deepEqual(s.calls.overlay, [true, false]);
+});
+
+// בדיקת קוד 23.10.2026: הבדיקה שלמעלה נכשלה בכל שבת ויום טוב (שעון אמיתי + מצב שבת דלוק כברירת מחדל).
+// שבת קודש, 24.10.2026 בצהריים לפי שעון ישראל — שעון קבוע, כך שהתוצאה לא תלויה ביום שבו רצות הבדיקות
+const SHABBAT_NOON = Date.UTC(2026, 9, 24, 9, 0);
+const WEEKDAY_NOON = Date.UTC(2026, 9, 21, 9, 0); // יום רביעי, י׳ בחשוון
+
+test('בשבת, כשמצב שבת כבוי: דיאלוג המדריך מסתיר את המודול ומחזיר אותו — כמו ביום חול', async () => {
+  const s = load({}, { now: SHABBAT_NOON });
+  await flush();
+  s.emitCmd('help');
+  assert.deepEqual(s.calls.overlay, [true]);
+  s.elements.guideOk.onclick();
+  assert.deepEqual(s.calls.overlay, [true, false]);
+});
+
+test('בשבת, כשמצב שבת דלוק: מסך המנוחה מכסה את המודול, וסגירת דיאלוג לא מחזירה אותו', async () => {
+  const s = load({ getCalendar: async () => ({ shabbatMode: true }) }, { now: SHABBAT_NOON });
+  await flush();
+  assert.deepEqual(s.calls.overlay, [true], 'מסך המנוחה');
+  s.emitCmd('help');
+  s.elements.guideOk.onclick();
+  assert.deepEqual(s.calls.overlay, [true, true], 'המודול נשאר מוסתר');
+});
+
+test('ביום חול, כשמצב שבת דלוק: אין מסך מנוחה', async () => {
+  const s = load({ getCalendar: async () => ({ shabbatMode: true }) }, { now: WEEKDAY_NOON });
+  await flush();
+  assert.deepEqual(s.calls.overlay, []);
 });

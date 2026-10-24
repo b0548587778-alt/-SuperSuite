@@ -4,7 +4,8 @@
 
 const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 const { assertIsraeliId, isValidIsraeliId } = require('./israeliId');
 // תרומה במטבע זר — נרשמת בשקלים לפי השער שהוקלד; המטבע והשער נשמרים ב-foreign (core/currency.js)
 const { parseForeign, stored: storedForeign, foreignLabel } = require('./currency');

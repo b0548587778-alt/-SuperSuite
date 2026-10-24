@@ -22,8 +22,8 @@ const TOOL_DEFS = Object.freeze([
   { name: 'period_summary', domain: 'acct', description: 'סיכום החשבונות לתקופה שבשאלה: הכנסות, הוצאות, רווח ומע"מ. הסכומים מוכנים — יש להעתיק אותם כפי שהם.', params: { type: 'object', properties: {} } },
   { name: 'unpaid_invoices', domain: 'acct', description: 'חשבוניות פתוחות לגבייה (מי לא שילם), מהגדולה לקטנה, עם הסך הכול.', params: { type: 'object', properties: { limit: { type: 'number' } } } },
   { name: 'repeat_customers', domain: 'acct', description: 'לקוחות חוזרים: מספר חשבוניות וסך הכול לכל לקוח.', params: { type: 'object', properties: {} } },
-  { name: 'donors_summary', domain: 'npo', description: 'סיכום תרומות השנה: מספר תרומות, תורמים וסך הכול, והתורמים הגדולים.', params: { type: 'object', properties: {} } },
-  { name: 'donor_record', domain: 'npo', description: 'פרטי תורם אחד לפי שם (לניסוח מכתב תודה או נוסח קבלה): מספר תרומות וסך הכול השנה.', params: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+  { name: 'donors_summary', domain: 'npo', description: 'סיכום התרומות של השנה שבשדה year בלבד: מספר תרומות, תורמים וסך הכול, והתורמים הגדולים.', params: { type: 'object', properties: {} } },
+  { name: 'donor_record', domain: 'npo', description: 'פרטי תורם אחד לפי שם (לניסוח מכתב תודה או נוסח קבלה): מספר התרומות וסך הכול בשנה שבשדה year בלבד.', params: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
   { name: 'appraisal_last', domain: 'shamai', description: 'הערכת השווי האחרונה: שווי, רמת ביטחון וגורמים.', params: { type: 'object', properties: {} } },
   { name: 'trainer_alerts', domain: 'trainer', description: 'מתאמנים שדורשים תשומת לב (מנוי מסתיים, יתרה, היעדרות).', params: { type: 'object', properties: {} } },
   { name: 'find_screen', domain: null, description: 'חיפוש מסך בתוכנה לפי תיאור חופשי (לחיפוש Ctrl+K). מחזיר מסכים מתאימים בלבד.', params: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
@@ -56,6 +56,10 @@ function repeatCustomers(ctx) {
   return { customers: Number(a.customers) || 0, repeat: list.map(c => ({ customer: c.customer, invoices: Number(c.count) || 0, total: nis(ag(c.total)) })) };
 }
 
+// ctx.npo.donors — התרומות של שנה אחת בלבד (ctx.npo.year), לא של כל השנים: מכתב תודה „על תרומותיך השנה”
+// היה מבוסס על הסכום הכולל (ממצא 46)
+const npoYearOf = (ctx) => String((ctx.npo && ctx.npo.year) || (ctx.today ? String(ctx.today).slice(0, 4) : ''));
+
 function donors(ctx) {
   const n = ctx.npo;
   if (!n || !Array.isArray(n.donors)) return { error: 'נתוני העמותה אינם זמינים' };
@@ -63,7 +67,7 @@ function donors(ctx) {
   const count = n.donors.reduce((t, d) => t + (Number(d.count) || 0), 0);
   const top = [...n.donors].sort((a, b) => Number(b.total) - Number(a.total)).slice(0, 5)
     .map(d => ({ name: d.name, donations: Number(d.count) || 0, total: nis(ag(d.total)) }));
-  return { year: ctx.today ? String(ctx.today).slice(0, 4) : '', donations: count, donors: n.donors.length, total: nis(totalAg), top };
+  return { year: npoYearOf(ctx), donations: count, donors: n.donors.length, total: nis(totalAg), top };
 }
 
 function donorRecord(ctx, args) {
@@ -72,8 +76,8 @@ function donorRecord(ctx, args) {
   const q = norm(args && args.name);
   if (!q) return { error: 'חסר שם תורם' };
   const hits = n.donors.filter(d => norm(d.name).includes(q)).slice(0, 3);
-  if (!hits.length) return { error: 'לא נמצא תורם בשם הזה' };
-  return { matches: hits.map(d => ({ name: d.name, donations: Number(d.count) || 0, total: nis(ag(d.total)) })), year: ctx.today ? String(ctx.today).slice(0, 4) : '' };
+  if (!hits.length) return { error: `לא נמצאו תרומות של תורם בשם הזה בשנת ${npoYearOf(ctx)}` };
+  return { matches: hits.map(d => ({ name: d.name, donations: Number(d.count) || 0, total: nis(ag(d.total)) })), year: npoYearOf(ctx) };
 }
 
 function appraisal(ctx) {
@@ -108,8 +112,10 @@ function searchRecords(ctx, args) {
       if (name && norm(name).includes(q) && !seen.has(name)) { seen.add(name); out.push({ kind: 'customer', name, view: 'acct-invoices' }); }
     }
   }
-  if (open(ctx, 'npo') && ctx.npo && Array.isArray(ctx.npo.donors)) {
-    for (const d of ctx.npo.donors) if (norm(d.name).includes(q)) out.push({ kind: 'donor', name: d.name, view: 'npo' });
+  // חיפוש תורם — בכל השנים (names), לא רק בתורמי השנה
+  if (open(ctx, 'npo') && ctx.npo && (Array.isArray(ctx.npo.names) || Array.isArray(ctx.npo.donors))) {
+    const names = Array.isArray(ctx.npo.names) ? ctx.npo.names : ctx.npo.donors.map(d => d.name);
+    for (const name of new Set(names)) if (norm(name).includes(q)) out.push({ kind: 'donor', name, view: 'npo' });
   }
   return { records: out.slice(0, 10) };
 }

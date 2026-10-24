@@ -268,7 +268,8 @@ test('ערוצים, הרשאות, preload ומסכים', () => {
   for (const op of ['saveMasavSettings', 'createMasavFile', 'importMasavReturns', 'closeMasavBatch', 'cancelMasavBatch']) assert.ok(ipc.includes('`${prefix}:' + op + '`'), op);
   assert.match(ipc, /handle\('npo:setStandingBank'/);
   assert.match(ipc, /handle\('gemach:setLoanBank'/);
-  assert.match(ipc, /writeFileSync\(r\.filePath, out\.text, 'latin1'\)/);
+  // הקובץ נכתב ב-latin1 לנתיב שנבחר בחלון השמירה (שרץ מחוץ לתור — ממצא 39)
+  assert.match(ipc, /writeFileSync\(file, out\.text, 'latin1'\)/);
   // preload: תחום לא מוכר נדחה
   const exposed = {};
   const calls = [];

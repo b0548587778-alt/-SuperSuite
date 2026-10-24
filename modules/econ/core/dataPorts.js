@@ -3,6 +3,7 @@
 // הכתיבה למסד נעשית ב-ipc.js בשמירה אחת (בתוך enqueue) — ייבוא הוא "הכל או כלום" לרשומות התקינות.
 const crypto = require('crypto');
 const F = require('./features');
+const X = require('./exports');
 const PR = require('./pricing');
 const N = require('./npo');
 const M = require('./mortgageAdvisor');
@@ -10,7 +11,8 @@ const M = require('./mortgageAdvisor');
 const MAX_IMPORT_ROWS = 5000;
 const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 
 // ---------- מבני אחסון: גישה אחידה לרשימה בתוך אובייקט הנתונים ----------
 const listIn = (key, inner) => ({
@@ -69,6 +71,7 @@ const KIND = { income: 'הכנסה', expense: 'הוצאה' };
 // כל סוג: תווית, מיקום, עמודות (מפתח, כותרת בעברית, מנתח לייבוא), ומפתח כפילות (דילוג בייבוא).
 // domain — תחילית הערוצים של תחום שנפתח ברישיון בנפרד (gate.js → ECON_SUB_FEATURES); ה-IPC בודק אותו בייבוא ובייצוא.
 // סוג חדש שנשמר באוסף של תחום כזה — חייב domain, אחרת הייבוא/הייצוא עוקף את הרישיון (tests/licensing-ports.test.js)
+// adminOnly — נתונים אישיים של בעל העסק: רק מנהל מייבא, מייצא או רואה את הסוג (כמו הערוצים personal:* / personalFinance:*)
 const KINDS = {
   contacts: {
     label: 'אנשי קשר', store: listIn('contacts'),
@@ -108,7 +111,7 @@ const KINDS = {
     extra: () => ({ tags: [], potentialImpact: '', date: new Date().toISOString(), updatedAt: new Date().toISOString() })
   },
   personal: {
-    label: 'הוצאות אישיות ומשפחה', store: listIn('personal'),
+    label: 'הוצאות אישיות ומשפחה', adminOnly: true, store: listIn('personal'),
     columns: [
       ['date', 'תאריך'], ['kind', 'סוג', null, KIND], ['category', 'קטגוריה'], ['amount', 'סכום'], ['note', 'הערה']
     ],
@@ -117,7 +120,7 @@ const KINDS = {
     dupKey: (r) => `${r.date}|${r.kind}|${r.category}|${r.amount}`
   },
   financeIncomes: {
-    label: 'הכנסות בתוכנית הפיננסית', store: listIn('personalFinance', 'incomes'),
+    label: 'הכנסות בתוכנית הפיננסית', adminOnly: true, store: listIn('personalFinance', 'incomes'),
     columns: [
       ['source', 'מקור', required(text(200), 'מקור ההכנסה')], ['category', 'קטגוריה', text(100)],
       ['amount', 'סכום', money('סכום', { allowZero: false })], ['frequency', 'תדירות', oneOf(FREQ, 'monthly'), FREQ], ['notes', 'הערות', text(1000)]
@@ -125,7 +128,7 @@ const KINDS = {
     dupKey: (r) => `${r.source}|${r.amount}|${r.frequency}`
   },
   financeExpenses: {
-    label: 'הוצאות בתוכנית הפיננסית', store: listIn('personalFinance', 'expenses'),
+    label: 'הוצאות בתוכנית הפיננסית', adminOnly: true, store: listIn('personalFinance', 'expenses'),
     columns: [
       ['category', 'קטגוריה', required(text(100), 'קטגוריה')], ['description', 'תיאור', text(300)],
       ['amount', 'סכום', money('סכום', { allowZero: false })], ['frequency', 'תדירות', oneOf(FREQ, 'monthly'), FREQ],
@@ -136,7 +139,9 @@ const KINDS = {
   mortgageClients: {
     // נשמר באגורות; הייצוא והבדיקה לכפילויות רואים שקלים (clientView), והשמירה ממירה חזרה (clientStored)
     label: 'תיקי לקוחות משכנתא', domain: 'madv', store: {
-      get: (data) => listIn('mortgageAdvisor', 'clients').get(data).map(M.clientView),
+      // opts.actor — בייצוא: רק התיקים שהיועץ רואה במסך (ownOnly, M.canSee). בלי actor (ייבוא, בדיקת כפילויות) — כל התיקים
+      get: (data, opts = {}) => listIn('mortgageAdvisor', 'clients').get(data)
+        .filter(c => M.canSee(c, opts.actor, data.mortgageAdvisor && data.mortgageAdvisor.settings)).map(M.clientView),
       set: (data, list) => listIn('mortgageAdvisor', 'clients').set(data, list.map(M.clientStored))
     },
     columns: [
@@ -184,23 +189,33 @@ const kindDef = (kind) => {
 };
 
 // ---------- ייצוא ----------
-function exportTable(kind, data) {
+// opts.actor — המשתמש המייצא (לסינון תיקי משכנתא לפי ownOnly)
+function exportTable(kind, data, opts = {}) {
   const k = kindDef(kind);
   const headers = k.columns.map(c => c[1]);
-  const rows = k.store.get(data).map(r => k.columns.map(([key, , , labels]) => {
+  const rows = k.store.get(data, opts).map(r => k.columns.map(([key, , , labels]) => {
     const v = r[key];
     if (labels && v !== undefined && v !== null && labels[String(v)]) return labels[String(v)];
     return v === undefined || v === null ? '' : v;
   }));
-  const stamp = new Date().toISOString().slice(0, 10);
+  // תאריך מקומי בשם הקובץ (לא UTC — בין חצות ל-03:00 זה היה אתמול)
+  const d = new Date();
+  const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return { name: `${k.label}-${stamp}`, headers, rows };
 }
 
 // ---------- ייבוא ----------
 // כותרות מתקבלות בעברית (כפי שמיוצאות) או כמפתח באנגלית. עמודה לא מוכרת — מתעלמים ממנה.
+// קובץ שהתוכנה ייצאה: toCsv הוסיף גרש לפני ערך שנראה כנוסחה ("+972-50-..." ← "'+972-50-...") — מסירים אותו
+// רק כשמה שאחריו באמת היה מנוטרל, כדי שייבוא חוזר יחזיר את הערך המקורי
 function parseImport(kind, csvText, data) {
+  const unguard = (c) => (typeof c === 'string' && c[0] === "'" && X.csvFormulaRisk(c.slice(1)) ? c.slice(1) : c);
+  return parseRows(kind, F.parseCsv(csvText).map(r => r.map(unguard)), data);
+}
+
+// rows — מערך שורות (הראשונה כותרות). משותף ל-CSV ול-vCard, בלי לעבור דרך toCsv (שמוסיף גרש לטלפון "+972...")
+function parseRows(kind, rows, data) {
   const k = kindDef(kind);
-  const rows = F.parseCsv(csvText);
   if (rows.length < 2) throw new Error('הקובץ ריק או חסר שורות נתונים');
   if (rows.length - 1 > MAX_IMPORT_ROWS) throw new Error(`ניתן לייבא עד ${MAX_IMPORT_ROWS} שורות בכל פעם`);
   const head = rows[0].map(h => h.trim().replace(/^\uFEFF/, ''));
@@ -259,13 +274,18 @@ function vcardToRows(textIn) {
   if (cards.length > MAX_IMPORT_ROWS) throw new Error(`ניתן לייבא עד ${MAX_IMPORT_ROWS} אנשי קשר בכל פעם`);
   for (const card of cards) {
     const c = { name: '', phone: '', email: '', company: '', role: '', address: '', notes: '' };
-    for (const line of card.split(/\r?\n/)) {
-      const m = line.match(/^([^:;]+)((?:;[^:]*)?):(.*)$/);
+    const lines = card.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^([^:;]+)((?:;[^:]*)?):(.*)$/);
       if (!m) continue;
       const prop = m[1].toUpperCase().replace(/^ITEM\d+\./, '');
-      const val = m[2] && /QUOTED-PRINTABLE/i.test(m[2])
-        ? Buffer.from(m[3].replace(/=\r?$/g, '').replace(/=([0-9A-F]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))), 'latin1').toString('utf8')
-        : vUnescape(m[3]);
+      const qp = m[2] && /QUOTED-PRINTABLE/i.test(m[2]);
+      let raw = m[3];
+      // quoted-printable (vCard 2.1): "=" בסוף השורה = שבירה רכה, והערך ממשיך בשורה הבאה (בלי רווח בתחילתה)
+      if (qp) while (raw.endsWith('=') && i + 1 < lines.length) raw = raw.slice(0, -1) + lines[++i];
+      const val = qp
+        ? Buffer.from(raw.replace(/=$/, '').replace(/=([0-9A-F]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))), 'latin1').toString('utf8')
+        : vUnescape(raw);
       if (prop === 'FN' && !c.name) c.name = val.trim();
       else if (prop === 'N' && !c.name) c.name = val.split(';').slice(0, 2).reverse().filter(Boolean).join(' ').trim();
       else if (prop === 'TEL' && !c.phone) c.phone = val.trim();
@@ -284,10 +304,8 @@ function importContactsVcard(textIn, data) {
   const rows = vcardToRows(textIn);
   if (rows.length === 0) throw new Error('לא נמצאו אנשי קשר בקובץ (vCard)');
   const head = KINDS.contacts.columns.map(c => c[1]);
-  const csvLike = [head, ...rows.map(r => KINDS.contacts.columns.map(([key]) => r[key]))];
-  // עוברים באותו מסלול ולידציה וכפילויות כמו CSV
-  const X = require('./exports');
-  return parseImport('contacts', X.toCsv(csvLike[0], csvLike.slice(1)), data);
+  // אותו מסלול ולידציה וכפילויות כמו CSV — השורות עוברות ישירות, בלי ניטרול נוסחאות של ייצוא
+  return parseRows('contacts', [head, ...rows.map(r => KINDS.contacts.columns.map(([key]) => r[key] ?? ''))], data);
 }
 
 function contactsToVcard(data) {
@@ -310,13 +328,14 @@ function templateTable(kind) {
   return { name: `תבנית-${k.label}`, headers: k.columns.map(c => c[1]), rows: [] };
 }
 
-// allowDomain(domain) — האם התחום פתוח ברישיון; סוג בלי domain שייך למערכת הבסיסית
-const listKinds = (allowDomain = () => true) => Object.entries(KINDS)
-  .filter(([, k]) => !k.domain || allowDomain(k.domain))
+// allowDomain(domain) — האם התחום פתוח ברישיון; סוג בלי domain שייך למערכת הבסיסית. admin: false — בלי הסוגים של מנהל בלבד
+const listKinds = (allowDomain = () => true, { admin = true } = {}) => Object.entries(KINDS)
+  .filter(([, k]) => (!k.domain || allowDomain(k.domain)) && (admin || !k.adminOnly))
   .map(([id, k]) => ({ id, label: k.label, columns: k.columns.map(c => c[1]) }));
 const kindDomain = (kind) => (typeof kind === 'string' && Object.hasOwn(KINDS, kind) && KINDS[kind].domain) || null;
+const kindAdminOnly = (kind) => typeof kind === 'string' && Object.hasOwn(KINDS, kind) && KINDS[kind].adminOnly === true;
 
 module.exports = {
-  KINDS, MAX_IMPORT_ROWS, listKinds, kindDomain, exportTable, parseImport, applyImport, templateTable,
+  KINDS, MAX_IMPORT_ROWS, listKinds, kindDomain, kindAdminOnly, exportTable, parseImport, applyImport, templateTable,
   vcardToRows, importContactsVcard, contactsToVcard
 };

@@ -69,7 +69,8 @@ test('הודעה v2 בלי מפתח זמני ותאימות להודעות v1 י
   // הודעה בפורמט הישן (v1: X25519 בין המפתחות הקבועים) — עדיין נפתחת אחרי השדרוג
   const C = require('../shell/licensing/crypto');
   const nc = require('crypto');
-  const body = { v: 1, kind: 'text', mid: 'old1', from: a.keyId, to: b.keyId, sentAt: 3, subject: '', text: 'הודעה ישנה' };
+  // מזהה באורך האמיתי (16 תווים, כמו ש-seal תמיד יצר) — open דוחה מזהה לא תקין (בדיקת הקוד 23.10.2026, ממצא 49)
+  const body = { v: 1, kind: 'text', mid: 'old1aaaaaaaaaaaa', from: a.keyId, to: b.keyId, sentAt: 3, subject: '', text: 'הודעה ישנה' };
   const salt = nc.randomBytes(16), iv = nc.randomBytes(12);
   const secret = C.x25519.scalarMult(C.x25519.fromEdSeed(C.b64uDecode(a.privateJwk.d)), C.x25519.fromEdPublic(C.b64uDecode(b.publicJwk.x)));
   const key = C.hkdfSha256(secret, new Uint8Array(salt), C.utf8('supersuite-message-v1'), 32);

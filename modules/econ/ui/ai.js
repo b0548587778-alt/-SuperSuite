@@ -23,10 +23,12 @@ const AI_OPEN_IDS = {
   vat: 'acct-reports',
   profit: 'acct-reports',
   donors: 'npo',
-  shamai: 'realestate',
+  shamai: 'shamai',
   trainer: 'trainer',
   howto: 'acct-invoices'
 };
+// יעדים שהם מודולים (נפתחים ב-openModule) ולא מסכים בממשק הכלכלי
+const AI_OPEN_MODULES = ['trainer', 'shamai'];
 
 // טווח התקופה שהממשק מבקש במפורש. התאריכים נקבעים כאן לפי תאריך המחשב — לא UTC
 function aiUiRange(text) {
@@ -37,8 +39,9 @@ function aiUiRange(text) {
   if (t.includes('החודש שעבר')) {
     return {
       from: day(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-      // גבול עליון כוללני (inRange): „עד” חייב להיות היום שאחרי החודש שעבר — כלומר הראשון של החודש הזה
-      to: day(new Date(now.getFullYear(), now.getMonth(), 1)),
+      // גבול עליון כוללני (inRange): היום האחרון של החודש שעבר (יום 0 של החודש הזה). ה-1 בחודש הזה
+      // הכניס את הכנסות ה-1 גם לחודש שעבר (ממצא 47)
+      to: day(new Date(now.getFullYear(), now.getMonth(), 0)),
       label: 'החודש שעבר'
     };
   }
@@ -97,14 +100,16 @@ function renderAi(data) {
   }
   if (aiUi.answer) {
     const a = aiUi.answer;
-    const target = a.data && a.data.kind ? AI_OPEN_IDS[a.data.kind] : '';
+    // הכפתור נושא את סוג התשובה (kind), והמסך נגזר ממנו בלחיצה. פעם נשמר בו המסך עצמו, והבדיקה בלחיצה
+    // חיפשה אותו כמפתח בטבלה — רק „trainer” (מפתח וגם מסך) עבד
+    const kind = a.data && typeof a.data.kind === 'string' && Object.prototype.hasOwnProperty.call(AI_OPEN_IDS, a.data.kind) ? a.data.kind : '';
     html.push(`<div class="ss-card">
       <h4 class="ss-section-title">התשובה</h4>
       <p class="ss-pre">${esc(a.text)}</p>
       <div class="ss-toolbar">
         <span class="ss-badge ss-badge-info">${esc(a.engineLabel || 'מנוע החישוב')}</span>
         <button type="button" class="ss-btn-secondary ss-btn-sm" id="aiExplain">איך חושב הסכום?</button>
-        ${target ? `<button type="button" class="ss-btn-ghost ss-btn-sm" data-ai-open="${esc(target)}">פתיחת המסך הרלוונטי</button>` : ''}
+        ${kind ? `<button type="button" class="ss-btn-ghost ss-btn-sm" data-ai-open="${esc(kind)}">פתיחת המסך הרלוונטי</button>` : ''}
       </div>
       <p class="ss-muted" id="aiExplainOut" hidden></p>
     </div>`);
@@ -241,19 +246,20 @@ function attachAiHandlers(root) {
 
   root.querySelectorAll('[data-ai-open]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const target = btn.dataset.aiOpen || '';
-      // רק דפוס מוכר, ורק מסך שמופיע בטבלה — דפוס חדש בלי יעד לא מנווט לשום מקום
-      const view = Object.prototype.hasOwnProperty.call(AI_OPEN_IDS, target) ? AI_OPEN_IDS[target] : '';
-      // המודול „trainer” אינו מסך בממשק הכלכלי (נפתח ב-openModule) — ולכן אינו בטבלת viewTitles
-      const known = view === 'trainer' || Object.prototype.hasOwnProperty.call(viewTitles, view);
+      const kind = btn.dataset.aiOpen || '';
+      // רק סוג תשובה מוכר, ורק מסך שמופיע בטבלה — סוג חדש בלי יעד לא מנווט לשום מקום
+      const view = Object.prototype.hasOwnProperty.call(AI_OPEN_IDS, kind) ? AI_OPEN_IDS[kind] : '';
+      // מודול (אימונים, שמאות) אינו מסך בממשק הכלכלי (נפתח ב-openModule) — ולכן אינו בטבלת viewTitles
+      const isModule = AI_OPEN_MODULES.includes(view);
+      const known = isModule || Object.prototype.hasOwnProperty.call(viewTitles, view);
       if (!view || !known) {
         showError('המסך המבוקש אינו מוכר');
         return;
       }
-      // הדגם הראשון מגן על המסך הראשון; היעד עצמו נבדק בשרת (רשימה סגורה) לפני המעבר
+      // היעד עצמו נבדק בשרת (רשימה סגורה) לפני המעבר
       try { await window.systemAPI.aiOpen(view); } catch (e) { showError(errMsg(e)); return; }
-      if (view === 'trainer') {
-        window.systemAPI.openModule('trainer').catch(e => showError('שגיאה בפתיחת המודול: ' + errMsg(e)));
+      if (isModule) {
+        window.systemAPI.openModule(view).catch(e => showError('שגיאה בפתיחת המודול: ' + errMsg(e)));
         return;
       }
       switchView(view);

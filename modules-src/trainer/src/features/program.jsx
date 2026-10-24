@@ -141,7 +141,7 @@ export function ProgramTab({ client, program, trainer, onGenerate, onSave, onLog
           </Field>
           <div className="flex justify-end gap-2">
             <Btn variant="ghost" onClick={() => setLogOpen(null)}>ביטול</Btn>
-            <Btn variant="success" onClick={() => { onLogSession(logOpen, logNotes); setLogOpen(null); }}>✓ רשום אימון</Btn>
+            <Btn variant="success" onClick={async () => { if (await onLogSession(logOpen, logNotes)) setLogOpen(null); }}>✓ רשום אימון</Btn>
           </div>
         </div>
       </Modal>

@@ -136,8 +136,9 @@ function recalcRealEstate() {
       <div class="tip-title">⌂ מסי רכישה צפויים</div>
       <div class="tip-body">
         כדירה נוספת: ₪${fmt0(purchaseTax)} (~${fmt(purchaseTax/estValue*100, 1)}%)<br>
-        כדירה יחידה: ${fmt0(computePurchaseTax(estValue, 'single'))} ₪<br>
-        ללוח מסים מלא תכנס לכלים → מסי נדל"ן
+        כדירה יחידה: ₪${fmt0(computePurchaseTax(estValue, 'single'))}<br>
+        ללוח מסים מלא תכנס לכלים → מסי נדל"ן<br>
+        ${escapeHtml(purchaseTaxWarning())}
       </div>
     </div>
     <div class="tip-box">
@@ -157,19 +158,9 @@ function recalcRealEstate() {
   $('#re-save').hidden = !re.asking;
 }
 
-// Helper for purchase tax (used by both real estate appraisal and tax tool)
+// מס רכישה למסך הנדל"ן — אותו חישוב של כלי המס (calcPurchaseTax ב-tools.js), לא חישוב נפרד
 function computePurchaseTax(value, status) {
-  if (!value) return 0;
-  const brackets = status === 'single' ? PURCHASE_TAX_SINGLE : PURCHASE_TAX_ADDITIONAL;
-  let tax = 0;
-  for (const b of brackets) {
-    const from = b.from || 0;
-    if (value <= from) break;
-    const to = b.limit || Infinity;
-    const taxable = Math.min(value, to) - from;
-    if (taxable > 0) tax += taxable * b.rate;
-  }
-  return tax;
+  return calcPurchaseTax(value, status) || 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

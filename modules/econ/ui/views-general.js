@@ -381,7 +381,7 @@ const FITNESS_KINDS = {
 
 // תרגום ערכי המקרא (השירות שומר באנגלית) לתוויות בעברית
 const FITNESS_WORKOUT_TYPES = {
-  cardio: 'אירובי', strength: 'כוח', yoga: 'יוגה',
+  cardio: 'אירובי', strength: 'כוח', yoga: 'גמישות ומתיחות', // הערך נשאר yoga — רשומות קיימות
   walking: 'הליכה', sports: 'ספורט', other: 'אחר'
 };
 const FITNESS_MEAL_TYPES = {

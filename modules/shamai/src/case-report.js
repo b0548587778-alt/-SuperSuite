@@ -146,9 +146,11 @@ function buildCaseReportHtml(c, prices, ap, apEn, photosById, today = localToday
   const basis = CASE_BASES[c.basis];
   const cl = c.client || {};
   const photosOf = (it) => (it.photos || []).map(id => photosById && photosById[id]).filter(caseIsPhoto);
+  // errors — רק של הפריטים שנכשלו, לפי הסדר: לכל פריט כזה השגיאה שלו (פעם הראשונה הוצגה ליד כולם)
+  let errAt = 0;
   const itemsHtml = (c.items || []).map((it, i) => {
     const v = totals.items[i];
-    return v ? caseItemHtml(it, v, i + 1, bi, photosOf(it)) : `<section class="item"><h3>${caseLabel('item', bi)} ${i + 1}: ${caseEsc(it.desc)}</h3><p class="warn">${caseEsc((totals.errors || [])[0] || '')}</p></section>`;
+    return v ? caseItemHtml(it, v, i + 1, bi, photosOf(it)) : `<section class="item"><h3>${caseLabel('item', bi)} ${i + 1}: ${caseEsc(it.desc)}</h3><p class="warn">${caseEsc((totals.errors || [])[errAt++] || '')}</p></section>`;
   }).join('');
   const priceRows = Object.entries(priceSnap).map(([k, p]) => {
     const L = CASE_PRICE_LABELS[k];

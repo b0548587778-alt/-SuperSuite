@@ -18,9 +18,10 @@ const mem = () => { const m = new Map(); return { read: (n) => (m.has(n) ? m.get
 const tenantLimits = { maxChildren: 2, maxUsers: 10, maxStorageMb: 1000, maxDepth: 2 };
 const childLimits = { maxChildren: 0, maxUsers: 3, maxStorageMb: 100, maxDepth: 2 };
 
-async function startServer() {
+// identity — מפתח שרת ותעודה (attachIdentity), כדי שהשרת יחתום על אישורי מסירה ועל תשובות הסנכרון
+async function startServer(identity = null) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-relay-'));
-  const server = createServer({ dataDir });
+  const server = createServer({ dataDir, identity });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   return { url: `http://127.0.0.1:${server.address().port}`, dataDir, close: () => new Promise(r => server.close(r)) };
 }
@@ -29,7 +30,13 @@ async function startServer() {
 function installation(rootKeys, url, owner = null) {
   const store = createLicenseStore({ storage: one(), secret: one(), rootKeys });
   store.setRemoteSettings({ url });
-  return { store, owner, sync: createLicenseSync({ store, owner, rootKeys, fetchImpl: fetch }) };
+  return { store, owner, sync: createLicenseSync({ store, owner, rootKeys, fetchImpl: fetch, allowLocalRelay: true }) };
+}
+// מפתח שרת ותעודה ממנהל-העל לכתובת השרת המקומי. תעודה ל-127.0.0.1 — רק במצב בדיקה מפורש (allowLocal /
+// allowLocalRelay, סקירה 24.10.2026). עדכון סטטוס ממערכת הורה (pushToChild) דורש אישור מסירה חתום מהשרת
+function attachIdentity(identity, owner, url) {
+  const kp = L.generateKeyPair();
+  Object.assign(identity, { privateJwk: kp.privateJwk, origin: url, certText: owner.relayCert(kp.publicJwk, { origin: url, allowLocal: true }).text });
 }
 
 test('כתובת שרת: https בלבד (או localhost), בלי פרטי כניסה', () => {
@@ -66,10 +73,12 @@ test('שרת: בקשה לא חתומה, חתימה מזויפת ושידור ח�
 });
 
 test('זרימה מלאה מרחוק: רישיון, מערכת בת באישור מנהל-העל, השבתה ב-Cascade — הכול דרך השרת', async () => {
-  const srv = await startServer();
+  const identity = {};
+  const srv = await startServer(identity);
   try {
     const owner = createOwnerCore({ storage: mem() });
     const { publicKey } = owner.init(PASS);
+    attachIdentity(identity, owner, srv.url);
     const rootKeys = [publicKey];
     const O = installation(rootKeys, srv.url, owner);
     const T = installation(rootKeys, srv.url);

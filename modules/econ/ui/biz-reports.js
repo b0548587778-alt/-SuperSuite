@@ -191,7 +191,7 @@ function renderBizDashCard(s) {
 async function handleBizSettings() {
   const s = state.data.bizReports && state.data.bizReports.settings;
   const v = await licForm('הגדרות דוחות לעסק', [
-    { name: 'paymentTermsDays', label: 'תנאי תשלום ללקוחות (ימים)', type: 'number', value: s ? s.paymentTermsDays : 30 },
+    { name: 'paymentTermsDays', label: 'תנאי תשלום ללקוחות (ימים)', type: 'number', max: 365, required: true, value: s ? s.paymentTermsDays : 30 },
     { name: 'period', label: 'תקופת דיווח למע"מ ולמקדמות', type: 'select', options: [['bimonthly', 'דו-חודשי'], ['monthly', 'חודשי']], value: s ? s.period : 'bimonthly' },
     { name: 'advanceRatePct', label: 'שיעור מקדמת מס הכנסה (%)', value: s ? String(s.advanceRateBp / 100) : '0' }
   ], 'שמירה', 'השיעור מופיע בהודעה מפקיד השומה. אם לא נקבעה מקדמה — 0.');

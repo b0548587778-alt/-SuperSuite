@@ -11,6 +11,9 @@ const L = require('../core/npoLetters');
 
 // פרטי חשבון הבנק לא יוצאים לממשק — רק מסיכה
 const withoutBank = ({ bankAccount, ...o }) => ({ ...o, bankMasked: MSV.maskAccount(bankAccount) });
+// "היום" המקומי (לא UTC — בין חצות ל-03:00 toISOString מחזיר את אתמול). ipc.js מעביר את היום; זו ברירת המחדל
+// dayOr: ריק ← היום; תאריך שאינו קיים בלוח (2026-02-31) ← שגיאה בעברית (פעם regex בלבד קיבל אותו)
+const { localDay, dayOr, isDay } = require('../core/dates');
 
 class NpoService {
   constructor(db) {
@@ -39,7 +42,7 @@ class NpoService {
   /* ---------- הוראות קבע (מעקב בלבד) ---------- */
   async getStandingOrders(today) {
     const { npo } = await this._load();
-    const t = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? today : new Date().toISOString().slice(0, 10);
+    const t = dayOr(today);
     const sum = SO.summarize(npo.standingOrders.map(withoutBank), t);
     return { ...sum, masav: { configured: !!npo.masav.settings, settings: npo.masav.settings, batches: npo.masav.batches.map(MSV.batchView).reverse() } };
   }
@@ -77,7 +80,7 @@ class NpoService {
     let donation = null;
     if (status === 'received') {
       if (!data.npo.settings.orgName) throw new Error('יש להגדיר תחילה את פרטי העמותה (כפתור "הגדרות עמותה")');
-      const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : SO.dueDate(month, order.dayOfMonth);
+      const day = isDay(date) ? date : SO.dueDate(month, order.dayOfMonth);
       const amount = fromBatch && Number.isInteger(fromBatch.amountAg) ? fromBatch.amountAg / 100 : order.amount;
       const clean = N.validateDonation({
         date: day, donorName: order.donorName, donorId: order.donorId, amount, method: order.method,
@@ -291,7 +294,7 @@ class NpoService {
   /* ---------- הנצחות ויארצייטים ---------- */
   async getMemorials(today, days) {
     const { npo } = await this._load();
-    const t = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? today : new Date().toISOString().slice(0, 10);
+    const t = dayOr(today);
     const list = [...npo.memorials].sort((a, b) => a.name.localeCompare(b.name, 'he')).map(m => ({ ...m, hebrewLabel: MEM.hebrewLabel(m) }));
     return { list, ...MEM.upcoming(npo.memorials, t, days) };
   }
@@ -319,7 +322,7 @@ class NpoService {
 
   async getMemorialsExport(today) {
     const { npo } = await this._load();
-    const t = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? today : new Date().toISOString().slice(0, 10);
+    const t = dayOr(today);
     return MEM.exportRows(npo.memorials, MEM.upcoming(npo.memorials, t, 400).rows);
   }
 
@@ -364,12 +367,15 @@ class NpoService {
       funds: N.allFunds(npo.settings),
       donations: [...npo.donations].sort((a, b) => b.date.localeCompare(a.date) || N.byReceipt(b, a)).map(d => ({ ...d, taxStatus: N.taxStatus(d) })),
       grants: [...npo.grants].sort((a, b) => b.year - a.year || a.source.localeCompare(b.source, 'he')),
+      // donors — כל השנים (רשימת התורמים במסך); yearDonors — רק התרומות של שנת y. עוזר ה-AI („תרומות השנה”, מכתב תודה)
+      // משתמש ב-yearDonors: פעם קיבל את סכום כל השנים והציג אותו כ„בשנת y” (בדיקת קוד 23.10.2026, ממצא 46)
       donors: N.donorSummary(npo.donations),
+      yearDonors: N.donorSummary(npo.donations, y),
       fundSummary: N.fundSummary(npo.donations, npo.grants, npo.settings, y),
       report: N.annualReport(npo.donations, npo.grants, npo.settings, y),
-      grantAlerts: N.grantAlerts(npo.grants, new Date().toISOString().slice(0, 10)),
+      grantAlerts: N.grantAlerts(npo.grants, localDay()),
       tax: N.taxSummary(npo.donations),
-      campaigns: CMP.summarize(npo.campaigns, npo.donations, new Date().toISOString().slice(0, 10))
+      campaigns: CMP.summarize(npo.campaigns, npo.donations, localDay())
     };
   }
 
@@ -484,19 +490,33 @@ class NpoService {
   async getThankYouLetter(donorKey, year, options) {
     const { npo } = await this._load();
     const statement = N.donorAnnualStatement(npo.donations, npo.settings, donorKey, year);
-    return { letter: L.thankYouLetter(statement, options || {}), org: npo.settings };
+    // הזיכוי לפי סעיף 46 — רק מתרומות של תושב ישראל (תרומה של תושב חוץ / בעילום שם מסומנת sec46 בקבלה,
+    // אבל אינה מזכה), כל תרומה לפי הסוג שלה ולא לפי התרומה האחרונה. מספר האישור — מאותן קבלות, לא האישור שבתוקף היום
+    const rows = N.donorYearDonations(npo.donations, donorKey, year)
+      .filter(d => N.donorType(d) === 'israeli' && d.receipt && d.receipt.sec46);
+    const sec46Total = rows.reduce((t, d) => t + Math.round(Number(d.amount || 0) * 100), 0) / 100;
+    const sec46Approvals = rows.filter(d => d.receipt.sec46Number)
+      .map(d => ({ number: d.receipt.sec46Number, validUntil: d.receipt.sec46ValidUntil || '' }));
+    return { letter: L.thankYouLetter({ ...statement, sec46Total, sec46Approvals }, options || {}), org: npo.settings };
+  }
+
+  // תמיכות השנה עם הסטטוס — כדי שהמכתבים לא יציגו בקשה שנדחתה או ממתינה כתמיכה שהתקבלה
+  _letterReport(npo, year) {
+    const y = Number(year) || new Date().getFullYear();
+    const report = N.annualReport(npo.donations, npo.grants, npo.settings, y);
+    const grantItems = npo.grants.filter(g => Number(g.year) === y)
+      .map(g => ({ source: g.source, status: g.status || 'requested', approved: g.approved, received: g.received }));
+    return { ...report, grantItems };
   }
 
   async getAnnualNarrative(year, options) {
     const { npo } = await this._load();
-    const report = N.annualReport(npo.donations, npo.grants, npo.settings, Number(year) || new Date().getFullYear());
-    return { letter: L.annualNarrative(report, options || {}), org: npo.settings };
+    return { letter: L.annualNarrative(this._letterReport(npo, year), options || {}), org: npo.settings };
   }
 
   async getGrantDraft(year, input) {
     const { npo } = await this._load();
-    const report = N.annualReport(npo.donations, npo.grants, npo.settings, Number(year) || new Date().getFullYear());
-    return { letter: L.grantDraft(report, input || {}), org: npo.settings };
+    return { letter: L.grantDraft(this._letterReport(npo, year), input || {}), org: npo.settings };
   }
 
   async getDonation(donationId) {

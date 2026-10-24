@@ -228,7 +228,8 @@ test('מספור חשבוניות לא חוזר אחורה (מונה ב-settings
 
 test('ערוץ ההפקה: הרשאת ייצוא, חשיפה ב-preload וכפתור במסך הדוחות', () => {
   const ipc = fs.readFileSync(path.join(__dirname, '../modules/econ/ipc.js'), 'utf8');
-  assert.match(ipc, /handle\('acct:exportUniformFile'/);
+  // handleLong — חלון הבחירה ודוח ההפקה מחוץ לתור (ממצא 39)
+  assert.match(ipc, /handleLong\('acct:exportUniformFile'/);
   assert.match(fs.readFileSync(path.join(__dirname, '../modules/econ/preload.js'), 'utf8'), /exportUniformFile: \(range\) => ipcRenderer\.invoke\('acct:exportUniformFile', range\)/);
   assert.match(fs.readFileSync(path.join(__dirname, '../modules/econ/ui/accounting.js'), 'utf8'), /id="acctUniformFile"/);
   assert.match(fs.readFileSync(path.join(__dirname, '../modules/econ/ui/forms.js'), 'utf8'), /acctUniformFile/);

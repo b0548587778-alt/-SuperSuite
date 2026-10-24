@@ -4,15 +4,18 @@
 'use strict';
 
 const MODULE_NAMES = { shell: 'המסך הראשי', econ: 'המערכת הכלכלית', shamai: 'השמאות', trainer: 'האימונים', tools: 'ארגז הכלים' };
+const pad = (n) => String(n).padStart(2, '0');
+const localDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-function createCrashGuard({ logger, dialog, getWin, app, version = '', fs = require('fs') }) {
+// beforeExit — לפני app.exit בהפעלה מחדש (שם will-quit לא נורה): כתיבת המחסנים המוצפנים לדיסק
+function createCrashGuard({ logger, dialog, getWin, app, version = '', fs = require('fs'), beforeExit = () => {} }) {
   let busy = false;
 
   const parent = () => { const w = getWin(); return w && !w.isDestroyed() ? w : undefined; };
 
   // דוח תקלה לשמירה ושליחה לתמיכה — היומן בלבד, בלי נתונים
   async function saveReport() {
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = localDay(new Date()); // תאריך מקומי, לא UTC (בין חצות ל-03:00 — התאריך של אתמול)
     const r = await dialog.showSaveDialog(parent(), { title: 'שמירת דוח תקלה', defaultPath: `SuperSuite-דוח-תקלה-${stamp}.txt`,
       filters: [{ name: 'קובץ טקסט', extensions: ['txt'] }] });
     if (!r || r.canceled || !r.filePath) return false;
@@ -44,7 +47,11 @@ function createCrashGuard({ logger, dialog, getWin, app, version = '', fs = requ
       buttons: [
         { label: 'המשך לעבוד' },
         { label: 'שמירת דוח תקלה', run: saveReport },
-        { label: 'הפעלה מחדש', run: () => { app.relaunch(); app.exit(0); } },
+        { label: 'הפעלה מחדש', run: () => {
+          // app.exit מדלג על will-quit: בלי זה כתיבות מה-300ms האחרונים בשמאי ובאימונים אבדו
+          try { beforeExit(); } catch (e) { logger.error('crash-exit', e); }
+          app.relaunch(); app.exit(0);
+        } },
       ],
     });
   }

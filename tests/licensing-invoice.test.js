@@ -50,8 +50,10 @@ test('שירות הנה"ח: חשבונית מס/קבלה — שולמה, רשו�
 
 test('ipc: הנפקה להרשמה ששולמה מפיקה חשבונית לפני הרישיון', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/ipc.js'), 'utf8');
-  const i = src.indexOf("handle('owner:signupIssue'");
-  const body = src.slice(i, src.indexOf("handle('owner:signupDocument'", i));
+  // handleNet — השליחה לשרת מחוץ לתור (ממצא 39); החשבונית וההנפקה — בתור
+  const i = src.indexOf("handleNet('owner:signupIssue'");
+  assert.ok(i >= 0, 'הערוץ נמצא');
+  const body = src.slice(i, src.indexOf("handleSave('owner:signupDocument'", i));
   assert.ok(body.indexOf('createPaidInvoice') > 0 && body.indexOf('createPaidInvoice') < body.indexOf('issueSignup'), 'חשבונית לפני הנפקה');
   assert.match(body, /localDay\(/, 'תאריך מקומי ולא UTC');
 });

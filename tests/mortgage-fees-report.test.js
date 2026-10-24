@@ -78,7 +78,7 @@ test('דוח ללקוח: שם הלקוח בלבד (בלי טלפון/ת"ז/הע�
     asOf: '2026-10-20',
     comparison: { offers: [{ offer: { id: 'x', lender: 'בנק א' }, result: { summary: { firstPayment: 4000, maxPayment: 4500 } }, totalCostWithFees: 1400000, expired: true }], byTotalCost: ['x'] },
     chosen: { lender: 'בנק א', tracks: [{ type: 'PRIME', share: 100, years: 25, spreadPct: -0.5 }] },
-    chosenResult: { summary: { firstPayment: 4000, maxPayment: 4500, totalPaid: 1390000 }, yearly: [{ year: 1, payment: 48000, balance: 880000 }] },
+    chosenResult: { summary: { firstPayment: 4000, maxPayment: 4500, totalPayments: 1390000 }, yearly: [{ year: 1, payments: 48000, closingBalance: 880000 }] },
     missingDocs: ['תלושי שכר']
   }, ':root{--ss-text:#000}');
   assert.match(html, /dir="rtl"/);

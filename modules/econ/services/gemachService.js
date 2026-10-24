@@ -5,6 +5,10 @@ const G = require('../core/gemach');
 const GX = require('../core/gemachExtra');
 const MSV = require('../core/masav');
 
+// "היום" המקומי (לא UTC — בין חצות ל-03:00 toISOString מחזיר את אתמול). ipc.js מעביר את היום; זו ברירת המחדל
+// dayOr: ריק ← היום; תאריך שאינו קיים בלוח (2026-02-31) ← שגיאה בעברית (פעם regex בלבד קיבל אותו)
+const { dayOr } = require('../core/dates');
+
 class GemachService {
   constructor(db) {
     this.db = db;
@@ -31,7 +35,7 @@ class GemachService {
 
   async getOverview(asOf) {
     const { gemach } = await this._load();
-    const today = asOf || new Date().toISOString().slice(0, 10);
+    const today = dayOr(asOf);
     return {
       settings: gemach.settings,
       loans: [...gemach.loans]
@@ -289,7 +293,7 @@ class GemachService {
     const now = new Date().toISOString();
     let loan = null;
     if (to === 'approved') {
-      const issueDate = /^\d{4}-\d{2}-\d{2}$/.test(String(input.issueDate || '')) ? input.issueDate : now.slice(0, 10);
+      const issueDate = dayOr(input.issueDate);
       const clean = G.validateLoanInput({ ...app, issueDate }, data.gemach.loans.length);
       G.assertCollateral(clean.collateralDepositId, clean.amount, data.gemach.deposits, data.gemach.loans);
       loan = { id: crypto.randomUUID(), ...clean, schedule: G.buildSchedule(clean.amount, clean.installments, clean.issueDate), status: 'active', applicationId: app.id, createdAt: now };
@@ -359,9 +363,9 @@ class GemachService {
     return open;
   }
 
-  async getExportData(kind) {
+  async getExportData(kind, today) {
     const { gemach } = await this._load();
-    const extra = GX.exportExtra(kind, gemach, new Date().toISOString().slice(0, 10));
+    const extra = GX.exportExtra(kind, gemach, dayOr(today));
     if (extra) return extra;
     return G.exportTable(kind, gemach.loans, gemach.deposits, gemach.settings);
   }

@@ -1,5 +1,6 @@
 // Voice Notes Service - Handles voice note/audio memo management
 const crypto = require('crypto');
+const { editable } = require('../core/editable');
 
 class VoiceNotesService {
   constructor(db) {
@@ -60,7 +61,7 @@ class VoiceNotesService {
     
     const note = { 
       ...existing.notes[noteIndex], 
-      ...updates, 
+      ...editable(updates), 
       updatedAt: new Date().toISOString() 
     };
     

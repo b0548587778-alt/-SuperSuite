@@ -16,11 +16,12 @@ class PrivacyService {
     if (db) this.db = db;
   }
 
-  async getMap(users) {
+  // opts.mailboxes — תיבות ההודעות שבמחשב הזה (ipc.js, privacyMailboxes); אינן במסד
+  async getMap(users, opts = {}) {
     const data = await this.db.load();
     const counts = {};
     for (const u of users || []) if (u.active !== false) counts[u.role] = (counts[u.role] || 0) + 1;
-    const map = PR.dataMap(data, counts);
+    const map = PR.dataMap(data, counts, { mailboxes: opts && opts.mailboxes });
     const today = localDay();
     const requests = ((data.privacy && data.privacy.requests) || []).map(r => PR.requestView(r, today))
       .sort((a, b) => (b.status === 'open') - (a.status === 'open') || b.receivedDate.localeCompare(a.receivedDate));
@@ -37,19 +38,19 @@ class PrivacyService {
     return n.orgName ? { name: n.orgName, id: n.regNumber || '', address: n.address || '' } : { name: b.name || '', id: b.taxId || '', address: b.address || '' };
   }
 
-  async _docContext(users) {
+  async _docContext(users, opts) {
     const data = await this.db.load();
-    const map = (await this.getMap(users));
+    const map = (await this.getMap(users, opts));
     return { data, map, level: map.level, org: this._org(data), today: localDay() };
   }
 
-  async definitionHtml(users) {
-    const c = await this._docContext(users);
+  async definitionHtml(users, opts) {
+    const c = await this._docContext(users, opts);
     return PD.renderDefinitionHtml(c.map, c.level, c.org, c.today);
   }
 
-  async procedureHtml(users) {
-    const c = await this._docContext(users);
+  async procedureHtml(users, opts) {
+    const c = await this._docContext(users, opts);
     return PD.renderProcedureHtml(c.map, c.level, c.org, c.today);
   }
 

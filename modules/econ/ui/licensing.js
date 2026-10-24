@@ -180,27 +180,31 @@ function renderLicensing(d) {
 
   // הרשמה: בלי רישוי — כמו קודם; בניסיון — רק אחרי שהתחילה (ההתחלה: "קניית רישיון" בכרטיס המצב)
   const showSignup = isAdmin && d.remote && d.remote.url && (st.mode !== 'licensed' || (st.trial && d.signup));
-  const signupCard = showSignup ? renderSignupCard(d.signup) : '';
+  const signupCard = showSignup ? renderSignupCard(d.signup, licOnAndroid(d)) : '';
   const advanced = `${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote, d.releases, d.ownerOffer, d.signups) : ''}`;
   const advOpen = st.mode === 'unlicensed' || !!(d.owner && d.owner.unlocked);
-  return `<div class="settings">${renderStatusCard(st, d)}${renderActivationCard(st.activation, d)}${signupCard}${renderUpdateCard(d.update, isAdmin)}
+  return `<div class="settings">${renderStatusCard(st, d)}${licCertWarning(d)}${renderActivationCard(st.activation, d)}${signupCard}${renderUpdateCard(d.update, isAdmin)}
     <details class="lic-advanced"${advOpen ? ' open' : ''}><summary>הגדרות מתקדמות — פרטי הרישיון, שרת, מערכות בת</summary>${advanced}</details></div>`;
 }
 
 // הרשמה: מערכת חדשה בוחרת תכנית, חותמת על התקנון ומשלמת בדף המאובטח של חברת הסליקה
 const SIGNUP_STATUS = { pending: 'ממתין לתשלום', failed: 'התשלום לא הושלם', submitted: 'ההרשמה התקבלה — הרישיון יגיע בסנכרון' };
-function renderSignupCard(su) {
+// אנדרואיד — לפי מצב העדכונים (update:getStatus → platform). שם אין פתיחת דף תשלום ואין התקנת עדכון מהתוכנה
+const licOnAndroid = (d) => !!(d && d.update && d.update.platform === 'android');
+const LIC_PAY_DESKTOP_ONLY = '<p class="muted">באנדרואיד אין מעבר לדף התשלום — התשלום נפתח רק בגרסת המחשב.</p>';
+function renderSignupCard(su, android = false) {
   return `<div class="card signup-card">
     <h3>📝 הרשמה למערכת</h3>
     ${su ? `<div class="acct-row"><span>תכנית</span><span>${esc(su.planName)} · ${esc(agorotText(su.priceAgorot))}</span></div>
       <div class="acct-row"><span>מצב</span><span>${esc(SIGNUP_STATUS[su.status] || su.status)}</span></div>
+      ${su.status === 'pending' && android ? LIC_PAY_DESKTOP_ONLY : ''}
       <div class="acct-actions">
-        ${su.status === 'pending' ? '<button class="primary" id="signupPayBtn">💳 מעבר לתשלום מאובטח</button><button class="secondary" id="signupCheckBtn">🔄 בדיקת מצב התשלום</button>' : ''}
+        ${su.status === 'pending' ? (android ? '' : '<button class="primary" id="signupPayBtn">💳 מעבר לתשלום מאובטח</button>') + '<button class="secondary" id="signupCheckBtn">🔄 בדיקת מצב התשלום</button>' : ''}
         ${su.status === 'submitted' ? '<button class="primary" id="licRemoteSyncBtn2">🔄 סנכרון — קבלת הרישיון</button>' : ''}
         ${su.status !== 'submitted' ? '<button class="secondary" id="signupStartBtn">הרשמה מחדש</button>' : ''}
       </div>`
     : `<p>בחירת תכנית, חתימה על התקנון ותשלום — הכול מכאן. בסיום הרישיון מגיע אוטומטית.</p>
-      <div class="acct-actions"><button class="primary" id="signupStartBtn">📝 התחלת הרשמה</button></div>`}
+      <div class="acct-actions"><button class="primary" id="signupStartBtn">📝 התחלת הרשמה</button></div>${android ? LIC_PAY_DESKTOP_ONLY : ''}`}
     <p class="muted">פרטי האשראי מוקלדים רק בדף המאובטח של חברת הסליקה — לא בתוכנה ולא בשרת שלנו.</p>
   </div>`;
 }
@@ -313,20 +317,38 @@ function renderUpdateCard(u, isAdmin) {
   if (!u) return '';
   const av = u.available;
   const ready = u.downloaded && av && u.downloaded.version === av.version;
+  // באנדרואיד אין הורדה (רק שרת הרישוי), אין בחירת קובץ ואין הפעלת מתקין (update:install) — ה-APK מותקן ידנית
+  const android = u.platform === 'android';
   return `<div class="card update-card">
     <div class="acct-header"><h3>🔄 עדכוני גרסה</h3>
-      ${isAdmin ? '<div class="acct-actions"><button class="secondary small" id="updFileBtn">📂 התקנה מקובץ (USB)</button></div>' : ''}
+      ${isAdmin && !android ? '<div class="acct-actions"><button class="secondary small" id="updFileBtn">📂 התקנה מקובץ (USB)</button></div>' : ''}
     </div>
     <div class="acct-row"><span>גרסה מותקנת</span><span dir="ltr">${esc(u.currentVersion)}</span></div>
     ${av ? `<div class="acct-row"><span>גרסה חדשה זמינה</span><span><b dir="ltr">${esc(av.version)}</b> <small class="muted">(${esc(licDate(av.issuedAt))})</small></span></div>
       ${av.notes ? `<p class="update-notes">${esc(av.notes)}</p>` : ''}
-      ${isAdmin ? `<div class="acct-actions">
+      ${isAdmin && android ? '<p class="muted">באנדרואיד מתקינים את קובץ ה-APK של הגרסה החדשה ידנית — ההורדה וההתקנה מכאן זמינות רק בגרסת המחשב.</p>'
+      : isAdmin ? `<div class="acct-actions">
         ${ready ? '<button class="primary" id="updInstallBtn">⬆ התקנת הגרסה עכשיו</button>'
           : (av.url ? '<button class="primary" id="updDownloadBtn">⬇ הורדה ובדיקה</button>' : '<span class="muted">לעדכון הזה אין קישור — התקינו מקובץ</span>')}
       </div>` : '<p class="muted">ההתקנה — על ידי מנהל המערכת.</p>'}`
     : '<p class="muted">המערכת מעודכנת. עדכונים מגיעים בסנכרון עם השרת, או מקובץ.</p>'}
     <p class="muted">כל עדכון חתום על ידי הספק ונבדק לפני ההתקנה — קובץ שאינו תואם לחתימה נדחה.</p>
   </div>`;
+}
+
+// תפוגת התעודה של שרת הרישוי (סקירת אבטחה 24.10.2026, ממצא 4): אחרי התפוגה הסנכרון כבר לא מאריך את ההפעלה, וכל
+// המערכות ננעלות 30 יום אחר כך. אזהרה מ-60 יום לפני — למנהל המערכת, ולמנהל-העל (במצב פתוח) עם מה לעשות
+const LIC_CERT_WARN_DAYS = 60;
+function licCertWarning(d, now = Date.now()) {
+  const exp = d && d.isAdmin && d.remote ? Number(d.remote.certExpiresAt) : 0;
+  if (!exp || !Number.isFinite(exp)) return '';
+  const days = Math.ceil((exp - now) / (24 * 60 * 60 * 1000));
+  if (days > LIC_CERT_WARN_DAYS) return '';
+  const when = days > 0 ? `תפוג בעוד ${days} ימים (${licDate(exp)})` : `פגה ב-${licDate(exp)}`;
+  const what = d.owner && d.owner.unlocked
+    ? 'יש להנפיק תעודה חדשה למפתח השרת (relay-cert) ולהתקין אותה בשרת — docs/LICENSING-ACTIVATION.md, שלב 7, "חידוש". בלי זה כל המערכות ייעלו 30 יום אחרי התפוגה.'
+    : 'בלי חידוש התעודה אצל הספק, המערכת תינעל 30 יום אחרי התפוגה. פנו לספק התוכנה.';
+  return `<div class="ss-card ss-card-warning lic-cert-warn" role="alert"><p><b>⚠ התעודה של שרת הרישוי ${esc(when)}.</b> ${esc(what)}</p></div>`;
 }
 
 // עבודה מרחוק: כשמוגדר שרת רישוי, הבקשות, האישורים והעדכונים עוברים בלחיצה — בלי להעביר קבצים
@@ -341,6 +363,7 @@ function renderRemoteCard(r, st) {
     ${r.url ? `
       <div class="acct-row"><span>שרת</span><span dir="ltr">${esc(r.url)}</span></div>
       <div class="acct-row"><span>סנכרון אחרון</span><span>${r.lastSync ? esc(new Date(r.lastSync).toLocaleString('he-IL')) : 'עדיין לא'}</span></div>
+      ${r.checkinError ? `<div class="acct-row"><span>אימות השרת</span><span>⚠ ${esc(r.checkinError)}</span></div>` : ''}
       ${r.myCode ? `<div class="acct-row"><span>קוד המערכת (למערכות בת)</span><span dir="ltr"><b>${esc(r.myCode)}</b></span></div>` : ''}
       <div class="acct-actions">
         <button class="primary" id="licRemoteSyncBtn">🔄 סנכרון עכשיו</button>
@@ -452,7 +475,7 @@ function renderOwnerSignups(offer, list, remote) {
       <tbody>${rows.map(x => `<tr><td><small>${esc(new Date(x.receivedAt).toLocaleString('he-IL'))}</small></td>
         <td><b>${esc(x.customer.org)}</b><br><small>${esc(x.customer.contact)} · <span dir="ltr">${esc(x.customer.phone)}</span></small></td>
         <td>${esc(x.planName)}</td><td>${x.payment ? esc(agorotText(x.payment.amountAgorot)) + '<br><small dir="ltr">' + esc(x.payment.providerRef || '') + '</small>' : 'ללא תשלום'}</td>
-        <td>${x.status === 'issued' ? '<span class="ok">הונפק</span>' : '<b>חדשה</b>'}${x.invoice ? `<br><small>חשבונית ${Number(x.invoice.number)}</small>` : ''}</td>
+        <td>${x.status === 'issued' ? '<span class="ok">הונפק</span>' : x.status === 'review' ? '<b>לבדיקה</b><br><small>' + esc(x.problem || '') + '</small>' : '<b>חדשה</b>'}${x.invoice ? `<br><small>חשבונית ${Number(x.invoice.number)}</small>` : ''}</td>
         <td>${x.status === 'issued' ? '' : `<button class="primary small" data-owner-signup-issue="${esc(x.id)}">✔ הנפקה ושליחה</button>`}
           <button class="secondary small" data-owner-signup-doc="${esc(x.id)}">📄 תקנון חתום (PDF)</button>
           ${x.invoice ? `<button class="secondary small" data-owner-signup-invoice="${esc(x.invoice.id)}">🧾 חשבונית (PDF)</button>` : ''}</td></tr>`).join('')}</tbody>
@@ -498,8 +521,8 @@ function offerEditor(cur) {
         fsx.innerHTML = `<legend>תכנית ${idx + 1}</legend>`;
         card.appendChild(fsx);
         const f = (label, val, type) => { const l = document.createElement('label'); l.className = 'field'; const sp = document.createElement('span'); sp.textContent = label;
-          const i = document.createElement('input'); i.type = type || 'text'; i.value = val == null ? '' : val; l.append(sp, i); fsx.appendChild(l); return i; };
-        const out = { id: f('מזהה (אנגלית)', p.id), name: f('שם', p.name), desc: f('תיאור', p.desc), price: f('מחיר ב-₪ (0 = חינם)', (p.priceAgorot || 0) / 100, 'number'),
+          const i = document.createElement('input'); i.type = type || 'text'; i.value = val == null || Number.isNaN(val) ? '' : val; l.append(sp, i); fsx.appendChild(l); return i; };
+        const out = { id: f('מזהה (אנגלית)', p.id), name: f('שם', p.name), desc: f('תיאור', p.desc), price: f('מחיר ב-₪ (0 = חינם)', p.priceAgorot / 100, 'number'),
           months: f('תקופה (חודשים)', p.months, 'number'), users: f('משתמשים', p.limits.maxUsers, 'number'), children: f('מערכות בת', p.limits.maxChildren, 'number'), feats: [] };
         const box = document.createElement('div'); box.className = 'checks';
         for (const [val, label] of LIC_FEATURES) { const l = document.createElement('label'); const c = document.createElement('input'); c.type = 'checkbox'; c.value = val; c.checked = (p.features || []).includes(val);
@@ -518,13 +541,19 @@ function offerEditor(cur) {
       const actions = document.createElement('div'); actions.className = 'modal-actions';
       const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'ביטול'; cancel.onclick = () => finish(null);
       const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'primary'; ok.textContent = 'חתימה ושמירה';
+      // שדה מספרי ריק ← NaN ולא 0: מחיר ריק לא הופך בשקט לתכנית חינם
+      const num = (el) => (String(el.value).trim() === '' ? NaN : Number(el.value));
       function collect() {
         inputs.forEach((x, i) => { Object.assign(plans[i], { id: x.id.value.trim(), name: x.name.value.trim(), desc: x.desc.value.trim(),
-          priceAgorot: Math.round(Number(x.price.value || 0) * 100), months: Number(x.months.value), features: x.feats.filter(c => c.checked).map(c => c.value),
-          limits: { ...plans[i].limits, maxUsers: Number(x.users.value), maxChildren: Number(x.children.value), maxDepth: Number(x.children.value) > 0 ? 2 : 1 } }); });
+          priceAgorot: Math.round(num(x.price) * 100), months: num(x.months), features: x.feats.filter(c => c.checked).map(c => c.value),
+          limits: { ...plans[i].limits, maxUsers: num(x.users), maxChildren: num(x.children), maxDepth: num(x.children) > 0 ? 2 : 1 } }); });
       }
       ok.onclick = () => {
         collect();
+        const bad = plans.findIndex(p => !Number.isSafeInteger(p.priceAgorot) || p.priceAgorot < 0 || !Number.isInteger(p.months)
+          || !Number.isInteger(p.limits.maxUsers) || p.limits.maxUsers < 0 || !Number.isInteger(p.limits.maxChildren) || p.limits.maxChildren < 0);
+        if (bad >= 0) { err.textContent = `תכנית ${bad + 1}: יש להקליד מחיר (0 = חינם), תקופה, משתמשים ומערכות בת — מספרים שלמים`; return; }
+        err.textContent = '';
         finish({ seller: { name: seller.value.trim(), taxId: sellerId.value.trim() }, plans, terms: { version: tv.value.trim(), title: tt.value.trim(), text: tx.value } });
       };
       actions.append(cancel, ok);

@@ -8,6 +8,7 @@ const GX = require('./gemachExtra');
 const M = require('./memorials');
 const AL = require('./allocation');
 const RC = require('./recurring');
+const { isDay } = require('./dates');
 
 const LEVELS = { urgent: 'דחוף', soon: 'בקרוב', info: 'לידיעה' };
 const ORDER = { urgent: 0, soon: 1, info: 2 };
@@ -19,7 +20,7 @@ const plural = (n, one, many) => (n === 1 ? one : `${n} ${many}`);
 // data: כל הנתונים (db.load). sources: התחומים הפתוחים ברישיון (gate.peopleSources), ברירת מחדל — כולם.
 // acct: הנהלת החשבונות פתוחה ברישיון (חשבוניות שממתינות למספר הקצאה)
 function morningBrief(data, today, { sources = SOURCES, acct = false } = {}) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(today || ''))) throw new Error('תאריך לא תקין');
+  if (!isDay(today)) throw new Error('תאריך לא תקין');
   const open = new Set(sources);
   const items = [];
   const add = (area, level, title, detail, view, count = 1) => items.push({ area, level, levelLabel: LEVELS[level], title, detail, view, count });

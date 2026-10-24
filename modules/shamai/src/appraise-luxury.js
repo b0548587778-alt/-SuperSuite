@@ -18,6 +18,28 @@ const WINE_REGIONS = [
 
 state.wine = state.wine || { region: 'bordeaux', name: '', vintage: null, score: null, asking: null, kosher: false };
 
+// יין: רטרייל × אזור × גיל × ציון × כשרות — משותף למסך ולשמירה ביומן (ממצא 15)
+function wineValue(w, baseRetail, year = new Date().getFullYear()) {
+  const regionMult = WINE_REGIONS.find(x => x.k === w.region)?.base ?? 1;
+  // גיל: יינות מאזורים יוקרתיים עולים בערכם; בציר עתידי — שנת הבקבוק לא ברורה
+  const age = w.vintage ? year - w.vintage : 0;
+  let ageMult = 1;
+  if (age >= 30) ageMult = 2.5;
+  else if (age >= 20) ageMult = 1.8;
+  else if (age >= 10) ageMult = 1.3;
+  else if (age >= 5) ageMult = 1.05;
+  else if (age < 0) ageMult = 0.8;
+  // ציון (סולם 100)
+  let scoreMult = 1;
+  if (w.score >= 98) scoreMult = 3;
+  else if (w.score >= 95) scoreMult = 2;
+  else if (w.score >= 92) scoreMult = 1.4;
+  else if (w.score >= 88) scoreMult = 1.1;
+  else if (w.score < 85 && w.score > 0) scoreMult = 0.7;
+  const kosherMult = w.kosher ? 1.15 : 1;
+  return { regionMult, age, ageMult, scoreMult, kosherMult, estValue: baseRetail * regionMult * ageMult * scoreMult * kosherMult };
+}
+
 function renderWineView() {
   const el = $('.sub-view[data-sub="wine"]');
   if (!el) return;
@@ -51,26 +73,8 @@ function recalcWine() {
     return;
   }
 
-  const region = WINE_REGIONS.find(x => x.k === w.region);
-  const regionMult = region?.base ?? 1;
-  // Age multiplier - wines from prestigious regions appreciate
-  const age = w.vintage ? new Date().getFullYear() - w.vintage : 0;
-  let ageMult = 1;
-  if (age >= 30) ageMult = 2.5;
-  else if (age >= 20) ageMult = 1.8;
-  else if (age >= 10) ageMult = 1.3;
-  else if (age >= 5) ageMult = 1.05;
-  else if (age < 0) ageMult = 0.8; // future vintage = bottling year unclear
-  // Score multiplier (Robert Parker scale)
-  let scoreMult = 1;
-  if (w.score >= 98) scoreMult = 3;
-  else if (w.score >= 95) scoreMult = 2;
-  else if (w.score >= 92) scoreMult = 1.4;
-  else if (w.score >= 88) scoreMult = 1.1;
-  else if (w.score < 85 && w.score > 0) scoreMult = 0.7;
-  const kosherMult = w.kosher ? 1.15 : 1;
-
-  const estValue = baseRetail * regionMult * ageMult * scoreMult * kosherMult;
+  // אותו חישוב שנשמר ביומן (wineValue)
+  const { regionMult, age, ageMult, scoreMult, kosherMult, estValue } = wineValue(w, baseRetail);
 
   let html = `
     <div class="r-row big"><span class="r-label">שווי שוק משוער</span><strong>₪${fmt0(estValue)}</strong></div>

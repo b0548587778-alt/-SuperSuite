@@ -1,5 +1,6 @@
 // Business Service - Handles business plans and business intelligence
 const crypto = require('crypto');
+const { editable } = require('../core/editable');
 
 class BusinessService {
   constructor(db) {
@@ -81,7 +82,7 @@ class BusinessService {
     
     const plan = { 
       ...existing.plans[planIndex], 
-      ...updates, 
+      ...editable(updates), 
       updatedAt: new Date().toISOString() 
     };
     

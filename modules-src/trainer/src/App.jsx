@@ -62,36 +62,39 @@ export default function App() {
     })();
   }, []);
 
+  // השמירות מחזירות true / false. שמירה שנדחתה (צפייה בלבד, הכניסה פגה, אין מקום — ההודעה מ-lib/storage.js)
+  // לא מעדכנת את המסך: אחרת הוא מציג שינוי שנעלם בטעינה הבאה (בדיקת קוד 23.10.2026, ממצא 3)
   const saveTrainer = async (t) => {
-    await S.set(K.trainer, t);
+    if (!(await S.set(K.trainer, t))) return false;
     setTrainer(t);
+    return true;
   };
 
   const saveClient = async (c) => {
-    await S.set(K.client(c.id), c);
+    if (!(await S.set(K.client(c.id), c))) return false;
     const idx = (await S.get(K.clientIndex)) || [];
     if (!idx.includes(c.id)) {
       idx.push(c.id);
-      await S.set(K.clientIndex, idx);
+      if (!(await S.set(K.clientIndex, idx))) return false;
     }
     setClients((prev) => {
       const filtered = prev.filter((p) => p.id !== c.id);
       return [...filtered, c];
     });
+    return true;
   };
 
+  // קודם מהרשימה: מחיקה שנדחתה לא משנה דבר. אחר כך הנתונים — מה שלא נמחק (ההודעה כבר הוצגה) כבר לא מוצג בשום מקום
   const deleteClient = async (id) => {
-    await S.del(K.client(id));
-    await S.del(K.program(id));
-    await S.del(K.sessions(id));
-    await S.del(K.measurements(id));
-    await S.del(K.assessments(id));
-    await S.del(K.memberships(id));
-    const sch = (await S.get(K.schedule)) || [];
-    await S.set(K.schedule, removeClientEverywhere(sch, id));
     const idx = (await S.get(K.clientIndex)) || [];
-    await S.set(K.clientIndex, idx.filter((i) => i !== id));
+    if (!(await S.set(K.clientIndex, idx.filter((i) => i !== id)))) return false;
     setClients((prev) => prev.filter((c) => c.id !== id));
+    const sch = (await S.get(K.schedule)) || [];
+    if (!(await S.set(K.schedule, removeClientEverywhere(sch, id)))) return true;
+    for (const key of [K.client(id), K.program(id), K.sessions(id), K.measurements(id), K.assessments(id), K.memberships(id)]) {
+      if (!(await S.del(key))) break;
+    }
+    return true;
   };
 
   if (loading) {
@@ -99,7 +102,7 @@ export default function App() {
   }
 
   if (view.name === 'trainer-setup') {
-    return <TrainerSetup onSave={async (t) => { await saveTrainer(t); setView({ name: 'dashboard' }); }} />;
+    return <TrainerSetup onSave={async (t) => { if (await saveTrainer(t)) setView({ name: 'dashboard' }); }} />;
   }
 
   return (
@@ -134,7 +137,7 @@ export default function App() {
           {view.name === 'memberships' && <MembershipsView clients={clients} setView={setView} />}
           {view.name === 'reminders' && <RemindersView clients={clients} trainer={trainer} setView={setView} />}
           {view.name === 'clients' && <ClientsList clients={clients} setView={setView} onDelete={deleteClient} />}
-          {view.name === 'client-new' && <ClientForm onSave={async (c) => { await saveClient(c); setView({ name: 'client-detail', id: c.id }); }} onCancel={() => setView({ name: 'clients' })} />}
+          {view.name === 'client-new' && <ClientForm onSave={async (c) => { if (await saveClient(c)) setView({ name: 'client-detail', id: c.id }); }} onCancel={() => setView({ name: 'clients' })} />}
           {view.name === 'client-detail' && <ClientDetail key={view.id + (view.tab || '')} clientId={view.id} initialTab={view.tab} clients={clients} trainer={trainer} setView={setView} saveClient={saveClient} onDelete={deleteClient} />}
           {view.name === 'library' && <LibraryView />}
           {view.name === 'templates' && <TemplatesView clients={clients} setView={setView} saveClient={saveClient} />}
@@ -164,7 +167,9 @@ function Sidebar({ view, setView, trainer, clientCount, mobileOpen, onClose }) {
     { id: 'templates', label: 'תוכניות מוכנות', icon: '📋' },
     { id: 'library', label: 'ספריית תרגילים', icon: '≣' },
     { id: 'nutrition', label: 'תזונה', icon: '🥗' },
-    { id: 'mobility', label: 'גמישות ויוגה', icon: '🧘' },
+    // הטקסט הוא מפתח הניווט מול shell/catalog.js (TRAINER_LABELS); הסרגל הזה מוסתר ב-SuperSuite (preload),
+    // והמשתמש רואה "גמישות ומתיחות". שינוי הטקסט — יחד עם הקטלוג ועם בנייה חדשה של החבילה (tests/trainer-nav.test.js)
+    { id: 'mobility', label: 'גמישות ומתיחות', icon: '🤸' },
     { id: 'cardio', label: 'קרדיו', icon: '🏃' },
     { id: 'knowledge', label: 'ידע מקצועי', icon: '📚' },
     { id: 'tools', label: 'כלים', icon: '🛠' },

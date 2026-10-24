@@ -58,6 +58,8 @@ test('main.js: מסך הפתיחה נסגר עם טעינת המעטפת, לפנ
     const before = boot.slice(Math.max(0, at - 400), at);
     assert.match(before, /closeSplash\(\)/, 'חלון הודעה בלי סגירת מסך הפתיחה לפניו');
   }
+  // חלונות ההודעה של העלייה עוברים ב-bootDialog — הוא סוגר את מסך הפתיחה בעצמו
+  assert.match(main, /async function bootDialog\(opts\) \{\s*closeSplash\(\);/);
 });
 
 test('splash.html: בלי סקריפט, עם CSP, בעברית ובצבעי שפת העיצוב', () => {

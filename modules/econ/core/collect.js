@@ -3,10 +3,17 @@
 // התוכנה לא נוגעת בפרטי אשראי ולא פונה לרשת: הקישור נבנה מתבנית שהארגון קיבל מחברת הסליקה,
 // והתשלומים שהתקבלו נקלטים מקובץ הדוח של החברה (התאמה לפי מספר הדרישה, או לפי סכום ושם).
 const { parseCsv } = require('./features');
-const { parseDate, parseAmount, amountCurrency } = require('./donationImport');
+const { parseDate, parseAmount, amountIssue, amountCurrency } = require('./donationImport');
 
 const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
+// תאריך אמיתי בלבד (2026-02-31 נדחה — Date.parse מגלגל אותו ל-3.3)
+const isDay = (s) => {
+  const m = typeof s === 'string' && s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+};
 const MAX_REQUESTS = 20000;
 const MAX_ROWS = 5000;
 
@@ -190,7 +197,7 @@ function matchReport(csvText, mapping, requests) {
     if (get('status') && FAILED.test(get('status'))) { skipped++; return; }
     const date = parseDate(get('date'));
     const amount = parseAmount(get('amount'));
-    if (!date || amount === null) { errors.push({ line, message: !date ? `תאריך לא מזוהה: "${get('date')}"` : `סכום לא תקין: "${get('amount')}"` }); return; }
+    if (!date || amount === null) { errors.push({ line, message: !date ? `תאריך לא מזוהה: "${get('date')}"` : amountIssue(get('amount')) }); return; }
     // הדרישות בשקלים: סכום במטבע זר לא מותאם (parseAmount מסיר את הסימן — 100$ היה נקלט כ-100 ₪)
     if (amountCurrency(get('amount'))) { errors.push({ line, message: `סכום במטבע זר (${amountCurrency(get('amount'))}): "${get('amount')}" — הגבייה בשקלים בלבד` }); return; }
     const amountAg = toAg(amount);
@@ -244,4 +251,4 @@ function summary(requests) {
 }
 
 module.exports = { PROVIDERS, KINDS, STATUSES, PLACEHOLDERS, FIELDS, MAX_REQUESTS, normalizeSettings, validateSettings, validateTemplate,
-  buildLink, createRequest, messageText, previewImport, matchReport, summary, refOf, toAg, fromAg };
+  buildLink, createRequest, messageText, previewImport, matchReport, summary, refOf, toAg, fromAg, isDay };

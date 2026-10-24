@@ -1,5 +1,6 @@
 // Market Intelligence Service - Handles market data and intelligence tracking
 const crypto = require('crypto');
+const { editable } = require('../core/editable');
 
 class MarketIntelService {
   constructor(db) {
@@ -80,7 +81,7 @@ class MarketIntelService {
       throw new Error('הרשומה לא נמצאה');
     }
     
-    const entry = { ...existing.entries[entryIndex], ...updates, updatedAt: new Date().toISOString() };
+    const entry = { ...existing.entries[entryIndex], ...editable(updates), updatedAt: new Date().toISOString() };
     
     // Ensure required fields
     entry.updatedAt = new Date().toISOString();

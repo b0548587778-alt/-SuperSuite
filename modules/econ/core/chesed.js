@@ -5,7 +5,10 @@
 
 const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+// היום המקומי (לא UTC — בישראל toISOString מחזיר את אתמול בין חצות ל-03:00)
+const localToday = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 const { assertIsraeliId } = require('./israeliId');
 const str = (v, max, label) => {
   const s = String(v ?? '').trim();
@@ -62,7 +65,7 @@ function validateRound(input) {
   if (!input || typeof input !== 'object') throw new Error('סבב חלוקה לא תקין');
   const name = str(input.name, 200, 'שם הסבב');
   if (!name) throw new Error('שם הסבב חובה (למשל: קמחא דפסחא)');
-  const date = input.date || new Date().toISOString().slice(0, 10);
+  const date = input.date || localToday();
   if (!isDate(date)) throw new Error('תאריך החלוקה אינו תקין (YYYY-MM-DD)');
   const unitValue = input.unitValue === '' || input.unitValue == null ? 0 : Number(input.unitValue);
   if (!Number.isFinite(unitValue) || unitValue < 0 || unitValue > 1e6) throw new Error('ערך המנה אינו תקין');
@@ -113,7 +116,7 @@ function markDelivered(round, beneficiaryId, delivered, date) {
   if (round.status === 'closed') throw new Error('הסבב סגור — לא ניתן לעדכן מסירה');
   const i = (round.allocations || []).findIndex(a => a.beneficiaryId === beneficiaryId);
   if (i < 0) throw new Error('הנזקק אינו משויך לסבב זה');
-  const when = delivered ? (date && isDate(date) ? date : new Date().toISOString().slice(0, 10)) : '';
+  const when = delivered ? (date && isDate(date) ? date : localToday()) : '';
   const allocations = round.allocations.map((a, j) => j === i ? { ...a, delivered: !!delivered, deliveredAt: when } : a);
   return { ...round, allocations };
 }

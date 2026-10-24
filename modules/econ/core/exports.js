@@ -3,6 +3,7 @@
 const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 const AL = require('./allocation');
 const { foreignLabel } = require('./currency');
+const { localDay } = require('./dates'); // "הופק:" — היום המקומי, לא UTC (בין חצות ל-03:00 toISOString נתן את אתמול)
 const money = (n) => '₪' + Number(n || 0).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // מיתוג המסמך: צבע (#rrggbb בלבד), לוגו (data:image בלבד — בלי טעינה מבחוץ) וחתימה
@@ -279,7 +280,7 @@ function donorStatementBody(st) {
   </div>
   <div class="meta">
     <h1>סיכום תרומות לשנת ${esc(st.year)}</h1>
-    <div>הופק: ${esc(new Date().toISOString().slice(0, 10))}</div>
+    <div>הופק: ${esc(localDay())}</div>
   </div>
 </header>
 <div class="to">לכבוד: <strong>${esc(dn.name)}</strong>${dn.id ? ` · ת.ז/ח.פ ${esc(dn.id)}` : ''}${dn.address ? `<br>${esc(dn.address)}` : ''}</div>
@@ -471,11 +472,16 @@ function renderCustomerLedgerHtml(l, business = {}) {
 }
 
 // CSV עם BOM כדי ש-Excel יציג עברית נכון
+// הזרקת נוסחאות: תא שמתחיל ב-= + @ או טאב/חזרה, או במינוס שאינו מספר שלם בפני עצמו, יפורש כנוסחה ב-Excel.
+// מינוס ואחריו ספרה אינו מספיק: "-1+1" או "-2+cmd|..." הם נוסחאות. משותף לייבוא (dataPorts מסיר את הגרש)
+function csvFormulaRisk(s) {
+  return /^[=+@\t\r]/.test(s) || (s[0] === '-' && !/^-\d+(?:[.,]\d+)*$/.test(s));
+}
+
 function toCsv(headers, rows) {
   const cell = (v) => {
     let s = String(v ?? '');
-    // הזרקת נוסחאות: תא שמתחיל ב-= + @ או טאב/חזרה, או במינוס שאינו מספר, יפורש כנוסחה ב-Excel — מנטרלים עם גרש
-    if (/^[=+@\t\r]|^-(?!\d)/.test(s)) s = "'" + s;
+    if (csvFormulaRisk(s)) s = "'" + s;
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return '﻿' + [headers, ...rows].map(r => r.map(cell).join(',')).join('\r\n') + '\r\n';
@@ -523,4 +529,4 @@ function renderUniformReportHtml(r) {
 </html>`;
 }
 
-module.exports = { renderInvoiceHtml, renderReceiptHtml, renderDonationReceiptHtml, renderDonorStatementHtml, renderDonorFileHtml, renderLoanStatementHtml, renderCustomerLedgerHtml, scopeCss, renderUniformReportHtml, toCsv, esc, money };
+module.exports = { renderInvoiceHtml, renderReceiptHtml, renderDonationReceiptHtml, renderDonorStatementHtml, renderDonorFileHtml, renderLoanStatementHtml, renderCustomerLedgerHtml, scopeCss, renderUniformReportHtml, toCsv, csvFormulaRisk, esc, money };

@@ -2,6 +2,8 @@
 // מס רכישה: אין בקוד שום מדרגה. הטבלה לכל שנה וסוג רוכש מוקלדת או נטענת מקובץ על ידי המשתמש,
 // ונשארת "לא מאומתת" עד שמנהל מסמן שבדק אותה מול רשות המסים. חישוב עם טבלה לא מאומתת — "הערכה".
 
+const { isDay } = require('./dates');
+
 const toAg = (n) => Math.round(Number(n) * 100);
 const fromAg = (a) => Math.round(a) / 100;
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -61,7 +63,8 @@ function validateTaxTable(input) {
   if (!kind) throw new Error('יש לבחור סוג רוכש');
   const brackets = input.bracketsText !== undefined ? parseBrackets(input.bracketsText) : validateBrackets(input.brackets);
   const validFrom = input.validFrom ? String(input.validFrom) : '';
-  if (validFrom && !/^\d{4}-\d{2}-\d{2}$/.test(validFrom)) throw new Error('תאריך התחולה אינו תקין');
+  // תאריך שקיים בלוח בלבד — 2026-02-31 נדחה (פעם regex בלבד)
+  if (validFrom && !isDay(validFrom)) throw new Error('תאריך התחולה אינו תקין');
   return { year, kind, brackets, validFrom, source: clip(input.source, 300) };
 }
 

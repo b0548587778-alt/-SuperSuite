@@ -30,7 +30,8 @@ async function cancelInBooks(invoiceId) {
   assert.equal(inv.status, 'cancelled');
 }
 
-test('הכנה: מנהל מחובר', async () => {
+// הכנה לפני כל הבדיקות (ולא כבדיקה ראשונה): כל בדיקה רצה גם לבד או בסדר אחר
+test.before(async () => {
   await ipc.initEcon(dir, { relayUrl: '' });
   await handlers['auth:setup'](ev(71), 'menahel', 'menahel-strong-pass-1');
   await handlers['auth:login'](ev(71), 'menahel', 'menahel-strong-pass-1');

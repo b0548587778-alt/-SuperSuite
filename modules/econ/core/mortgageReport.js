@@ -93,10 +93,10 @@ ${chosen ? `<h2>ההמלצה: ${esc(chosen.lender)}</h2>
   <td class="n">${t.ratePct !== undefined ? esc(t.ratePct) + '%' : t.spreadPct !== undefined ? 'מרווח ' + esc(t.spreadPct) + '%' : '—'}</td></tr>`).join('')}</tbody></table>
 ${chosenResult && chosenResult.summary ? `<div class="box">
   <strong>החזר חודשי ראשון:</strong> ${money(chosenResult.summary.firstPayment)} · <strong>החזר מקסימלי:</strong> ${money(chosenResult.summary.maxPayment)}<br>
-  <strong>סך כל התשלומים (לפי התחזית):</strong> ${money(chosenResult.summary.totalPaid)}
+  <strong>סך כל התשלומים (לפי התחזית):</strong> ${money(chosenResult.summary.totalPayments)}
 </div>` : ''}
 ${chosenResult && Array.isArray(chosenResult.yearly) && chosenResult.yearly.length ? `<table><thead><tr><th>שנה</th><th class="n">תשלומים בשנה</th><th class="n">יתרה בסוף השנה</th></tr></thead>
-<tbody>${chosenResult.yearly.map(y => `<tr><td>${esc(y.year)}</td><td class="n">${money(y.payment)}</td><td class="n">${money(y.balance)}</td></tr>`).join('')}</tbody></table>` : ''}` : ''}
+<tbody>${chosenResult.yearly.map(y => `<tr><td>${esc(y.year)}</td><td class="n">${money(y.payments)}</td><td class="n">${money(y.closingBalance)}</td></tr>`).join('')}</tbody></table>` : ''}` : ''}
 ${Array.isArray(missingDocs) && missingDocs.length ? `<h2>מסמכים שעדיין חסרים</h2><ul>${missingDocs.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
 <div class="notice">${esc(brand.disclaimer || DEFAULT_DISCLAIMER)}</div>
 `;

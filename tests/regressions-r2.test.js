@@ -23,10 +23,17 @@ async function adminSession(id) {
   await handlers['auth:login'](ev(id), 'owner_r2', PASS);
 }
 
-test('תיקון: מי שרק צופה (data.view) לא יכול לגבות או לשחזר', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-r2-'));
-  await ipc.initEcon(dir);
+// המסד והמנהל הראשון — לפני כל הבדיקות, ולא בתוך הבדיקה הראשונה: כל בדיקה רצה גם לבד או בסדר אחר
+// (--test-name-pattern / --test-randomize), ומודדת שינוי ולא מצב מוחלט של המסד המשותף
+let dbDir;
+test.before(async () => {
+  dbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-r2-'));
+  await ipc.initEcon(dbDir);
   await handlers['auth:setup'](ev(3), 'owner_r2', PASS);
+});
+test.after(() => { try { fs.rmSync(dbDir, { recursive: true, force: true }); } catch { /* קובץ המסד עוד פתוח ב-Windows */ } });
+
+test('תיקון: מי שרק צופה (data.view) לא יכול לגבות או לשחזר', async () => {
   auth.setSession(31, { id: 'viewer', permissions: ['data.view'] });
   await assert.rejects(handlers['data:backupEncrypted'](ev(31), 'pass-12345678'), /אין הרשאה/);
   await assert.rejects(handlers['data:restoreEncrypted'](ev(31), 'SSBK1:x', 'pass-12345678'), /אין הרשאה/);
@@ -51,13 +58,14 @@ test('שחזור מוצפן: סיסמה שגויה נדחית, וגיבוי גל
 
 test('תיקון: אי אפשר לגבות חשבונית שבוטלה', async () => {
   await adminSession(50);
+  const before = (await handlers['acct:getReports'](ev(50), {})).openInvoices;
   const inv = await handlers['acct:createInvoice'](ev(50), { customer: 'לקוח א', items: [{ unitPrice: 100 }] });
   await handlers['acct:cancelInvoice'](ev(50), inv.id);
   await assert.rejects(handlers['acct:recordPayment'](ev(50), inv.id, {}), /לא ניתן לגבות חשבונית שבוטלה/);
   const invoices = await handlers['acct:getInvoices'](ev(50));
   assert.equal(invoices.find(i => i.id === inv.id).status, 'cancelled');
   const r = await handlers['acct:getReports'](ev(50), {});
-  assert.equal(r.openInvoices, 0, 'חשבונית שבוטלה לא נשארת בחוב פתוח');
+  assert.equal(r.openInvoices, before, 'חשבונית שבוטלה לא נשארת בחוב פתוח');
 });
 
 test('תיקון: אי אפשר לבטל רשומה של חשבונית ישירות (הסטטוס היה נשאר לא מסונכרן)', async () => {
@@ -80,10 +88,11 @@ test('תיקון: אי אפשר לבטל גבייה ישירות, אבל ביט�
   const payEntry = journal.find(e => e.description.startsWith('גביית חשבונית ' + inv.number));
   await assert.rejects(handlers['acct:reverseEntry'](ev(70), payEntry.id), /בטל את הגבייה במקום/);
 
+  const before = (await handlers['acct:getReports'](ev(70), {})).openInvoices;
   const unpaid = await handlers['acct:unrecordPayment'](ev(70), inv.id);
   assert.equal(unpaid.status, 'open');
   const r = await handlers['acct:getReports'](ev(70), {});
-  assert.equal(r.openInvoices, 118, 'החוב הפתוח חזר למלוא סכום החשבונית');
+  assert.equal(Math.round((r.openInvoices - before) * 100), 11800, 'החוב הפתוח חזר למלוא סכום החשבונית');
   await assert.rejects(handlers['acct:unrecordPayment'](ev(70), inv.id), /אינה משולמת/);
 });
 
@@ -104,17 +113,19 @@ test('הוצאות אישיות: נשמרות בנפרד, לא משפיעות ע
   await adminSession(100);
   const before = await handlers['acct:getReports'](ev(100), {});
   const journalBefore = (await handlers['acct:getJournal'](ev(100), {})).length;
+  const sumBefore = await handlers['personal:getSummary'](ev(100), {});
   const p = await handlers['personal:addEntry'](ev(100), { date: '2026-03-02', kind: 'expense', amount: 250, category: 'חשמל', note: 'דירה' });
-  await handlers['personal:addEntry'](ev(100), { date: '2026-03-03', kind: 'income', amount: 1000, category: 'משכורת' });
+  const q = await handlers['personal:addEntry'](ev(100), { date: '2026-03-03', kind: 'income', amount: 1000, category: 'משכורת' });
   assert.equal((await handlers['acct:getJournal'](ev(100), {})).length, journalBefore, 'לא נוספה שום רשומת יומן');
   const after = await handlers['acct:getReports'](ev(100), {});
   assert.deepEqual(after.incomeStatement.totalRevenue, before.incomeStatement.totalRevenue);
   assert.deepEqual(after.vat, before.vat);
   const sum = await handlers['personal:getSummary'](ev(100), {});
-  assert.equal(sum.expense, 250);
-  assert.equal(sum.balance, 750);
+  assert.equal(sum.expense - sumBefore.expense, 250);
+  assert.equal(sum.balance - sumBefore.balance, 750);
   await handlers['personal:deleteEntry'](ev(100), p.id);
-  assert.equal((await handlers['personal:getSummary'](ev(100), {})).expense, 0);
+  await handlers['personal:deleteEntry'](ev(100), q.id);
+  assert.equal((await handlers['personal:getSummary'](ev(100), {})).expense, sumBefore.expense);
 });
 
 test('דוח סיכום תקופתי ואנליטיקה נגישים דרך ה-IPC לאחר כניסה', async () => {
@@ -158,10 +169,10 @@ test('תיקון: אין תלות ברשת חיצונית באף מודול — 
   // שם החבילה משתנה בכל בנייה מהמקור (modules-src/trainer) — נלקח מ-index.html
   const trainerJs = read('modules/trainer/' + read('modules/trainer/index.html').match(/src="\/(assets\/index-[^"]+\.js)"/)[1]);
   assert.doesNotMatch(trainerJs, /fonts\.googleapis\.com/, 'הבאנדל של trainer לא מזריק גוגל פונטים');
-  // גופן ה-OCR נטען מקומית, לא מ-CDN, וההודעה אינה מפנה לאינטרנט
+  // OCR לא נטען בכלל — לא מ-CDN ולא מ-lib/tesseract שאינו בחבילה (הוסר, בדיקת קוד 23.10.2026); ההודעות לא מפנות לאינטרנט
   const shamaiApp = shamaiSource();
   assert.doesNotMatch(shamaiApp, /cdn\.jsdelivr\.net/, 'שַׁמַּאי לא טוען tesseract מ-CDN');
-  assert.match(shamaiApp, /script\.src = 'lib\/tesseract\//, 'הגופן/מנוע ה-OCR נטען מהעותק המקומי');
+  assert.doesNotMatch(shamaiApp, /lib\/tesseract/, 'אין טעינה של מנוע OCR שאינו בחבילה');
   assert.doesNotMatch(shamaiApp, /check internet/, 'ההודעה לא מפנה את המשתמש לאינטרנט');
   // ה-service worker לא מטפל יותר בבקשות גופן חיצוניות
   const sw = read('modules/shamai/sw.js');

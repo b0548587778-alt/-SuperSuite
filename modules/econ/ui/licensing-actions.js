@@ -95,7 +95,8 @@ function licForm(title, fields, submitText, intro) {
         const v = get[f.name]();
         if (f.required && (Array.isArray(v) ? !v.length : !v)) { err.textContent = 'יש למלא: ' + f.label; return; }
         if (f.type === 'number') {
-          const n = Number(v);
+          // שדה ריק אינו 0 (Number('') === 0 היה נשמר בשקט כאפס)
+          const n = v === '' ? NaN : Number(v);
           if (!Number.isInteger(n) || n < (f.min ?? 0) || (f.max != null && n > f.max)) {
             err.textContent = `${f.label}: מספר שלם${f.max != null ? ' עד ' + f.max : ''}`; return;
           }
@@ -137,6 +138,36 @@ async function licSave(text, name, doneMsg) {
 }
 
 // עטיפה לכל כפתור: שגיאה בעברית, ורענון המסך בסוף
+// דוח אחרי "שליחת עדכוני סטטוס לכל המערכות" (סקירת אבטחה 24.10.2026, ממצאים 3, 5): מי לא קיבל ולמה — כולל מסירה
+// שהשרת לא אישר בחתימה. טקסט בלבד (textContent) — שם הלקוח והשגיאה אינם HTML
+function licPushReport(failed) {
+  return openDialog((card, finish) => {
+    const h = document.createElement('h2');
+    h.textContent = `עדכוני סטטוס שלא נמסרו (${failed.length})`;
+    const intro = document.createElement('p');
+    intro.textContent = 'המערכות האלה לא קיבלו את העדכון. אפשר לנסות שוב, או לשלוח להן "קובץ עדכון" ידנית:';
+    const list = document.createElement('div');
+    list.className = 'ss-list';
+    for (const f of failed.slice(0, 200)) {
+      const row = document.createElement('div');
+      row.className = 'ss-list-row';
+      row.textContent = `${f.name || f.to}: ${f.error || 'לא נמסר'}`;
+      list.appendChild(row);
+    }
+    for (const el of [intro, list]) el.style.padding = '0 1.5rem';
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'primary';
+    close.textContent = 'סגירה';
+    close.addEventListener('click', () => finish(true));
+    actions.appendChild(close);
+    card.append(h, intro, list, actions);
+    close.focus();
+  });
+}
+
 const licAction = (fn) => async (e) => {
   try { await fn(e); } catch (error) { showError(errMsg(error)); return; }
   await switchView('licensing');
@@ -218,8 +249,9 @@ function attachLicensingHandlers() {
       ...licTermsFields({ features: st.features, limits: st.limits }).filter(f => f.name !== 'months')], 'הפקת בקשה ושמירה',
     'התנאים לא יכולים לעלות על הרישיון של המערכת הזו. התוקף — לפי התקופה ששולמה. מנהל-העל יאשר או ידחה.');
     if (!v) return;
+    // חלון השמירה נפתח בערוץ עצמו — התשלום מנוצל רק אחרי שהקובץ נשמר
     const r = await window.systemAPI.requestLicenseChildApproval({ request: text, name: v.name, ...licTerms(v) });
-    await licSave(r.package, 'בקשת-אישור-' + v.name, 'בקשת האישור נשמרה — שלחו אותה לספק');
+    if (r && r.saved) showToast('בקשת האישור נשמרה — שלחו אותה לספק');
   });
   on('licChildIssueBtn', async () => {
     const text = await pickFileText('.sslic,.json');
@@ -304,6 +336,8 @@ function attachLicensingHandlers() {
     if (!v) return;
     const r = await window.systemAPI.licenseSignup(v);
     if (r.free) { showToast('ההרשמה נשלחה — הרישיון יגיע בסנכרון'); return; }
+    // באנדרואיד אין פתיחת דף התשלום (license:openPayment דוחה שם בעברית)
+    if (licOnAndroid(d)) { showToast('ההרשמה נשמרה. באנדרואיד אין מעבר לדף התשלום — התשלום נפתח רק בגרסת המחשב'); return; }
     showToast('נפתח דף התשלום המאובטח');
     await window.systemAPI.licenseOpenPayment();
   }
@@ -329,7 +363,14 @@ function attachLicensingHandlers() {
     showToast('התכניות והתקנון פורסמו — מערכות חדשות יכולות להירשם');
   });
   each('data-owner-signup-issue', async (b) => {
-    const r = await window.systemAPI.ownerSignupIssue(b.dataset.ownerSignupIssue);
+    const id = b.dataset.ownerSignupIssue;
+    let r;
+    try { r = await window.systemAPI.ownerSignupIssue(id); } catch (e) {
+      // הרשמה לפי הצעה שכבר הוחלפה (ממצא 31) — הנפקה רק אחרי אישור מפורש של מנהל-העל
+      if (!/הוחלפה/.test(errMsg(e))) throw e;
+      if (!(await askConfirm(errMsg(e) + '\n\nלהנפיק בכל זאת, לפי התכנית שבהרשמה?'))) return;
+      r = await window.systemAPI.ownerSignupIssue(id, { force: true });
+    }
     showToast(r.invoice ? `הרישיון של "${r.name}" נשלח, והופקה חשבונית מס/קבלה ${r.invoice.number}` : `הרישיון של "${r.name}" נשלח`);
   });
   each('data-owner-signup-invoice', async (b) => {
@@ -384,7 +425,9 @@ function attachLicensingHandlers() {
   });
   on('ownerRemotePushBtn', async () => {
     const r = await window.systemAPI.ownerRemotePush();
-    showToast(`נשלחו ${r.sent} עדכונים`);
+    const failed = Array.isArray(r && r.failed) ? r.failed : [];
+    showToast(`נשלחו ${Number(r && r.sent) || 0} עדכונים` + (failed.length ? ` — ${failed.length} לא נמסרו` : ''));
+    if (failed.length) await licPushReport(failed);
   });
   each('data-owner-inbox-issue', async (b) => {
     const m = (d.inbox || []).find(x => x.id === b.dataset.ownerInboxIssue) || {};
@@ -425,12 +468,14 @@ function attachLicensingHandlers() {
   on('ownerLockBtn', () => window.systemAPI.ownerLock());
   // --- שמירה על המפתח ---
   const makeCodes = async () => {
+    // הקודים משחזרים את המפתח עצמו — לכן הסיסמה נדרשת שוב, גם כשמצב מנהל-העל פתוח
     const v = await licForm('יצירת קודי שחזור', [
+      { name: 'p', label: 'סיסמת מנהל-העל', type: 'password', required: true },
       { name: 'n', label: 'כמה קודים ליצור', type: 'number', value: 5, required: true },
       { name: 'k', label: 'כמה קודים נדרשים לשחזור', type: 'number', value: 3, required: true }], 'יצירה',
     'מומלץ: 5 קודים, 3 לשחזור. יצירה מחדש מבטלת את הצורך בקודים הישנים — אבל הם עדיין משחזרים את אותו מפתח, לכן השמידו אותם.');
     if (!v) return;
-    const r = await window.systemAPI.ownerRecoveryCodes(Number(v.n), Number(v.k));
+    const r = await window.systemAPI.ownerRecoveryCodes(v.p, Number(v.n), Number(v.k));
     await showRecoveryCodes(r);
   };
   on('ownerCodesBtn', makeCodes);

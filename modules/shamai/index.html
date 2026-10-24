@@ -1204,7 +1204,6 @@
               <input type="file" id="no-photo" accept="image/*" capture="environment" hidden />
             </label>
             <button type="button" class="quick-btn" id="btn-scan-barcode">📊 ברקוד</button>
-            <button type="button" class="quick-btn" id="btn-ocr-cert">🔬 OCR תעודה</button>
           </div>
           <div class="photo-preview" id="no-photo-preview" hidden></div>
           <div class="field-row">
@@ -1543,19 +1542,22 @@
           </div>
 
           <div class="settings-card">
-            <h3>סנכרון בין מכשירים</h3>
-            <p class="text-faint">העבר את הנתונים שלך בין מכשירים בלי אינטרנט - באמצעות סריקת QR.</p>
-            <button class="btn-secondary" id="btn-show-qr">📱 הצג QR לגיבוי</button>
-            <button class="btn-secondary" id="btn-scan-qr">📷 סרוק QR לשחזור</button>
+            <h3>העברת פריטי הפנקס בין מכשירים</h3>
+            <p class="text-faint">העברת פריטי הפנקס והמחירים בין מכשירים בלי אינטרנט, בסריקת QR. קליטה מחליפה את כל פריטי הפנקס במכשיר הקולט.</p>
+            <p class="text-faint">לא גיבוי מלא — בלי תיקי שמאות, שטרות קנייה, מספור ותמונות. הגיבוי המוצפן של כל הנתונים — בגיבוי של התוכנה (מסך הבית).</p>
+            <button class="btn-secondary" id="btn-show-qr">📱 העברת פריטי הפנקס ב-QR</button>
+            <button class="btn-secondary" id="btn-scan-qr">📷 קליטת פריטים מ-QR</button>
             <div id="qr-container" hidden></div>
           </div>
 
           <div class="settings-card">
             <h3>נתונים מקומיים</h3>
-            <button class="btn-secondary" id="btn-export-all">↓ גיבוי מלא (JSON)</button>
-            <button class="btn-secondary" id="btn-import-all">↑ שחזור מגיבוי</button>
-            <input type="file" id="file-import-all" hidden accept="application/json" />
+            <p class="text-faint">הקובץ כולל את פריטי הפנקס, המחירים וההגדרות בלבד — בלי תיקי שמאות, שטרות קנייה, מספור ותמונות. גיבוי מלא ומוצפן של כל הנתונים — בגיבוי של התוכנה (מסך הבית).</p>
+            <button class="btn-secondary" id="btn-export-all">↓ ייצוא פריטי הפנקס (JSON)</button>
+            <button class="btn-secondary" id="btn-import-all">↑ ייבוא פריטים מקובץ JSON</button>
+            <input type="file" id="file-import-all" hidden accept="application/json" aria-label="קובץ פריטים לייבוא" />
             <button class="btn-ghost danger" id="btn-clear-all">🗑 מחק את כל הנתונים</button>
+            <p class="text-faint">המחיקה שומרת את המספור של השטרות, התיקים והדוחות — מספר שכבר הונפק לא יחזור.</p>
           </div>
 
           <div class="settings-card">

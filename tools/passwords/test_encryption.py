@@ -95,6 +95,37 @@ class TestSplitJoin(unittest.TestCase):
         for p in parts:
             plain = enc.Fernet(self.key).decrypt(p.encode("ascii"))
             self.assertNotEqual(plain, self.secret.encode("utf-8"))
+            self.assertNotIn(self.secret.encode("utf-8"), plain)
+
+    # בדיקת קוד 23.10.2026: חלקים מפיצולים שונים באותו אורך הורכבו בשקט לנתון שגוי
+    def test_parts_from_different_splits_rejected(self):
+        a = enc.split_encrypted("secret-AAAA", 3, self.key)
+        b = enc.split_encrypted("secret-BBBB", 3, self.key)
+        with self.assertRaises(ValueError):
+            enc.join_decrypted([a[0], b[1], a[2]], self.key, 3)
+
+    def test_duplicate_part_rejected(self):
+        parts = enc.split_encrypted(self.secret, 3, self.key)
+        with self.assertRaises(ValueError):
+            enc.join_decrypted([parts[0], parts[0], parts[2]], self.key, 3)
+
+    def test_n_parts_must_match_the_split(self):
+        parts = enc.split_encrypted(self.secret, 3, self.key)
+        with self.assertRaises(ValueError):
+            enc.join_decrypted(parts[:2], self.key, 2)
+
+    def test_token_without_split_header_rejected(self):
+        # טוקן Fernet רגיל (או חלק מהגרסה הקודמת, בלי הכותרת) אינו חלק של פיצול
+        parts = enc.split_encrypted(self.secret, 2, self.key)
+        foreign = enc.Fernet(self.key).encrypt(b"x" * 40).decode("ascii")
+        with self.assertRaises(ValueError):
+            enc.join_decrypted([parts[0], foreign], self.key, 2)
+
+    def test_too_many_parts_rejected(self):
+        with self.assertRaises(ValueError):
+            enc.split_encrypted(self.secret, 256, self.key)
+        parts = enc.split_encrypted("ab", 255, self.key)
+        self.assertEqual(enc.join_decrypted(parts, self.key, 255), "ab")
 
 
 class TestPasswords(unittest.TestCase):

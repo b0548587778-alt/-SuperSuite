@@ -45,7 +45,7 @@ test('מנהל-העל: קודי שחזור משחזרים את המפתח במח
   const pc1 = createOwnerCore({ storage: mem() });
   const { publicKey } = pc1.init(PASS);
   const signed = L.signObject({ hello: 'שלום' }, pc1.rootSigner());
-  const r = pc1.recoveryCodes(5, 3);
+  const r = pc1.recoveryCodes(PASS, 5, 3);
   assert.equal(r.codes.length, 5);
   assert.equal(pc1.recoveryInfo().k, 3);
 
@@ -64,7 +64,7 @@ test('מנהל-העל: קודי שחזור משחזרים את המפתח במח
   // קודים של מפתח אחר לא נכנסים למחשב שכבר יש בו מפתח
   const other = createOwnerCore({ storage: mem() });
   other.init(PASS);
-  const otherCodes = other.recoveryCodes(3, 2).codes;
+  const otherCodes = other.recoveryCodes(PASS, 3, 2).codes;
   assert.throws(() => pc1.recoverFromCodes(otherCodes.slice(0, 2), 'another-pass-123'), /מפתח אחר/);
 });
 

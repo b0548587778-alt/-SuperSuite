@@ -31,7 +31,8 @@ async function makeHarness(responses = {}) {
   const elements = {};
   const systemAPI = new Proxy({}, {
     get(_t, name) {
-      if (name === 'authStatus') return () => Promise.resolve({ user: { id: 'u1' }, configured: true });
+      // מנהל: "תכנון פיננסי" פתוח רק למנהל (ADMIN_ONLY_VIEWS ב-ui/core.js)
+      if (name === 'authStatus') return () => Promise.resolve({ user: { id: 'u1', permissions: ['data.view', 'users.manage'] }, configured: true });
       return () => {
         if (name in responses) return Promise.resolve(responses[name]);
         if (/^get(Invoices|Products|Chart|Journal|PersonalEntries)$/.test(name)) return Promise.resolve([]);

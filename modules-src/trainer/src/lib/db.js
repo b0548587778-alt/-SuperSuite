@@ -9,8 +9,9 @@ export const S = {
       return r?.value ? JSON.parse(r.value) : null;
     } catch { return null; }
   },
-  // true — נשמר; false — לא נשמר (אחסון מלא, או שגיאה). פעם הכישלון נבלע, והמסך הציג תשלום או ניכוי
-  // שנעלמו בטעינה הבאה (בדיקת קוד 23.10.2026). lib/storage.js מחזיר null כשהשמירה נכשלה
+  // true — נשמר; false — לא נשמר (אחסון מלא, צפייה בלבד, הכניסה פגה). פעם הכישלון נבלע, והמסך הציג תשלום או ניכוי
+  // שנעלמו בטעינה הבאה (בדיקת קוד 23.10.2026). lib/storage.js מחזיר null כשהשמירה נכשלה, ומציג את הסיבה.
+  // מי שקורא — לא מעדכן את המסך כשהתשובה false
   async set(key, value) {
     try {
       if (!window.storage) return false;
@@ -18,11 +19,13 @@ export const S = {
       return r !== null && r !== undefined;
     } catch (e) { console.error('set failed', key, e); return false; }
   },
+  // true — נמחק (או לא היה); false — המחיקה נדחתה (צפייה בלבד, הכניסה פגה), וההודעה כבר הוצגה ב-lib/storage.js
   async del(key) {
     try {
-      if (!window.storage) return;
-      await window.storage.delete(key);
-    } catch { /* ok */ }
+      if (!window.storage) return false;
+      const r = await window.storage.delete(key);
+      return r !== null && r !== undefined;
+    } catch { return false; }
   },
   async list(prefix) {
     try {

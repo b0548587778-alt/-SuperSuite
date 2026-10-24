@@ -7,7 +7,7 @@
 2. לחץ פעמיים על `build-exe.bat` (אם אין Node.js הוא יותקן אוטומטית; אז לחץ עליו פעם נוספת).
 3. בסיום ייפתח התיקייה `dist`. לחץ פעמיים על `SuperSuite-Setup.exe` — התקנה בלחיצה אחת, קיצור בשולחן העבודה.
 
-חלופה בלי מחשב בנייה: העלה את התיקייה ל-GitHub והרץ Actions → "Build Windows installer"; ההתקנה תופיע ב-Artifacts.
+חלופה בלי מחשב בנייה: GitHub Actions → "Build Windows installer". כל דחיפה בונה ובודקת, ותוצאת הבנייה נקראת ב-`git fetch origin ci-status` (דף ה-Actions חסום ב-NetFree). המתקין עצמו מתפרסם רק בתגית `v*` או בהפעלה עם publish, במאגר ההורדות — ראו `docs/DOWNLOADS.md`.
 
 **בסביבה מסוננת (NetFree ואחרים):** הבנייה הרגילה מורידה מהרשת את ארכיון ה-Electron
 ואת כלי האריזה, ולכן נחסמת (418). הפתרון: `build-local.js` (או `npm run dist:local`)

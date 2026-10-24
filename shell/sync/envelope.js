@@ -7,7 +7,9 @@ const { privateKey, publicKey } = require('./identity');
 const VERSION = 1;
 const INFO = Buffer.from('SuperSuite-sync v1 envelope');
 const MAX_SKEW_MS = 10 * 60 * 1000;
-const MAX_BODY = 8 * 1024 * 1024;
+// חייב להיכנס במסגרת של transport.js (MAX_FRAME, 9MB) אחרי base64url (×4/3): 8MB היו 10.7MB, והגבול בפועל
+// היה כ-6.7MB (בדיקת קוד 23.10.2026). 6MB ← כ-8MB במסגרת
+const MAX_BODY = 6 * 1024 * 1024;
 
 function fail(code, message) {
   const err = new Error(message);
@@ -76,4 +78,4 @@ function open({ identity, peer, env, lastSeq = 0, now = Date.now() }) {
   return { seq: env.seq, ts: env.ts, body: JSON.parse(plain.toString('utf8')) };
 }
 
-module.exports = { seal, open, deriveKey, VERSION, MAX_SKEW_MS };
+module.exports = { seal, open, deriveKey, VERSION, MAX_SKEW_MS, MAX_BODY };

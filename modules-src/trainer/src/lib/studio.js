@@ -26,16 +26,88 @@ export const weekday = (s) => toDate(s).getDay(); // 0 = ראשון, 6 = שבת
 export const isShabbat = (s) => weekday(s) === 6;
 export const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
-// ימי העבודה בשבוע של התאריך: ראשון עד שישי (בלי שבת)
+// השבוע של התאריך: ראשון עד שבת. בעמודת שבת — רק אימונים של מוצאי שבת (dayRule)
 export function weekDays(s) {
   const sunday = addDays(s, -weekday(s));
-  return [0, 1, 2, 3, 4, 5].map((i) => addDays(sunday, i));
+  return [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(sunday, i));
 }
 
 export function isTime(t) {
   return typeof t === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
 }
 const minutesOf = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+
+// ─── שבת ויום טוב ───
+// התאריך העברי מהלוח המובנה במנוע (Intl, ICU) — בלי ספריות ובלי רשת; ימים טובים לפי ארץ ישראל.
+// פעם נחסם רק יום שבת האזרחי: יום כיפור ויום שישי ב-21:30 התקבלו, מוצאי שבת ב-20:00 נדחה (בדיקת קוד 23.10.2026).
+let HEB = null;
+try { HEB = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric', month: 'long', timeZone: 'UTC' }); } catch { HEB = null; }
+function hebrewDay(s) {
+  if (!HEB) return null;
+  const [y, m, d] = s.split('-').map(Number);
+  const parts = HEB.formatToParts(new Date(Date.UTC(y, m - 1, d, 12)));
+  const month = (parts.find((p) => p.type === 'month') || {}).value;
+  const day = Number((parts.find((p) => p.type === 'day') || {}).value);
+  return month && day ? { month, day } : null;
+}
+const YOM_TOV = {
+  Tishri: { 1: 'ראש השנה', 2: 'ראש השנה', 10: 'יום הכיפורים', 15: 'יום טוב ראשון של סוכות', 22: 'שמיני עצרת' },
+  Nisan: { 15: 'יום טוב ראשון של פסח', 21: 'שביעי של פסח' },
+  Sivan: { 6: 'שבועות' },
+};
+export function yomTovName(s) {
+  const h = hebrewDay(s);
+  return (h && YOM_TOV[h.month] && YOM_TOV[h.month][h.day]) || null;
+}
+// "שבת", שם החג, "שבת ושבועות" — או null ביום חול
+export function holyName(s) {
+  const yt = yomTovName(s);
+  if (isShabbat(s)) return yt ? `שבת ו${yt}` : 'שבת';
+  return yt;
+}
+export const isHolyDay = (s) => !!holyName(s);
+
+// שעות שמרניות לכל הארץ (שעון ישראל), לפי החודש האזרחי — בלי מיקום אין זמן מדויק, ולכן המקרה הקיצוני בחודש:
+// EREV_END — עד מתי מסתיים אימון בערב שבת / ערב חג: שעה לפחות לפני הדלקת הנרות המוקדמת בחודש
+//   (40 דקות לפני השקיעה, בכל הערים שב-shell/hebcal.js, כולל מעבר שעון).
+// MOTZAEI_FROM — ממתי מתחיל אימון במוצאי שבת / חג: רבע שעה לפחות אחרי הצאת המאוחרת בחודש
+//   (המאוחר מבין 8.5°, 16.1°, רבנו תם 72 דקות ו-72 דקות זמניות).
+// נבדק מול shell/hebcal.js לכל הערים ולשנים רבות (tests/audit-trainer.test.js).
+export const EREV_END = ['15:00', '15:15', '15:45', '17:15', '17:30', '17:45', '17:45', '17:15', '16:30', '15:00', '14:45', '14:45'];
+export const MOTZAEI_FROM = ['18:45', '19:15', '20:30', '21:00', '21:30', '21:45', '21:45', '21:30', '20:45', '20:00', '18:30', '18:30'];
+
+// הכלל ליום: open — יום חול; erev — מחר שבת/חג, האימון מסתיים עד until; motzaei — שבת/חג, רק מ-from;
+// closed — שבת/חג שגם מחר שבת/חג (אין מוצאי באותו יום)
+export function dayRule(s) {
+  const name = holyName(s);
+  const month = toDate(s).getMonth();
+  const next = holyName(addDays(s, 1));
+  if (name) return next ? { kind: 'closed', name } : { kind: 'motzaei', name, from: MOTZAEI_FROM[month] };
+  if (next) return { kind: 'erev', name: next, until: EREV_END[month] };
+  return { kind: 'open' };
+}
+
+// אימון בתאריך, בשעה ובמשך — הודעה בעברית אם הוא נוגע בשבת או בחג, אחרת null
+export function holyConflict(date, time, minutes) {
+  const r = dayRule(date);
+  const start = minutesOf(time);
+  if (r.kind === 'closed') return `לא קובעים אימונים ב${r.name}`;
+  if (r.kind === 'motzaei' && start < minutesOf(r.from)) {
+    return `לא קובעים אימונים ב${r.name}. במוצאי ${r.name} אפשר לקבוע מ-${r.from} (שעה שמרנית לכל הארץ)`;
+  }
+  if (r.kind === 'erev' && start + minutes > minutesOf(r.until)) {
+    return `בערב ${r.name} האימון צריך להסתיים עד ${r.until} (שעה שמרנית לכל הארץ)`;
+  }
+  return null;
+}
+
+// שעת ברירת המחדל לאימון חדש ביום: במוצאי שבת/חג — מהשעה המותרת, בערב שבת/חג — בבוקר
+export function defaultTime(s) {
+  const r = dayRule(s);
+  if (r.kind === 'motzaei') return r.from;
+  if (r.kind === 'erev') return '10:00';
+  return '18:00';
+}
 
 export function formatDayHe(s) {
   return toDate(s).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -45,12 +117,14 @@ export function formatShortHe(s) {
 }
 
 // ─── כסף ───
-// "1,250.5" ← 125050. ריק / לא תקין / שלילי ← null
+// "1,250.5" ← 125050. ריק / לא תקין / שלילי ← null.
+// פסיק — רק כמפריד אלפים (קבוצות של 3 ספרות): "12,34" נדחה, פעם נקלט כ-1234 (בדיקת קוד 23.10.2026)
 export function parseShekels(str) {
-  const t = String(str ?? '').replace(/[,\s₪]/g, '');
-  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
-  const [i, f = ''] = t.split('.');
-  return Number(i) * 100 + Number((f + '00').slice(0, 2));
+  const t = String(str ?? '').replace(/[\s₪]/g, '');
+  if (!/^(\d{1,3}(,\d{3})+|\d+)(\.\d{1,2})?$/.test(t)) return null;
+  const [i, f = ''] = t.replace(/,/g, '').split('.');
+  const ag = Number(i) * 100 + Number((f + '00').slice(0, 2));
+  return Number.isSafeInteger(ag) ? ag : null;
 }
 export function fmtAg(ag) {
   const n = Math.round(Number(ag) || 0);
@@ -196,9 +270,9 @@ export const ATTENDANCE = {
   cancelled: { label: 'ביטל', tone: 'amber' },
 };
 
-export function validateAppointment(a) {
+// בדיקות הפגישה בלי שבת וחג (זהות לכל שבוע בסדרה)
+function appointmentFieldsError(a) {
   if (!isDateStr(a.date)) return 'יש לבחור תאריך';
-  if (isShabbat(a.date)) return 'לא קובעים אימונים בשבת';
   if (!isTime(a.time)) return 'יש להזין שעה (למשל 18:30)';
   if (!(Number.isInteger(a.minutes) && a.minutes >= 10 && a.minutes <= 600)) return 'משך האימון אינו תקין';
   if (!['personal', 'group'].includes(a.kind)) return 'סוג האימון אינו תקין';
@@ -209,10 +283,17 @@ export function validateAppointment(a) {
   return null;
 }
 
-// יצירת פגישה, או סדרה שבועית (weeks > 1) באותו יום ושעה
-export function makeAppointments({ date, time, minutes, kind, title = '', capacity = 1, clientIds = [], weeks = 1 }) {
+export function validateAppointment(a) {
+  return appointmentFieldsError(a) || holyConflict(a.date, a.time, a.minutes);
+}
+
+// יצירת פגישה, או סדרה שבועית (weeks > 1) באותו יום ושעה.
+// { list, skipped }: שבוע בסדרה שנופל על שבת/חג (או ערב חג אחרי השעה) מדולג ונרשם ב-skipped עם הסיבה;
+// התאריך הראשון — שהמאמן בחר — חייב להיות תקין
+export function planAppointments({ date, time, minutes, kind, title = '', capacity = 1, clientIds = [], weeks = 1 }) {
   const seriesId = weeks > 1 ? uid('ser') : null;
-  const out = [];
+  const list = [];
+  const skipped = [];
   for (let w = 0; w < weeks; w++) {
     const a = {
       id: uid('ap'),
@@ -225,11 +306,21 @@ export function makeAppointments({ date, time, minutes, kind, title = '', capaci
       participants: [...new Set(clientIds)].map((clientId) => ({ clientId, status: 'booked' })),
       ...(seriesId ? { seriesId } : {}),
     };
-    const err = validateAppointment(a);
+    const err = appointmentFieldsError(a);
     if (err) throw new Error(err);
-    out.push(a);
+    const holy = holyConflict(a.date, a.time, a.minutes);
+    if (holy) {
+      if (w === 0) throw new Error(holy);
+      skipped.push({ date: a.date, reason: holy });
+      continue;
+    }
+    list.push(a);
   }
-  return out;
+  return { list, skipped };
+}
+
+export function makeAppointments(input) {
+  return planAppointments(input).list;
 }
 
 export function appointmentsOn(schedule, date) {
@@ -282,11 +373,12 @@ export function attendanceStats(schedule, clientId, from = '0000-00-00', to = '9
 // ─── תזכורות (מחושבות, לא נשלחות לבד) ───
 const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || '';
 
-// היום שאחרי today שיש בו אימונים: מחר, ואם מחר שבת — יום ראשון ("ביום ראשון" במקום "מחר")
+// יום החול הבא אחרי today: מחר, ואם מחר שבת או חג — היום שאחריהם ("ביום ראשון" במקום "מחר")
 export function nextTrainingDay(today) {
   const tomorrow = addDays(today, 1);
-  if (!isShabbat(tomorrow)) return { date: tomorrow, label: 'מחר' };
-  return { date: addDays(today, 2), label: 'ביום ראשון' };
+  let date = tomorrow;
+  for (let i = 0; i < 7 && isHolyDay(date); i++) date = addDays(date, 1);
+  return { date, label: date === tomorrow ? 'מחר' : `ביום ${DAY_NAMES[weekday(date)]}` };
 }
 
 export function reminders({ clients, membershipsByClient, lastSessionByClient = {}, schedule, today, trainer }) {
@@ -322,14 +414,19 @@ export function reminders({ clients, membershipsByClient, lastSessionByClient = 
         message: `שלום ${firstName(c.name)},\nמתגעגעים אליך באימונים! מתי נוח לך לקבוע את האימון הבא?${sign}` });
     }
   }
-  // יום האימונים הבא: מחר, וביום שישי — יום ראשון (בשבת אין אימונים)
+  // יום האימונים הבא: מחר, וביום שישי / ערב חג — היום שאחרי השבת או החג, וגם אימוני מוצאי השבת / החג שבדרך
   const { date: nextDay, label: nextLabel } = nextTrainingDay(today);
-  for (const a of appointmentsOn(schedule, nextDay)) {
-    for (const p of a.participants.filter((x) => x.status === 'booked')) {
-      const c = (clients || []).find((x) => x.id === p.clientId);
-      if (!c) continue;
-      out.push({ kind: 'tomorrow', clientId: c.id, tone: 'indigo', title: `${c.name} — ${a.kind === 'group' ? a.title : 'אימון אישי'} ${nextLabel} ב-${a.time}`, detail: formatDayHe(nextDay),
-        message: `שלום ${firstName(c.name)},\nתזכורת: ${a.kind === 'group' ? a.title : 'אימון'} ${nextLabel} (${formatDayHe(nextDay)}) בשעה ${a.time}. נתראה!${sign}` });
+  for (let d = addDays(today, 1); d <= nextDay; d = addDays(d, 1)) {
+    const rule = dayRule(d);
+    if (d !== nextDay && rule.kind !== 'motzaei') continue;
+    const label = d === nextDay ? nextLabel : `במוצאי ${rule.name}`;
+    for (const a of appointmentsOn(schedule, d)) {
+      for (const p of a.participants.filter((x) => x.status === 'booked')) {
+        const c = (clients || []).find((x) => x.id === p.clientId);
+        if (!c) continue;
+        out.push({ kind: 'tomorrow', clientId: c.id, tone: 'indigo', title: `${c.name} — ${a.kind === 'group' ? a.title : 'אימון אישי'} ${label} ב-${a.time}`, detail: formatDayHe(d),
+          message: `שלום ${firstName(c.name)},\nתזכורת: ${a.kind === 'group' ? a.title : 'אימון'} ${label} (${formatDayHe(d)}) בשעה ${a.time}. נתראה!${sign}` });
+      }
     }
   }
   const order = { ended: 0, expired: 0, debt: 1, ending: 2, tomorrow: 3, inactive: 4 };

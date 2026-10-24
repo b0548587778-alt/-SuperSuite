@@ -68,11 +68,16 @@ const ipc = require('../modules/econ/ipc');
 const { AuthService } = require('../modules/econ/services/authService');
 const ev = (id) => ({ sender: { id } });
 
-test('IPC: תרומה ידנית וייבוא משויכים לקמפיין, שורה מחוץ לתקופה נדחית, קמפיין עם תרומות לא נמחק', async () => {
+// המסד, המנהל והגדרות העמותה — לפני כל הבדיקות (ולא בתוך הראשונה): כל בדיקה רצה גם לבד או בסדר אחר
+test.before(async () => {
   await ipc.initEcon(fs.mkdtempSync(path.join(os.tmpdir(), 'ss-cmp-')));
   await handlers['auth:setup'](ev(99), 'cmp_admin', 'cmp-strong-pass-2026');
   await handlers['auth:login'](ev(99), 'cmp_admin', 'cmp-strong-pass-2026');
   await handlers['npo:saveSettings'](ev(99), { orgName: 'עמותת תורה וחסד' });
+});
+
+test('IPC: תרומה ידנית וייבוא משויכים לקמפיין, שורה מחוץ לתקופה נדחית, קמפיין עם תרומות לא נמחק', async () => {
+  AuthService.getSession(99).permissions = ['data.view', 'data.edit', 'data.delete'];
   const c = await handlers['npo:saveCampaign'](ev(99), null, { ...base, matchRatio: 1, matchCap: 1000, matchDonor: 'קרן ברגר' });
   await assert.rejects(handlers['npo:addDonation'](ev(99), { donorName: 'יעקב', amount: 100, date: '2026-09-01', campaignId: c.id }), /מחוץ לתקופת/);
   await assert.rejects(handlers['npo:addDonation'](ev(99), { donorName: 'יעקב', amount: 100, date: '2026-10-02', campaignId: 'nope' }), /לא נמצא/);

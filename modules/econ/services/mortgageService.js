@@ -1,5 +1,6 @@
 // Mortgage Service - Handles mortgage and loan calculations and scenarios
 const crypto = require('crypto');
+const { editable } = require('../core/editable');
 const { calculateLoan } = require('../utils/calculations');
 
 class MortgageService {
@@ -78,7 +79,7 @@ class MortgageService {
     
     const scenario = { 
       ...existing.scenarios[scenarioIndex], 
-      ...updates, 
+      ...editable(updates), 
       updatedAt: new Date().toISOString() 
     };
     

@@ -7,13 +7,18 @@
 
 state.contacts = state.contacts || [];
 
+// מפתח איש הקשר של מוכר: הטלפון (בלי רווחים ומקפים), אחרת הטקסט עצמו. משמש גם לסינון הפנקס (renderLedger)
+function contactKeyOf(seller) {
+  return detectPhone(seller) || String(seller || '').toLowerCase().trim();
+}
+
 function getContactsFromOpps() {
   // Auto-build contacts from opportunities
   const map = new Map();
   state.opportunities.forEach(o => {
     if (!o.seller) return;
     const phone = detectPhone(o.seller);
-    const key = phone || o.seller.toLowerCase().trim();
+    const key = contactKeyOf(o.seller);
     if (!map.has(key)) {
       map.set(key, {
         id: key,
@@ -94,15 +99,11 @@ function renderContactsView() {
         const msg = `שלום ${b.dataset.name}, מתעדכן בנוגע לעסקה...`;
         window.open(`https://wa.me/${intl.replace('+', '')}?text=${encodeURIComponent(msg)}`, '_blank');
       } else if (action === 'contact-deals') {
-        // Switch to ledger and filter by this seller
-        switchView('ledger');
-        setTimeout(() => {
-          const contact = contacts.find(c => c.id === b.dataset.contact);
-          if (contact) {
-            $('#opp-search').value = contact.name.split(' ')[0];
-            renderLedger();
-          }
-        }, 200);
+        // הפנקס מסונן לפי מפתח איש הקשר (טלפון או טקסט) — לא לפי השם, שעשוי להיות משותף לכמה מוכרים
+        const contact = contacts.find(c => c.id === b.dataset.contact);
+        if (!contact) return;
+        const label = [contact.name !== 'ללא שם' ? contact.name : '', contact.phone].filter(Boolean).join(' ') || contact.rawSellerText;
+        showLedgerSearch(label, contact.id);
       }
     });
   });

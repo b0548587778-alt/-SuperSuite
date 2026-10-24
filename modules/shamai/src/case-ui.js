@@ -40,7 +40,7 @@ function storeCase(c) {
   const list = loadCases();
   const i = list.findIndex(x => x.id === c.id);
   if (i >= 0) list[i] = c; else list.unshift(c);
-  saveCases(list);
+  return saveCases(list);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,8 +99,11 @@ function renderCasesView() {
 }
 
 function openNewCase(client) {
-  const c = newCase(nextCaseNo(), localToday(), client);
-  storeCase(c);
+  // שמירה שהמחסן דחה (צפייה בלבד, הכניסה פגה, אין מקום) — לא פותחים עורך לתיק שלא קיים (ההודעה — מ-Storage.save)
+  const no = nextCaseNo();
+  if (!no) return;
+  const c = newCase(no, localToday(), client);
+  if (!storeCase(c)) return;
   CASE_UI.editId = c.id;
   renderCasesView();
 }
@@ -112,8 +115,9 @@ async function deleteCase(id) {
     ? `תיק ${caseReportNo(c)} הוא דוח סופי שהופק ללקוח. למחוק אותו ואת התמונות שלו? אי אפשר לבטל.`
     : `למחוק את הטיוטה של תיק ${caseReportNo(c)} ואת התמונות שלה?`;
   if (!(await ssDialog.confirm(msg, { danger: true, okText: 'מחיקה' }))) return;
+  // קודם התיק ואחר כך התמונות: מחיקה שנדחתה לא משאירה תיק בלי התמונות שלו
+  if (!saveCases(loadCases().filter(x => x.id !== id))) return;
   deleteCasePhotos((c.items || []).flatMap(i => i.photos || []));
-  saveCases(loadCases().filter(x => x.id !== id));
   toast('התיק נמחק', 'success');
   renderCasesView();
 }
@@ -296,9 +300,10 @@ function caseGetPath(obj, path) {
 function caseAutosave(c, rerender) {
   clearTimeout(CASE_UI.saveTimer);
   CASE_UI.pending = null;
-  storeCase(c);
+  // שמירה שהמחסן דחה — לא "נשמר" (ממצא 3; ההודעה עצמה — מ-Storage.save)
+  const saved = storeCase(c);
   const s = $('#cs-saved');
-  if (s) s.textContent = 'נשמר ✓';
+  if (s) s.textContent = saved ? 'נשמר ✓' : 'לא נשמר ✗';
   if (rerender) { renderCaseEditor(); return; }
   const t = caseTotals(c, state.prices);
   const sum = $('#cs-summary');
@@ -320,7 +325,7 @@ function attachCaseEditor(c) {
   $('#cs-finalize') && ($('#cs-finalize').onclick = () => finalizeCurrentCase());
   $('#cs-reopen') && ($('#cs-reopen').onclick = async () => {
     if (!(await ssDialog.confirm(`לפתוח גרסה מתוקנת של תיק ${caseReportNo(c)}? הדוח שכבר הופק נשמר בהיסטוריה, והדוח החדש יקבל את המספר ${c.no}-${(c.rev || 0) + 1}.`, { okText: 'גרסה מתוקנת' }))) return;
-    storeCase(reopenCase(c));
+    if (!storeCase(reopenCase(c))) return;
     renderCaseEditor();
   });
   if (CASE_UI.detach) CASE_UI.detach();
@@ -462,7 +467,8 @@ async function finalizeCurrentCase() {
   if (!(await ssDialog.confirm(msg, { okText: 'נעילה והפקה' }))) return;
   try {
     const f = finalizeCase(c, state.prices);
-    storeCase(f);
+    // נעילה שלא נשמרה — התיק נשאר טיוטה, ואין "דוח סופי" להצגה (ההודעה — מ-Storage.save)
+    if (!storeCase(f)) return;
     toast(`דוח ${caseReportNo(f)} הופק ✓`, 'success');
     renderCaseEditor();
     showCaseReport(f);

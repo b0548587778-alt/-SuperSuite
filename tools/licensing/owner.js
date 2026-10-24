@@ -21,12 +21,16 @@
 //   node tools/licensing/owner.js approve --request approval-request.sslic --out approval.sslic
 //   node tools/licensing/owner.js approvals                                    כל מערכות הבת שאושרו
 //   node tools/licensing/owner.js revoke --child <id> --reason "..."          ביטול אישור: מסיים את מערכת הבת ומפנה משבצת
+//   node tools/licensing/owner.js relay-cert --relay-pub relay-key.pub.json [--url https://...] [--months 24] --out relay-cert.json
+//        תעודה למפתח של שרת הרישוי, לכתובת אחת (בדיקה חתומה — shell/licensing/checkin.js; docs/LICENSING-ACTIVATION.md, שלב 7).
+//        בלי --url — הכתובת המובנית (default-relay.js). מפתח מנהל-העל של התוכנה: --dir "%APPDATA%\super-suite\owner"
 'use strict';
 const fs = require('fs');
 const path = require('path');
 const S = require('../../shell/licensing/status');
 const { createOwnerCore, dirStorage } = require('../../shell/licensing/owner-core');
 const L = require('../../shell/licensing/license');
+const { DEFAULT_RELAY_URL } = require('../../shell/licensing/default-relay');
 
 const ROOT_KEYS_FILE = path.join(__dirname, '..', '..', 'shell', 'licensing', 'root-keys.js');
 
@@ -72,7 +76,8 @@ function parseArgs(argv) {
   return out;
 }
 
-// מעטפת תואמת לגרסה הקודמת: פותחת את המפתח בסיסמה לפי הצורך
+// מעטפת תואמת לגרסה הקודמת: פותחת את המפתח בסיסמה לפי הצורך. רשימת הלקוחות וההודעות מוצפנות במפתח השורש
+// (owner-core.js, ממצא 26) — ולכן גם הצגה דורשת את הסיסמה
 function createOwner({ dir, passphrase, clock = Date.now }) {
   const core = createOwnerCore({ storage: dirStorage(fs, path, dir), clock });
   const unlocked = (fn) => (...args) => { if (!core.isUnlocked()) core.unlock(passphrase); return fn(...args); };
@@ -81,12 +86,13 @@ function createOwner({ dir, passphrase, clock = Date.now }) {
     pubkey: unlocked(core.pubkey),
     issue: unlocked(core.issue),
     notice: unlocked(core.notice),
-    list: () => core.list().tenants,
-    noticesPackage: core.noticesPackage,
-    review: core.review,
+    list: unlocked(() => core.list().tenants),
+    noticesPackage: unlocked(core.noticesPackage),
+    review: unlocked(core.review),
     approve: unlocked(core.approve),
-    approvals: core.approvals,
+    approvals: unlocked(core.approvals),
     revoke: unlocked(core.revoke),
+    relayCert: unlocked(core.relayCert),
   };
 }
 
@@ -141,8 +147,16 @@ function main(argv) {
     case 'approvals': return console.table(owner.approvals());
     case 'revoke': return console.log(owner.revoke({ childId: a.child, reason: a.reason }));
     case 'notices': if (!a.target) throw new Error('חסר --target'); return out(owner.noticesPackage(a.target));
+    case 'relay-cert': {
+      if (!a['relay-pub']) throw new Error('חסר --relay-pub (הקובץ relay-key.pub.json מהשרת)');
+      // הכתובת שהתוכנות פונות אליה — ברירת המחדל: הכתובת המובנית (shell/licensing/default-relay.js)
+      const r = owner.relayCert(fs.readFileSync(String(a['relay-pub']), 'utf8'), { origin: typeof a.url === 'string' ? a.url : DEFAULT_RELAY_URL,
+        months: a.months ? Number(a.months) : 24 });
+      console.log(`נוצרה תעודה למפתח השרת ${r.relayId}, לכתובת ${r.origin}, בתוקף עד ${new Date(r.expiresAt).toLocaleDateString('he-IL')}`);
+      return out(r.text);
+    }
     default:
-      console.log('פקודות: init | pubkey | install-root | issue | list | hold | release | terminate | kill | notices | review | approve | approvals | revoke (פירוט בראש הקובץ)');
+      console.log('פקודות: init | pubkey | install-root | issue | list | hold | release | terminate | kill | notices | review | approve | approvals | revoke | relay-cert (פירוט בראש הקובץ)');
   }
 }
 

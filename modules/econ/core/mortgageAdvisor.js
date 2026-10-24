@@ -11,7 +11,10 @@ const str = (v, max, label) => {
   if (s.length > max) throw new Error(`${label} ארוך מדי (עד ${max} תווים)`);
   return s;
 };
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+// היום המקומי (לא UTC — בישראל toISOString מחזיר את אתמול בין חצות ל-03:00)
+const localToday = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 
 const TRACKS = {
   'fixed-indexed': { label: 'קבועה צמודה', indexed: true },
@@ -170,10 +173,32 @@ function ltv(client) {
   return Math.round((c.requestedAmountAg * 10000) / c.propertyValueAg) / 100;
 }
 
-// עמלת ייעוץ: אחוז מהסכום המבוקש או סכום קבוע, ועליה מע"מ לפי שיעור המע"מ בהגדרות העסק
-function advisoryFee(client, vatRate) {
-  const rate = Number.isFinite(Number(vatRate)) && vatRate >= 0 && vatRate < 1 ? Number(vatRate) : 0.18;
+// מעמד המע"מ של המשרד (פטור / מורשה) ננעל בתיק בתשלום הראשון (feeVatExempt), כדי ששינוי ההגדרה
+// (למשל עוסק פטור שעבר לעוסק מורשה) לא יחשב מחדש עמלות, מצב תשלום והכנסות של תיקים ששולמו.
+// vatRate — השיעור לתיק בלי נעילה (0 לעוסק פטור); fullRate — שיעור המע"מ של העסק, לתיק שננעל כעוסק מורשה
+function caseVatRate(client, vatRate, fullRate) {
+  if (client && client.feeVatExempt === true) return 0;
+  if (client && client.feeVatExempt === false) {
+    const full = Number(fullRate);
+    if (fullRate !== undefined && fullRate !== null && Number.isFinite(full) && full >= 0 && full < 1) return full;
+    return Number(vatRate) > 0 ? vatRate : 0.18;
+  }
+  return vatRate;
+}
+
+// נעילת המעמד בתיק שכבר יש בו תשלומים (נתונים ישנים — לפי ההגדרה שבתוקף בטעינה). תיק בלי תשלומים — לא ננעל
+function lockFeeVat(client, exempt) {
+  if (!client || typeof client !== 'object' || typeof client.feeVatExempt === 'boolean') return client;
+  if (!(Array.isArray(client.feePayments) && client.feePayments.length)) return client;
+  return { ...client, feeVatExempt: !!exempt };
+}
+
+// עמלת ייעוץ: אחוז מהסכום המבוקש או סכום קבוע, ועליה מע"מ לפי שיעור המע"מ בהגדרות העסק.
+// עוסק פטור — השירות מעביר שיעור 0 (settings.vatExempt), והעמלה בלי מע"מ
+function advisoryFee(client, vatRate, fullRate) {
   const c = clientStored(client);
+  const r = caseVatRate(c, vatRate, fullRate);
+  const rate = Number.isFinite(Number(r)) && r >= 0 && r < 1 ? Number(r) : 0.18;
   const netAg = c.feeType === 'fixed'
     ? c.feeFixedAg
     : Math.round(c.requestedAmountAg * Number(c.feePercent || 0) / 100);
@@ -333,7 +358,7 @@ function validateOffer(input, clients) {
   if (raw.length === 0) throw new Error('יש להזין לפחות מסלול אחד (סכום, ריבית ותקופה)');
   const tracks = raw.map(validateTrack);
   const cpi = validateCpi(input.cpi);
-  const date = input.date || new Date().toISOString().slice(0, 10);
+  const date = input.date || localToday();
   if (!isDate(date)) throw new Error('תאריך לא תקין');
   return { clientId: client.id, bank, date, tracks, cpi, notes: str(input.notes, 1000, 'ההערות') };
 }
@@ -458,9 +483,9 @@ function validateFeePayment(input) {
 }
 
 // מצב העמלה: none (אין עמלה) / open / partial / paid. מקדמה (feeDepositAg) — הסכום שמבקשים מראש
-function feeStatus(client, vatRate) {
+function feeStatus(client, vatRate, fullRate) {
   const c = clientStored(client);
-  const fee = advisoryFee(c, vatRate);
+  const fee = advisoryFee(c, vatRate, fullRate);
   const paidAg = (Array.isArray(c.feePayments) ? c.feePayments : []).reduce((t, p) => t + (isAg(p.amountAg) ? p.amountAg : 0), 0);
   const depositAg = isAg(c.feeDepositAg) ? Math.min(c.feeDepositAg, fee.totalAg) : 0;
   const balanceAg = Math.max(0, fee.totalAg - paidAg);
@@ -472,7 +497,7 @@ function feeStatus(client, vatRate) {
 const FEE_STATES = { none: 'אין עמלה', open: 'טרם שולם', partial: 'שולם חלקית', paid: 'שולם' };
 
 // הכנסות המשרד בשנה: התקבל לפי חודש וליועץ, יתרות פתוחות (תיקים שלא "לא התקדם"), וצפי מתיקים פתוחים
-function officeIncome(clients, { year, vatRate, advisorName = () => '' } = {}) {
+function officeIncome(clients, { year, vatRate, fullVatRate, advisorName = () => '' } = {}) {
   const y = String(year || new Date().getFullYear());
   const months = Array.from({ length: 12 }, (_, i) => ({ month: `${y}-${String(i + 1).padStart(2, '0')}`, receivedAg: 0 }));
   const by = new Map();
@@ -492,7 +517,7 @@ function officeIncome(clients, { year, vatRate, advisorName = () => '' } = {}) {
       r.receivedAg += p.amountAg;
     }
     if (c.status !== 'lost') {
-      const st = feeStatus(c, vatRate);
+      const st = feeStatus(c, vatRate, fullVatRate);
       r.outstandingAg += st.balanceAg;
       outstandingAg += st.balanceAg;
     }
@@ -510,14 +535,16 @@ function officeIncome(clients, { year, vatRate, advisorName = () => '' } = {}) {
 // ---------- משרד: יועצים, הרשאות וצנרת תיקים ----------
 // actor = { id, username, isManager }. בלי actor (קריאה פנימית / בדיקות) — גישה מלאה.
 
-const DEFAULT_SETTINGS = { ownOnly: true, stuckDays: 14 };
+// vatExempt — המשרד עוסק פטור: העמלה בלי מע"מ, והחשבונית על התשלום היא חשבונית עסקה + קבלה
+const DEFAULT_SETTINGS = { ownOnly: true, stuckDays: 14, vatExempt: false };
 
 function normalizeSettings(s) {
   const x = s && typeof s === 'object' ? s : {};
   const d = Number(x.stuckDays);
   return {
     ownOnly: x.ownOnly !== false,
-    stuckDays: Number.isInteger(d) && d >= 1 && d <= 365 ? d : DEFAULT_SETTINGS.stuckDays
+    stuckDays: Number.isInteger(d) && d >= 1 && d <= 365 ? d : DEFAULT_SETTINGS.stuckDays,
+    vatExempt: x.vatExempt === true || x.vatExempt === 'true'
   };
 }
 
@@ -593,7 +620,7 @@ module.exports = {
   normalizeStage, normalizeSettings, canSee, resolveAdvisor, withStage, daysInStage, pipelineBoard,
   EMPLOYMENT, DEALS, normalizeProfile, setDocState, missingDocsMessage,
   MAX_APPROVALS, validateApproval, approvalView, approvalsForLab, approvalsSummary,
-  MAX_FEE_PAYMENTS, FEE_METHODS, FEE_STATES, validateFeePayment, feeStatus, officeIncome,
+  MAX_FEE_PAYMENTS, FEE_METHODS, FEE_STATES, validateFeePayment, feeStatus, officeIncome, caseVatRate, lockFeeVat,
   validateClient, clientStored, clientView, offerStored, ltv, advisoryFee, docsProgress, toggleDoc,
   validateTrack, tracksFromForm, validateOffer, validateCpi, trackSchedule, offerSchedule, offerSummary,
   yearlySchedule, compareOffers, scheduleTable

@@ -8,7 +8,8 @@ const PERIODS = { monthly: { label: 'חודשי', months: 1 }, bimonthly: { labe
 const DEFAULTS = { paymentTermsDays: 30, period: 'bimonthly', advanceRateBp: 0 };
 const MAX_HORIZON = 12;
 
-const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10))).toISOString().slice(0, 10) === v;
 const monthOf = (d) => String(d).slice(0, 7);
 const pad = (n) => String(n).padStart(2, '0');
 function addMonths(m, n) {
@@ -38,7 +39,9 @@ function normalizeSettings(s) {
 
 function validateSettings(input) {
   const o = input && typeof input === 'object' ? input : {};
-  const terms = Number(o.paymentTermsDays);
+  // שדה ריק (null / '') אינו 0 ימים
+  const rawTerms = o.paymentTermsDays;
+  const terms = typeof rawTerms === 'number' || (typeof rawTerms === 'string' && rawTerms.trim()) ? Number(rawTerms) : NaN;
   if (!Number.isInteger(terms) || terms < 0 || terms > 365) throw new Error('תנאי התשלום חייבים להיות בין 0 ל-365 יום');
   if (!PERIODS[o.period]) throw new Error('תקופת הדיווח חייבת להיות חודשית או דו-חודשית');
   // אחוז כפי שמופיע בהודעת פקיד השומה, עד שתי ספרות אחרי הנקודה

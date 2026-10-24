@@ -150,7 +150,7 @@ function setupVoiceInput() {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  DEVICE SYNC - QR Code Backup/Restore
+//  DEVICE SYNC - העברת פריטי הפנקס ב-QR (לא גיבוי: בלי תיקים, שטרות, מספור ותמונות)
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function generateBackupQR() {
@@ -176,7 +176,7 @@ async function generateBackupQR() {
     container.innerHTML = `
       <div class="qr-warning">
         ⚠️ הנתונים גדולים מדי ל-QR יחיד (${sizeKB}KB).
-        <br>השתמש בגיבוי מלא (JSON) במקום.
+        <br>השתמש ב"ייצוא פריטי הפנקס (JSON)" בהגדרות במקום.
       </div>
     `;
     return;
@@ -237,7 +237,7 @@ async function scanBackupQR() {
         <div class="qr-title">⚠️ סריקה אוטומטית לא נתמכת בדפדפן זה</div>
         <p class="text-faint">הדבק את הטקסט מה-QR כאן:</p>
         <textarea id="qr-paste" rows="4" placeholder="הדבק את הקוד..."></textarea>
-        <button class="btn-primary" id="qr-paste-go">שחזר</button>
+        <button class="btn-primary" id="qr-paste-go">קליטת הפריטים</button>
         <button class="btn-ghost" id="qr-paste-close">בטל</button>
       </div>
     `;
@@ -303,8 +303,8 @@ async function scanBackupQR() {
         לא ניתן לגשת למצלמה: ${escapeHtml(e && e.message)}
         <br><br>
         אפשרויות חלופיות:
-        <br>• השתמש ב"גיבוי בענן"
-        <br>• השתמש ב"שחזור מגיבוי" (קובץ JSON)
+        <br>• "ייבוא פריטים מקובץ JSON" בהגדרות
+        <br>• הגיבוי המוצפן של התוכנה (מסך הבית)
       </div>
     `;
   }
@@ -315,20 +315,26 @@ async function restoreFromCode(code) {
     const decompressed = LZString.decompressFromEncodedURIComponent(code);
     if (!decompressed) throw new Error('פענוח נכשל');
     const data = JSON.parse(decompressed);
-    if (!data.opps || !Array.isArray(data.opps)) throw new Error('פורמט לא תקין');
-    if (!(await ssDialog.confirm(`לטעון ${data.opps.length} פריטים? פעולה זו תחליף את הנתונים הנוכחיים.`, { danger: true }))) return;
-    state.opportunities = data.opps;
+    if (!data || !Array.isArray(data.opps)) throw new Error('פורמט לא תקין');
+    // כל פריט נבדק לפני השמירה (sanitizeOpportunities ב-ledger.js): פעם {"opps":[null]} נשמר כמו שהוא,
+    // וכל עלייה של המודול נפלה לפני חיבור הכפתורים (בדיקת קוד 23.10.2026, ממצא 18)
+    const { items, skipped } = sanitizeOpportunities(data.opps);
+    if (!items.length) throw new Error('אין בקוד פריטים תקינים');
+    if (!(await ssDialog.confirm(`לטעון ${items.length} פריטים?${skipped ? ` (${skipped} פגומים או כפולים ידולגו)` : ''} פעולה זו תחליף את הנתונים הנוכחיים.`, { danger: true }))) return;
+    state.opportunities = items;
     // מחירים — רק דרך prices.js (בדיקת טווח ותאריך), לא כתיבה ישירה מהגיבוי
     if (data.prices && typeof data.prices === 'object') state.prices = restorePrices(state.prices, data.prices).prices;
     Storage.save('opportunities', state.opportunities);
     Storage.save('prices', state.prices);
     renderHeader();
     renderDashboard();
-    toast(`✓ שוחזרו ${data.opps.length} פריטים`, 'success');
+    toast(`✓ שוחזרו ${items.length} פריטים`, 'success');
     $('#qr-container').hidden = true;
     $('#qr-container').innerHTML = '';
   } catch (e) {
-    toast('שחזור נכשל: ' + e.message, 'error');
+    // שגיאת פענוח של JSON — באנגלית; למשתמש רק הודעה בעברית
+    const msg = e && typeof e.message === 'string' && /[֐-׿]/.test(e.message) ? e.message : 'הקוד אינו תקין';
+    toast('שחזור נכשל: ' + msg, 'error');
   }
 }
 
@@ -339,12 +345,12 @@ async function restoreFromCode(code) {
 // סנכרון ענן הוסר: האפליקציה פועלת אופליין. לגיבוי השתמש בקובץ JSON מוצפן.
 async function uploadToCloud() {
   const status = $('#cloud-status');
-  if (status) status.textContent = 'סנכרון ענן כבוי — השתמש בגיבוי ידני';
+  if (status) status.textContent = 'סנכרון ענן כבוי — השתמש בגיבוי המוצפן של התוכנה (מסך הבית)';
 }
 
 async function downloadFromCloud() {
   const status = $('#cloud-status');
-  if (status) status.textContent = 'סנכרון ענן כבוי — השתמש בשחזור מגיבוי ידני';
+  if (status) status.textContent = 'סנכרון ענן כבוי — השחזור דרך הגיבוי המוצפן של התוכנה (מסך הבית)';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -8,7 +8,8 @@ import * as At from '../lib/attendance.js';
 import { copyToClipboard } from '../lib/sharing.js';
 import { FONT_HEADING, FONT_BODY, Btn, Card, Field, Input, Textarea } from '../components/legacy-ui.jsx';
 import { Modal } from '../components/ui.jsx';
-import { askConfirm } from '../lib/dialog.js';
+import { askConfirm, showMessage } from '../lib/dialog.js';
+import { saveErrorText } from '../lib/storage.js';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -259,8 +260,8 @@ export function Dashboard({ clients, trainer, setView }) {
             <div className="text-xs text-slate-500">קלוריות, מקרו, תפריטים</div>
           </button>
           <button onClick={() => setView({ name: 'mobility' })} className="text-right bg-slate-900/60 border border-slate-800 rounded-xl p-4 hover:border-indigo-600 transition">
-            <div className="text-2xl mb-1">🧘</div>
-            <div className="font-semibold" style={{ fontFamily: FONT_HEADING }}>גמישות ויוגה</div>
+            <div className="text-2xl mb-1">🤸</div>
+            <div className="font-semibold" style={{ fontFamily: FONT_HEADING }}>גמישות ומתיחות</div>
             <div className="text-xs text-slate-500">שגרות והתאוששות</div>
           </button>
           <button onClick={() => setView({ name: 'cardio' })} className="text-right bg-slate-900/60 border border-slate-800 rounded-xl p-4 hover:border-indigo-600 transition">
@@ -304,7 +305,7 @@ export function TrainerSettings({ trainer, onSave }) {
   const [saved, setSaved] = useState(false);
 
   const handleSave = async () => {
-    await onSave(d);
+    if (!(await onSave(d))) return;
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -315,7 +316,8 @@ export function TrainerSettings({ trainer, onSave }) {
   const handleResetAll = async () => {
     if (!(await askConfirm('פעולה זו תמחק את כל הנתונים — מתאמנים, תוכניות, מדידות, היסטוריה. האם להמשיך?', { danger: true }))) return;
     if (!(await askConfirm('בטוח לחלוטין? הפעולה בלתי הפיכה.', { danger: true, okText: 'מחיקה' }))) return;
-    localStorage.clear();
+    // מחיקה שנדחתה (צפייה בלבד, הכניסה פגה) — הודעה בעברית, ולא פס "משהו השתבש"
+    try { localStorage.clear(); } catch (e) { showMessage(saveErrorText(e)); return; }
     window.location.reload();
   };
 

@@ -4,6 +4,8 @@
 //  2. הדפסה: window.print שולח צילום HTML של המסמך למעטפת, והיא פותחת את מסך ההדפסה של אנדרואיד.
 //  3. הורדות: קישור download עם blob/data נשמר דרך בוחר הקבצים של אנדרואיד (WebView לא מוריד blob).
 //  4. Service Worker כבוי: הקבצים כבר מקומיים, ו-SW מעל מארח מיורט לא עובד באנדרואיד.
+//  5. קריאה בלבד בשמאות ובאימונים (רישיון, כניסה והרשאת עריכה): כתיבה ל-localStorage נחסמת (write-block).
+//  6. פעילות בשמאות ובאימונים מאריכה את הכניסה למערכת (activity).
 (function () {
   'use strict';
   if (window.parent === window) return; // לא בתוך המעטפת
@@ -32,6 +34,56 @@
   const contextBridge = { exposeInMainWorld(key, api) { Object.defineProperty(window, key, { value: Object.freeze(api), configurable: false }); } };
   window.__ssElectron = { ipcRenderer, contextBridge };
 
+  /* ---------- קריאה בלבד (שמאות ואימונים) ---------- */
+  // כמו secureWriteBlock ב-main.js: בלי כניסה פעילה, תפקיד בלי הרשאת עריכה (צופה / רואה חשבון), סוף תקופת ניסיון,
+  // ממתין לתשלום, מושעה או מודול שאינו ברישיון —
+  // כתיבה ל-localStorage זורקת SecurityError עם ההודעה מהמעטפת, והנתונים לא משתנים. המצב מגיע בכתובת ה-iframe
+  // (ss-ro, ביצירה) ובהודעת write-block (בכל שינוי ובכל טעינה), ונשמר ב-sessionStorage — כך טעינה מחדש של
+  // המודול לא מתחילה ממצב ישן. השחזור מהמעטפת (ls-restore) עוקף את החסימה, כמו בשולחן העבודה (כותב ישירות למחסן)
+  const GUARDED = /^(shamai|trainer)\./.test(location.host);
+  const RO_KEY = 'ss-write-block';
+  let writeBlock = null;
+  let restoring = false;
+  function setWriteBlock(message) {
+    writeBlock = typeof message === 'string' && message ? message : null;
+    try { window.sessionStorage.setItem(RO_KEY, writeBlock || ''); } catch { /* בלי sessionStorage — רק בזיכרון */ }
+  }
+  if (GUARDED) {
+    let saved = null;
+    try { saved = window.sessionStorage.getItem(RO_KEY); } catch { saved = null; }
+    writeBlock = saved !== null ? (saved || null) : (new URLSearchParams(location.search || '').get('ss-ro') || null);
+    let LS = null;
+    try { LS = window.localStorage; } catch { LS = null; } // אין אחסון בכלל — אין גם מה לחסום, ושאר frame.js ממשיך
+    const proto = LS && Object.getPrototypeOf(LS);
+    // על אב-הטיפוס (Storage.prototype): השמה ל-localStorage.setItem הייתה נשמרת כפריט ולא מחליפה את הפעולה.
+    // sessionStorage חולק את אב-הטיפוס — נבדק לפי this
+    if (proto) {
+      for (const op of ['setItem', 'removeItem', 'clear']) {
+        const raw = proto[op];
+        proto[op] = function (...args) {
+          if (this === LS && writeBlock && !restoring) throw new DOMException(writeBlock, 'SecurityError');
+          return raw.apply(this, args);
+        };
+      }
+    }
+  }
+
+  /* ---------- פעילות בשמאות ובאימונים ---------- */
+  // כמו touchActivity ב-main.js: לחיצה, מקש, מגע וגלילה מאריכים את הכניסה למערכת (main-android.js) — אחרת הניתוק
+  // האוטומטי היה חוסם את הכתיבה ומוציא למסך הכניסה באמצע עבודה. נשלח רק "הייתה פעילות", בלי פרטים, ולכל היותר פעם ב-2 שניות.
+  // במסגרת הלכידה (capture) של window — נקלט לפני כל מאזין של המודול
+  if (GUARDED) {
+    const ACTIVITY_MS = 2000;
+    let lastActivity = 0;
+    const activity = () => {
+      const t = Date.now();
+      if (t - lastActivity < ACTIVITY_MS) return;
+      lastActivity = t;
+      post({ ss: 'activity' });
+    };
+    for (const type of ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll']) window.addEventListener(type, activity, { capture: true, passive: true });
+  }
+
   const handlers = {
     reply(m) {
       const p = pending.get(m.id);
@@ -42,16 +94,21 @@
     send(m) { for (const cb of listeners.get(m.channel) || []) { try { cb({}, ...m.args); } catch (e) { console.error(e); } } },
     // גיבוי/שחזור: המעטפת קוראת וכותבת את ה-localStorage של המודול (כמו executeJavaScript בשולחן העבודה)
     'ls-dump'(m) { post({ ss: 'ls', id: m.id, data: Object.fromEntries(Object.entries(localStorage)) }); },
-    // כשל (למשל אין מקום) חוזר כשגיאה מיד — ולא נתקע עד שתם הזמן
+    // כשל (למשל אין מקום) חוזר כשגיאה מיד — ולא נתקע עד שתם הזמן. quota = אין מקום באחסון של המכשיר:
+    // המעטפת מחזירה את הנתונים הקודמים של המודול וממשיכה בשאר השחזור (main-android.js — applyRestore)
     'ls-restore'(m) {
+      restoring = true;
       try {
         localStorage.clear();
         for (const k of Object.keys(m.data)) localStorage.setItem(k, m.data[k]);
         post({ ss: 'ls', id: m.id, data: true });
       } catch (e) {
-        post({ ss: 'ls', id: m.id, data: { error: String((e && e.message) || e) } });
-      }
+        const quota = !!e && (e.name === 'QuotaExceededError' || e.code === 22);
+        post({ ss: 'ls', id: m.id, data: { error: String((e && e.message) || e), quota } });
+      } finally { restoring = false; }
     },
+    // קריאה בלבד לפי הרישיון (main-android.js — syncWriteBlocks): הודעה בעברית או null
+    'write-block'(m) { if (GUARDED) setWriteBlock(m.message); },
     reload() { location.reload(); }
   };
   window.addEventListener('message', e => {
@@ -110,10 +167,28 @@
     if (obj instanceof Blob) blobs.set(u, obj);
     return u;
   };
+  // כתובת data: ← Blob, בלי קריאה ל-fetch — ה-CSP של המודולים חוסם אותה, ובאנדרואיד אין פנייה לרשת מהעמוד
+  function dataUrlBlob(href) {
+    const comma = href.indexOf(',');
+    if (comma < 0) return null;
+    const meta = href.slice(5, comma);
+    const payload = href.slice(comma + 1);
+    const b64 = /;base64$/i.test(meta);
+    const type = meta.replace(/;base64$/i, '').split(';')[0] || 'text/plain';
+    let bytes;
+    if (b64) {
+      const bin = atob(payload);
+      bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    } else {
+      bytes = new TextEncoder().encode(decodeURIComponent(payload));
+    }
+    return new Blob([bytes], { type });
+  }
   async function saveAnchor(a) {
     const href = a.href;
     let blob = blobs.get(href);
-    if (!blob && href.startsWith('data:')) blob = await (await fetch(href)).blob();
+    if (!blob && href.startsWith('data:')) blob = dataUrlBlob(href);
     if (!blob) return false;
     const buf = new Uint8Array(await blob.arrayBuffer());
     let bin = '';

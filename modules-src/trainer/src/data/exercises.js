@@ -1112,7 +1112,7 @@ export const EXERCISES = [
     anatomy: 'מגייס את כל מקטעי עמוד השדרה — חיוני לבריאות הגב.',
   },
   {
-    id: 'child-pose', name: 'תנוחת הילד', cat: 'flex', part: 'גמישות',
+    id: 'child-pose', name: 'מתיחת גב בכריעה', cat: 'flex', part: 'גמישות',
     muscles: ['גב', 'ירכיים'], eq: ['bw'], lvl: 'beginner',
     contra: [], cautions: [],
     instructions: [
@@ -1123,12 +1123,12 @@ export const EXERCISES = [
       'נשום עמוק והרפה',
     ],
     mistakes: ['ישבן מתרומם', 'מתח בכתפיים'],
-    tips: 'תנוחת מנוחה. עזרת התאוששות מצוינת באמצע אימון.',
+    tips: 'מתיחת מנוחה. עזרת התאוששות מצוינת באמצע אימון.',
     variations: ['עם זרועות לצדדי הגוף', 'עם זרועות מתוחות לצד אחד (מתיחת צד)'],
     anatomy: 'מתיחה עדינה של גב תחתון וירכיים.',
   },
   {
-    id: 'downward-dog', name: 'כלב הפוך', cat: 'flex', part: 'גמישות',
+    id: 'downward-dog', name: 'מתיחת שרשרת אחורית — אגן למעלה', cat: 'flex', part: 'גמישות',
     muscles: ['גב', 'ירך אחורית', 'תאומים', 'כתפיים'], eq: ['bw'], lvl: 'beginner',
     contra: ['shoulder'], cautions: [],
     instructions: [
@@ -1176,7 +1176,7 @@ export const EXERCISES = [
     anatomy: 'משחרר את הפסואס — שריר עמוק שמשפיע על תנוחת האגן.',
   },
   {
-    id: 'pigeon', name: 'תנוחת היונה', cat: 'flex', part: 'גמישות',
+    id: 'pigeon', name: 'מתיחת ישבן — שוק מקופלת לפנים', cat: 'flex', part: 'גמישות',
     muscles: ['ישבן', 'כופפי ירך', 'פיריפורמיס'], eq: ['bw'], lvl: 'intermediate',
     contra: ['knee'], cautions: ['hip'],
     instructions: [
@@ -1187,8 +1187,8 @@ export const EXERCISES = [
       'החזק 30 שניות והחלף',
     ],
     mistakes: ['לחץ ישיר על הברך הקדמית'],
-    tips: 'תנוחה מצוינת לישבן ולפיריפורמיס. אם יש בעיות ברכיים — דלג.',
-    variations: ['פיגיון בשכיבה (קל יותר)'],
+    tips: 'מתיחה מצוינת לישבן ולפיריפורמיס. אם יש בעיות ברכיים — דלג.',
+    variations: ['מתיחת ישבן בשכיבה על הגב (קל יותר)'],
     anatomy: 'משחרר את שרירי האגן העמוקים — לרוב מתוחים אצל מי שיושב הרבה.',
   },
   {

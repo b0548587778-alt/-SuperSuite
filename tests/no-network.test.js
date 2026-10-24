@@ -88,3 +88,28 @@ test('ה-service worker של השמאות לא מכיר מקורות מחירי�
   const sw = fs.readFileSync(path.join(ROOT, 'modules/shamai/sw.js'), 'utf8');
   for (const host of ['gold-api', 'frankfurter', 'coingecko', 'boi.org.il']) assert.doesNotMatch(sw, new RegExp(host));
 });
+
+// אנדרואיד (החלטת הבעלים 23.10.2026): הרשאת INTERNET — לשרת הרישוי בלבד. ה-WebView חסום לרשת (setBlockNetworkLoads),
+// ולכן בקוד ה-web אין fetch; הבקשה לשרת עוברת ב-relay-fetch.js לגשר, והקובץ היחיד שפותח חיבור הוא RelayClient.java
+const ANDROID_SCAN = ['android/web', 'android/lib', 'android/app'];
+const ANDROID_ALLOWED = { 'schemas.android.com': 'מרחב שמות של XML באנדרואיד — לא פנייה' };
+const ANDROID_NET_FILES = { 'android/app/java/com/bunimseller/supersuite/RelayClient.java': 'שרת הרישוי בלבד: POST https ל-/v1, בלי הפניות' };
+test('אנדרואיד: פנייה לרשת רק לשרת הרישוי (RelayClient.java), וקוד ה-web בלי fetch', () => {
+  const list = [];
+  const walk = rel => {
+    const abs = path.join(ROOT, rel);
+    if (!fs.existsSync(abs)) return;
+    if (fs.statSync(abs).isDirectory()) { for (const n of fs.readdirSync(abs)) walk(rel + '/' + n); return; }
+    if (/\.(js|java|xml|html|css)$/i.test(rel)) list.push(rel);
+  };
+  ANDROID_SCAN.forEach(walk);
+  assert.ok(list.some(f => f.endsWith('RelayClient.java')) && list.some(f => f.endsWith('relay-fetch.js')));
+  const bad = [];
+  for (const rel of list) {
+    const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    for (const m of text.matchAll(/https?:\/\/([a-zA-Z0-9.-]+)/g)) if (!(m[1] in ANDROID_ALLOWED)) bad.push(`${rel}: ${m[1]}`);
+    if (/\.js$/.test(rel) && /\bfetch\s*\(|new\s+XMLHttpRequest|new\s+WebSocket\s*\(|navigator\.sendBeacon|new\s+EventSource\s*\(/.test(text)) bad.push(rel + ': פנייה לרשת מקוד ה-web');
+    if (/\.java$/.test(rel) && !(rel in ANDROID_NET_FILES) && /openConnection|new\s+Socket\s*\(|HttpURLConnection|SocketChannel/.test(text)) bad.push(rel + ': חיבור רשת');
+  }
+  assert.deepEqual([...new Set(bad)], [], 'פנייה חדשה לרשת באנדרואיד — להסיר, או להוסיף לרשימה עם סיבה');
+});

@@ -110,3 +110,20 @@ test('חיבור: חמשת הכרטיסים בדף, טעינת טבלה מקוב
   assert.match(app, /parseSalaryTable\(saved\)/, 'טבלה שמורה נבדקת שוב');
   for (const src of [app, fs.readFileSync(path.join(dir, 'calc.js'), 'utf8')]) assert.doesNotMatch(src, /fetch\(|XMLHttpRequest|https?:\/\//);
 });
+
+// בדיקת קוד 23.10.2026 (נמוך): רשומה בלי תאריך (או null) הפילה את המיון ברשימת המעשרות — וכל הדף אחריה לא עבד
+test('מעשרות: רשימת התצוגה מדלגת על רשומה פגומה, החדש למעלה, עד 100', () => {
+  const list = C.maaserRecent([
+    { id: 'a', kind: 'income', amountAg: 1000, date: '2026-01-05' },
+    null, 'זבל', { id: 'b', kind: 'given', amountAg: 100 }, { id: 'c', kind: 'given', amountAg: 50, date: 7 },
+    { id: 'd', kind: 'given', amountAg: 100, date: '2026-03-01' },
+  ]);
+  assert.deepEqual(list.map(e => e.id), ['d', 'a']);
+  assert.deepEqual(C.maaserRecent('לא רשימה'), []);
+  const many = Array.from({ length: 150 }, (_, i) => ({ id: String(i), date: '2026-01-' + String(1 + (i % 28)).padStart(2, '0') }));
+  assert.equal(C.maaserRecent(many).length, 100);
+  // הדף משתמש בה (ולא במיון ישיר שנופל על רשומה בלי תאריך)
+  const app = fs.readFileSync(path.join(__dirname, '..', 'modules', 'tools', 'app.js'), 'utf8');
+  assert.match(app, /C\.maaserRecent\(M\)/);
+  assert.doesNotMatch(app, /b\.date\.localeCompare\(a\.date\)/);
+});

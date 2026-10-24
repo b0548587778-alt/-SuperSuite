@@ -53,13 +53,15 @@ test('בדיקת הפצה: מפתח שנוצר בכלי הבעלים ונכתב 
   assert.deepEqual(releaseProblems(keys, URL_OK), []);
 });
 
-test('CI: "גרסה להפצה" היא בחירה ידנית, והבדיקה רצה רק בה — לפני הבנייה', () => {
+test('CI: "גרסה להפצה" היא בחירה ידנית (וגם כל פרסום), והבדיקה רצה רק בהן — לפני הבנייה', () => {
   const yml = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'build.yml'), 'utf8').replace(/\r\n/g, '\n');
   assert.match(yml, /workflow_dispatch:\n\s+inputs:\n\s+release:\n[\s\S]*?type: boolean\n\s+default: false/);
   const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  report:'));
   const i = build.indexOf('- name: Release check');
   assert.ok(i > 0);
-  assert.match(build.slice(i, i + 200), /if: \$\{\{ inputs\.release \}\}/);
+  // גם בתגית v* ובהפעלה עם publish — מתקין לציבור לא יוצא בלי הבדיקה (בדיקת קוד 23.10.2026, ממצא 33).
+  // שאר הבנייה הרגילה (דחיפה ל-master) לא נחסמת כשהרישוי כבוי — tests/audit-ci-tools-tests.test.js
+  assert.match(build.slice(i, i + 200), /if: \$\{\{ inputs\.release \|\| inputs\.publish \|\| startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
   assert.match(build.slice(i, i + 300), /node tools\/release-check\.js/);
   assert.ok(i < build.indexOf('- name: Build'), 'לפני electron-builder');
   // לא תלויה בחבילות — ראשונה, ונכשלת בתוך שניות ולא אחרי ההתקנות והבדיקות

@@ -409,6 +409,7 @@ function bindEvents() {
   // Search and sort
   $('#opp-search')?.addEventListener('input', e => {
     state.ledger.search = e.target.value;
+    state.ledger.sellerKey = null; // הקלדה מחליפה את הסינון לפי איש קשר
     renderLedger();
   });
   $('#opp-sort')?.addEventListener('change', e => {
@@ -427,9 +428,8 @@ function bindEvents() {
   $('#btn-import-all')?.addEventListener('click', () => $('#file-import-all').click());
   $('#file-import-all')?.addEventListener('change', importJSON);
   $('#btn-clear-all')?.addEventListener('click', async () => {
-    if (await ssDialog.confirm('למחוק את כל הנתונים? פעולה זו אינה הפיכה.', { danger: true, okText: 'מחיקה' })) {
-      localStorage.clear();
-      location.reload();
+    if (await ssDialog.confirm('למחוק את כל הנתונים? פעולה זו אינה הפיכה. המספור של השטרות, התיקים והדוחות יישמר.', { danger: true, okText: 'מחיקה' })) {
+      if (clearAllShamaiData()) location.reload();
     }
   });
 
@@ -520,9 +520,31 @@ function populateLedgerCats() {
   sel.innerHTML = cats.map(c => `<option value="${c.k}">${c.name}</option>`).join('');
 }
 
+// "מחק את כל הנתונים": רק מפתחות השמאי (באנדרואיד ה-localStorage משותף למודולים), והמספור נשמר —
+// פעם localStorage.clear() איפס את purchaseSeq / caseSeq / reportSeq, ומספרי שטרות ודוחות שכבר הונפקו חזרו
+// (בדיקת קוד 23.10.2026, ממצא 17). false — המחסן דחה את המחיקה (למשל בלי כניסה); ההודעה כבר הוצגה
+const KEEP_ON_CLEAR = ['purchaseSeq', 'caseSeq', 'reportSeq'];
+function clearAllShamaiData() {
+  const keep = new Set(KEEP_ON_CLEAR.map(Storage.k));
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+  try {
+    for (const k of keys) {
+      if (typeof k === 'string' && k.startsWith('shamai_') && !keep.has(k)) localStorage.removeItem(k);
+    }
+    return true;
+  } catch (e) {
+    Storage.failed(e);
+    return false;
+  }
+}
+
+// ייצוא פריטי הפנקס, המחירים וההגדרות — לא גיבוי מלא: תיקים, שטרות, מספור ותמונות נשמרים רק בגיבוי המוצפן
+// של התוכנה (CLAUDE.md, כלל 5). שם הקובץ לפי התאריך המקומי (localToday), לא UTC
 function exportJSON() {
   const data = {
     version: '2.0',
+    kind: 'shamai-items',
     exported: new Date().toISOString(),
     opportunities: state.opportunities,
     prices: state.prices,
@@ -532,10 +554,10 @@ function exportJSON() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `shamai-backup-${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `shamai-items-${localToday()}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  toast('יוצא בהצלחה', 'success');
+  toast('פריטי הפנקס יוצאו', 'success');
 }
 
 function exportCSV() {
@@ -562,14 +584,15 @@ function exportCSV() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `shamai-${new Date().toISOString().split('T')[0]}.csv`;
+  a.download = `shamai-${localToday()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
   toast('CSV יוצא', 'success');
 }
 
 // ייבוא פריטים מקובץ JSON: המשתמש בוחר בין הוספה לקיים לבין החלפה (עם אישור נוסף) — לעולם לא דריסה בלי שאלה.
-// הגרסה היחידה בשמאי: גרסה כפולה ב-tools.js נדרסה בעבר על ידי גרסה שהחליפה הכול בלי אישור
+// הגרסה היחידה בשמאי: גרסה כפולה ב-tools.js נדרסה בעבר על ידי גרסה שהחליפה הכול בלי אישור.
+// כל פריט עובר sanitizeOpp (ledger.js) לפני שנשמר, ובהוספה — פריט שמזהה שלו כבר בפנקס מדולג (פעם נוצרו כפילויות)
 function importJSON(e) {
   const file = e.target.files[0];
   e.target.value = '';
@@ -579,12 +602,18 @@ function importJSON(e) {
     try {
       const data = JSON.parse(ev.target.result);
       if (!data || !Array.isArray(data.opportunities)) throw new Error('פורמט לא תקין');
-      const items = data.opportunities.filter(o => o && typeof o === 'object' && !Array.isArray(o));
-      const mode = await ssDialog.choose(`לייבא ${items.length} פריטים?`, [
+      const { items, skipped } = sanitizeOpportunities(data.opportunities);
+      if (!items.length) throw new Error('אין בקובץ פריטים תקינים');
+      const mode = await ssDialog.choose(`לייבא ${items.length} פריטים?${skipped ? ` (${skipped} פגומים או כפולים ידולגו)` : ''}`, [
         { label: 'להוסיף לקיים', value: 'merge' }, { label: 'להחליף את הקיים', value: 'replace', kind: 'danger' }]);
       if (!mode) return;
+      let added = items.length, dup = 0;
       if (mode === 'merge') {
-        state.opportunities = [...items, ...state.opportunities];
+        const existing = new Set(state.opportunities.map(o => o.id));
+        const fresh = items.filter(o => !existing.has(o.id));
+        dup = items.length - fresh.length;
+        added = fresh.length;
+        state.opportunities = [...fresh, ...state.opportunities];
       } else {
         if (!(await ssDialog.confirm('להחליף את כל הנתונים הקיימים?', { danger: true }))) return;
         state.opportunities = items;
@@ -592,9 +621,10 @@ function importJSON(e) {
       Storage.save('opportunities', state.opportunities);
       renderLedger();
       renderHeader();
-      toast(`יובאו ${items.length} פריטים`, 'success');
+      toast(`יובאו ${added} פריטים${dup ? ` · ${dup} כבר היו בפנקס ודולגו` : ''}`, 'success');
     } catch (err) {
-      toast('שגיאה בייבוא: ' + (err && err.message ? err.message : ''), 'error');
+      // שגיאת פענוח של JSON — באנגלית; למשתמש רק הודעה בעברית
+      toast('שגיאה בייבוא: ' + (err && typeof err.message === 'string' && /[֐-׿]/.test(err.message) ? err.message : 'הקובץ אינו תקין'), 'error');
     }
   };
   reader.readAsText(file);
@@ -604,14 +634,20 @@ function importJSON(e) {
 //  INIT
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function init() {
-  // Load saved state
+// הנתונים השמורים ← state. גם האחסון הוא קלט לא מהימן: פריט פגום שנשמר פעם (למשל משחזור QR ישן) הפיל את
+// renderDashboard לפני bindEvents, ושום כפתור לא עבד גם אחרי "טען מחדש" (בדיקת קוד 23.10.2026, ממצא 18)
+function loadSavedState() {
+  const plainObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
   const savedOps = Storage.load('opportunities');
-  if (savedOps) state.opportunities = savedOps;
+  if (Array.isArray(savedOps)) state.opportunities = sanitizeOpportunities(savedOps).items;
   const savedPrices = Storage.load('prices');
-  if (savedPrices) state.prices = { ...DEFAULT_PRICES, ...savedPrices };
+  if (plainObj(savedPrices)) state.prices = { ...DEFAULT_PRICES, ...savedPrices };
   const savedSettings = Storage.load('settings');
-  if (savedSettings) state.settings = { ...state.settings, ...savedSettings };
+  if (plainObj(savedSettings)) state.settings = { ...state.settings, ...savedSettings };
+}
+
+async function init() {
+  loadSavedState();
 
   // Render
   renderHeader();

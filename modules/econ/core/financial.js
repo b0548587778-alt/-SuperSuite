@@ -1,82 +1,31 @@
-// Financial calculations and export utilities
+// Financial calculations — הכול בשלמי אגורות (כלל הברזל 1): 0.1 + 0.2 לא יוצא 0.30000000000000004
+const toAg = (n) => { const a = Math.round(Number(n) * 100); return Number.isFinite(a) ? a : 0; };
+const fromAg = (a) => a / 100;
+const isIncome = (r) => r && (r.type === 'income' || r.type === 'donation');
+const isExpense = (r) => r && r.type === 'expense';
+
 function calculateFinancialMetrics(records, budgets, cashFlow) {
     const recordsArray = Array.isArray(records) ? records : [];
-    const income = recordsArray
-        .filter(r => r.type === 'income' || r.type === 'donation')
-        .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const incomeAg = recordsArray.filter(isIncome).reduce((sum, r) => sum + toAg(r.amount), 0);
+    const expenseAg = recordsArray.filter(isExpense).reduce((sum, r) => sum + toAg(r.amount), 0);
+    const vatAg = recordsArray.filter(r => isIncome(r) && r.vat).reduce((sum, r) => sum + toAg(r.vat), 0);
 
-    const expense = recordsArray
-        .filter(r => r.type === 'expense')
-        .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-
-    const vat = recordsArray
-        .filter(r => (r.type === 'income' || r.type === 'donation') && r.vat)
-        .reduce((sum, r) => sum + (Number(r.vat) || 0), 0);
-
-    const netIncome = income - vat;
-    const profit = netIncome - expense;
+    const netIncomeAg = incomeAg - vatAg;
+    const profitAg = netIncomeAg - expenseAg;
 
     return {
-        grossIncome: income,
-        vat,
-        netIncome,
-        totalExpense: expense,
-        profit,
-        profitMargin: income > 0 ? ((profit / income) * 100).toFixed(2) + '%' : 'N/A',
+        grossIncome: fromAg(incomeAg),
+        vat: fromAg(vatAg),
+        netIncome: fromAg(netIncomeAg),
+        totalExpense: fromAg(expenseAg),
+        profit: fromAg(profitAg),
+        // אחוז עם שתי ספרות — מחלוקת שלמים (נקודות בסיס), לא מנקודה צפה
+        profitMargin: incomeAg > 0 ? (Math.round(profitAg * 10000 / incomeAg) / 100).toFixed(2) + '%' : 'N/A',
         recordCount: recordsArray.length,
-        expenseCount: recordsArray.filter(r => r.type === 'expense').length,
-        incomeCount: recordsArray.filter(r => r.type === 'income' || r.type === 'donation').length
+        expenseCount: recordsArray.filter(isExpense).length,
+        incomeCount: recordsArray.filter(isIncome).length
     };
 }
 
-function exportToCSV(data, fileName = 'export.csv') {
-    if (!Array.isArray(data) || data.length === 0) {
-        throw new Error('נתונים חסרים או ריקים');
-    }
-
-    // Get all unique keys from all objects
-    const keys = [...new Set(data.flatMap(obj => Object.keys(obj)))];
-
-    // Create header row with Hebrew BOM for proper encoding
-    const header = keys.map(k => `"${escapeCSV(String(k))}"`).join(',');
-
-    // Create data rows
-    const rows = data.map(obj =>
-        keys.map(key => {
-            const value = obj[key];
-            if (value === null || value === undefined) return '""';
-            if (typeof value === 'number') return value.toString();
-            return `"${escapeCSV(String(value))}"`;
-        }).join(',')
-    );
-
-    const csv = '\ufeff' + header + '\r\n' + rows.join('\r\n');
-
-    if (typeof window === 'undefined') {
-        // Node.js environment
-        const fs = require('fs');
-        fs.writeFileSync(fileName, csv, { encoding: 'utf8', mode: 0o644 });
-        return fileName;
-    } else {
-        // Browser environment
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = fileName;
-        link.click();
-        URL.revokeObjectURL(link.href);
-        return fileName;
-    }
-}
-
-function escapeCSV(value) {
-    return String(value ?? '').replace(/"/g, '""');
-}
-
-function validateCSVData(data) {
-    if (!Array.isArray(data)) return false;
-    if (data.length === 0) return true;
-    return data.every(item => item && typeof item === 'object' && !Array.isArray(item));
-}
-
-module.exports = { calculateFinancialMetrics, exportToCSV, escapeCSV, validateCSVData };
+// ייצוא CSV נעשה רק דרך חלון שמירה בתהליך הראשי (saveCsv ב-ipc.js). כתיבה לנתיב שהמסך בוחר הוסרה (בדיקת קוד 23.10.2026, ממצא 6)
+module.exports = { calculateFinancialMetrics };

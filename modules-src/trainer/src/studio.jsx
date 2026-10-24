@@ -5,7 +5,7 @@ import { Btn, Card, Field, Input, Textarea, Badge, Modal, Toggle, PageHeader, FO
 import { S, K } from './lib/db.js';
 import * as St from './lib/studio.js';
 import { whatsappShareUrl, copyToClipboard } from './lib/sharing.js';
-import { askConfirm, showMessage } from './lib/dialog.js';
+import { askConfirm, showSaveError } from './lib/dialog.js';
 import { savePdf, printNow } from './lib/print.js';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -39,7 +39,8 @@ export function useStudio(clients) {
 
   // שמירה שנכשלה — הודעה, והמסך לא מתעדכן (אחרת הוא מציג נתונים שלא נשמרו). מחזירות true / false
   const saveFailed = () => {
-    showMessage('השמירה נכשלה — השינוי לא נשמר. ייתכן שהאחסון מלא או שהכניסה למערכת פגה. נסו שוב.');
+    // הסיבה עצמה כבר מוצגת מ-lib/storage.js — ההודעה הכללית רק כשאין אחרת (בלי שתי הודעות ברצף)
+    showSaveError('השמירה נכשלה — השינוי לא נשמר. ייתכן שהאחסון מלא או שהכניסה למערכת פגה. נסו שוב.');
     return false;
   };
   const savePlans = async (list) => { if (!(await S.set(K.plans, list))) return saveFailed(); setPlans(list); return true; };
@@ -139,23 +140,27 @@ export function ScheduleView({ clients, setView }) {
   const [editing, setEditing] = useState(null); // תבנית לפגישה חדשה
   const [openId, setOpenId] = useState(null);
   const [notice, setNotice] = useState(null);
-  const days = St.weekDays(St.isShabbat(anchor) ? St.addDays(anchor, 1) : anchor);
+  // ראשון עד שבת — בעמודת שבת רק אימוני מוצאי שבת
+  const days = St.weekDays(anchor);
+  const lastDay = days[days.length - 1];
   const open = studio.schedule.find((a) => a.id === openId) || null;
 
-  const weekCount = studio.schedule.filter((a) => a.date >= days[0] && a.date <= days[5]).length;
+  const weekCount = studio.schedule.filter((a) => a.date >= days[0] && a.date <= lastDay).length;
   const todayList = St.appointmentsOn(studio.schedule, today);
+  // אימון חדש: היום, ובשבת/חג שאין בו מוצאי — יום החול הבא; השעה לפי כלל היום (מוצאי / ערב שבת)
+  const newDate = St.dayRule(today).kind === 'closed' ? St.nextTrainingDay(today).date : today;
 
   return (
     <div className="p-4 md:p-8 max-w-7xl">
       <PageHeader title="יומן אימונים" subtitle="אימונים אישיים ושיעורים קבוצתיים, נוכחות וניצול מנויים"
-        action={<Btn onClick={() => setEditing({ date: St.isShabbat(today) ? St.addDays(today, 1) : today })}>+ אימון חדש</Btn>} />
+        action={<Btn onClick={() => setEditing({ date: newDate, time: St.defaultTime(newDate) })}>+ אימון חדש</Btn>} />
       <Notice notice={notice} onClose={() => setNotice(null)} />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <Stat label="אימונים היום" value={todayList.length} tone="indigo" />
         <Stat label="אימונים השבוע" value={weekCount} />
         <Stat label="מתאמנים" value={clients.length} onClick={() => setView({ name: 'clients' })} />
-        <Stat label="שיעורים קבוצתיים השבוע" value={studio.schedule.filter((a) => a.kind === 'group' && a.date >= days[0] && a.date <= days[5]).length} />
+        <Stat label="שיעורים קבוצתיים השבוע" value={studio.schedule.filter((a) => a.kind === 'group' && a.date >= days[0] && a.date <= lastDay).length} />
       </div>
 
       <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
@@ -164,18 +169,24 @@ export function ScheduleView({ clients, setView }) {
           <Btn variant="secondary" size="sm" onClick={() => setAnchor(today)}>היום</Btn>
           <Btn variant="outline" size="sm" onClick={() => setAnchor(St.addDays(days[0], 7))}>שבוע הבא ←</Btn>
         </div>
-        <div className="text-sm text-slate-400">{St.formatShortHe(days[0])} – {St.formatShortHe(days[5])}</div>
+        <div className="text-sm text-slate-400">{St.formatShortHe(days[0])} – {St.formatShortHe(lastDay)}</div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-3">
         {days.map((d) => {
           const list = St.appointmentsOn(studio.schedule, d);
           const isToday = d === today;
+          const rule = St.dayRule(d);
           return (
             <div key={d} className={`bg-slate-900/60 border rounded-xl p-3 min-h-[160px] flex flex-col ${isToday ? 'border-indigo-500' : 'border-slate-800'}`}>
-              <div className="flex justify-between items-baseline mb-3">
+              <div className="flex justify-between items-baseline mb-1">
                 <div className={`font-semibold ${isToday ? 'text-indigo-300' : ''}`} style={{ fontFamily: FONT_HEADING }}>{St.DAY_NAMES[St.weekday(d)]}</div>
                 <div className="text-xs text-slate-500">{d.slice(8)}/{d.slice(5, 7)}</div>
+              </div>
+              <div className="text-xs text-slate-500 mb-3 min-h-[1rem]">
+                {rule.kind === 'closed' && rule.name}
+                {rule.kind === 'motzaei' && `מוצאי ${rule.name} · מ-${rule.from}`}
+                {rule.kind === 'erev' && `ערב ${rule.name} · עד ${rule.until}`}
               </div>
               <div className="space-y-2 flex-1">
                 {list.length === 0 && <div className="text-xs text-slate-600">אין אימונים</div>}
@@ -196,20 +207,23 @@ export function ScheduleView({ clients, setView }) {
                   );
                 })}
               </div>
-              <button onClick={() => setEditing({ date: d })} className="mt-2 text-xs text-slate-500 hover:text-indigo-300 transition">+ הוספה</button>
+              {rule.kind !== 'closed' && (
+                <button onClick={() => setEditing({ date: d, time: St.defaultTime(d) })} className="mt-2 text-xs text-slate-500 hover:text-indigo-300 transition">+ הוספה</button>
+              )}
             </div>
           );
         })}
       </div>
-      <div className="text-xs text-slate-500 mt-3">אין קביעת אימונים בשבת. סימון "הגיע" מנכה אימון מהמנוי הפעיל של המתאמן.</div>
+      <div className="text-xs text-slate-500 mt-3">אין קביעת אימונים בשבת ובחג. בערב שבת וחג — עד השעה שבעמודה, ובמוצאי שבת וחג — מהשעה שבעמודה (שעות שמרניות לכל הארץ). סימון "הגיע" מנכה אימון מהמנוי הפעיל של המתאמן.</div>
 
       {editing && (
         <AppointmentForm clients={clients} initial={editing} schedule={studio.schedule}
           onCancel={() => setEditing(null)}
-          onSave={async (list) => {
-            await studio.saveSchedule([...studio.schedule, ...list]);
+          onSave={async (list, skipped = []) => {
+            if (!(await studio.saveSchedule([...studio.schedule, ...list]))) return; // ההודעה כבר הוצגה (saveFailed)
             setEditing(null);
-            setNotice({ tone: 'ok', text: list.length > 1 ? `נקבעו ${list.length} אימונים (סדרה שבועית)` : 'האימון נקבע' });
+            const skippedText = skipped.length ? ` · דולגו בגלל שבת/חג: ${skipped.map((s) => St.formatShortHe(s.date)).join(', ')}` : '';
+            setNotice({ tone: 'ok', text: (list.length > 1 ? `נקבעו ${list.length} אימונים (סדרה שבועית)` : 'האימון נקבע') + skippedText });
           }} />
       )}
       {open && (
@@ -220,7 +234,7 @@ export function ScheduleView({ clients, setView }) {
 }
 
 function AppointmentForm({ clients, initial, schedule, onSave, onCancel }) {
-  const [f, setF] = useState({ date: initial.date, time: '18:00', minutes: '60', kind: 'personal', title: '', capacity: '10', clientIds: [], weeks: '1' });
+  const [f, setF] = useState({ date: initial.date, time: initial.time || '18:00', minutes: '60', kind: 'personal', title: '', capacity: '10', clientIds: [], weeks: '1' });
   const [err, setErr] = useState('');
   const set = (k) => (v) => setF((x) => ({ ...x, [k]: v }));
   const probe = { id: '_', date: f.date, time: f.time, minutes: Number(f.minutes) || 0 };
@@ -229,12 +243,13 @@ function AppointmentForm({ clients, initial, schedule, onSave, onCancel }) {
 
   const submit = () => {
     try {
-      const list = St.makeAppointments({
+      // שבוע בסדרה שנופל על שבת/חג מדולג (skipped) ומוצג בהודעה
+      const { list, skipped } = St.planAppointments({
         date: f.date, time: f.time, minutes: Number(f.minutes), kind: f.kind, title: f.title,
         capacity: Number(f.capacity), clientIds: f.kind === 'personal' ? f.clientIds.slice(0, 1) : f.clientIds, weeks: Math.min(52, Math.max(1, Number(f.weeks) || 1)),
       });
       if (f.kind === 'personal' && !f.clientIds.length) throw new Error('יש לבחור מתאמן לאימון אישי');
-      onSave(list);
+      onSave(list, skipped);
     } catch (e) { setErr(e.message); }
   };
 
@@ -508,7 +523,7 @@ export function RemindersView({ clients, trainer, setView }) {
   const list = studio.ready ? St.reminders({ clients, membershipsByClient: studio.memberships, lastSessionByClient: studio.lastByClient, schedule: studio.schedule, today, trainer }) : [];
   const groups = [
     ['מנוי ותשלום', list.filter((r) => ['ended', 'expired', 'ending', 'debt'].includes(r.kind))],
-    [St.nextTrainingDay(today).label === 'מחר' ? 'אימונים מחר' : 'אימונים ביום ראשון', list.filter((r) => r.kind === 'tomorrow')],
+    [St.nextTrainingDay(today).label === 'מחר' ? 'אימונים מחר' : 'האימונים הקרובים (אחרי שבת / חג)', list.filter((r) => r.kind === 'tomorrow')],
     ['לא התאמנו לאחרונה', list.filter((r) => r.kind === 'inactive')],
   ];
   return (

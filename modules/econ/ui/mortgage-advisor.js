@@ -247,6 +247,7 @@ function madvSettingsHtml(o) {
       <details class="card"><summary>הגדרות המשרד</summary>
         <label class="doc-check"><input type="checkbox" id="madvOwnOnly"${o.settings.ownOnly ? ' checked' : ''}> כל יועץ רואה רק את התיקים שלו (ותיקים שלא שויכו). המנהל רואה הכול</label>
         <label>תיק נחשב "תקוע" אחרי <input type="number" id="madvStuckDays" min="1" max="365" value="${Number(o.settings.stuckDays) || 14}"> ימים באותו שלב</label>
+        <label class="doc-check"><input type="checkbox" id="madvVatExempt"${o.settings.vatExempt ? ' checked' : ''}> המשרד עוסק פטור — עמלת הייעוץ בלי מע"מ, והחשבונית על תשלום היא חשבונית עסקה וקבלה (שינוי חל רק על תיקים שעוד לא נרשם בהם תשלום)</label>
         <div class="acct-actions"><button id="madvSaveSettings">שמירת ההגדרות</button></div>
       </details>`;
 }
@@ -315,7 +316,7 @@ function renderMortgageAdvisor(o) {
             <div>
               <h4>עמלת ייעוץ</h4>
               <div class="acct-row"><span>לפני מע"מ ${c.feeType === 'percent' ? `(${Number(c.feeValue) || 0}%)` : ''}</span><span>${money(fee.net)}</span></div>
-              <div class="acct-row"><span>מע"מ</span><span>${money(fee.vat)}</span></div>
+              ${c.feeExempt ? '<div class="acct-row"><span>עוסק פטור — בלי מע"מ</span><span></span></div>' : `<div class="acct-row"><span>מע"מ</span><span>${money(fee.vat)}</span></div>`}
               <div class="acct-row acct-total"><span>סה"כ</span><span>${money(fee.total)}</span></div>
               ${madvFeePaymentsHtml(c, o)}
             </div>
@@ -415,7 +416,8 @@ function attachMadvHandlers() {
     try {
       await window.systemAPI.saveMortgageOfficeSettings({
         ownOnly: document.getElementById('madvOwnOnly').checked,
-        stuckDays: Number(document.getElementById('madvStuckDays').value)
+        stuckDays: Number(document.getElementById('madvStuckDays').value),
+        vatExempt: document.getElementById('madvVatExempt').checked
       });
       showToast('ההגדרות נשמרו');
       await switchView('mortgage-advisor');
@@ -502,7 +504,9 @@ function attachMadvFeeHandlers() {
     catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
   }));
   document.querySelectorAll('[data-madv-invoice]').forEach(btn => btn.addEventListener('click', async () => {
-    if (!(await askConfirm('להפיק חשבונית מס/קבלה על התשלום הזה? החשבונית תירשם בהנהלת החשבונות ותקבל מספר.'))) return;
+    // מעמד המע"מ שננעל בתיק בתשלום הראשון (לא ההגדרה הנוכחית של המשרד)
+    const exempt = !!(madvClient(btn.dataset.madvInvoice) || {}).feeExempt;
+    if (!(await askConfirm(`להפיק ${exempt ? 'חשבונית עסקה וקבלה' : 'חשבונית מס/קבלה'} על התשלום הזה? החשבונית תירשם בהנהלת החשבונות ותקבל מספר.`))) return;
     try {
       const r = await window.systemAPI.issueMortgageFeeInvoice(btn.dataset.madvInvoice, btn.dataset.pay, { confirmed: true });
       showToast(`הופקה חשבונית מספר ${r.number}`);

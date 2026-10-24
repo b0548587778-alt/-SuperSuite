@@ -1,10 +1,12 @@
 // Personal Finance Service - Handles personal financial planning and calculations
 const crypto = require('crypto');
-const { calculateLoan } = require('../utils/calculations');
+const { isDay, localDay } = require('../core/dates');
 
 const FREQUENCIES = ['monthly', 'yearly', 'weekly', 'daily'];
 const MAX_ITEMS = 2000;
 const ITEM_KINDS = ['incomes', 'expenses', 'investments', 'cashFlowEntries'];
+// המטבעות במסך פרטי התוכנית (CURRENCY_LABELS ב-ui/views-general.js)
+const CURRENCIES = ['ILS', 'USD', 'EUR'];
 
 class PersonalFinanceService {
   constructor(db) {
@@ -60,55 +62,21 @@ class PersonalFinanceService {
     await this.db.save(data);
   }
 
+  // עדכון פרטי התוכנית בלבד (שם ומטבע). הפריטים משתנים רק דרך addItem / updateItem / deleteItem, עם ולידציה ויומן —
+  // קודם המערכים הוחלפו כמו שהגיעו מהמסך, ומי שאין לו הרשאת מחיקה יכול היה למחוק הכול (בדיקת קוד 23.10.2026)
   async updateFinance(senderId, financeData) {
-    if (!financeData) {
+    if (!financeData || typeof financeData !== 'object') {
       throw new Error('חסרים נתוני התוכנית');
     }
-    
-    // Validate required fields
-    const validData = {
-      userId: senderId,
-      planName: financeData.planName || 'התוכנית הפיננסית שלי',
-      currency: financeData.currency || 'ILS',
-      incomes: Array.isArray(financeData.incomes) ? financeData.incomes : [],
-      expenses: Array.isArray(financeData.expenses) ? financeData.expenses : [],
-      investments: Array.isArray(financeData.investments) ? financeData.investments : [],
-      cashFlowEntries: Array.isArray(financeData.cashFlowEntries) ? financeData.cashFlowEntries : []
-    };
-    
-    await this._saveShape(senderId, this._asShape(validData, senderId));
-
-    return validData;
-  }
-
-  async calculateLoan(loanData) {
-    if (!loanData) {
-      throw new Error('חסרים נתוני ההלוואה');
-    }
-    
-    const { principal, annualRate, years } = loanData;
-    
-    // בדיקה לערכים חסרים (מאפשר ריבית 0 שהיא מקרה חוקי)
-    if (principal === undefined || principal === null ||
-        annualRate === undefined || annualRate === null ||
-        years === undefined || years === null) {
-      throw new Error('יש להזין סכום, ריבית ותקופה');
-    }
-    
-    const principalNum = Number(principal);
-    const annualRateNum = Number(annualRate);
-    const yearsNum = Number(years);
-    
-    if (principalNum <= 0 || annualRateNum < 0 || yearsNum <= 0) {
-      throw new Error('נתוני ההלוואה אינם תקינים (סכום ותקופה חיוביים, ריבית לא שלילית)');
-    }
-    
-    // Use the core calculation function
-    return calculateLoan({
-      principal: principalNum,
-      annualRate: annualRateNum / 100, // Convert percentage to decimal
-      years: yearsNum
-    });
+    const planName = String(financeData.planName ?? '').trim() || 'התוכנית הפיננסית שלי';
+    if (planName.length > 200) throw new Error('שם התוכנית ארוך מדי (עד 200 תווים)');
+    const currency = financeData.currency === undefined || financeData.currency === '' ? 'ILS' : String(financeData.currency);
+    if (!CURRENCIES.includes(currency)) throw new Error('מטבע לא מוכר');
+    const shape = await this._loadShape(senderId);
+    shape.planName = planName;
+    shape.currency = currency;
+    await this._saveShape(senderId, shape);
+    return shape;
   }
 
   // ---------- פריטי התוכנית: הוספה, עריכה ומחיקה לכל ארבעת הסוגים ----------
@@ -147,8 +115,10 @@ class PersonalFinanceService {
         years: num(d.years, 'מספר השנים', { positive: true, max: 100, integer: true }), notes: text(d.notes, 1000, 'ההערות') };
     }
     if (kind === 'cashFlowEntries') {
-      const date = d.date || new Date().toISOString().slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) throw new Error('תאריך לא תקין');
+      // ברירת המחדל — היום המקומי (לא toISOString: בין חצות ל-03:00 זה היה אתמול)
+      const date = d.date || localDay();
+      // תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+      if (!isDay(date)) throw new Error('תאריך לא תקין');
       if (!['income', 'expense'].includes(d.type)) throw new Error('סוג התנועה חייב להיות הכנסה או הוצאה');
       return { date, type: d.type, amount: money(d.amount, 'סכום התנועה'),
         description: text(d.description, 300, 'התיאור'), category: text(d.category, 100, 'הקטגוריה') };

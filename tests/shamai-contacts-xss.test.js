@@ -18,6 +18,7 @@ function topLevel(file, name) {
 test('אנשי קשר: שם מוכר עם מירכאות ותגיות לא פורץ מהמאפיין', () => {
   const s = loadShamai(['core']);
   s.run(topLevel('opp-extras.js', 'detectPhone'));
+  s.run(topLevel('contacts.js', 'contactKeyOf'));
   s.run(topLevel('contacts.js', 'getContactsFromOpps'));
   s.run(topLevel('contacts.js', 'renderContactsView'));
   s.ctx.__opps = [

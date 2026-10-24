@@ -16,6 +16,8 @@ const ROOT = path.join(__dirname, '..');
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'ss-ab-'));
 const KEY = 'k'.repeat(44);
 const NOW = new Date('2026-10-14T08:00:00Z');
+// שם הקובץ כולל את סימן ההתקנה (נגזר מהמפתח) — כמה מחשבים באותו יעד לא מתנגשים (בדיקת קוד 23.10.2026, ממצא 38)
+const autoName = (day) => AutoBk.autoBackupName(day, AutoBk.installTag(KEY));
 
 // safeStorage מדומה: "הצפנה" הפיכה, ואפשרות לסמן שאינה זמינה או שהמפתח אינו קריא
 function fakeSafeStorage({ available = true, unreadable = false } = {}) {
@@ -43,7 +45,7 @@ test('גיבוי אוטומטי: תיקיית ברירת המחדל נוצרת �
   const { args } = baseArgs({ defaultTarget: docs });
   const r = await AutoBk.runAutoBackup(args);
   assert.equal(r.ok, true);
-  const file = path.join(docs, 'auto-2026-10-14.ssbk');
+  const file = path.join(docs, autoName('2026-10-14'));
   const text = fs.readFileSync(file, 'utf8');
   assert.ok(BK.isEncryptedBackup(text), 'נכתב מוצפן בלבד');
   assert.doesNotMatch(text, /SuperSuite/, 'אין טקסט גלוי בקובץ');
@@ -83,7 +85,7 @@ test('גיבוי אוטומטי בלי DPAPI: לא נכתב שום קובץ, ו�
 
 test('גיבוי אוטומטי: כשהגיבוי של היום קיים, לא אוספים שוב את כל המודולים', async () => {
   const dir = tmp();
-  fs.writeFileSync(path.join(dir, 'auto-2026-10-14.ssbk'), 'SSBK1:x');
+  fs.writeFileSync(path.join(dir, autoName('2026-10-14')), 'SSBK1:x');
   const { args, collected } = baseArgs({ customTarget: dir });
   const r = await AutoBk.runAutoBackup(args);
   assert.equal(r.ok, true);
@@ -140,12 +142,12 @@ test('שמאי: Service Worker לא נרשם מ-app:// (גרם לשגיאה בכ
 test('גיבוי אוטומטי: כתיבה שנכשלת ביעד (כונן מלא/מוגן) לא משאירה קובץ זמני ומחזירה סיבה', async () => {
   const dir = tmp();
   // תיקייה בשם הקובץ הזמני גורמת לכתיבה להיכשל — מדמה כונן שאינו ניתן לכתיבה
-  fs.mkdirSync(path.join(dir, 'auto-2026-10-14.ssbk.tmp', 'blocker'), { recursive: true });
+  fs.mkdirSync(path.join(dir, autoName('2026-10-14') + '.tmp', 'blocker'), { recursive: true });
   const { args } = baseArgs({ customTarget: dir });
   const r = await AutoBk.runAutoBackup(args);
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'write-failed');
-  assert.equal(fs.existsSync(path.join(dir, 'auto-2026-10-14.ssbk')), false);
+  assert.equal(fs.existsSync(path.join(dir, autoName('2026-10-14'))), false);
   assert.match(AutoBk.describeStatus(r), /הכתיבה ליעד נכשלה/);
 });
 
@@ -158,7 +160,7 @@ test('גיבוי אוטומטי: שם הקובץ והשעה בסטטוס לפי 
     getKey: () => KEY, write: AB.writeEncryptedAutoBackup, now: local,
   });
   assert.equal(r.ok, true);
-  assert.ok(fs.existsSync(path.join(dir, 'auto-2026-10-15.ssbk')), 'קובץ בשם היום המקומי');
+  assert.ok(fs.existsSync(path.join(dir, autoName('2026-10-15'))), 'קובץ בשם היום המקומי');
   assert.equal(AutoBk.localDay(local), '2026-10-15');
   const status = AutoBk.describeStatus({ ok: true, at: new Date(2026, 9, 15, 6, 22).toISOString() });
   assert.match(status, /2026-10-15 06:22/);

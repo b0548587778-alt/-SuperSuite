@@ -49,15 +49,23 @@ function detectIntent(question) {
   return 'general';
 }
 
+// „השנה שעברה”, „אשתקד”, „השנה הקודמת” / „בשנה הקודמת” / „שנה קודמת”, „שנת המס הקודמת”. נבדק לפני „השנה”:
+// פעם „השנה הקודמת” נתפסה כ„השנה” והתשובה הייתה על השנה הנוכחית (בדיקה חוזרת 24.10.2026)
+const LAST_YEAR_RE = /שנה שעברה|אשתקד|שנה ה?קודמת|שנת ה?מס ה?קודמת/;
+// „החודש שעבר”, „החודש הקודם”, „בחודש הקודם” (ב+ה מתקצר ל„בחודש”), „חודש קודם”
+const LAST_MONTH_RE = /חודש שעבר|חודש ה?קודם/;
+
 // טווח: „החודש”, „החודש שעבר”, „השנה”, „3 חודשים”, אחרת החודש הנוכחי
 function resolveRange(question, today) {
   const q = String(question || '');
   const cur = monthOf(today);
-  if (/שנה שעברה|אשתקד/.test(q)) { const y = Number(String(today).slice(0, 4)) - 1; return { from: `${y}-01-01`, to: `${y}-12-31`, label: `שנת ${y}` }; }
+  if (LAST_YEAR_RE.test(q)) { const y = Number(String(today).slice(0, 4)) - 1; return { from: `${y}-01-01`, to: `${y}-12-31`, label: `שנת ${y}` }; }
   if (/השנה|מתחילת השנה|מתחילת שנה/.test(q)) return { from: `${String(today).slice(0, 4)}-01-01`, to: today, label: `מתחילת ${String(today).slice(0, 4)}` };
-  if (/חודש שעבר|החודש הקודם/.test(q)) { const p = prevMonth(cur); return { from: `${p}-01`, to: `${cur}-01`, label: monthLabel(p) }; }
-  const months = q.match(/(\d)\s*חודש/);
-  if (months && Number(months[1]) >= 2 && Number(months[1]) <= 12) {
+  // הגבול העליון כוללני (inRange) — היום האחרון של החודש הקודם, לא ה-1 בחודש הזה (ממצא 47)
+  if (LAST_MONTH_RE.test(q)) { const p = prevMonth(cur); return { from: `${p}-01`, to: addDays(`${cur}-01`, -1), label: monthLabel(p) }; }
+  // „12 חודשים” — שתי ספרות (פעם „12” נקרא כ„2”); „3 החודשים האחרונים” — עם ה הידיעה (פעם נענה רק החודש הנוכחי)
+  const months = q.match(/(?<!\d)(\d{1,2})\s*ה?חודש/);
+  if (months && Number(months[1]) >= 2 && Number(months[1]) <= 24) {
     let from = cur;
     for (let i = 1; i < Number(months[1]); i++) from = prevMonth(from);
     return { from: `${from}-01`, to: today, label: `${months[1]} החודשים האחרונים` };
@@ -65,32 +73,52 @@ function resolveRange(question, today) {
   return { from: `${cur}-01`, to: today, label: monthLabel(cur) };
 }
 
-// האם הטווח שהממשק ביקש סותר את זה שהכללים גזרו מהשאלה?
-// אותו חודש/שנה — מסכים גם כשגבול הסיום נכתב מעט אחרת („31.10” מול „1.11”: הגבול כוללני).
-// חודש שונה, שנה שונה, או „N החודשים האחרונים” — סתירה: השאלה היא הקובעת
+// האם הטווח שהממשק ביקש זהה לזה שהכללים גזרו מהשאלה? רק טווח זהה מתקבל — אחרת השאלה קובעת.
+// פעם „אותו חודש התחלה” הספיק, וגבול סיום של „1.11” לאוקטובר הכניס גם את ה-1 בנובמבר (הגבול כוללני, ממצא 47)
 function rangeAgrees(hint, rule) {
   if (!hint || !rule) return false;
   const from = String(hint.from || ''), to = String(hint.to || '');
   const looksLikeDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
   if (!looksLikeDate(from) || !looksLikeDate(to) || from > to) return false;
-  const rFrom = String(rule.from || ''), rTo = String(rule.to || '');
-  if (/החודשים האחרונים/.test(String(rule.label || ''))) {
-    return from === rFrom && to === rTo;
-  }
-  // שנת מס שקדמה לחודש הזה („24 החודשים האחרונים” מתחיל בשנתיים אחורה): מספיק אותו חודש התחלה
-  const shortFrom = /^שנת /.test(String(rule.label || '')) ? rFrom.slice(0, 4) : rFrom.slice(0, 7);
-  return from.slice(0, 7) === shortFrom;
+  return from === String(rule.from || '') && to === String(rule.to || '');
 }
+
+// שנת התרומות שהשאלה שואלת עליה: „שנה שעברה” / „אשתקד” / „השנה הקודמת” (LAST_YEAR_RE), שנה מפורשת (עד השנה הנוכחית), אחרת השנה הנוכחית.
+// מספר בצורת 20XX הוא שנה רק כשאינו סכום: לא ליד מטבע / אחוז ולא אחרי „מעל”, „יותר מ”, „בסך”.
+// אחרי „בשנת” / „ב־” / „מ־” — שנה; מספר בלי הקשר — רק ב-15 השנים האחרונות. פעם „מי תרם מעל 2000 שקל?”
+// נקרא כשנת 2000, והעוזר ענה „בשנת 2000 לא נרשמו תרומות” (סקירה לממצא 46)
+const YEAR_MONEY_AFTER = /^\s*(?:₪|%|[ובל]?ש["״']?ח(?![א-ת])|שקל|אגור|דולר|אירו|אלף|אחוז)/;
+const YEAR_MONEY_BEFORE = /(?:₪|(?:^|[^א-ת])[ובלה]?(?:מעל|מעלה|יותר\s*מ|פחות\s*מ|מתחת\s*ל|סך|סכום|לפחות))[\s\-־]*$/;
+const YEAR_CONTEXT_BEFORE = /(?:^|[^א-ת])(?:[ובלמה]?שנת|[ובלמ])[\s\-־]*$/;
+function donorYear(question, today) {
+  const y = Number(String(today || '').slice(0, 4)) || null;
+  if (!y) return null;
+  const q = String(question || '');
+  if (LAST_YEAR_RE.test(q)) return y - 1;
+  for (const m of q.matchAll(/(?<!\d)(20\d{2})(?![\d.,]\d|\d)/g)) {
+    const year = Number(m[1]);
+    const before = q.slice(Math.max(0, m.index - 12), m.index), after = q.slice(m.index + 4);
+    if (year > y || YEAR_MONEY_AFTER.test(after) || YEAR_MONEY_BEFORE.test(before)) continue;
+    if (YEAR_CONTEXT_BEFORE.test(before) || year >= y - 15) return year;
+  }
+  return y;
+}
+
+// התשובה הקבועה לשאלה כללית שאין לה מקור בנתונים (ממצא 48): טקסט חופשי של המודל לא מגיע למשתמש
+const OFF_TOPIC = 'אני עונה רק על שאלות על הנתונים שבתוכנה — חשבונות וחשבוניות, גבייה, עמותה ותרומות, שמאות ואימונים — ועל השימוש בתוכנה. '
+  + 'לדוגמה: „כמה גבייתי החודש?”, „מי לא שילם?” או „איך מוציאים חשבונית?”.';
 
 // ---------- בוני תשובה ----------
 const answer = (text, data) => ({ text, ...(data ? { data } : {}) });
 
 // context: { today, summary, invoices, analytics, opened: { acct, npo } }
 // summary   — features.periodSummary (שקלים) או null
-// invoices  — rשימת חשבוניות עם balance (שקלים)
+// invoices  — רשימת חשבוניות עם status ו-balance (שקלים)
 // analytics — features.invoiceAnalytics או null
+// חשבונית פתוחה = status 'open' ויתרה אחרי זיכויים — כמו openAg ב-bizReports.js. תשלום לא מקטין את balance
+// (הוא רק מעביר את status ל-'paid'), ולכן סינון לפי היתרה לבדה הציג חשבוניות ששולמו כ„לא שילם” (ממצא 45)
 function unpaidInvoices(invoices) {
-  const open = (invoices || []).filter(i => i.status !== 'cancelled' && Math.round(Number(i.balance || 0) * 100) > 0);
+  const open = (invoices || []).filter(i => i && i.status === 'open' && Math.round(Number(i.balance || 0) * 100) > 0);
   const rows = open.map(i => ({
     number: i.number, customer: String(i.customer || '').trim() || 'לקוח ללא שם',
     date: String(i.date || ''), balanceAg: Math.round(Number(i.balance) * 100),
@@ -114,10 +142,11 @@ function answerRange(ctx, kind) {
   const s = ctx.summary;
   const label = ctx.range && ctx.range.label ? ctx.range.label : 'התקופה';
   const incomeAg = Math.round(Number(s.income) * 100), expensesAg = Math.round(Number(s.expenses) * 100);
-  // מספר החשבוניות שמונפקו בתקופה — מתוך הניתוח החודשי, רק אם הניתוח מוכן
-  const periodCount = (ctx.analytics && Array.isArray(ctx.analytics.monthly))
-    ? ctx.analytics.monthly.filter(m => String(m.month) >= String(ctx.range.from).slice(0, 7) && String(m.month) <= String(ctx.range.to).slice(0, 7))
-      .reduce((t, m) => t + (Number(m.count) || 0), 0)
+  // מספר החשבוניות שהונפקו בתקופה — לפי תאריך החשבונית בתוך הטווח עצמו (כוללני), כמו הסכומים.
+  // פעם נספר לפי חודשים שלמים מהניתוח החודשי, ו„החודש שעבר” כלל את כל החודש הנוכחי (ממצא 47)
+  const r = ctx.range || {};
+  const periodCount = (Array.isArray(ctx.invoices) && r.from && r.to)
+    ? ctx.invoices.filter(i => i && i.status !== 'cancelled' && String(i.date || '') >= String(r.from) && String(i.date || '') <= String(r.to)).length
     : null;
   if (kind === 'income') {
     return answer(`ב${label} נרשמו הכנסות של ${nis(incomeAg)} (לפני מע"מ).` + (periodCount != null ? ` הונפקו ${periodCount} חשבוניות.` : ''),
@@ -181,12 +210,13 @@ function answerGeneral(ctx) {
   return answer(lines.join('\n'));
 }
 
-// ---------- עמותה: סיכום תורמים לתקופה ----------
-// ctx.npo — getOverview(year) של npoService, או null. donors: [{ name, count, total (₪) }] — לתורמים אנונימיים השם כבר מוחלף בשרת
+// ---------- עמותה: סיכום תורמים לשנה ----------
+// ctx.npo — { year, donors: [{ name, count, total (₪) }] } או null: התרומות של אותה שנה בלבד (yearDonors של getOverview).
+// פעם נשלח סיכום של כל השנים, והוא הוצג כ„בשנת 2026” (ממצא 46)
 function answerDonors(ctx) {
   const n = ctx.npo;
   if (!n || !Array.isArray(n.donors)) return answer('נתוני העמותה אינם זמינים בהרשאה או ברישיון של המשתמש הזה.');
-  const year = Number(ctx.range ? String(ctx.range.to).slice(0, 4) : 0) || null;
+  const year = Number(n.year) || null;
   const donorsAg = sumAg(n.donors.map(d => Math.round(Number(d.total || 0) * 100)));
   const count = n.donors.reduce((t, d) => t + (Number(d.count) || 0), 0);
   if (!count) return answer(`ב${year ? 'שנת ' + year : 'תקופה זו'} לא נרשמו תרומות.`);
@@ -197,7 +227,8 @@ function answerDonors(ctx) {
 }
 
 // ---------- שמאות: פירוט ההערכה האחרונה ----------
-// ctx.shamai — { label, valueAg, confidence, factors: [{ name, bp }], warnings: [string] } או null
+// ctx.shamai — { label, valueAg, confidence, factors: [{ name, bp }], warnings: [string] } או null.
+// המקור: תיק השמאות האחרון שננעל במודול השמאות (shamaiContext ב-module-context.js)
 const bpLabel = (bp) => {
   const v = Number(bp) || 0;
   const s = (v / 100).toFixed(1).replace(/\.0$/, '');
@@ -205,7 +236,7 @@ const bpLabel = (bp) => {
 };
 function answerShamai(ctx) {
   const s = ctx.shamai;
-  if (!s) return answer('אין הערכת שווי אחרונה בזיכרון. פתחו את מסך השמאות, השלימו את השדות, והשאלה תיענה שוב.');
+  if (!s) return answer('אין עדיין תיק שמאות סופי. הערכת השווי נלקחת מהתיק האחרון שננעל ב„תיק שמאות מקצועי” במודול השמאות — נעלו שם תיק, והשאלה תיענה ממנו.');
   const lines = [];
   lines.push(`הערכת השווי האחרונה${s.label ? ` (${s.label})` : ''}: ${nis(s.valueAg)}.`);
   if (s.confidence != null) lines.push(`רמת הביטחון: ${Number(s.confidence)} מתוך 100.`);
@@ -217,13 +248,21 @@ function answerShamai(ctx) {
 }
 
 // ---------- אימונים: מתאמנים שדורשים תשומת לב ----------
-// ctx.trainer — { alerts: [{ title, detail, tone }], clients: n } או null. דוח המצב מוכן במודול האימונים עצמו
+// ctx.trainer — { alerts: [{ title, detail, tone }], clients: n } או null. מחושב מנתוני מודול האימונים (trainerContext ב-module-context.js)
+// התחום כבר נבדק כפתוח (runRules); בלי נתונים — המחסן של המודול לא נפתח, או שאין מקור במכשיר הזה (אנדרואיד)
 function answerTrainer(ctx) {
   const t = ctx.trainer;
-  if (!t || !Array.isArray(t.alerts)) return answer('נתוני האימונים אינם זמינים בהרשאה או ברישיון של המשתמש הזה.');
-  if (!t.alerts.length) return answer(`כל ${t.clients || 'המתאמנים'} במצב תקין — אין מנוי שמסתיים, אין יתרה לתשלום ואין מתאמן שנעדר.`);
+  if (!t || !Array.isArray(t.alerts)) return answer('נתוני האימונים אינם זמינים כרגע במכשיר הזה. פתחו את מודול האימונים ובדקו שם את התזכורות.');
+  if (!t.alerts.length) {
+    if (t.clients === 0) return answer('אין עדיין מתאמנים רשומים במודול האימונים.');
+    // מתאמן אחד — בלשון יחיד (פעם „כל 1 המתאמנים במצב תקין”)
+    if (t.clients === 1) return answer('המתאמן היחיד במצב תקין — אין מנוי שמסתיים, אין יתרה לתשלום והוא לא נעדר.');
+    return answer(`כל ${t.clients ? t.clients + ' המתאמנים' : 'המתאמנים'} במצב תקין — אין מנוי שמסתיים, אין יתרה לתשלום ואין מתאמן שנעדר.`);
+  }
   const urgent = t.alerts.filter(a => a.tone === 'red');
-  const head = urgent.length ? `${urgent.length} מתאמנים דורשים טיפול דחוף:` : `${t.alerts.length} מתאמנים דורשים תשומת לב:`;
+  const count = urgent.length || t.alerts.length;
+  const head = count === 1 ? `מתאמן אחד דורש ${urgent.length ? 'טיפול דחוף' : 'תשומת לב'}:`
+    : `${count} מתאמנים דורשים ${urgent.length ? 'טיפול דחוף' : 'תשומת לב'}:`;
   const lines = t.alerts.slice(0, 8).map(a => `• ${a.title} — ${a.detail}`);
   return answer(`${head}\n${lines.join('\n')}`, { kind: 'trainer', count: t.alerts.length, urgent: urgent.length });
 }
@@ -277,4 +316,4 @@ function runRules(question, context = {}) {
   }
 }
 
-module.exports = { runRules, detectIntent, detectDomain, resolveRange, rangeAgrees, monthLabel, unpaidInvoices, addDays, nis, INTENTS, DOMAINS };
+module.exports = { runRules, detectIntent, detectDomain, resolveRange, rangeAgrees, donorYear, monthLabel, unpaidInvoices, addDays, nis, OFF_TOPIC, INTENTS, DOMAINS };

@@ -5,7 +5,10 @@ const { assertIsraeliId } = require('./israeliId');
 
 const toAg = (n) => Math.round(Number(n || 0) * 100);
 const fromAg = (a) => Math.round(a) / 100;
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s + 'T00:00:00Z'));
+// היום המקומי (לא UTC — בישראל toISOString מחזיר את אתמול בין חצות ל-03:00)
+const localToday = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 const str = (v, max, label) => {
   const s = String(v ?? '').trim();
   if (s.length > max) throw new Error(`${label} ארוך מדי (עד ${max} תווים)`);
@@ -21,10 +24,10 @@ const MAX_APPLICATIONS = 20000;
 // הבקשה נבדקת באותם כללים של הלוואה (שם, ת.ז, סכום, תשלומים, ערבים) כבר בשמירה
 function validateApplication(input, count = 0) {
   if (count >= MAX_APPLICATIONS) throw new Error('הגעת למספר המקסימלי של בקשות');
-  const loan = G.validateLoanInput({ ...input, issueDate: input.issueDate || new Date().toISOString().slice(0, 10) });
+  const loan = G.validateLoanInput({ ...input, issueDate: input.issueDate || localToday() });
   return {
     ...loan,
-    requestDate: isDate(input.requestDate) ? input.requestDate : new Date().toISOString().slice(0, 10),
+    requestDate: isDate(input.requestDate) ? input.requestDate : localToday(),
     interviewNotes: str(input.interviewNotes, 2000, 'סיכום הראיון')
   };
 }
@@ -65,7 +68,7 @@ function validateLending(input, item, lendings, count = 0) {
   if (!borrowerName) throw new Error('שם השואל חובה');
   const borrowerId = str(input.borrowerId, 12, 'ת.ז של השואל');
   assertIsraeliId(borrowerId, 'ת.ז של השואל');
-  const date = input.date || new Date().toISOString().slice(0, 10);
+  const date = input.date || localToday();
   if (!isDate(date)) throw new Error('תאריך ההשאלה אינו תקין');
   const dueDate = str(input.dueDate, 10, 'תאריך ההחזרה');
   if (dueDate && (!isDate(dueDate) || dueDate < date)) throw new Error('תאריך ההחזרה אינו תקין או לפני תאריך ההשאלה');
@@ -81,7 +84,7 @@ function validateLending(input, item, lendings, count = 0) {
 // החזרה: הפיקדון מוחזר במלואו או בחלקו (ניכוי על נזק), ומצב הפריט מתעדכן
 function applyReturn(lending, input) {
   if (lending.returnedAt) throw new Error('הפריט כבר הוחזר');
-  const date = input.date || new Date().toISOString().slice(0, 10);
+  const date = input.date || localToday();
   if (!isDate(date) || date < lending.date) throw new Error('תאריך ההחזרה אינו תקין');
   const condition = CONDITIONS[input.condition] ? input.condition : 'good';
   const back = input.depositReturned === '' || input.depositReturned === undefined ? lending.depositHeld : Number(input.depositReturned);

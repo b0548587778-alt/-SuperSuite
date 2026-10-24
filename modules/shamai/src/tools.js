@@ -5,127 +5,7 @@
 //  TOOLS
 // ─────────────────────────────────────────────────────────────────────────────
 
-function calcPurchaseTax(value, status) {
-  let brackets;
-  if (status === 'single') brackets = PURCHASE_TAX_SINGLE;
-  else brackets = PURCHASE_TAX_ADDITIONAL;
-
-  let tax = 0;
-  let prev = 0;
-  for (const b of brackets) {
-    if (value <= b.upTo) {
-      tax += (value - prev) * b.rate;
-      break;
-    }
-    tax += (b.upTo - prev) * b.rate;
-    prev = b.upTo;
-  }
-
-  // New immigrant gets reduced rates (simplified)
-  if (status === 'new-immigrant') {
-    tax = tax * 0.5;
-  }
-  return tax;
-}
-
-function recalcReTax() {
-  const mode = state.tools.rePurchase;
-  if (mode === 'purchase') {
-    const value = parseFloat($('#tx-value')?.value);
-    const status = $('#tx-status')?.value || 'additional';
-    const r = $('#tx-result');
-    if (!r) return;
-    if (!value) { r.innerHTML = ''; return; }
-
-    const tax = calcPurchaseTax(value, status);
-    const effective = (tax / value) * 100;
-
-    // Show breakdown
-    let bracketsHtml = '';
-    const brackets = status === 'single' ? PURCHASE_TAX_SINGLE : PURCHASE_TAX_ADDITIONAL;
-    let prev = 0;
-    for (const b of brackets) {
-      if (value <= prev) break;
-      const portion = Math.min(value, b.upTo) - prev;
-      const portionTax = portion * b.rate;
-      bracketsHtml += `<div class="r-row"><span class="r-label">₪${fmt0(prev)} - ₪${b.upTo === Infinity ? '∞' : fmt0(b.upTo)} (${(b.rate*100).toFixed(2)}%)</span><span class="r-value">₪${fmt0(portionTax)}</span></div>`;
-      prev = b.upTo;
-      if (value <= b.upTo) break;
-    }
-
-    r.innerHTML = `
-      <div class="r-row big">
-        <span class="r-label">מס רכישה</span>
-        <strong>₪${fmt0(tax)}</strong>
-      </div>
-      <div class="r-row">
-        <span class="r-label">שיעור אפקטיבי</span>
-        <span class="r-value">${fmt(effective)}%</span>
-      </div>
-      <div class="r-row sep">
-        <span class="r-label">סה"כ עלות הנכס</span>
-        <span class="r-value gold">₪${fmt0(value + tax)}</span>
-      </div>
-      <div class="r-row sep" style="font-weight:700">פירוק לפי מדרגות:</div>
-      ${bracketsHtml}
-      <div class="tip-box">
-        <div class="tip-title">₪ מס רכישה 2026</div>
-        <div class="tip-body">
-          ${status === 'single' ? 'דירה יחידה: פטור עד 1.97M, אחר כך 3.5%-10% במדרגות' : status === 'additional' ? 'דירה נוספת: 8% עד 6M, 10% מעבר לכך' : 'עולה חדש: הקלה ~50% במדרגות'}
-        </div>
-      </div>
-    `;
-  } else {
-    // Appreciation tax (מס שבח)
-    const buy = parseFloat($('#ap-buy')?.value);
-    const sell = parseFloat($('#ap-sell')?.value);
-    const expenses = parseFloat($('#ap-expenses')?.value) || 0;
-    const years = parseFloat($('#ap-years')?.value) || 1;
-    const single = $('#ap-single')?.checked;
-    const r = $('#ap-result');
-    if (!r) return;
-    if (!buy || !sell) { r.innerHTML = ''; return; }
-
-    const grossGain = sell - buy - expenses;
-    let tax = 0;
-    let rate = 0;
-    if (single) {
-      rate = 0;
-    } else {
-      // Simplified: 25% on real gain (after inflation adjustment ~2-3%/yr)
-      const realGain = grossGain * Math.pow(0.97, years); // rough inflation adjustment
-      rate = 25;
-      tax = Math.max(0, realGain * 0.25);
-    }
-    const netProfit = grossGain - tax;
-
-    r.innerHTML = `
-      <div class="r-row big">
-        <span class="r-label">מס שבח</span>
-        <strong>₪${fmt0(tax)}</strong>
-      </div>
-      <div class="r-row">
-        <span class="r-label">שבח ברוטו</span>
-        <span class="r-value">₪${fmt0(grossGain)}</span>
-      </div>
-      <div class="r-row">
-        <span class="r-label">שיעור מס</span>
-        <span class="r-value">${rate}%</span>
-      </div>
-      <div class="r-row sep">
-        <span class="r-label">רווח נטו</span>
-        <span class="r-value gold">₪${fmt0(netProfit)}</span>
-      </div>
-      <div class="tip-box">
-        <div class="tip-title">₪ מס שבח</div>
-        <div class="tip-body">
-          ${single ? 'דירה יחידה - פטור מלא (אם עומדים בתנאים)' : '25% מהשבח הריאלי (אחרי הצמדה למדד). ייתכן זכאות להקלות.'}
-          <br><strong>חשוב:</strong> קח ייעוץ ספציפי - יש המון פטורים והקלות.
-        </div>
-      </div>
-    `;
-  }
-}
+// מס רכישה — purchaseTaxBreakdown / calcPurchaseTax / purchaseTaxWarning ב-calc.js (חישוב בלי DOM, משותף למסך הנדל"ן)
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  TOOLS - ROI, Mortgage, Rental, Tax, Vehicle, Currency, Crypto, Settings
@@ -289,36 +169,28 @@ function recalcPurchaseTax() {
   const value = parseFloat($('#tx-value').value) || 0;
   const status = $('#tx-status').value;
 
-  if (!value) { r.innerHTML = ''; return; }
+  if (!(value > 0)) { r.innerHTML = ''; return; }
 
-  const brackets = status === 'single' ? PURCHASE_TAX_SINGLE : PURCHASE_TAX_ADDITIONAL;
-  let totalTax = 0;
-  let bracketDetails = [];
-  let remaining = value;
-
-  for (const b of brackets) {
-    if (remaining <= 0) break;
-    const inThisBracket = Math.min(remaining, b.limit ? b.limit - (b.from || 0) : Infinity);
-    if (inThisBracket > 0) {
-      const taxFromBracket = inThisBracket * b.rate;
-      totalTax += taxFromBracket;
-      if (b.rate > 0) {
-        bracketDetails.push(`${(b.rate * 100).toFixed(1)}% על ₪${fmt0(inThisBracket)} = ₪${fmt0(taxFromBracket)}`);
-      }
-      remaining -= inThisBracket;
-    }
+  const warn = `<div class="tip-box" style="margin-top:14px"><div class="tip-body">${escapeHtml(purchaseTaxWarning())}</div></div>`;
+  const b = purchaseTaxBreakdown(value, status);
+  if (!b) {
+    r.innerHTML = `<div class="tip-box"><div class="tip-title">עולה חדש</div><div class="tip-body">לעולה חדש יש מדרגות מס רכישה מיוחדות, ואין להן טבלה בתוכנה. יש לחשב במחשבון מס רכישה של רשות המסים.</div></div>`;
+    return;
   }
+  const totalTax = b.taxAg / 100;
+  const bracketDetails = b.rows.filter(x => x.rate > 0 && x.portionAg > 0)
+    .map(x => `${fmt(x.rate * 100, 1)}% על ₪${fmt0(x.portionAg / 100)} = ₪${fmt(x.taxAg / 100)}`);
 
-  const effectiveRate = (totalTax / value) * 100;
+  const effectiveRate = (b.taxAg / b.valueAg) * 100;
 
   r.innerHTML = `
     <div class="r-row big">
-      <span class="r-label">סה"כ מס רכישה</span>
+      <span class="r-label">סה"כ מס רכישה (הערכה)</span>
       <strong>₪${fmt0(totalTax)}</strong>
     </div>
     <div class="r-row"><span class="r-label">שיעור אפקטיבי</span><span class="r-value">${fmt(effectiveRate, 2)}%</span></div>
     <div class="r-row sep"><span class="r-label">שווי הנכס</span><span class="r-value">₪${fmt0(value)}</span></div>
-    <div class="r-row"><span class="r-label">סה"כ עלות (כולל מס)</span><span class="r-value gold">₪${fmt0(value + totalTax)}</span></div>
+    <div class="r-row"><span class="r-label">סה"כ עלות (כולל מס)</span><span class="r-value gold">₪${fmt0((b.valueAg + b.taxAg) / 100)}</span></div>
     ${bracketDetails.length ? `
       <div class="tip-box" style="margin-top:14px">
         <div class="tip-title">פירוט מדרגות</div>
@@ -326,6 +198,7 @@ function recalcPurchaseTax() {
           ${bracketDetails.map(d => `<div>• ${d}</div>`).join('')}
         </div>
       </div>` : ''}
+    ${warn}
   `;
 }
 

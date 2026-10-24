@@ -9,6 +9,9 @@ const DM = require('../core/dealMortgage');
 const MAX_CLIENTS = 5000;
 const MAX_OFFERS = 20000;
 const ADVISOR_ROLES = new Set(['admin', 'editor']);
+// היום המקומי (לא UTC — בין חצות ל-03:00 toISOString מחזיר את אתמול). ipc.js מעביר את היום; זו ברירת המחדל
+// dayOr: ריק ← היום; תאריך שאינו קיים בלוח (2026-02-31) ← שגיאה בעברית (פעם regex בלבד קיבל אותו)
+const { dayOr } = require('../core/dates');
 
 class MortgageAdvisorService {
   constructor(db) {
@@ -22,19 +25,33 @@ class MortgageAdvisorService {
   async _load() {
     const data = await this.db.load();
     const ma = data.mortgageAdvisor && typeof data.mortgageAdvisor === 'object' ? data.mortgageAdvisor : {};
-    // רשומות ישנות בשקלים מומרות לאגורות כאן, ונשמרות כך בשמירה הבאה
+    // רשומות ישנות בשקלים מומרות לאגורות כאן, ונשמרות כך בשמירה הבאה.
+    // תיק עם תשלומים בלי מעמד מע"מ נעול — ננעל לפי ההגדרה שבתוקף עכשיו (לפני כל שינוי שלה; ראו M.caseVatRate)
+    const settings = M.normalizeSettings(ma.settings);
     data.mortgageAdvisor = {
       ...ma,
-      settings: M.normalizeSettings(ma.settings),
-      clients: (Array.isArray(ma.clients) ? ma.clients : []).map(M.clientStored),
+      settings,
+      clients: (Array.isArray(ma.clients) ? ma.clients : []).map(M.clientStored).map(c => M.lockFeeVat(c, settings.vatExempt)),
       offers: (Array.isArray(ma.offers) ? ma.offers : []).map(M.offerStored)
     };
     return data;
   }
 
-  _vatRate(data) {
+  // שיעור המע"מ של העסק — לתיק שננעל כעוסק מורשה
+  _fullVatRate(data) {
     const r = Number(data.settings && data.settings.vatRate);
     return Number.isFinite(r) && r >= 0 && r < 1 ? r : 0.18;
+  }
+
+  // השיעור לתיק בלי נעילה: המשרד עוסק פטור — עמלת הייעוץ בלי מע"מ
+  _vatRate(data) {
+    if (data.mortgageAdvisor && data.mortgageAdvisor.settings && data.mortgageAdvisor.settings.vatExempt) return 0;
+    return this._fullVatRate(data);
+  }
+
+  // עוסק פטור לעמלה של התיק: המעמד שננעל בתיק, ובלי נעילה — ההגדרה הנוכחית
+  _caseExempt(data, c) {
+    return typeof c.feeVatExempt === 'boolean' ? c.feeVatExempt : !!data.mortgageAdvisor.settings.vatExempt;
   }
 
   // יועצים = משתמשים פעילים שיכולים לערוך (מנהל / עורך). בלי מסד משתמשים (בדיקות) — רשימה ריקה
@@ -59,9 +76,10 @@ class MortgageAdvisorService {
     const data = await this._load();
     const { offers, settings } = data.mortgageAdvisor;
     const realty = data.realty && typeof data.realty === 'object' ? data.realty : {};
-    const today = opts.today || new Date().toISOString().slice(0, 10);
+    const today = dayOr(opts.today);
     const clients = this._visible(data, actor);
     const vat = this._vatRate(data);
+    const full = this._fullVatRate(data);
     const advisors = await this._advisors();
     const nameOf = (id) => (advisors.find(a => a.id === id) || {}).name || 'יועץ שאינו פעיל';
     return {
@@ -80,15 +98,16 @@ class MortgageAdvisorService {
           advisorName: c.advisorId ? nameOf(c.advisorId) : '',
           daysInStage: M.daysInStage(c, Date.now()),
           ltv: M.ltv(c),
-          fee: M.advisoryFee(c, vat),
-          feeStatus: M.feeStatus(c, vat),
+          fee: M.advisoryFee(c, vat, full),
+          feeStatus: M.feeStatus(c, vat, full),
+          feeExempt: this._caseExempt(data, c),
           feePayments: (c.feePayments || []).map(p => {
             const live = this._liveInvoice(data, p);
             return { id: p.id, date: p.date, amount: p.amountAg / 100, method: p.method, note: p.note,
               invoiceNumber: live ? p.invoiceNumber || null : null, cancelledInvoice: p.invoiceId && !live ? p.invoiceNumber || null : null };
           }),
           docs: M.docsProgress(c),
-          approvals: M.approvalsSummary(c, new Date().toISOString().slice(0, 10)),
+          approvals: M.approvalsSummary(c, today),
           offers: own.map(o => ({ ...o, summary: M.offerSummary(o), yearly: M.yearlySchedule(o) })),
           comparison: M.compareOffers(own),
           // עסקת תיווך מקושרת — רק אם תחום הנדל"ן פתוח ברישיון (opts.realty)
@@ -163,13 +182,13 @@ class MortgageAdvisorService {
 
   // ---------- אישורים עקרוניים ----------
   // החלפה של כל רשימת האישורים בתיק בשמירה אחת. האישור הנבחר נשמר רק אם עדיין ברשימה
-  async saveApprovals(clientId, list, actor) {
+  async saveApprovals(clientId, list, actor, day) {
     const data = await this._load();
     const c = this._findClient(data, clientId, actor);
     const input = Array.isArray(list) ? list : [];
     if (input.length > M.MAX_APPROVALS) throw new Error(`עד ${M.MAX_APPROVALS} אישורים בתיק`);
     const now = new Date().toISOString();
-    const today = now.slice(0, 10);
+    const today = dayOr(day);
     const prev = new Map((c.approvals || []).map(a => [a.id, a]));
     c.approvals = input.map((x, i) => {
       const a = M.validateApproval(x, i);
@@ -182,7 +201,7 @@ class MortgageAdvisorService {
     return M.approvalsSummary(c, today);
   }
 
-  async chooseApproval(clientId, approvalId, actor) {
+  async chooseApproval(clientId, approvalId, actor, day) {
     const data = await this._load();
     const c = this._findClient(data, clientId, actor);
     const id = String(approvalId || '');
@@ -190,7 +209,7 @@ class MortgageAdvisorService {
     c.chosenApprovalId = id;
     c.updatedAt = new Date().toISOString();
     await this.db.save(data);
-    return M.approvalsSummary(c, c.updatedAt.slice(0, 10));
+    return M.approvalsSummary(c, dayOr(day));
   }
 
   // הקלט להשוואה במנוע המעבדה (ה-IPC מעביר אותו ל-mlab calcApprovals)
@@ -247,10 +266,12 @@ class MortgageAdvisorService {
     const list = Array.isArray(c.feePayments) ? c.feePayments : [];
     if (list.length >= M.MAX_FEE_PAYMENTS) throw new Error('הגעת למספר המקסימלי של תשלומים בתיק');
     const p = { id: crypto.randomUUID(), ...M.validateFeePayment(input), by: actor ? actor.id : null, createdAt: new Date().toISOString() };
+    // התשלום הראשון נועל בתיק את מעמד המע"מ של המשרד (שינוי מאוחר של ההגדרה חל רק על תיקים בלי תשלומים)
+    c.feeVatExempt = this._caseExempt(data, c);
     c.feePayments = [...list, p];
     c.updatedAt = p.createdAt;
     await this.db.save(data);
-    return { payment: p, status: M.feeStatus(c, this._vatRate(data)) };
+    return { payment: p, status: M.feeStatus(c, this._vatRate(data), this._fullVatRate(data)) };
   }
 
   // תשלום שהופקה לו חשבונית לא נמחק — החשבונית מבוטלת במסך החשבוניות
@@ -261,9 +282,11 @@ class MortgageAdvisorService {
     if (!p) throw new Error('התשלום לא נמצא');
     if (this._liveInvoice(data, p)) throw new Error(`הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber}) — אי אפשר למחוק אותו`);
     c.feePayments = c.feePayments.filter(x => x.id !== paymentId);
+    // בלי תשלומים — התיק חוזר להגדרה הנוכחית
+    if (!c.feePayments.length) delete c.feeVatExempt;
     c.updatedAt = new Date().toISOString();
     await this.db.save(data);
-    return M.feeStatus(c, this._vatRate(data));
+    return M.feeStatus(c, this._vatRate(data), this._fullVatRate(data));
   }
 
   // פרטי התשלום להפקת חשבונית (ה-IPC מפיק בשירות הנהלת החשבונות ואז קורא ל-linkFeeInvoice)
@@ -273,7 +296,8 @@ class MortgageAdvisorService {
     const p = (c.feePayments || []).find(x => x.id === paymentId);
     if (!p) throw new Error('התשלום לא נמצא');
     if (this._liveInvoice(data, p)) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber})`);
-    return { key: `madv:${c.id}:${p.id}`, customer: c.name, date: p.date, grossAgorot: p.amountAg, method: p.method, description: `עמלת ייעוץ משכנתא — ${c.name}`.slice(0, 200) };
+    return { key: `madv:${c.id}:${p.id}`, customer: c.name, date: p.date, grossAgorot: p.amountAg, method: p.method, description: `עמלת ייעוץ משכנתא — ${c.name}`.slice(0, 200),
+      exempt: this._caseExempt(data, c) };
   }
 
   // החשבונית שהופקה לתשלום — רק אם עדיין בתוקף (כמו _liveInvoice בתיווך): חשבונית שבוטלה לא חוסמת
@@ -298,7 +322,7 @@ class MortgageAdvisorService {
     const clients = this._visible(data, actor);
     const advisors = await this._advisors();
     const nameOf = (id) => (advisors.find(a => a.id === id) || {}).name || 'יועץ שאינו פעיל';
-    return M.officeIncome(clients, { year, vatRate: this._vatRate(data), advisorName: nameOf });
+    return M.officeIncome(clients, { year, vatRate: this._vatRate(data), fullVatRate: this._fullVatRate(data), advisorName: nameOf });
   }
 
   // ---------- מיתוג ודוח ללקוח ----------

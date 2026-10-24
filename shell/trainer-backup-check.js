@@ -40,6 +40,13 @@ function checkTrainerItems(items) {
   return { ok: true, clean, skipped };
 }
 
+// האם בגיבוי יש נתוני אימונים לבדוק ולשחזר. גיבוי מלא של ארגון שלא משתמש במודול כותב trainer = {} —
+// זה "אין מה לשחזר", לא קובץ פגום; בעבר הבדיקה עצרה בגללו את כל השחזור, כולל הכספים (בדיקת קוד 23.10.2026, ממצא 1)
+function hasTrainerItems(items) {
+  if (!items) return false;
+  return !(typeof items === 'object' && !Array.isArray(items) && Object.keys(items).length === 0);
+}
+
 // קובץ ישן מכפתור "ייצוא גיבוי (JSON)" של מודול האימונים: אובייקט שטוח של מחרוזות, בלי suite.
 // מומר לצורת גיבוי של SuperSuite (מודול האימונים בלבד), אחרי בדיקת המבנה.
 function legacyTrainerBackup(data) {
@@ -49,4 +56,4 @@ function legacyTrainerBackup(data) {
   return { suite: 'SuperSuite', version: 2, scope: 'trainer', legacy: 'trainer-json', econ: null, localStorage: { trainer: data } };
 }
 
-module.exports = { checkTrainerItems, legacyTrainerBackup, isKnownKey };
+module.exports = { checkTrainerItems, legacyTrainerBackup, hasTrainerItems, isKnownKey };

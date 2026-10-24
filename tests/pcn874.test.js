@@ -144,14 +144,17 @@ test('תשומות: רשומת T עם ספק ומספר חשבונית; ציוד
   await assert.rejects(svc.createEntry({ date: '2026-07-03', description: 'נייר', lines: [{ account: '6900', debit: 100 }, { account: '1300', debit: 18 }, { account: '1000', credit: 118 }],
     vatDoc: { supplierTaxId: '12345' } }), /9 ספרות/);
   await svc.createEntry({ date: '2026-07-03', description: 'נייר', lines: [{ account: '6900', debit: 100 }, { account: '1300', debit: 18 }, { account: '1000', credit: 118 }],
-    vatDoc: { supplierTaxId: '514444444', reference: 'INV-778', docDate: '2026-07-02' } });
+    vatDoc: { supplierTaxId: '514444447', reference: 'INV-778', docDate: '2026-07-02' } });
+  // ע.מ עם ספרת ביקורת שגויה — נדחה גם בטופס היומן הידני (בדיקת קוד 23.10.2026)
+  await assert.rejects(svc.createEntry({ date: '2026-07-04', description: 'מחשב', lines: [{ account: '1500', debit: 3000 }, { account: '1300', debit: 540 }, { account: '1000', credit: 3540 }],
+    vatDoc: { supplierTaxId: '513333333', reference: '55' } }), /ספרת ביקורת/);
   await svc.createEntry({ date: '2026-07-04', description: 'מחשב', lines: [{ account: '1500', debit: 3000 }, { account: '1300', debit: 540 }, { account: '1000', credit: 3540 }],
-    vatDoc: { supplierTaxId: '513333333', reference: '55' } });
+    vatDoc: { supplierTaxId: '513333336', reference: '55' } });
   await svc.createEntry({ date: '2026-07-05', description: 'קפה למשרד', lines: [{ account: '6900', debit: 50 }, { account: '1300', debit: 9 }, { account: '1000', credit: 59 }] });
   const out = await svc.getPcn874({ month: '2026-07' }, { now: NOW });
   const ts = lines(out.text).filter(r => r.startsWith('T'));
   assert.equal(ts.length, 2);
-  assert.equal(ts[0].slice(1, 10), '514444444');
+  assert.equal(ts[0].slice(1, 10), '514444447');
   assert.equal(ts[0].slice(10, 18), '20260702');
   assert.equal(ts[0].slice(22, 31), '000000778');
   assert.equal(Number(ts[0].slice(31, 40)), 18);
@@ -202,7 +205,8 @@ test('ערוץ: הרשאת ייצוא, חשיפה ב-preload, כפתור במס�
   const { permissionFor } = require('../modules/econ/ipc');
   assert.equal(permissionFor('acct:exportPcn874'), 'data.export');
   const ipc = fs.readFileSync(path.join(__dirname, '../modules/econ/ipc.js'), 'utf8');
-  assert.match(ipc, /handle\('acct:exportPcn874'/);
+  // handleSave — חלון השמירה מחוץ לתור (ממצא 39)
+  assert.match(ipc, /handleSave\('acct:exportPcn874'/);
   assert.match(fs.readFileSync(path.join(__dirname, '../modules/econ/preload.js'), 'utf8'), /exportPcn874: \(input\) => ipcRenderer\.invoke\('acct:exportPcn874', input\)/);
   const ui = fs.readFileSync(path.join(__dirname, '../modules/econ/ui/accounting.js'), 'utf8');
   assert.match(ui, /id="acctPcn874"/);

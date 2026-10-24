@@ -54,16 +54,23 @@ function signingArgs(env = process.env) {
     args.push('-c.win.azureSignOptions.publisherName=' + need.SS_SIGN_PUBLISHER);
     if (ts) args.push('-c.win.azureSignOptions.timestampRfc3161=' + ts);
   }
+  // ב-CI כל דגל בשורה משלו (--args) — ערך עם ירידת שורה היה מתפרק לשני דגלים
+  if (args.some(a => /[\r\n]/.test(a))) throw new Error('ערך בהגדרות החתימה מכיל ירידת שורה');
   return { mode, args };
+}
+
+// הפלט של --args: דגל אחד בכל שורה. ב-CI נקרא ב-mapfile למערך — ערך עם רווח (למשל "Bunim Seller") נשאר דגל אחד
+function argsText(args) {
+  return args.map(a => a + '\n').join('');
 }
 
 const MODE_TEXT = { none: 'לא חתום', store: 'תעודה מ-Windows (טוקן)', pfx: 'קובץ PFX', azure: 'Azure Trusted Signing' };
 
-// הרצה ישירה: node tools/code-signing.js --args  → מדפיס את הדגלים בשורה אחת (ל-CI)
+// הרצה ישירה: node tools/code-signing.js --args  → מדפיס את הדגלים, אחד בכל שורה (ל-CI)
 if (require.main === module) {
   try {
     const r = signingArgs();
-    if (process.argv.includes('--args')) process.stdout.write(r.args.join(' '));
+    if (process.argv.includes('--args')) process.stdout.write(argsText(r.args));
     else console.log('חתימת קוד: ' + MODE_TEXT[r.mode] + (r.args.length ? '\n  ' + r.args.join('\n  ') : ''));
   } catch (e) {
     console.error('שגיאה בהגדרות החתימה: ' + e.message);
@@ -71,4 +78,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { signingArgs, MODE_TEXT };
+module.exports = { signingArgs, argsText, MODE_TEXT };

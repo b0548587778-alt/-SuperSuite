@@ -84,11 +84,47 @@ function parseDate(v) {
   return !isNaN(t) && t.toISOString().slice(0, 10) === iso ? iso : null;
 }
 
-// המספר בלבד — המטבע נבדק בנפרד (amountCurrency), ולכן גם הסימנים של מטבע זר מוסרים כאן
-function parseAmount(v) {
-  const s = String(v ?? '').replace(/[₪$€£,\s]|ש"ח|ש״ח|NIS|ILS|USD|EUR|GBP/gi, '');
-  const n = Number(s);
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+// המספר בלבד — המטבע נבדק בנפרד (amountCurrency), ולכן גם הסימנים של מטבע זר מוסרים כאן.
+// מפריד עשרוני: האחרון מבין נקודה ופסיק, והשני מפריד אלפים ("1.234,56" = "1,234.56" = 1234.56).
+// מפריד יחיד: פסיק ואחריו 1–2 ספרות ("100,50") = עשרוני; אחריו 3 ספרות ("1,234") = אלפים.
+// נקודה ואחריה בדיוק 3 ספרות ("1.234") — דו-משמעי: null, והשורה נדחית במקום לנחש (amountIssue מסביר)
+const groupsOk = (s, sep) => new RegExp(`^\\d{1,3}(\\${sep}\\d{3})+$`).test(s);
+function readAmount(v) {
+  const s = String(v ?? '').replace(/[₪$€£\s]|ש"ח|ש״ח|NIS|ILS|USD|EUR|GBP/gi, '');
+  if (!/^\+?[\d.,]*\d[\d.,]*$/.test(s)) return { value: null };
+  const t = s.replace(/^\+/, '');
+  const dot = t.lastIndexOf('.'), comma = t.lastIndexOf(',');
+  let whole = t, frac = '';
+  if (dot >= 0 && comma >= 0) {
+    const dec = dot > comma ? '.' : ',';
+    const i = Math.max(dot, comma);
+    whole = t.slice(0, i); frac = t.slice(i + 1);
+    if (!frac || !groupsOk(whole, dec === '.' ? ',' : '.')) return { value: null };
+    whole = whole.replace(/[.,]/g, '');
+  } else if (dot >= 0 || comma >= 0) {
+    const sep = dot >= 0 ? '.' : ',';
+    const parts = t.split(sep);
+    if (parts.length > 2) {
+      if (!groupsOk(t, sep)) return { value: null };
+      whole = parts.join('');
+    } else if (parts[1].length === 3 && /^\d{1,3}$/.test(parts[0])) {
+      if (sep === '.') return { value: null, ambiguous: true };
+      whole = parts.join('');
+    } else {
+      [whole, frac] = parts;
+      if (!frac || (sep === ',' && frac.length > 2)) return { value: null, ambiguous: sep === ',' };
+    }
+  }
+  const n = Number(`${whole || '0'}.${frac || '0'}`);
+  return { value: Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null };
+}
+const parseAmount = (v) => readAmount(v).value;
+// הודעה בעברית לשורה שהסכום שלה לא נקלט
+function amountIssue(v) {
+  const raw = String(v ?? '').slice(0, 40);
+  return readAmount(v).ambiguous
+    ? `סכום דו-משמעי: "${raw}" — לא ברור אם הנקודה או הפסיק מפרידים אלפים או אגורות. יש לתקן בקובץ (למשל 1234 או 1234.50)`
+    : `סכום לא תקין: "${raw}"`;
 }
 
 // רק ספרות; ת.ז קצרה מקבלת ריפוד באפסים בבדיקה. ערך שאינו מספרי — נזרק כריק (תורם מחו"ל)
@@ -140,7 +176,7 @@ function buildRecords(csvText, options, existing, settings) {
       const date = parseDate(get('date'));
       if (!date) throw new Error(`תאריך לא מזוהה: "${get('date')}"`);
       const amount = parseAmount(get('amount'));
-      if (amount === null) throw new Error(`סכום לא תקין: "${get('amount')}"`);
+      if (amount === null) throw new Error(amountIssue(get('amount')));
       // מטבע: עמודת המטבע או הסימן בסכום. לפני התיקון $ הוסר בשקט והתרומה נרשמה כשקלים
       const byColumn = currencyOf(get('currency'));
       if (byColumn === null) throw new Error(`מטבע לא מוכר: "${get('currency').slice(0, 20)}"`);
@@ -202,4 +238,4 @@ function externalReceipt(rec, settings) {
   };
 }
 
-module.exports = { SOURCES, FIELDS, MAX_ROWS, norm, guessMapping, parseDate, parseAmount, amountCurrency, currencyOf, preview, buildRecords, externalReceipt, dupKeyOf };
+module.exports = { SOURCES, FIELDS, MAX_ROWS, norm, guessMapping, parseDate, parseAmount, amountIssue, amountCurrency, currencyOf, preview, buildRecords, externalReceipt, dupKeyOf };

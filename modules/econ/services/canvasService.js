@@ -1,5 +1,6 @@
 // Canvas Service - Handles whiteboard/kanban boards
 const crypto = require('crypto');
+const { editable } = require('../core/editable');
 
 class CanvasService {
   constructor(db) {
@@ -75,7 +76,7 @@ class CanvasService {
     
     const board = { 
       ...existing.boards[boardIndex], 
-      ...updates, 
+      ...editable(updates), 
       updatedAt: new Date().toISOString() 
     };
     

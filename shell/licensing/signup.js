@@ -48,8 +48,10 @@ function createSignup({ deviceJwk, offerText, rootKeys, planId, customer, signat
   return { id: body.id, text: JSON.stringify(pkg), body };
 }
 
-// אימות אצל מנהל-העל. מחזיר את התוכן, ובקשת רישיון רגילה להנפקה
-function verifySignup(text, rootKeys) {
+// אימות אצל מנהל-העל. מחזיר את התוכן, ובקשת רישיון רגילה להנפקה.
+// current — ההצעה שבתוקף עכשיו (בשרת: offer.json). הצעה חתומה ישנה אינה מספיקה: אחרת אפשר להירשם בתכנית
+// זולה או חינמית שהספק כבר הסיר (בדיקת קוד 23.10.2026, ממצא 31)
+function verifySignup(text, rootKeys, { current = null } = {}) {
   let pkg;
   try { pkg = typeof text === 'string' ? JSON.parse(text) : text; } catch { throw new Error('חבילת ההרשמה פגומה'); }
   if (!pkg || pkg.type !== SIGNUP_TYPE || !pkg.body || typeof pkg.sig !== 'string') throw new Error('הקובץ אינו הרשמה');
@@ -58,6 +60,7 @@ function verifySignup(text, rootKeys) {
   if (!L.verifyObject(b, pkg.sig, b.publicKey)) throw new Error('חתימת ההרשמה אינה תקינה');
   const offer = O.verifyOffer(pkg.offer, rootKeys);
   if (offer.issuedAt !== b.offerIssuedAt) throw new Error('ההרשמה אינה תואמת להצעה');
+  if (current && (current.issuedAt !== offer.issuedAt || current.issuer !== offer.issuer)) throw new Error('התכניות והמחירים עודכנו — יש לפתוח מחדש את מסך הרכישה ולהירשם שוב');
   const plan = O.planOf(offer, b.planId);
   if (plan.priceAgorot !== b.priceAgorot || plan.months !== b.months) throw new Error('המחיר או התקופה אינם תואמים להצעה');
   if (b.terms.sha256 !== offer.terms.sha256 || b.terms.version !== offer.terms.version) throw new Error('נוסח התקנון שנחתם אינו תואם');

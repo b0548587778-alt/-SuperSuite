@@ -57,10 +57,18 @@ function thankYouLetter(statement, options = {}) {
   } else {
     paragraphs.push('הודעה זו נשלחת לכבוד תמיכתך בעמותה.');
   }
-  if (sec46 > 0) {
+  // תורם בעילום שם או תושב חוץ אינו מקבל זיכוי לפי סעיף 46 — המכתב לא מבטיח לו זיכוי.
+  // מספר האישור — רק מה שנרשם בקבלות של אותה שנה (st.sec46Approvals), לא האישור שבתוקף היום
+  const donorType = str(st.donorType, 20);
+  if (sec46 > 0 && donorType !== 'anonymous' && donorType !== 'foreign') {
+    const approvals = (Array.isArray(st.sec46Approvals) ? st.sec46Approvals : [])
+      .map(a => ({ number: str(a && a.number, 40), validUntil: str(a && a.validUntil, 20) }))
+      .filter((a, i, all) => a.number && all.findIndex(b => b.number === a.number) === i);
+    const cite = approvals.length === 1
+      ? ` (אישור מס׳ ${approvals[0].number}${approvals[0].validUntil ? `, בתוקף עד ${approvals[0].validUntil}` : ''})`
+      : approvals.length > 1 ? ` (אישורים מס׳ ${approvals.map(a => a.number).join(', ')})` : '';
     paragraphs.push(
-      `מתוך הסכום, ${money(sec46)} הינם תרומות מוכרות לזיכוי ממס לפי סעיף 46 לפקודת מס הכנסה` +
-      (o.sec46Number ? ` (אישור מס׳ ${o.sec46Number}${o.sec46ValidUntil ? `, בתוקף עד ${o.sec46ValidUntil}` : ''})` : '') + '.'
+      `מתוך הסכום, ${money(sec46)} הינם תרומות מוכרות לזיכוי ממס לפי סעיף 46 לפקודת מס הכנסה${cite}.`
     );
   }
   paragraphs.push('תודה על שותפותך במלאכת הקודש. תזכה למצוות, ולשכר רב מן השמים.');
@@ -81,6 +89,40 @@ function thankYouLetter(statement, options = {}) {
   };
 }
 
+// תמיכות השנה לפי סטטוס: "התקבלו" — רק מה שנכנס בפועל; שאושרו וטרם התקבלו, ובקשות שממתינות — בנפרד;
+// שנדחו — לא מוזכרות. r.grantItems (מהשירות): [{ source, status, approved, received }];
+// בלעדיו (פלט annualReport בלבד) — לפי מקור, בלי סטטוס: מה שהתקבל, ומה שאושר מעבר לזה
+function grantSentences(r) {
+  const items = (Array.isArray(r.grantItems) ? r.grantItems : (Array.isArray(r.grants) ? r.grants : []))
+    .map(g => ({ source: str(g && g.source, 80), status: str(g && g.status, 20), approvedAg: Math.round((Number(g && g.approved) || 0) * 100), receivedAg: Math.round((Number(g && g.received) || 0) * 100) }))
+    .filter(g => g.source && g.status !== 'rejected');
+  const bySource = (list, amountAg) => {
+    const m = new Map();
+    for (const g of list) m.set(g.source, (m.get(g.source) || 0) + amountAg(g));
+    return [...m];
+  };
+  const out = [];
+  const received = bySource(items.filter(g => g.receivedAg > 0), g => g.receivedAg);
+  if (received.length) {
+    const totalAg = received.reduce((t, [, ag]) => t + ag, 0);
+    out.push(
+      `התקבלו בפועל תמיכות מ-${received.length} ${received.length === 1 ? 'מקור' : 'מקורות'} בסך ${money(totalAg / 100)}. ` +
+      `פירוט: ` + received.map(([s, ag]) => `${s} — ${money(ag / 100)}`).join('; ') + '.'
+    );
+  }
+  // יתרה פתוחה — רק בתמיכה שאושרה. "שולמה" היא סופית: מה שלא התקבל בה (קיצוץ) אינו צפוי עוד.
+  // בלי סטטוס (פלט annualReport בלבד) — כל מה שאושר מעבר למה שהתקבל
+  const open = bySource(items.filter(g => (g.status ? g.status === 'approved' : true) && g.approvedAg > g.receivedAg), g => g.approvedAg - g.receivedAg);
+  if (open.length) {
+    out.push('תמיכות שאושרו וטרם התקבלו במלואן: ' + open.map(([s, ag]) => `${s} — יתרה של ${money(ag / 100)}`).join('; ') + '.');
+  }
+  const pending = items.filter(g => g.status === 'requested' && g.receivedAg === 0).length;
+  if (pending) {
+    out.push(`${pending === 1 ? 'בקשת תמיכה אחת ממתינה' : `${pending} בקשות תמיכה ממתינות`} להחלטה, ואינן נכללות בסכומים.`);
+  }
+  return out;
+}
+
 // ---------- 2. נרטיב לדוח שנתי ----------
 // report — הפלט של npo.annualReport: { year, org, donationsCount, donationsTotal, sec46Total,
 //   byMethod, grants, grantsReceived, donorsCount, largeDonors, largeDonorThreshold, funds }
@@ -90,7 +132,6 @@ function annualNarrative(report, options = {}) {
   const year = Number(r.year) || '';
   const total = Number(r.donationsTotal) || 0;
   const sec46 = Number(r.sec46Total) || 0;
-  const grantsReceived = Number(r.grantsReceived) || 0;
   const funds = r.funds || {};
   const restricted = Number(funds.restrictedTotal) || 0;
   const general = Number(funds.generalTotal) || 0;
@@ -119,19 +160,14 @@ function annualNarrative(report, options = {}) {
     );
   }
   const fundRows = Array.isArray(funds.funds) ? funds.funds.filter(f => Number(f.total) > 0) : [];
+  // fundSummary הוא הכנסות השנה (תרומות ותמיכות שהתקבלו) לפי קרן — לא יתרות, ולכן לא "מצב הקרנות"
   if (funds.total || restricted || general) {
     parts.push(
-      `מצב הקרנות בתום השנה: ${money(Number(funds.total))} בסך הכול, מהם ${money(restricted)} בקרנות ייעודיות ו-${money(general)} בקרן הכללית.` +
+      `הכנסות השנה לפי קרנות (תרומות ותמיכות שהתקבלו, לא יתרות): ${money(Number(funds.total))} בסך הכול, מהם ${money(restricted)} לקרנות ייעודיות ו-${money(general)} לקרן הכללית.` +
       (fundRows.length ? ` פירוט לפי קרן: ` + fundRows.map(f => `${str(f.name, 80)} — ${money(Number(f.total))}`).join('; ') + '.' : '')
     );
   }
-  const grants = Array.isArray(r.grants) ? r.grants : [];
-  if (grants.length) {
-    parts.push(
-      `התקבלו תמיכות מ-${grants.length} ${grants.length === 1 ? 'מקור' : 'מקורות'}, מהן נכנסו בפועל ${money(grantsReceived)}. ` +
-      `פירוט: ` + grants.map(g => `${str(g.source, 80)} (${str(g.count, 6)} ${Number(g.count) === 1 ? 'תמיכה' : 'תמיכות'})`).join('; ') + '.'
-    );
-  }
+  parts.push(...grantSentences(r));
   const large = Array.isArray(r.largeDonors) ? r.largeDonors : [];
   if (large.length) {
     parts.push(
@@ -184,7 +220,7 @@ function grantDraft(report, input = {}) {
   }
   parts.push('נשמח להעביר כל מסמך נדרש — דוחות כספיים, אישור ניהול תקין ואישור סעיף 46.');
   parts.push(
-    'בברכת יישר כוחทั้ง על השותפות במעשי החסד.',
+    'בברכת יישר כוח על השותפות במעשי החסד.',
     '',
     contactName ? `בכבוד רב, ${contactName}` : 'בכבוד רב,',
     o.name || 'העמותה',
@@ -221,7 +257,8 @@ function htmlDoc(title, body) {
 // מקבל תוצאת thankYouLetter / annualNarrative / grantDraft ומחזיר מסמך HTML מלא.
 // הכספים במסמך כבר מפורמטים; org הוא כותרת המעטפת (name, address, phone)
 function renderLetterHtml(doc, org) {
-  const d = Object.assign({}, doc, { org: { name: str(org && org.name, 120), address: str(org && org.address, 160), phone: str(org && org.phone, 40) } });
+  // הגדרות העמותה שומרות את השם ב-orgName — גם הוא מתקבל (לפני התיקון כותרת ה-PDF יצאה ריקה)
+  const d = Object.assign({}, doc, { org: { name: str(org && (org.name || org.orgName), 120), address: str(org && org.address, 160), phone: str(org && org.phone, 40) } });
   return htmlDoc(d.title || 'מכתב', letterBody(d));
 }
 

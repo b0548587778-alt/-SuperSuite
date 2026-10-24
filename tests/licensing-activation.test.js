@@ -126,7 +126,8 @@ test('ipc: מערכת ברישיון שנתי נעולה עד חיבור לשר�
     features: ['econ', 'tools'], limits: { maxChildren: 0, maxUsers: 3, maxStorageMb: 100, maxDepth: 1 },
     issuedAt: T0, expiresAt: T0 + 365 * DAY, graceDays: 7 });
   fs.writeFileSync(path.join(dir, 'license.json'), JSON.stringify({ chain: [lic], notices: [] }));
-  await ipc.initEcon(dir, { rootKeys, clock: () => now, licenseSecret: keySecret(node) });
+  const secret = keySecret(node);
+  await ipc.initEcon(dir, { rootKeys, clock: () => now, licenseSecret: secret });
 
   await handlers['auth:setup'](ev(21), 'menahel_act', 'a-very-long-pass-2026');
   // בלי חיבור לשרת — נעול, עם הסיבה; מסך הרישוי והסטטוס פתוחים
@@ -135,11 +136,11 @@ test('ipc: מערכת ברישיון שנתי נעולה עד חיבור לשר�
   assert.equal(st.status, 'locked');
   assert.deepEqual(st.activation.missing, ['server']);
 
-  // חיבור לשרת (כמו שהסנכרון כותב) — נפתח מיד, בלי Google
-  const file = path.join(dir, 'license.json');
-  const d = JSON.parse(fs.readFileSync(file, 'utf8'));
-  d.remote = { lastSync: now };
-  fs.writeFileSync(file, JSON.stringify(d));
+  // חיבור לשרת (כמו שהסנכרון כותב: בקובץ ובשומר המוצפן) — נפתח מיד, בלי Google. הקובץ לבדו כבר לא מספיק (ממצא 28)
+  markActivated(dir, now);
+  ipc.invalidateLicense();
+  await assert.rejects(handlers['tasks:get'](ev(21)), /לא הופעלה: עדיין לא היה חיבור לשרת/);
+  markActivated(dir, now, secret);
   ipc.invalidateLicense();
   assert.ok(Array.isArray((await handlers['tasks:get'](ev(21))).tasks));
   const open = await handlers['license:getStatus'](ev(21));
@@ -156,7 +157,13 @@ test('ipc: מערכת ברישיון שנתי נעולה עד חיבור לשר�
   now += 7 * DAY;
   ipc.invalidateLicense();
   await assert.rejects(handlers['tasks:get'](ev(21)), /לא היה חיבור לשרת ב-30 הימים/);
+  // עריכת הקובץ הגלוי כבר לא מחדשת (ממצא 28: הקובץ נקרא פעם אחת בלבד, במעבר מגרסה ישנה)
   markActivated(dir, now);
+  ipc.invalidateLicense();
+  await assert.rejects(handlers['tasks:get'](ev(21)), /לא היה חיבור לשרת ב-30 הימים/);
+  // סנכרון אמיתי נרשם בשומר המוצפן (setRemoteSettings ← guard.lastSync) — כאן נכתב ישירות לשומר
+  const o = JSON.parse(secret.read());
+  secret.write(JSON.stringify({ ...o, guard: { ...o.guard, lastSync: now } }));
   ipc.invalidateLicense();
   assert.ok(Array.isArray((await handlers['tasks:get'](ev(21))).tasks));
 });

@@ -1,7 +1,7 @@
 // מודול האימונים — clients.jsx: הועבר מ-App.jsx כמו שהוא (PLAN.md 6.2)
 import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { MEDICAL_CONDITIONS, GOALS, EQUIPMENT, LEVELS } from '../data/constants.js';
+import { MEDICAL_CONDITIONS, GOALS, EQUIPMENT, LEVELS, ACTIVITY_LEVELS } from '../data/constants.js';
 import { S, K } from '../lib/db.js';
 import { ClientMembershipTab, ClientReport } from '../studio.jsx';
 import { generateProgram, getMedicalWarnings, calcBMI, bmiCategory, validateClient } from '../lib/program.js';
@@ -119,6 +119,7 @@ export function ClientForm({ initial, onSave, onCancel }) {
     medicalNotes: '',
     equipment: ['bw'],
     daysPerWeek: 3,
+    activityLevel: 'moderate',
     notes: '',
     createdAt: new Date().toISOString(),
   });
@@ -199,8 +200,16 @@ export function ClientForm({ initial, onSave, onCancel }) {
           <Field label="מטרת אימון" required>
             <Toggle options={GOALS} value={d.goal} onChange={(v) => update('goal', v)} />
           </Field>
-          <Field label="ימי אימון בשבוע">
-            <Input type="number" min="1" max="7" value={d.daysPerWeek} onChange={(v) => update('daysPerWeek', v)} />
+          <Field label="ימי אימון בשבוע (עד 6 — בלי שבת)">
+            <Input type="number" min="1" max="6" value={d.daysPerWeek} onChange={(v) => update('daysPerWeek', v)} />
+          </Field>
+          {/* רמת הפעילות קובעת את התצרוכת היומית בלשונית התזונה; בלי השדה החישוב היה תמיד "בינוני" (×1.55) */}
+          <Field label="רמת פעילות יומית (לחישוב התזונה)">
+            <select value={d.activityLevel || ''} onChange={(e) => update('activityLevel', e.target.value)} aria-label="רמת פעילות יומית"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm">
+              {!d.activityLevel && <option value="">לא נבחרה (החישוב לפי בינוני)</option>}
+              {ACTIVITY_LEVELS.map((a) => <option key={a.id} value={a.id}>{a.label} — {a.desc}</option>)}
+            </select>
           </Field>
         </div>
       </Card>
@@ -272,7 +281,7 @@ export function ClientDetail({ clientId, initialTab, clients, trainer, setView, 
     return (
       <ClientForm
         initial={client}
-        onSave={async (c) => { await saveClient(c); setEditing(false); reload(); }}
+        onSave={async (c) => { if (await saveClient(c)) { setEditing(false); reload(); } }}
         onCancel={() => setEditing(false)}
       />
     );
@@ -289,14 +298,16 @@ export function ClientDetail({ clientId, initialTab, clients, trainer, setView, 
   const handleGenerate = async () => {
     let newProgram;
     try { newProgram = generateProgram(client); } catch (e) { showMessage(e.message); return; }
-    await S.set(K.program(client.id), newProgram);
+    // שמירה שנדחתה (ההודעה — מ-lib/storage.js) לא מוצגת כאילו נשמרה
+    if (!(await S.set(K.program(client.id), newProgram))) return;
     setProgram(newProgram);
     setTab('program');
   };
 
   const handleSaveProgram = async (p) => {
-    await S.set(K.program(client.id), p);
+    if (!(await S.set(K.program(client.id), p))) return false;
     setProgram(p);
+    return true;
   };
 
   const handleLogSession = async (dayIndex, notes) => {
@@ -304,19 +315,20 @@ export function ClientDetail({ clientId, initialTab, clients, trainer, setView, 
       ...sessions,
       { id: `s_${Date.now()}`, dayIndex, completedAt: new Date().toISOString(), notes: notes || '' },
     ];
-    await S.set(K.sessions(client.id), newSess);
+    if (!(await S.set(K.sessions(client.id), newSess))) return false;
     setSessions(newSess);
+    return true;
   };
 
   const handleAddMeasurement = async (m) => {
     const newM = [...measurements, { ...m, id: `m_${Date.now()}`, date: new Date().toISOString() }];
-    await S.set(K.measurements(client.id), newM);
+    if (!(await S.set(K.measurements(client.id), newM))) return false;
     setMeasurements(newM);
     if (m.weight) {
       const updated = { ...client, weight: m.weight };
-      await saveClient(updated);
-      setClient(updated);
+      if (await saveClient(updated)) setClient(updated);
     }
+    return true;
   };
 
   const tabs = [
@@ -347,7 +359,7 @@ export function ClientDetail({ clientId, initialTab, clients, trainer, setView, 
         <div className="flex gap-2">
           <Btn variant="outline" onClick={() => setReport(true)}>📈 כרטיס ודוח למתאמן</Btn>
           <Btn variant="outline" onClick={() => setEditing(true)}>עריכה</Btn>
-          <Btn variant="danger" onClick={async () => { if (await askConfirm(`למחוק לצמיתות את ${client.name} וכל הנתונים הקשורים?`, { danger: true })) { onDelete(client.id); setView({ name: 'clients' }); } }}>מחק</Btn>
+          <Btn variant="danger" onClick={async () => { if (await askConfirm(`למחוק לצמיתות את ${client.name} וכל הנתונים הקשורים?`, { danger: true }) && await onDelete(client.id)) setView({ name: 'clients' }); }}>מחק</Btn>
         </div>
       </div>
 
@@ -460,11 +472,12 @@ function Row({ label, value }) {
 function ProgressTab({ client, measurements, onAdd }) {
   const [form, setForm] = useState({ weight: '', bodyFat: '', chest: '', waist: '', hips: '', arm: '', thigh: '' });
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const m = {};
     Object.entries(form).forEach(([k, v]) => { if (v) m[k] = parseFloat(v); });
     if (Object.keys(m).length === 0) return;
-    onAdd(m);
+    // שמירה שנדחתה — הטופס נשאר מלא
+    if (!(await onAdd(m))) return;
     setForm({ weight: '', bodyFat: '', chest: '', waist: '', hips: '', arm: '', thigh: '' });
   };
 

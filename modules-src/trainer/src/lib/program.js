@@ -1,7 +1,8 @@
 // לוגיקת מחולל התוכניות וחישובי גוף (PLAN.md 6.3) — בלי React, נבדקת ב-tests/trainer-calc.test.js.
 // הועבר מ-App.jsx כמו שהוא; random — להזרקה בבדיקות (ברירת מחדל Math.random)
-import { MEDICAL_CONDITIONS } from '../data/constants.js';
+import { MEDICAL_CONDITIONS, ACTIVITY_LEVELS } from '../data/constants.js';
 import { EXERCISES, GOAL_PARAMS } from '../data/exercises.js';
+import { K } from './db.js';
 
 export function filterExercises(client) {
   return EXERCISES.filter((ex) => {
@@ -24,7 +25,12 @@ export function pickN(arr, n, random = Math.random) {
 
 // Core program generator — multi-day split
 export function generateProgram(client, { random = Math.random } = {}) {
-  const days = parseInt(client.daysPerWeek || 3, 10);
+  // בלי ערך (כרטיס ישן) — 3; 0 אינו "בלי ערך" ונדחה
+  const days = client.daysPerWeek == null || client.daysPerWeek === '' ? 3 : parseInt(client.daysPerWeek, 10);
+  // עד 6 ימים (ראשון–שישי, בלי שבת). פעם 6 ו-7 נתנו בשקט תוכנית של 5 ימים (בדיקת קוד 23.10.2026)
+  if (!Number.isInteger(days) || days < 1 || days > MAX_TRAINING_DAYS) {
+    throw new Error(`מספר ימי האימון בכרטיס המתאמן צריך להיות בין 1 ל-${MAX_TRAINING_DAYS} (בלי שבת). יש לעדכן בעריכת המתאמן ולנסות שוב.`);
+  }
   const available = filterExercises(client);
   const params = GOAL_PARAMS[client.goal] || GOAL_PARAMS.health;
 
@@ -61,15 +67,25 @@ export function generateProgram(client, { random = Math.random } = {}) {
       { name: 'יום C — פלג עליון', blocks: ['back', 'chest', 'arms', 'shoulders'] },
       { name: 'יום D — פלג תחתון', blocks: ['legs', 'legsIso', 'core', 'flex'] },
     ];
-  } else {
-    // 5+ days PPL + extras
+  } else if (days === 5) {
+    // 5 days PPL + extras
     splits = [
       { name: 'יום A — דחיפה', blocks: ['chest', 'shoulders', 'arms'] },
       { name: 'יום B — משיכה', blocks: ['back', 'arms'] },
       { name: 'יום C — רגליים', blocks: ['legs', 'legsIso', 'core'] },
       { name: 'יום D — דחיפה', blocks: ['chest', 'shoulders', 'arms'] },
       { name: 'יום E — משיכה ורגליים', blocks: ['back', 'legs', 'core'] },
-    ].slice(0, days);
+    ];
+  } else {
+    // 6 ימים: דחיפה / משיכה / רגליים פעמיים בשבוע
+    splits = [
+      { name: 'יום A — דחיפה', blocks: ['chest', 'shoulders', 'arms'] },
+      { name: 'יום B — משיכה', blocks: ['back', 'arms', 'core'] },
+      { name: 'יום C — רגליים', blocks: ['legs', 'legsIso', 'core'] },
+      { name: 'יום D — דחיפה', blocks: ['chest', 'shoulders', 'arms'] },
+      { name: 'יום E — משיכה', blocks: ['back', 'arms', 'core'] },
+      { name: 'יום F — רגליים', blocks: ['legs', 'legsIso', 'core', 'flex'] },
+    ];
   }
 
   // Build each day
@@ -80,7 +96,9 @@ export function generateProgram(client, { random = Math.random } = {}) {
       const pool = byPart[blockKey].filter((e) => !seenInWeek.has(e.id));
       const pickCount = blockKey === 'legs' || blockKey === 'chest' || blockKey === 'back' ? 1 :
                         blockKey === 'core' ? 2 : 1;
-      const picked = pickN(pool.length > 0 ? pool : byPart[blockKey], pickCount, random);
+      // מאגר שנגמר בשבוע (6 ימים, מעט ציוד) — חוזרים על תרגיל משבוע, אבל לא על תרגיל שכבר באותו יום
+      const fallback = byPart[blockKey].filter((e) => !dayExercises.some((x) => x.exerciseId === e.id));
+      const picked = pickN(pool.length > 0 ? pool : fallback, pickCount, random);
       picked.forEach((ex) => {
         seenInWeek.add(ex.id);
         const isTimed = ex.cat === 'core' || ex.cat === 'flex' || ex.id === 'plank' || ex.id === 'side-plank';
@@ -120,6 +138,36 @@ export function generateProgram(client, { random = Math.random } = {}) {
   return { days: program, createdAt: new Date().toISOString(), goal: client.goal };
 }
 
+// תוכנית מתבנית מוכנה (features/templates.jsx): עותק של הימים והתרגילים, בלי משקלים
+export function programFromTemplate(template, now = new Date()) {
+  return {
+    goal: template.category,
+    level: template.level,
+    daysPerWeek: template.daysPerWeek,
+    createdAt: now.toISOString(),
+    templateId: template.id,
+    templateName: template.name,
+    days: template.days.map((d) => ({
+      name: d.name,
+      exercises: d.exercises.map((e) => ({ ...e, weight: '' })),
+    })),
+  };
+}
+
+// הקצאת תבנית למתאמן (features/templates.jsx). תוכנית קיימת נדרסת רק אחרי אישור מפורש.
+// get / set / askConfirm מוזרקים: במסך — S.get, S.set ו-askConfirm מ-lib/dialog.js; בבדיקות — תחליפים.
+// 'cancelled' — אין מתאמן או שהמשתמש ביטל; 'failed' — השמירה נכשלה (set החזיר false); 'saved' — נשמר
+export async function assignTemplate({ template, client, get, set, askConfirm, now = new Date() }) {
+  if (!template || !client) return 'cancelled';
+  const key = K.program(client.id);
+  const existing = await get(key);
+  if (existing && !(await askConfirm(
+    `להחליף את התוכנית הנוכחית של ${client.name} בתוכנית "${template.name}"?\nהתוכנית הקיימת תימחק, ואימונים שכבר נרשמו לא יהיו מקושרים לימי התוכנית החדשה.`,
+    { danger: true, okText: 'החלפת התוכנית' },
+  ))) return 'cancelled';
+  return (await set(key, programFromTemplate(template, now))) ? 'saved' : 'failed';
+}
+
 export function getMedicalWarnings(client) {
   return MEDICAL_CONDITIONS
     .filter((c) => client.medical?.includes(c.id))
@@ -141,12 +189,15 @@ export function exclusionReasons(client, ex) {
   return reasons;
 }
 
+// ראשון עד שישי — אין אימונים בשבת
+export const MAX_TRAINING_DAYS = 6;
+
 // טווחים סבירים לכרטיס המתאמן (גובה בס"מ, משקל בק"ג)
 export const CLIENT_LIMITS = {
   age: { min: 5, max: 120, label: 'גיל', unit: '' },
   height: { min: 100, max: 250, label: 'גובה', unit: ' ס"מ' },
   weight: { min: 20, max: 350, label: 'משקל', unit: ' ק"ג' },
-  daysPerWeek: { min: 1, max: 7, label: 'ימי אימון בשבוע', unit: '' },
+  daysPerWeek: { min: 1, max: MAX_TRAINING_DAYS, label: 'ימי אימון בשבוע', unit: ' (בלי שבת)' },
 };
 const inRange = (v, { min, max }) => Number.isFinite(v) && v >= min && v <= max;
 
@@ -167,6 +218,8 @@ export function validateClient(d) {
   check('weight', false);
   check('daysPerWeek', true);
   if (!Array.isArray(d?.equipment) || d.equipment.length === 0) errors.push('יש לסמן לפחות פריט ציוד אחד (גם "משקל גוף")');
+  // רמת פעילות — רשות (כרטיס ישן בלי הערך), אבל אם יש — מהרשימה
+  if (d?.activityLevel && !ACTIVITY_LEVELS.some((a) => a.id === d.activityLevel)) errors.push('רמת הפעילות אינה מוכרת');
   return errors;
 }
 

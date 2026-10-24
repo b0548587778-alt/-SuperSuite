@@ -59,7 +59,8 @@ test('זכות עיון: תיקי שמאות מקרקעין לפי ת"ז המז�
 
 test('זכות עיון: הערוץ מעביר את מצב הרישיון של הייעוץ ושל שמאות המקרקעין', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'modules', 'econ', 'ipc.js'), 'utf8');
-  const block = src.slice(src.indexOf("handle('privacy:exportSubjectPdf'"), src.indexOf("handle('privacy:addRequest'"));
+  const block = src.slice(src.indexOf("handleSave('privacy:exportSubjectPdf'"), src.indexOf("handle('privacy:addRequest'"));
+  assert.ok(block.length > 0, 'הערוץ נמצא');
   assert.match(block, /madv: !LG\.checkChannel\(licenseState\(\), 'madv:getOverview'/);
   assert.match(block, /realestate: !LG\.checkChannel\(licenseState\(\), 'realestate:getOverview'/);
 });

@@ -215,7 +215,7 @@ test('ipc: ניהול רישוי למנהל בלבד; מצב הרישיון לכ
   const req = await handlers['license:getRequest'](ev(9), 'קהילת אור');
   assert.doesNotMatch(fs.readFileSync(path.join(dir, 'license-key.bin'), 'utf8'), /"d"/);
   await handlers['license:install'](ev(9), owner.issue({ request: req, features: ['econ'], limits: tenantLimits }).package);
-  markActivated(dir, T0 + DAY);
+  markActivated(dir, T0 + DAY, encryptedFileSecret(fs, path.join(dir, 'license-key.bin'), fakeSafe));
   ipc.invalidateLicense();
   assert.equal((await handlers['license:getStatus'](ev(9))).status, 'active');
   assert.ok(await handlers['tasks:get'](ev(9)));

@@ -114,7 +114,7 @@ test('CI: כיווץ לפני electron-builder, ובדיקת עלייה של ה�
   const yml = read('.github', 'workflows', 'build.yml');
   const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  report:'));
   const iMin = build.indexOf('node tools/minify.js');
-  const iEb = build.indexOf('npx electron-builder');
+  const iEb = build.indexOf('node node_modules/electron-builder/out/cli/cli.js');
   const iSmoke = build.indexOf('node tools/smoke-packaged.js');
   const iPublish = build.indexOf('name: GitHub Release');
   assert.ok(iMin > 0 && iMin < iEb && iEb < iSmoke && iSmoke < iPublish);

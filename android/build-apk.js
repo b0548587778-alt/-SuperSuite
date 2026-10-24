@@ -24,7 +24,10 @@ const MODS = ['econ', 'shamai', 'trainer', 'tools'];
 const ENTRY_HTML = { econ: 'views/index.html', shamai: 'index.html', trainer: 'index.html', tools: 'index.html' };
 const PRELOADS = { econ: 'modules/econ/preload.js', trainer: 'modules/trainer/preload.js' };
 const DOMAIN = 'supersuite.androidplatform.net';
-const MIN_SDK = 26;
+// אנדרואיד 9 ומעלה (בדיקת קוד 23.10.2026, ממצא 57): כל אוסף של המודול הכלכלי נשמר כשורה אחת ב-SQLite,
+// והחלון הגדול (64MB) לקריאתה — new CursorWindow(name, size) — קיים רק מ-API 28. ב-8.0/8.1 התקרה 2MB:
+// הכתיבה מצליחה והטעינה הבאה נכשלת ("Row too big"), כלומר הנתונים ננעלים. אנדרואיד 8 לא מקבל עדכוני אבטחה מ-2021
+const MIN_SDK = 28;
 const TARGET_SDK = 35;
 
 const args = new Set(process.argv.slice(2));
@@ -149,14 +152,19 @@ function buildWeb() {
   const Catalog = require(path.join(ROOT, 'shell', 'catalog.js'));
   const econExtras = Catalog.extrasFromHtml(fs.readFileSync(path.join(ROOT, 'modules', 'econ', 'views', 'index.html'), 'utf8'));
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  // "אודות" (shell:get-about): אותם קבצים שהמחשב קורא מתיקיית ההתקנה — כאן נארזים בבנייה
+  const txt = rel => { try { return fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/^\uFEFF/, ''); } catch { return ''; } };
+  const about = { license: txt('LICENSE.txt'), eula: txt('build/eula.txt'), notices: txt('THIRD-PARTY-NOTICES.txt') };
   fs.writeFileSync(path.join(shellDst, 'build-info.js'),
-    `window.__ssBuildInfo = ${JSON.stringify({ version: pkg.version, econExtras })};\n`);
+    `window.__ssBuildInfo = ${JSON.stringify({ version: pkg.version, econExtras, about })};\n`);
 
   let html = fs.readFileSync(path.join(ROOT, 'shell', 'shell.html'), 'utf8');
   const frames = MODS.map(m => `https://${m}.${DOMAIN}`).join(' ');
   const cspBefore = html;
   html = html.replace(/(<meta http-equiv="Content-Security-Policy" content=")default-src 'self';/, `$1default-src 'self'; frame-src ${frames};`);
   if (html === cspBefore) throw new Error('shell.html: לא נמצא CSP להוספת frame-src');
+  // העמוד עצמו לא פונה לרשת: שרת הרישוי מגיע דרך הגשר ב-Java (relay-fetch.js). connect-src נשאר 'self' בלבד
+  if (!/connect-src 'self'[;"]/.test(html)) throw new Error("shell.html: ה-CSP חייב לכלול connect-src 'self' בלבד");
   html = html.replace(/<meta charset="utf-8">/i, m => m + '\n<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">');
   const mobileCss = fs.readFileSync(path.join(AND, 'web', 'mobile.css'), 'utf8');
   html = html.replace(/<\/head>/i, `<style>\n${mobileCss}</style>\n</head>`);
@@ -355,4 +363,4 @@ async function main() {
 if (require.main === module) {
   main().catch(e => { console.error('\n✗ ' + e.message); process.exit(1); });
 }
-module.exports = { buildWeb, findTools, wrapPreload, injectIntoHead, resolveSigningKey, ensureKeystore, WWW, DOMAIN };
+module.exports = { buildWeb, findTools, wrapPreload, injectIntoHead, resolveSigningKey, ensureKeystore, WWW, DOMAIN, MIN_SDK };

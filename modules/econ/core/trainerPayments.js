@@ -4,7 +4,8 @@
 // הנתונים מגיעים מעמוד (localStorage) — ולכן נבדקים כקלט לא מהימן: רשומה פגומה מדולגת, לא מפילה את הרשימה.
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
-const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(v));
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10))).toISOString().slice(0, 10) === v;
 const clip = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n);
 const MAX_AG = 100_000_000; // מיליון ₪ — כמו התקרה בגבייה
 

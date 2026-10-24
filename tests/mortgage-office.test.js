@@ -76,9 +76,9 @@ test('לוח עמודות: כל השלבים, תקוע רק בתיק פתוח, �
 });
 
 test('הגדרות משרד: ברירת מחדל — יועץ רואה רק שלו, 14 ימים; ערכים לא תקינים נדחים', () => {
-  assert.deepEqual(M.normalizeSettings(undefined), { ownOnly: true, stuckDays: 14 });
-  assert.deepEqual(M.normalizeSettings({ ownOnly: false, stuckDays: 0 }), { ownOnly: false, stuckDays: 14 });
-  assert.deepEqual(M.normalizeSettings({ stuckDays: 30 }), { ownOnly: true, stuckDays: 30 });
+  assert.deepEqual(M.normalizeSettings(undefined), { ownOnly: true, stuckDays: 14, vatExempt: false });
+  assert.deepEqual(M.normalizeSettings({ ownOnly: false, stuckDays: 0 }), { ownOnly: false, stuckDays: 14, vatExempt: false });
+  assert.deepEqual(M.normalizeSettings({ stuckDays: 30 }), { ownOnly: true, stuckDays: 30, vatExempt: false });
 });
 
 // ---------- IPC מול מסד אמיתי: מנהל ושני יועצים ----------

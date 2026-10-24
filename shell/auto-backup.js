@@ -27,19 +27,35 @@ function loadAutoBackupKey({ file, safeStorage, create }) {
   const k = require('crypto').randomBytes(32).toString('base64');
   // כתיבה אטומית (קובץ זמני, fsync והחלפה): ניתוק חשמל באמצע כתיבה ישירה השאיר מפתח שבור,
   // ואז "key-unreadable" — הנתונים לא הוצפנו (בדיקת קוד 22.10.2026, הערה בבדיקה החוזרת)
-  const tmp = file + '.tmp';
-  const fd = fs.openSync(tmp, 'w');
-  try { fs.writeSync(fd, safeStorage.encryptString(k)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-  fs.renameSync(tmp, file);
+  writeFileDurable(fs, file, safeStorage.encryptString(k));
   return k;
 }
 
+// קובץ זמני ← דיסק (fsync) ← החלפה אטומית. כשל — הקובץ הקיים לא נפגע, הזמני נמחק והשגיאה נזרקת
+function writeFileDurable(fsx, file, data) {
+  const tmp = file + '.tmp';
+  try {
+    const fd = fsx.openSync(tmp, 'w');
+    try { fsx.writeSync(fd, data); fsx.fsyncSync(fd); } finally { fsx.closeSync(fd); }
+    fsx.renameSync(tmp, file);
+  } catch (e) {
+    try { fsx.rmSync(tmp, { force: true }); } catch { /* אין מה לנקות */ }
+    throw e;
+  }
+}
+
 // תאריך ושעה מקומיים. toISOString הוא UTC: בישראל גיבוי בין חצות ל-03:00 קיבל את התאריך של אתמול,
-// והשעה בסטטוס הוצגה מוקדמת בשעתיים-שלוש
+// והשעה בסטטוס הוצגה מוקדמת בשעתיים-שלוש. בלי ארגומנט — עכשיו (main.js קרא localDay() וקרס, ולכן
+// הגיבוי שלפני הצפנת המסד ולפני העברת נתוני המודולים נכשל תמיד)
 const pad = (n) => String(n).padStart(2, '0');
-const localDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const localDay = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const localStamp = (d) => `${localDay(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-const todayName = (now) => `auto-${localDay(now)}.ssbk`;
+
+// סימן ההתקנה בשם הקובץ: כמה מחשבים שמגבים לאותו יעד (USB, OneDrive) לא מדלגים זה על הגיבוי של זה
+// ("כבר קיים") ולא מוחקים זה לזה בסבב (בדיקת קוד 23.10.2026, ממצא 38). נגזר ממפתח הגיבוי — אותו מפתח,
+// אותה סדרה; 32 סיביות של גיבוב לא מגלות דבר על המפתח
+const installTag = (key) => require('crypto').createHash('sha256').update('SuperSuite auto-backup name v1:' + String(key)).digest('hex').slice(0, 8);
+const autoBackupName = (day, tag) => (tag ? `auto-${day}-${tag}.ssbk` : `auto-${day}.ssbk`);
 
 // מריץ סבב גיבוי אחד ומחזיר סטטוס { ok, reason?, file?, at, target }.
 // customTarget: יעד שהמשתמש בחר (USB) — לעולם לא נוצר אם חסר (כונן לא מחובר).
@@ -52,11 +68,14 @@ async function runAutoBackup({ encryptionAvailable, customTarget, defaultTarget,
     try { fs.mkdirSync(defaultTarget, { recursive: true }); } catch {}
   }
   if (!target || !fs.existsSync(target)) return { ok: false, reason: 'target-missing', target, at };
-  // אם הגיבוי של היום כבר קיים — לא אוספים נתונים בכלל (האיסוף טוען את כל המודולים)
-  const name = todayName(now);
+  // המפתח קובע את שם הקובץ (סימן ההתקנה) — נקרא לפני האיסוף; מפתח לא קריא נזרק כמו קודם
+  const key = getKey();
+  const tag = installTag(key);
+  // אם הגיבוי של היום (של ההתקנה הזו) כבר קיים — לא אוספים נתונים בכלל (האיסוף טוען את כל המודולים)
+  const name = autoBackupName(localDay(now), tag);
   if (fs.existsSync(path.join(target, name))) return { ok: true, skipped: true, file: path.join(target, name), target, at };
   const plainText = JSON.stringify(await collect());
-  const r = write({ dir: target, plainText, key: getKey(), keep: 14, today: localDay(now) });
+  const r = write({ dir: target, plainText, key, keep: 14, today: localDay(now), tag });
   return { ...r, target, at };
 }
 
@@ -139,4 +158,4 @@ function keyFromRecoveryCode(text) {
   return all.subarray(0, 32).toString('base64');
 }
 
-module.exports = { loadAutoBackupKey, runAutoBackup, describeStatus, localDay, recoveryCodeFromKey, keyFromRecoveryCode, looksLikeRecoveryCode, RECOVERY_LEN };
+module.exports = { loadAutoBackupKey, runAutoBackup, describeStatus, localDay, installTag, autoBackupName, writeFileDurable, recoveryCodeFromKey, keyFromRecoveryCode, looksLikeRecoveryCode, RECOVERY_LEN };

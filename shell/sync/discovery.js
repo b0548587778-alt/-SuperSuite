@@ -28,9 +28,10 @@ function discoveryKeys(identity, peers) {
 
 function buildBeacon(keys, port, now = Date.now()) {
   const nonce = crypto.randomBytes(12).toString('base64url');
-  // סדר התגיות מעורבב, ותגיות דמה משלימות למספר קבוע — אי אפשר להסיק כמה עמיתים יש למכשיר
+  // סדר התגיות מעורבב, ותגיות דמה משלימות תמיד ל-MAX_TAGS — אי אפשר להסיק כמה עמיתים יש למכשיר.
+  // השלמה ל-8 בלבד חשפה את המספר המדויק מעל 8 (בדיקת קוד 23.10.2026); 64 תגיות — כ-1.3KB, מנה אחת של UDP
   const tags = keys.slice(0, MAX_TAGS).map(k => tagFor(k.key, k.self, k.id, now, nonce, port));
-  while (tags.length < Math.min(8, MAX_TAGS)) tags.push(crypto.randomBytes(TAG_BYTES).toString('base64url'));
+  while (tags.length < MAX_TAGS) tags.push(crypto.randomBytes(TAG_BYTES).toString('base64url'));
   for (let i = tags.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [tags[i], tags[j]] = [tags[j], tags[i]]; }
   return Buffer.from(JSON.stringify({ v: 1, p: port, ts: now, n: nonce, t: tags }));
 }

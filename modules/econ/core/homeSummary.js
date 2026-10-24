@@ -2,6 +2,7 @@
 // טהור וקריאה בלבד, הכול באגורות. התחומים הסגורים ברישיון או בהרשאה לא נכנסים כלל — open קובע (ipc.js)
 const A = require('./accounting');
 const SD = require('./salesDocs');
+const { isDay } = require('./dates');
 const BZ = require('./bizReports');
 const M = require('./memorials');
 
@@ -9,7 +10,7 @@ const LIST_MAX = 20;
 const LOAN_DAYS = 7; // תשלום בגמ"ח שמועדו בשבוע הקרוב (או בפיגור)
 const MEMORIAL_DAYS = 7;
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const DAY = { test: isDay }; // תאריך שקיים בלוח בלבד (core/dates.js)
 const pad = (n) => String(n).padStart(2, '0');
 const lastDay = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
@@ -80,7 +81,7 @@ function gemachPart(data, today) {
 
 // open: { acct, npo, gemach } — רק תחום פתוח מחושב; תחום סגור חסר במדדים (המסך מציג "—")
 function homeSummary(data, today, open = {}) {
-  if (!DAY.test(String(today || ''))) throw new Error('תאריך לא תקין');
+  if (!isDay(today)) throw new Error('תאריך לא תקין');
   const out = { date: today, kpis: {}, invoices: [], yahrzeits: [], loans: [] };
   const parts = [open.acct && acctPart(data, today), open.npo && npoPart(data, today), open.gemach && gemachPart(data, today)];
   for (const p of parts.filter(Boolean)) {

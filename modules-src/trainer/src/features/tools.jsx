@@ -243,7 +243,8 @@ export function ClientAssessmentTab({ client }) {
   const saveAssessment = async () => {
     const entry = { id: `a_${Date.now()}`, date: new Date().toISOString(), scores, total, max };
     const newHistory = [...history, entry];
-    await S.set(`assessments:${client.id}`, newHistory);
+    // שמירה שנדחתה (ההודעה — מ-lib/storage.js): בלי "ההערכה נשמרה", והציונים נשארים
+    if (!(await S.set(`assessments:${client.id}`, newHistory))) return;
     setHistory(newHistory);
     setScores({});
     setSavedMsg('ההערכה נשמרה');

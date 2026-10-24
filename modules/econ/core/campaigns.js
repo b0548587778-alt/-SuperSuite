@@ -40,7 +40,9 @@ function findAmbassador(c, value) {
 }
 const toAg = (n) => Math.round(Number(n || 0) * 100);
 const fromAg = (a) => a / 100;
-const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) && !isNaN(Date.parse(s + 'T00:00:00Z'));
+const normName = (s) => String(s ?? '').replace(/["'׳״]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 const str = (v, max, label) => {
   const s = String(v ?? '').trim();
   if (s.length > max) throw new Error(`${label} ארוך מדי (עד ${max} תווים)`);
@@ -69,6 +71,8 @@ function validateCampaign(input, { count = 0, fundIds, prev, usedAmbassadorIds, 
   const matchCap = num(input.matchCap, 'תקרת ההכפלה');
   const matchDonor = str(input.matchDonor, 200, 'שם התורם המכפיל');
   if (matchRatio && !matchCap) throw new Error('יש לקבוע תקרה להכפלה (הסכום המרבי שהתורם המכפיל התחייב אליו)');
+  // בלי שם המכפיל אי אפשר לזהות את כספו בתרומות — והוא היה נספר פעמיים (כתרומה וכהכפלה)
+  if (matchRatio && !matchDonor) throw new Error('יש לרשום את שם התורם המכפיל — בדיוק כפי שנרשם בתרומות שלו, כדי שכספו לא ייספר פעמיים');
   const fundId = str(input.fundId, 60, 'הקרן') || 'general';
   if (fundIds && !fundIds.includes(fundId)) throw new Error('הקרן שנבחרה אינה קיימת');
   return {
@@ -91,8 +95,13 @@ function assertCanAssign(c, date) {
 function progress(c, donations, today) {
   const rows = (donations || []).filter(d => d.campaignId === c.id && d.status !== 'cancelled');
   const raisedAg = rows.reduce((t, d) => t + toAg(d.amount), 0);
-  const matchedAg = c.matchRatio ? Math.min(Math.round(raisedAg * c.matchRatio), toAg(c.matchCap)) : 0;
-  const totalAg = raisedAg + matchedAg;
+  // כסף התורם המכפיל נרשם כתרומה רגילה (לפי שם התורם): הוא לא מוכפל, ולא נספר שוב כ"הכפלה"
+  const matcher = c.matchRatio && c.matchDonor ? normName(c.matchDonor) : '';
+  const matcherRows = matcher ? rows.filter(d => normName(d.donorName) === matcher) : [];
+  const matcherAg = matcherRows.reduce((t, d) => t + toAg(d.amount), 0);
+  const matchedAg = c.matchRatio ? Math.min(Math.round((raisedAg - matcherAg) * c.matchRatio), toAg(c.matchCap)) : 0;
+  // לסך נוסף רק החלק של ההכפלה שעוד לא התקבל בפועל
+  const totalAg = raisedAg + Math.max(0, matchedAg - matcherAg);
   const donors = new Set(rows.map(d => d.donorId ? 'id:' + d.donorId : 'name:' + String(d.donorName).trim().toLowerCase()));
   const day = (s) => Date.parse(s + 'T00:00:00Z');
   const status = c.closed ? 'closed' : today < c.startDate ? 'upcoming' : today > c.endDate ? 'ended' : 'active';
@@ -109,6 +118,10 @@ function progress(c, donations, today) {
     percent: c.goal ? Math.round((totalAg / toAg(c.goal)) * 1000) / 10 : 0,
     remaining: fromAg(Math.max(0, toAg(c.goal) - totalAg)),
     matchLeft: c.matchRatio ? fromAg(Math.max(0, toAg(c.matchCap) - matchedAg)) : 0,
+    // כמה מכספי המכפיל זוהו בתרומות (לפי השם) — מוצג בשורת הקמפיין, כדי שיהיה ברור אם הכסף זוהה.
+    // קמפיין ישן עם הכפלה ובלי שם המכפיל — אין דרך לזהות את כספו, וההכפלה עלולה להיספר פעמיים
+    matcherRaised: fromAg(matcherAg), matcherCount: matcherRows.length,
+    matchDonorMissing: !!c.matchRatio && !matcher,
     donationsCount: rows.length, donorsCount: donors.size,
     daysLeft: status === 'active' ? Math.round((day(c.endDate) - day(today)) / 86400000) : null,
     ambassadorRows: (c.ambassadors || []).map(a => {

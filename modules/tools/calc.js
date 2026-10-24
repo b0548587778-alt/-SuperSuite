@@ -195,6 +195,14 @@
     return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), kind, amountAg, date, note: String(note || '').trim().slice(0, 80) };
   }
 
+  // רשימת המעשרות לתצוגה: החדש למעלה. רשומה פגומה (null, בלי תאריך — למשל משחזור) מדולגת ולא מפילה את הדף
+  function maaserRecent(entries, limit = 100) {
+    return (Array.isArray(entries) ? entries : [])
+      .filter(e => e && typeof e === 'object' && typeof e.date === 'string')
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, limit);
+  }
+
   // הצמדה למדד: סכום × מדד חדש / מדד בסיס. floor — בלי ירידה מתחת לסכום המקורי
   function indexLinkage({ amount, baseIndex, currentIndex, floor = false }) {
     const a = toAg(amount), b = Number(baseIndex), c = Number(currentIndex);
@@ -265,7 +273,7 @@
   }
 
   const api = { groupShoppingList, shoppingListText, powerCost, dateDiff, addDays, compoundInterest,
-    toAg, localDay, vatCalc, SALARY_TABLE_DEFAULT, parseSalaryTable, netSalary, hebrewYearOf, maaserSummary, newMaaserEntry,
+    toAg, localDay, vatCalc, SALARY_TABLE_DEFAULT, parseSalaryTable, netSalary, hebrewYearOf, maaserSummary, newMaaserEntry, maaserRecent,
     indexLinkage, gematria, numberToHebrew, havraa, severance };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ToolsCalc = api;

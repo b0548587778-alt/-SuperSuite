@@ -1,5 +1,6 @@
 // Fitness Service - Handles health and fitness tracking
 const crypto = require('crypto');
+const { localDay } = require('../core/dates');
 
 class FitnessService {
   constructor(db) {
@@ -41,8 +42,8 @@ class FitnessService {
     
     const workout = {
       id: crypto.randomUUID(),
-      date: workoutData.date || new Date().toISOString().split('T')[0],
-      type: workoutData.type, // cardio, strength, yoga, walking, sports, other
+      date: workoutData.date || localDay(), // היום המקומי, לא UTC
+      type: workoutData.type, // cardio, strength, yoga (גמישות ומתיחות), walking, sports, other
       durationMinutes: Number(workoutData.durationMinutes),
       caloriesBurned: workoutData.caloriesBurned || 0,
       notes: workoutData.notes || '',
@@ -63,7 +64,7 @@ class FitnessService {
     
     const nutrition = {
       id: crypto.randomUUID(),
-      date: nutritionData.date || new Date().toISOString().split('T')[0],
+      date: nutritionData.date || localDay(), // היום המקומי, לא UTC
       mealType: nutritionData.mealType, // breakfast, lunch, dinner, snack
       description: nutritionData.description || '',
       calories: Number(nutritionData.calories),

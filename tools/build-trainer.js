@@ -2,7 +2,7 @@
 //   node tools/build-trainer.js           בנייה (דורש npm install ב-modules-src/trainer)
 //   node tools/build-trainer.js --check   בדיקה מה חסר, בלי לבנות
 // מה הסקריפט עושה אחרי vite build:
-// - מעתיק את התוצר ל-modules/trainer ומוחק חבילות ישנות מ-assets (שם קובץ חדש בכל בנייה);
+// - בודק את התוצר, ורק אז מחליף את modules/trainer כולה (חבילות ישנות ב-assets לא נשארות; שם קובץ חדש בכל בנייה);
 // - שומר את קובץ השילוב עם SuperSuite שאינו חלק מהבנייה: preload.js;
 // - מוודא ששפת העיצוב (design-tokens.css, ui-kit.css) נטענת לפני ה-CSS של החבילה: ערכת הצבעים (src/theme.css)
 //   נמצאת בתוך החבילה וממפה אליה, ובאותה עדיפות הכלל שנטען אחרון גובר (PLAN.md 6.4);
@@ -50,18 +50,66 @@ function findForbidden(dir) {
   return hits;
 }
 
-// העתקת התוצר: מחיקת כל מה שאינו ב-KEEP, ואז העתקה
+const RM_RETRY = { recursive: true, force: true, maxRetries: 5, retryDelay: 200 };
+
+// תיקיות זמניות של ריצה קודמת שקרסה (כל PID): הן תחת modules/, ולכן היו נארזות במתקין ועוברות כיווץ
+function staleDirs(out) {
+  const re = new RegExp('^' + path.basename(out).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.(new|old)-\\d+$');
+  const parent = path.dirname(out);
+  if (!fs.existsSync(parent)) return [];
+  return fs.readdirSync(parent).filter(n => re.test(n)).map(n => path.join(parent, n));
+}
+
+// התקנת התוצר: קודם בודקים, אחר כך מחליפים. המודול הקיים לא נמחק לפני שהתוצר החדש נבדק והועתק במלואו
+// (בדיקת קוד 23.10.2026): עותק מלא בתיקייה זמנית ליד modules/trainer, ורק אז החלפה בשינוי שם.
+// מחזיר { leftover } — תיקייה ישנה שלא נמחקה אחרי החלפה מוצלחת (אזהרה, לא כישלון).
+// שגיאה עם moduleMissing — modules/trainer חסר והמודול הקודם בתיקייה הזמנית (בהודעה)
 function install(dist, out = OUT) {
-  for (const n of fs.readdirSync(out)) {
-    if (KEEP.includes(n)) continue;
-    fs.rmSync(path.join(out, n), { recursive: true, force: true });
-  }
-  fs.cpSync(dist, out, { recursive: true });
-  for (const k of KEEP) if (!fs.existsSync(path.join(out, k))) throw new Error('חסר קובץ שילוב: ' + k);
-  const index = path.join(out, 'index.html');
+  const index = path.join(dist, 'index.html');
+  if (!fs.existsSync(index)) throw new Error('בתוצר חסר index.html');
   checkThemeOrder(fs.readFileSync(index, 'utf8'));
-  // ערכת הצבעים הישנה, אם נשארה מבנייה קודמת
-  fs.rmSync(path.join(out, 'suite-theme.css'), { force: true });
+  for (const k of KEEP) if (!fs.existsSync(path.join(out, k))) throw new Error('חסר קובץ שילוב: ' + k);
+  // רק אחרי שהמודול הקיים נמצא במקומו: trainer.old-* של ריצה שנכשלה בשחזור הוא העותק היחיד של המודול
+  for (const d of staleDirs(out)) fs.rmSync(d, RM_RETRY);
+  const stage = out + '.new-' + process.pid;
+  const old = out + '.old-' + process.pid;
+  try {
+    // קבצי השילוב מגיעים מהמודול הקיים, לא מהתוצר. ערכת הצבעים הישנה (suite-theme.css) לא עוברת
+    fs.cpSync(dist, stage, { recursive: true, filter: (src) => !KEEP.includes(path.relative(dist, src)) });
+    for (const k of KEEP) fs.copyFileSync(path.join(out, k), path.join(stage, k));
+    fs.rmSync(path.join(stage, 'suite-theme.css'), { force: true });
+    try { fs.renameSync(out, old); }
+    catch (e) { throw new Error('לא ניתן להחליף את modules/trainer (ייתכן שהתוכנה פתוחה): ' + e.message); }
+    try { fs.renameSync(stage, out); }
+    catch (e) {
+      try { fs.renameSync(old, out); }
+      catch (e2) {
+        const err = new Error(`modules/trainer חסר, המודול הקודם נמצא ב-${old} (${e.message}; ${e2.message})`);
+        err.moduleMissing = true;
+        throw err;
+      }
+      throw e;
+    }
+  } catch (e) {
+    try { fs.rmSync(stage, RM_RETRY); } catch { /* השגיאה המקורית חשובה יותר */ }
+    throw e;
+  }
+  // ההחלפה כבר הצליחה: כישלון במחיקת הישן (אנטי-וירוס, קובץ פתוח) אינו כישלון של ההתקנה
+  try { fs.rmSync(old, RM_RETRY); return { leftover: null }; }
+  catch (e) { return { leftover: old, error: e.message }; }
+}
+
+// ההתקנה מתוך main: הודעה נכונה לכל מצב, ויציאה 0/1
+function installStep(dist, out = OUT, log = console) {
+  let r;
+  try { r = install(dist, out); }
+  catch (e) {
+    log.error(e.moduleMissing ? '✖ ההתקנה נכשלה: ' + e.message : '✖ ההתקנה נכשלה, modules/trainer לא שונה: ' + e.message);
+    return 1;
+  }
+  if (r.leftover) log.warn(`⚠ לא ניתן למחוק את ${r.leftover} (${r.error}) — יש למחוק ידנית; עד אז היא תיארז במתקין (הבנייה הבאה תמחק אותה)`);
+  log.log('✔ מודול האימונים נבנה והועתק ל-modules/trainer');
+  return 0;
 }
 
 function check() {
@@ -86,11 +134,9 @@ function main(argv) {
   const dist = path.join(SRC, 'dist');
   const bad = findForbidden(dist);
   if (bad.length) { console.error('✖ בתוצר יש פנייה לרשת:\n' + bad.join('\n')); return 1; }
-  install(dist);
-  console.log('✔ מודול האימונים נבנה והועתק ל-modules/trainer');
-  return 0;
+  return installStep(dist);
 }
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
 
-module.exports = { checkThemeOrder, findForbidden, install, check, KEEP, FORBIDDEN };
+module.exports = { checkThemeOrder, findForbidden, install, installStep, staleDirs, check, KEEP, FORBIDDEN };

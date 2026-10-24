@@ -294,7 +294,9 @@ const CRYPTO_COINS = [
   { id: 'ripple',      symbol: 'XRP', name: 'XRP'      },
 ];
 
-// Israeli purchase tax brackets (2025)
+// מדרגות מס רכישה (בשקלים) — טבלה מובנית לשנת 2025, לא מאומתת: הערכה בלבד, כמו טבלת השכר בארגז הכלים.
+// החישוב — calcPurchaseTax ב-tools.js. במודול הכלכלי אין מדרגות מובנות (מוקלדות לכל שנה)
+const PURCHASE_TAX_TABLE = { year: 2025, verified: false };
 const PURCHASE_TAX_SINGLE = [
   { upTo: 1978745, rate: 0 },
   { upTo: 2347040, rate: 0.035 },
@@ -337,6 +339,7 @@ const state = {
     catFilter: null,
     sort: 'newest',
     search: '',
+    sellerKey: null, // "עסקאות" של איש קשר (showLedgerSearch)
   },
 
   // Tools
@@ -359,9 +362,22 @@ const Storage = {
   prefix: 'shamai_v2_',
   k: (name) => Storage.prefix + name,
 
-  save(key, val) {
-    try { localStorage.setItem(Storage.k(key), JSON.stringify(val)); }
-    catch (e) { console.error('Save failed', key, e); }
+  // כתיבה שנדחתה: ה-localStorage של SuperSuite זורק כשהמחסן לא קיבל אותה (אין מקום, אין כניסה, צפייה בלבד).
+  // פעם השגיאה נבלעה והמסך הציג "נשמר" (בדיקת קוד 23.10.2026, ממצא 3) — עכשיו הודעה, ו"נשמר" שמיד אחריה לא מסתיר אותה
+  lastError: '',
+  failedAt: 0,
+  failed(e, quiet) {
+    const msg = e && typeof e.message === 'string' && /[֐-׿]/.test(e.message) ? e.message
+      : e && e.name === 'QuotaExceededError' ? 'השינוי לא נשמר: אין מקום באחסון' : 'השינוי לא נשמר';
+    Storage.lastError = msg;
+    if (quiet) return;
+    Storage.failedAt = Date.now();
+    try { toast(msg, 'error'); } catch (_) { /* בלי מסך */ }
+  },
+  // true — המחסן קיבל את הכתיבה. quiet — בלי הודעה (העברה ברקע)
+  save(key, val, { quiet = false } = {}) {
+    try { localStorage.setItem(Storage.k(key), JSON.stringify(val)); return true; }
+    catch (e) { console.error('Save failed', key, e); Storage.failed(e, quiet); return false; }
   },
   load(key, fallback = null) {
     try {
@@ -369,7 +385,10 @@ const Storage = {
       return raw ? JSON.parse(raw) : fallback;
     } catch (e) { return fallback; }
   },
-  remove(key) { localStorage.removeItem(Storage.k(key)); },
+  remove(key) {
+    try { localStorage.removeItem(Storage.k(key)); return true; }
+    catch (e) { console.error('Remove failed', key, e); Storage.failed(e); return false; }
+  },
   clear() {
     Object.keys(localStorage).filter(k => k.startsWith(Storage.prefix)).forEach(k => localStorage.removeItem(k));
   },
@@ -387,9 +406,13 @@ const ImageDB = {
   key: (id) => 'img_' + id,
   // ---------- IndexedDB הישן: קריאה ומחיקה בלבד ----------
   legacyDb: null,
-  legacyOpen() {
-    if (this.legacyDb) return Promise.resolve(this.legacyDb);
-    if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+  async legacyOpen() {
+    if (this.legacyDb) return this.legacyDb;
+    if (typeof indexedDB === 'undefined') return null;
+    // התקנה שלא היה בה מאגר ישן — לא יוצרים מאגר ריק רק כדי לבדוק או למחוק
+    try {
+      if (typeof indexedDB.databases === 'function' && !(await indexedDB.databases()).some(d => d && d.name === 'shamai_images')) return null;
+    } catch (e) { /* פותחים כרגיל */ }
     return new Promise((resolve) => {
       const req = indexedDB.open('shamai_images', 1);
       req.onerror = () => resolve(null);
@@ -411,45 +434,68 @@ const ImageDB = {
       } catch (e) { resolve(null); }
     });
   },
-  async legacyDelete(id) {
+  // מזהה אחד או רשימה — בעסקה אחת
+  async legacyDelete(ids) {
     const db = await this.legacyOpen();
     if (!db) return;
     return new Promise((resolve) => {
       try {
         const tx = db.transaction('images', 'readwrite');
-        tx.objectStore('images').delete(id);
+        const st = tx.objectStore('images');
+        for (const id of [].concat(ids)) st.delete(id);
         tx.oncomplete = () => resolve();
         tx.onerror = () => resolve();
       } catch (e) { resolve(); }
     });
   },
   // ---------- המחסן ----------
-  store(id, dataUrl, max) {
+  // נשמר רק אם המחסן אישר את הכתיבה (אחרת localStorage זורק) והערך שבו הוא באמת התמונה
+  store(id, dataUrl, max, quiet = false) {
     if (!isImageData(dataUrl, max)) throw new Error('התמונה אינה תקינה או גדולה מדי');
-    Storage.save(this.key(id), dataUrl);
+    if (!Storage.save(this.key(id), dataUrl, { quiet })) throw new Error(Storage.lastError);
     if (Storage.load(this.key(id), null) !== dataUrl) throw new Error('אין מקום לשמור את התמונה');
   },
   async save(id, dataUrl) { this.store(id, dataUrl, IMAGE_MAX_CHARS); },
+  // תמונה ישנה למחסן, ברקע (בלי הודעה). true — המחסן קיבל אותה; הישן עוד לא נמחק
+  moveLegacy(id, old) {
+    try { this.store(id, old, IMAGE_LEGACY_MAX_CHARS, true); return true; } catch (e) { return false; }
+  },
+  // אישור שהמחסן כתוב בקובץ (ולא רק בזיכרון של התהליך הראשי, שכותב לדיסק באיחור קצר). המפתח השמור הזה
+  // מתורגם ב-localStorage של SuperSuite לכתיבה מיידית, שזורקת אם נכשלה (shell/secure-ls-preload.js);
+  // בדפדפן רגיל — מחיקה של מפתח שלא קיים
+  flushStore() {
+    try { localStorage.removeItem('\u0000ss-flush'); return true; } catch (e) { return false; }
+  },
   async load(id) {
     const s = Storage.load(this.key(id), null);
     if (isImageData(s, IMAGE_LEGACY_MAX_CHARS)) return s;
     const old = await this.legacyGet(id);
     if (!isImageData(old, IMAGE_LEGACY_MAX_CHARS)) return null;
-    try { this.store(id, old, IMAGE_LEGACY_MAX_CHARS); await this.legacyDelete(id); } catch (e) { /* נשאר בישן, ננסה בפעם הבאה */ }
+    // הישן נמחק רק אחרי שהמחסן אישר וכתב לדיסק — כתיבה שנדחתה או קובץ שלא נכתב משאירים אותו לפעם הבאה
+    if (this.moveLegacy(id, old) && this.flushStore()) await this.legacyDelete(id);
     return old;
   },
+  // false — המחסן דחה את המחיקה (למשל צפייה בלבד): גם העותק הישן לא נמחק
   async delete(id) {
-    Storage.remove(this.key(id));
+    if (!Storage.remove(this.key(id))) return false;
     await this.legacyDelete(id);
+    return true;
   },
-  // בעלייה: מעבירים את כל התמונות הישנות, גם כאלה שלא יוצגו. אחת-אחת, ושגיאה לא עוצרת את השאר
+  // בעלייה: מעבירים את כל התמונות הישנות, גם כאלה שלא יוצגו. אחת-אחת, ושגיאה לא עוצרת את השאר.
+  // כתיבה אחת לדיסק לכל הסבב, ורק אחריה מוחקים את הישנים — גם של תמונות שכבר במחסן (עותק שנשאר מסבב קודם
+  // שבו הכתיבה לקובץ נכשלה). בלי אישור הכתיבה — הישנים נשארים
   async migrateAll(ids) {
-    let moved = 0;
+    const moved = [];
+    const inStore = [];
     for (const id of ids || []) {
-      if (isImageData(Storage.load(this.key(id), null), IMAGE_LEGACY_MAX_CHARS)) continue;
-      try { if (await this.load(id)) moved++; } catch (e) { /* ננסה בפעם הבאה */ }
+      try {
+        if (isImageData(Storage.load(this.key(id), null), IMAGE_LEGACY_MAX_CHARS)) { inStore.push(id); continue; }
+        const old = await this.legacyGet(id);
+        if (isImageData(old, IMAGE_LEGACY_MAX_CHARS) && this.moveLegacy(id, old)) moved.push(id);
+      } catch (e) { /* ננסה בפעם הבאה */ }
     }
-    return moved;
+    if ((moved.length || inStore.length) && this.flushStore()) await this.legacyDelete([...inStore, ...moved]);
+    return moved.length;
   },
 };
 
@@ -489,6 +535,8 @@ function uid() {
 }
 
 function toast(msg, type = '') {
+  // שמירה שנדחתה זה עתה: "נשמר" שמגיע אחריה באותה פעולה לא מסתיר את הודעת השגיאה
+  if (type !== 'error' && Date.now() - Storage.failedAt < 2600) return;
   const t = $('#toast');
   if (!t) return;
   t.textContent = msg;

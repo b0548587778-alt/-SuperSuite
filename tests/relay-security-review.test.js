@@ -36,8 +36,11 @@ function fakeProvider() {
     parseWebhook: ({ rawBody }) => JSON.parse(rawBody),
   };
 }
+// ההצעה מפורסמת בשרת — הרשמה נבדקת מול ההצעה שבתוקף (בדיקת קוד 23.10.2026, ממצא 31)
+const offerText = OF.createOffer(root.privateJwk, OFFER);
 const relayWith = (provider) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-relay-sr-'));
+  fs.writeFileSync(path.join(dir, 'offer.json'), JSON.stringify({ text: offerText, issuedAt: JSON.parse(offerText).payload.issuedAt }));
   return { dir, relay: R.createRelay({ dataDir: dir, billing: { rootKeys: [root.publicJwk], provider } }) };
 };
 const payments = (dir) => JSON.parse(fs.readFileSync(path.join(dir, 'payments.json'), 'utf8'));
@@ -94,7 +97,7 @@ test('ממצא 4: webhook בזמן ש-checkout ממתין לספק — לא נד
   pending(dir);
   const release = provider.hold();
   const device = L.generateKeyPair();
-  const signup = SU.createSignup({ deviceJwk: device.privateJwk, offerText: OF.createOffer(root.privateJwk, OFFER), rootKeys: [root.publicJwk],
+  const signup = SU.createSignup({ deviceJwk: device.privateJwk, offerText, rootKeys: [root.publicJwk],
     planId: 'pro', customer: CUSTOMER, signatureImage: SIG, scrolledToEnd: true, accepted: true }).text;
   const co = relay.handle(req(device, 'checkout', { signup }), '10.1.1.1');
   relay.webhook(paid());           // בינתיים, בזמן שהספק עוד לא ענה: webhook על תשלום קיים
@@ -110,7 +113,7 @@ test('ממצא 4: שני checkout במקביל לאותה הרשמה — תשל�
   const { dir, relay } = relayWith(provider);
   const release = provider.hold();
   const device = L.generateKeyPair();
-  const signup = SU.createSignup({ deviceJwk: device.privateJwk, offerText: OF.createOffer(root.privateJwk, OFFER), rootKeys: [root.publicJwk],
+  const signup = SU.createSignup({ deviceJwk: device.privateJwk, offerText, rootKeys: [root.publicJwk],
     planId: 'pro', customer: CUSTOMER, signatureImage: SIG, scrolledToEnd: true, accepted: true }).text;
   const a = relay.handle(req(device, 'checkout', { signup }), '10.1.1.1');
   const b = relay.handle(req(device, 'checkout', { signup }), '10.1.1.1');

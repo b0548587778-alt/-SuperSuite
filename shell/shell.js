@@ -234,6 +234,9 @@ function pushRecent(key) {
 /* ---------- אשף התחלה: "המסכים שלי" וצעדים ראשונים ---------- */
 const OB = window.SUITE_ONBOARDING;
 const OB_KEY = 'suite.onboarding';
+// צעדים ומסכים של מנהל בלבד (יעד גיבוי, קוד שחזור, משתמשים, התוכנית הפיננסית) — לא מוצעים למשתמש אחר.
+// לפני כניסה — כמו קודם (מוצגים); מתעדכן ב-refreshAdminFlag
+let shellAdmin = true;
 function obState() {
   try { return OB.normalizeState(JSON.parse(localStorage.getItem(OB_KEY) || 'null')); } catch { return OB.normalizeState(null); }
 }
@@ -249,7 +252,7 @@ function renderOnboarding() {
   if (!OB) return;
   const st = obState();
   $('obInvite').hidden = st.completed || st.dismissed;
-  const p = OB.plan(st.profiles, [...BY_KEY.keys()]);
+  const p = OB.plan(st.profiles, [...BY_KEY.keys()], { admin: shellAdmin });
   const mine = st.completed ? p.screens.map(k => BY_KEY.get(k)).filter(Boolean) : [];
   $('mineSec').hidden = !mine.length;
   $('mine').innerHTML = mine.map(card).join('');
@@ -303,7 +306,7 @@ if (OB) {
   $('obList').onclick = (e) => {
     const b = e.target.closest('[data-ob-step]');
     if (!b) return;
-    const s = OB.plan(obState().profiles, [...BY_KEY.keys()]).steps.find(x => x.id === b.dataset.obStep);
+    const s = OB.plan(obState().profiles, [...BY_KEY.keys()], { admin: shellAdmin }).steps.find(x => x.id === b.dataset.obStep);
     if (!s) return;
     if (s.action === 'backup-target') $('tg').click();
     else if (s.action === 'recovery-code') showRecoveryCode();
@@ -728,16 +731,13 @@ async function showRecoveryCode() {
   const dlg = $('rkDlg');
   let code;
   try { code = await window.shellAPI.getRecoveryCode(); }
-  catch (e) { await ssDialog.alert(e.message || 'נדרשת כניסה למערכת עם הרשאת גיבוי'); return; }
+  catch (e) { await ssDialog.alert(e.message || 'קוד השחזור מוצג למנהל בלבד — יש להיכנס כמנהל'); return; }
   $('rkCode').textContent = code;
   $('rkErr').textContent = '';
   const close = () => { dlg.oncancel = null; closeDialog(dlg); };
   $('rkClose').onclick = close;
   dlg.oncancel = (e) => { e.preventDefault(); close(); };
-  $('rkCopy').onclick = async () => {
-    try { await navigator.clipboard.writeText(code); $('rkErr').textContent = 'הקוד הועתק. מומלץ גם לרשום אותו על נייר.'; }
-    catch { $('rkErr').textContent = 'ההעתקה נכשלה — סמנו את הקוד והעתיקו ידנית'; }
-  };
+  // אין העתקה ללוח: הלוח נשמר בהיסטוריה של Windows ועלול להסתנכרן לענן, והקוד פותח את כל הנתונים — רושמים על נייר
   $('rkSaved').onclick = async () => {
     try { await window.shellAPI.recoveryCodeSaved(); } catch { /* לא קריטי */ }
     close();
@@ -753,7 +753,16 @@ $('rk').onclick = showRecoveryCode;
 // שואלים קודם (בשקט) אם יש כניסה, ורק אז מבקשים את היעד — כדי לא לייצר חריגה בכל הפעלה.
 // בכל מעבר לחלק הכספי מנסים שוב, עד שהמשתמש מתחבר והטקסט מתעדכן.
 let targetShown = false;
+async function refreshAdminFlag() {
+  if (!window.shellAPI.isAdmin) return; // אנדרואיד
+  try {
+    if (!(await window.shellAPI.isLoggedIn())) return;
+    const admin = (await window.shellAPI.isAdmin()) === true;
+    if (admin !== shellAdmin) { shellAdmin = admin; if (!ui.active) renderHome(); }
+  } catch { /* נעדכן במעבר הבא */ }
+}
 async function refreshTargetIfLoggedIn() {
+  refreshAdminFlag();
   if (targetShown) return;
   try {
     if (!(await window.shellAPI.isLoggedIn())) return;
@@ -832,7 +841,7 @@ async function showPlainBackups() {
   await render();
 }
 $('tgWarn').onclick = showPlainBackups;
-window.shellAPI.onActive(id => { if (id === 'econ') refreshTargetIfLoggedIn(); });
+window.shellAPI.onActive(id => { if (id === 'econ') refreshTargetIfLoggedIn(); else if (!id) refreshAdminFlag(); });
 
 // פקודות מקלדת שמטופלות במעטפת (F1, Ctrl+K, Ctrl+Shift+B/R)
 window.shellAPI.onCmd(cmd => {

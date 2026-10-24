@@ -176,11 +176,16 @@ function createUpdateManager({ storage, rootKeys, currentVersion, platform, fetc
     return { version: p.version, path };
   }
 
-  // הקובץ המאומת שמוכן להתקנה (נבדק שוב לפני הרצה — אולי שונה בדיסק)
+  // הקובץ המאומת שמוכן להתקנה. updates.json אינו מוגן — התעודה נבדקת שוב בחתימה מול מפתח השורש, וה-payload
+  // שמוחזר (התמצית והגודל שהקובץ בדיסק נבדק מולם לפני ההרצה) הוא זה שבתעודה החתומה, לא מה שנשמר לידה
   function readyToInstall() {
-    const st = status();
-    if (!st.downloaded) throw new Error('אין עדכון מוכן להתקנה');
-    return { version: st.downloaded.version, path: st.downloaded.path, payload: st.available };
+    const d = load();
+    if (!d.available || !d.downloaded || typeof d.available.text !== 'string') throw new Error('אין עדכון מוכן להתקנה');
+    const p = verifyRelease(d.available.text, rootKeys);
+    if (p.platform !== platform || !isNewer(p) || d.downloaded.version !== p.version || typeof d.downloaded.path !== 'string') {
+      throw new Error('אין עדכון מוכן להתקנה');
+    }
+    return { version: p.version, path: d.downloaded.path, payload: p };
   }
 
   return { offer, status, download, fromFile, readyToInstall, markChecked: () => save({ ...load(), lastCheck: clock() }) };

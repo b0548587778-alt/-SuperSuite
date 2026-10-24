@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('shellAPI', {
   backupAll: (passphrase, scope) => ipcRenderer.invoke('shell:backup-all', passphrase, scope),
   restoreAll: (passphrase) => ipcRenderer.invoke('shell:restore-all', passphrase),
   isLoggedIn: () => ipcRenderer.invoke('shell:is-logged-in'),
+  isAdmin: () => ipcRenderer.invoke('shell:is-admin'),
   getBackupTarget: () => ipcRenderer.invoke('shell:get-backup-target'),
   getBackupStatus: () => ipcRenderer.invoke('shell:get-backup-status'),
   getHomeSummary: () => ipcRenderer.invoke('shell:get-home-summary'),

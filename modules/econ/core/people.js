@@ -20,6 +20,9 @@ const idKey = (raw) => {
 const digits = (s) => String(s ?? '').replace(/\D/g, '');
 const toAg = (n) => Math.round(Number(n || 0) * 100);
 
+// היום המקומי (לא UTC — בישראל toISOString מחזיר את אתמול בין חצות ל-03:00)
+const localToday = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
+
 // התחומים שמהם נבנה המאגר. sources מגביל לתחומים הפתוחים ברישיון — תחום סגור לא נחשף דרך כרטיס אדם.
 // trainer: המתאמנים ממודול האימונים (data.trainerClients — מגיע מ-ipc.js רק כשהמודול ברישיון והמחסן שלו פתוח)
 const SOURCES = ['npo', 'gemach', 'chesed', 'trainer'];
@@ -36,7 +39,7 @@ function collect(data, { canSeeConfidential = false, today, sources = SOURCES } 
   for (const o of npo.standingOrders || []) add('standing', o.donorName, o.donorId, o.donorPhone, { kind: 'standing', id: o.id, amount: o.amount, startMonth: o.startMonth, endMonth: o.endMonth || '' });
   for (const m of npo.memorials || []) add('memorial', m.contactName, m.contactId, m.contactPhone, { kind: 'memorial', id: m.id, deceased: m.name });
   const gm = open.has('gemach') ? data.gemach || {} : {};
-  const asOf = today || new Date().toISOString().slice(0, 10);
+  const asOf = today || localToday();
   for (const l of gm.loans || []) {
     const s = G.loanSummary(l, asOf);
     const ref = { kind: 'loan', id: l.id, borrower: l.borrowerName, amount: l.amount, status: s.statusLabel, active: l.status === 'active', outstanding: s.outstanding, lateCount: s.lateCount, issueDate: l.issueDate };

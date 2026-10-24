@@ -11,12 +11,14 @@ const RC = require('../core/recurring');
 const BR = require('../core/bankReconcile');
 const BZ = require('../core/bizReports');
 const IC = require('../core/invoiceCapture');
-const { assertIsraeliId } = require('../core/israeliId');
+const { assertIsraeliId, isValidIsraeliId } = require('../core/israeliId');
 
 const toAgSafe = (n) => Math.round(Number(n) * 100);
 // היום לפי השעון המקומי — לא toISOString (UTC), שמזיז את התאריך בין חצות ל-03:00
 const localDay = (ms = Date.now()) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const fromAgSafe = (a) => Math.round(a) / 100;
+// תאריך אמיתי בלבד: 2026-02-31 נדחה (Date.parse מגלגל אותו ל-3.3)
+const isDay = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))).toISOString().slice(0, 10) === s;
 
 class AccountingService {
   constructor(db) {
@@ -74,13 +76,32 @@ class AccountingService {
       .sort((a, b) => (b.date + (b.createdAt || '')).localeCompare(a.date + (a.createdAt || '')));
   }
 
+  // חשבונית ספק שכבר נרשמה: רשומה פעילה (לא בוטלה ואינה ביטול) עם אותו ע.מ ספק ואותה אסמכתה
+  _duplicateSupplierDoc(data, vatDoc) {
+    if (!vatDoc || !vatDoc.supplierTaxId || !vatDoc.reference) return null;
+    return (data.journal || []).find(e => e && !e.reversedBy && !e.reversalOf && e.vatDoc
+      && e.vatDoc.supplierTaxId === vatDoc.supplierTaxId && e.vatDoc.reference === vatDoc.reference) || null;
+  }
+
+  // entryData.confirmDuplicate — אישור מפורש לרשום חשבונית ספק שכבר נרשמה (אחרת נחסם: מע"מ התשומות נדרש פעמיים)
   async createEntry(entryData) {
     const data = await this._load();
     const validated = A.validateEntry(entryData, data.accounts);
     this._assertOpen(data, validated.date);
     // פרטי חשבונית הספק לדוח המע"מ המפורט (PCN874): רק ברשומה שיש בה מע"מ תשומות
-    const vatDoc = PCN.validateVatDoc(entryData && entryData.vatDoc);
-    const entry = { id: crypto.randomUUID(), ...validated, ...(vatDoc && validated.lines.some(l => l.account === A.SYS.INPUT_VAT) ? { vatDoc } : {}), createdAt: new Date().toISOString() };
+    const parsedDoc = PCN.validateVatDoc(entryData && entryData.vatDoc);
+    const vatDoc = parsedDoc && validated.lines.some(l => l.account === A.SYS.INPUT_VAT) ? parsedDoc : null;
+    // ספרת ביקורת — גם בטופס היומן הידני (הקליטה בודקת בעצמה): מספר שגוי היה נכנס בשקט ל-PCN874
+    if (vatDoc && vatDoc.supplierTaxId && !isValidIsraeliId(vatDoc.supplierTaxId)) {
+      throw new Error('מספר העוסק / ח"פ של הספק אינו תקין (ספרת ביקורת) — יש לבדוק מול החשבונית, או להשאיר ריק');
+    }
+    const dup = this._duplicateSupplierDoc(data, vatDoc);
+    if (dup && entryData.confirmDuplicate !== true) {
+      const err = new Error(`חשבונית ${vatDoc.reference} של הספק ${vatDoc.supplierTaxId} כבר נרשמה ביומן (${dup.date}) — רישום נוסף יכפיל את מע"מ התשומות. אם זו חשבונית אחרת — יש לאשר במפורש`);
+      err.code = 'duplicate-supplier-invoice';
+      throw err;
+    }
+    const entry = { id: crypto.randomUUID(), ...validated, ...(vatDoc ? { vatDoc } : {}), createdAt: new Date().toISOString() };
     data.journal.push(entry);
     await this.db.save(data);
     return entry;
@@ -137,7 +158,9 @@ class AccountingService {
   _invoiceView(data, i) {
     const credited = SD.creditedAg(data.salesDocs, i.id);
     const receipt = data.salesDocs.find(d => d.kind === 'receipt' && d.invoiceId === i.id && d.status !== 'cancelled');
+    // netBalance — יתרת הנטו לזיכוי: הסכום שמקלידים בזיכוי חלקי כדי לסגור את החשבונית עד האגורה
     return { ...i, allocation: AL.allocationState(i), credited: A.fromAg(credited), balance: A.fromAg(A.toAg(i.total) - credited),
+      netBalance: A.fromAg(A.toAg(i.net) - SD.creditedAg(data.salesDocs, i.id, 'net')),
       ...(receipt ? { receiptNumber: receipt.number, receiptId: receipt.id } : {}) };
   }
 
@@ -737,7 +760,7 @@ class AccountingService {
     const rate = input.vatRate === undefined ? this._vatRate(data) : Number(input.vatRate);
     if (!Number.isFinite(rate) || rate < 0 || rate >= 1) throw new Error('שיעור מע"מ לא תקין');
     const lockDate = String(input.lockDate || '').trim();
-    if (lockDate && !/^\d{4}-\d{2}-\d{2}$/.test(lockDate)) throw new Error('תאריך נעילה לא תקין');
+    if (lockDate && !isDay(lockDate)) throw new Error('תאריך נעילה לא תקין');
     const b = input.business || {};
     const business = {
       name: String(b.name || '').trim(), taxId: String(b.taxId || '').trim(),
@@ -753,7 +776,7 @@ class AccountingService {
     if (signature) business.signature = signature;
     if (prev.logo) business.logo = prev.logo;
     // invoiceSeq נשמר כמו שהוא (...data.settings) — שמירת הגדרות לא מאפסת את המונה
-    data.settings = { ...(data.settings || {}), vatRate: rate, lockDate, business };
+    data.settings = { ...this._settingsWithVatRate(data, rate), lockDate, business };
     await this.db.save(data);
     return this.getSettings();
   }
@@ -912,20 +935,78 @@ class AccountingService {
   async captureInvoice(input) {
     const data = await this._load();
     const codes = IC.expenseAccountCodes(data.accounts);
-    const out = IC.draftEntry(input || {}, { vatRate: this._vatRate(data), expenseAccounts: codes });
+    const rateInfo = this._vatRateInfo(data, input && input.date);
+    const out = IC.draftEntry(input || {}, { vatRate: rateInfo.rate, expenseAccounts: codes });
+    // שיעור מההגדרות שלא אושר לתאריך הזה (בלי שינוי שנרשם) ושונה מהשיעור הידוע לתאריך — לבדיקה, לא לתיקון שקט
+    const explicitRate = input && input.vatRate !== undefined && input.vatRate !== null && input.vatRate !== '';
+    const legal = UF.legalVatRate(out.entry.date);
+    if (!explicitRate && !(input && input.exempt) && rateInfo.source !== 'legal' && rateInfo.source !== 'change'
+      && legal != null && Math.abs(legal - rateInfo.rate) > 1e-9) {
+      const pct = (r) => `${Math.round(r * 10000) / 100}%`;
+      out.warnings.push(`שיעור המע"מ בטיוטה (${pct(rateInfo.rate)}) שונה מהשיעור הידוע לתאריך החשבונית (${pct(legal)}) — יש לבדוק מול החשבונית`);
+    }
     const suggestion = IC.suggestAccount(input || {}, data.journal || [], codes);
     const expenseAccounts = data.accounts
       .filter(a => a.type === 'expense' && codes.includes(String(a.code)))
       .map(a => ({ code: String(a.code), name: a.name }))
       .sort((a, b) => a.code.localeCompare(b.code));
-    return { ...out, suggestion, expenseAccounts };
+    // כפילות: מוצגת בטיוטה; הרישום עצמו נחסם ב-createEntry עד אישור מפורש
+    const dup = this._duplicateSupplierDoc(data, out.entry.vatDoc);
+    const duplicate = dup ? { entryId: dup.id, date: dup.date, description: dup.description } : null;
+    if (duplicate) out.warnings.unshift(`חשבונית זו של הספק כבר נרשמה ביומן (${dup.date}: ${dup.description}) — רישום נוסף יכפיל את מע"מ התשומות`);
+    return { ...out, suggestion, expenseAccounts, duplicate };
+  }
+
+  // שיעור המע"מ לפיצול חשבונית ספק לפי תאריך החשבונית. source:
+  // legal — תקופה שכבר נסגרה בטבלה (uniformFile); change — שינוי שנרשם בהגדרות וחל מתאריך שאינו אחרי החשבונית;
+  // prev — לפני השינוי הראשון שנרשם (השיעור שהיה אז בהגדרות); settings — אין שינוי רשום: השיעור הנוכחי
+  _vatRateInfo(data, date) {
+    const d = String(date || '').slice(0, 10);
+    const current = this._vatRate(data);
+    if (!isDay(d)) return { rate: current, source: 'settings' };
+    const history = UF.VAT_HISTORY;
+    if (d < history[history.length - 1].from) {
+      const legal = UF.legalVatRate(d);
+      return legal == null ? { rate: current, source: 'settings' } : { rate: legal, source: 'legal' };
+    }
+    const changes = this._vatRateChanges(data);
+    if (!changes.length) return { rate: current, source: 'settings' };
+    let info = { rate: changes[0].prev, source: 'prev' };
+    for (const c of changes) if (c.from <= d) info = { rate: c.rate, source: 'change' };
+    return info;
+  }
+
+  _vatRateOn(data, date) { return this._vatRateInfo(data, date).rate; }
+
+  // שינויי שיעור המע"מ שנרשמו: [{ from, rate, prev }] לפי התאריך (קלט מהמסד — מסונן)
+  _vatRateChanges(data) {
+    const list = data.settings && data.settings.vatRateChanges;
+    const ok = (r) => Number.isFinite(r) && r >= 0 && r < 1;
+    return (Array.isArray(list) ? list : []).filter(c => c && isDay(c.from) && ok(c.rate) && ok(c.prev))
+      .sort((a, b) => a.from.localeCompare(b.from));
+  }
+
+  // הגדרות עם שיעור חדש. שינוי נרשם עם היום המקומי ועם השיעור הקודם — אחרת חשבונית ספק מלפני השינוי,
+  // שנקלטת אחריו, מפוצלת בשיעור החדש. שינוי חוזר באותו יום מחליף את הקודם (תיקון הקלדה)
+  _settingsWithVatRate(data, rate) {
+    const settings = { ...(data.settings || {}), vatRate: rate };
+    const current = this._vatRate(data);
+    if (rate === current) return settings;
+    const today = localDay();
+    const changes = this._vatRateChanges(data);
+    const sameDay = changes.find(c => c.from === today);
+    const prev = sameDay ? sameDay.prev : current;
+    const kept = changes.filter(c => c.from !== today);
+    if (rate !== prev) kept.push({ from: today, rate, prev });
+    settings.vatRateChanges = kept.sort((a, b) => a.from.localeCompare(b.from)).slice(-50);
+    return settings;
   }
 
   async setVatRate(rate) {
     const r = Number(rate);
     if (!Number.isFinite(r) || r < 0 || r >= 1) throw new Error('שיעור מע"מ לא תקין');
     const data = await this._load();
-    data.settings = { ...(data.settings || {}), vatRate: r };
+    data.settings = this._settingsWithVatRate(data, r);
     await this.db.save(data);
     return r;
   }

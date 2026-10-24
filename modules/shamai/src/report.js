@@ -41,13 +41,18 @@ function saveAppraiserSettings() {
   toast('פרטי השמאי נשמרו', 'success');
 }
 
-// מספר דוח קבוע לכל פריט — נקבע בהפקה הראשונה ולא חוזר אחורה
+// מספר דוח קבוע לכל פריט — נקבע בהפקה הראשונה ולא חוזר אחורה. מספר מקובץ מיובא שאינו שלם חיובי — לא נלקח
 function reportNumberFor(opp) {
-  if (opp.reportNo) return opp.reportNo;
+  if (Number.isInteger(opp.reportNo) && opp.reportNo > 0) return opp.reportNo;
   const next = (Number(Storage.load('reportSeq', 0)) || 0) + 1;
-  Storage.save('reportSeq', next);
+  // 0 — המספר לא נשמר (ההודעה — מ-Storage.save), והדוח לא מודפס: אחרת אותו מספר היה מונפק שוב לדוח הבא
+  if (!Storage.save('reportSeq', next)) return 0;
+  const had = 'reportNo' in opp, prev = opp.reportNo;
   opp.reportNo = next;
-  Storage.save('opportunities', state.opportunities);
+  if (!Storage.save('opportunities', state.opportunities)) {
+    if (had) opp.reportNo = prev; else delete opp.reportNo;
+    return 0;
+  }
   return next;
 }
 
@@ -63,7 +68,8 @@ function appraisalDetails(category) {
       const g = state.gold;
       const w = parseFloat($('#g-weight')?.value);
       const unit = $('#g-unit')?.value || 'g';
-      const v = goldValue({ weight: w, unit, purity: g.purity, spotUsd: g.metal === 'gold' ? p.gold : p.silver, usdIls: p.usdIls, scrap: false });
+      const scrap = !!$('#g-scrap-mode')?.checked;
+      const v = goldValue({ weight: w, unit, purity: g.purity, spotUsd: g.metal === 'gold' ? p.gold : p.silver, usdIls: p.usdIls, scrap });
       return [
         ['מתכת', g.metal === 'gold' ? 'זהב' : 'כסף'],
         ['טוהר', fmt(g.purity * 1000, 0) + '/1000'],
@@ -72,6 +78,7 @@ function appraisalDetails(category) {
         ['מחיר לאונקיה', '$' + fmt(g.metal === 'gold' ? p.gold : p.silver, 2)],
         rate,
         ['שווי התכה', '₪' + fmt0(v.meltIls)],
+        ...(scrap ? [['מחיר רכישה כסקראפ (70%)', '₪' + fmt0(v.payIls)]] : []),
       ];
     }
     case 'diamond': {
@@ -151,7 +158,7 @@ function buildReportHtml(opp, appraiser, photo, today, reportNo) {
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <title>דוח שמאות ${reportNo} - ${escapeHtml(opp.name || '')}</title>
+  <title>דוח שמאות ${escapeHtml(reportNo)} - ${escapeHtml(opp.name || '')}</title>
   <style>
     @page { margin: 2cm; }
     body { font-family: 'David', 'Times New Roman', serif; line-height: 1.6; color: #000; max-width: 700px; margin: 0 auto; padding: 20px; background: #fff; }
@@ -203,7 +210,7 @@ function buildReportHtml(opp, appraiser, photo, today, reportNo) {
   </div>
 
   <div class="footer">
-    ${escapeHtml(ap.business || ap.name || 'שמאי')} | דוח מספר ${reportNo} | ${today}
+    ${escapeHtml(ap.business || ap.name || 'שמאי')} | דוח מספר ${escapeHtml(reportNo)} | ${escapeHtml(today)}
   </div>
 </body>
 </html>`;
@@ -232,5 +239,7 @@ async function exportPDFReport(opp) {
   if (opp.hasPhoto) {
     try { photo = await ImageDB.load(`opp_${opp.id}`) || ''; } catch (e) { photo = ''; }
   }
-  openPrintPreview(buildReportHtml(opp, loadAppraiser(), photo, today, reportNumberFor(opp)));
+  const no = reportNumberFor(opp);
+  if (!no) return;
+  openPrintPreview(buildReportHtml(opp, loadAppraiser(), photo, today, no));
 }

@@ -1,8 +1,11 @@
 // תחליפים למודולים של Node (fs, path, crypto, node:sqlite, url) ול-Buffer — עבור הקוד של המודול הכלכלי
 // כשהוא רץ בתוך WebView באנדרואיד. העבודה הכבדה (SQLite, scrypt, AES-GCM, קבצים) נעשית ב-Java דרך הגשר.
-// הקובץ נטען גם ב-Node בבדיקות (tests/android-shims.test.js) עם גשר מדומה.
+// גם התחליף ל-dialog / BrowserWindow של Electron (createElectronShims) — בוחר הקבצים והתיקיות של אנדרואיד.
+// הקובץ נטען גם ב-Node בבדיקות (tests/android-port.test.js, tests/audit-android.test.js) עם גשר מדומה.
 (function (root) {
   'use strict';
+  // תיקיית הנתונים (הווירטואלית) של הקוד הכלכלי — initEcon ב-host.js. אין לתת אותה לתיקייה שנבחרה
+  const DATA_ROOT = '/data';
 
   function createNodeShims(rawBridge) {
     // כל מתודה בגשר מחזירה JSON: {"r": תוצאה} או {"e": "הודעת שגיאה"}
@@ -45,7 +48,8 @@
             return b;
           }
           if (e === 'base64') return Buffer.wrap(b64decode(value));
-          if (e === 'latin1' || e === 'binary') {
+          // כמו Node: ascii בכתיבה = הבית הנמוך של כל תו (זהה ל-latin1)
+          if (e === 'latin1' || e === 'binary' || e === 'ascii') {
             const b = new Buffer(value.length);
             for (let i = 0; i < value.length; i++) b[i] = value.charCodeAt(i) & 255;
             return b;
@@ -71,9 +75,34 @@
         if (e === 'hex') return Array.from(this, x => x.toString(16).padStart(2, '0')).join('');
         if (e === 'base64') return b64encode(this);
         if (e === 'latin1' || e === 'binary') return Array.from(this, x => String.fromCharCode(x)).join('');
+        if (e === 'ascii') return Array.from(this, x => String.fromCharCode(x & 0x7f)).join('');
         return dec.decode(this);
       }
       equals(other) { return this.length === other.length && this.every((x, i) => x === other[i]); }
+      // מספרים שלמים בבתים (ZIP של הקבצים במבנה אחיד — uniformFile.zipSingle). חריגה — RangeError, כמו ב-Node
+      _int(value, offset, bytes, le, write) {
+        const o = offset === undefined ? 0 : offset;
+        if (!Number.isInteger(o) || o < 0 || o + bytes > this.length) throw new RangeError(`The value of "offset" is out of range. It must be >= 0 and <= ${this.length - bytes}. Received ${o}`);
+        if (!write) {
+          let v = 0;
+          for (let i = 0; i < bytes; i++) v += this[o + (le ? i : bytes - 1 - i)] * 2 ** (8 * i);
+          return v;
+        }
+        const max = 2 ** (8 * bytes) - 1;
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > max) throw new RangeError(`The value of "value" is out of range. It must be >= 0 and <= ${max}. Received ${value}`);
+        for (let i = 0; i < bytes; i++) this[o + (le ? i : bytes - 1 - i)] = Math.floor(value / 2 ** (8 * i)) & 255;
+        return o + bytes;
+      }
+      writeUInt8(v, o) { return this._int(v, o, 1, true, true); }
+      writeUInt16LE(v, o) { return this._int(v, o, 2, true, true); }
+      writeUInt16BE(v, o) { return this._int(v, o, 2, false, true); }
+      writeUInt32LE(v, o) { return this._int(v, o, 4, true, true); }
+      writeUInt32BE(v, o) { return this._int(v, o, 4, false, true); }
+      readUInt8(o) { return this._int(0, o, 1, true, false); }
+      readUInt16LE(o) { return this._int(0, o, 2, true, false); }
+      readUInt16BE(o) { return this._int(0, o, 2, false, false); }
+      readUInt32LE(o) { return this._int(0, o, 4, true, false); }
+      readUInt32BE(o) { return this._int(0, o, 4, false, false); }
     }
     const toBuf = (x, encoding) => (x instanceof Uint8Array ? Buffer.from(x) : Buffer.from(String(x), encoding || 'utf8'));
 
@@ -171,31 +200,100 @@
     /* ---------- fs ---------- */
     // אין מערכת קבצים אמיתית לקוד הכלכלי. כתיבה לקובץ שנבחר בדיאלוג השמירה עוברת לגשר (Storage Access Framework).
     const pendingWrites = new Map(); // שם להצגה ← יעד שנבחר ב-dialog.showSaveDialog
+    // תיקייה שנבחרה ב-dialog.showOpenDialog({ properties: ['openDirectory'] }) — נתיב להצגה ← URI של התיקייה.
+    // כתיבה, יצירת תיקיות ובדיקת קיום בתוכה עוברות לגשר (treeWrite / treeMkdirs / treeExists).
+    // DATA_ROOT (תיקיית הנתונים של הקוד הכלכלי, initEcon ב-host.js) שמורה: תיקייה שנבחרה בשם "data" לא תקבל אותה,
+    // אחרת כל כתיבה לתיקיית הנתונים (הגדרות העוזר, עדכונים) הייתה יוצאת גלויה לתיקייה המשותפת שבחר המשתמש
+    const trees = new Map();
+    function treeOf(p) {
+      const s = path.normalize(String(p));
+      for (const [root, uri] of trees) {
+        if (s === root) return { uri, rel: '' };
+        if (s.startsWith(root + '/')) return { uri, rel: s.slice(root.length + 1) };
+      }
+      return null;
+    }
     function enoent(p) { const e = new Error(`ENOENT: no such file or directory, open '${p}'`); e.code = 'ENOENT'; return e; }
+    // הקידוד מגיע כמחרוזת ('latin1') או כאפשרות ({ encoding }) — כמו ב-Node
+    const encodingOf = o => (typeof o === 'string' ? o : (o && typeof o.encoding === 'string' ? o.encoding : 'utf8'));
     const fs = {
       _register(displayPath, target) { pendingWrites.set(displayPath, target); },
-      existsSync: () => false,
-      mkdirSync: () => undefined,
+      _registerDir(name, uri) {
+        const base = '/' + (String(name || '').replace(/[\\/\0]/g, '').trim() || 'תיקייה');
+        let root = base;
+        const taken = r => r === DATA_ROOT || (trees.has(r) && trees.get(r) !== uri);
+        for (let n = 2; taken(root); n++) root = `${base} (${n})`;
+        trees.set(root, uri);
+        return root;
+      },
+      existsSync: p => { const t = treeOf(p); return !!(t && call('treeExists', t.uri, t.rel)); },
+      mkdirSync: p => { const t = treeOf(p); if (t && t.rel) call('treeMkdirs', t.uri, t.rel); },
       statSync: p => { throw enoent(p); },
       readdirSync: p => { throw enoent(p); },
       readFileSync: p => { throw enoent(p); },
       renameSync: () => undefined,
       rmSync: () => undefined,
       unlinkSync: () => undefined,
-      writeFileSync(p, data) {
+      writeFileSync(p, data, options) {
+        // PDF: מסך ההדפסה של המכשיר (שם "שמירה כ-PDF"). לפני בדיקת היעד: החלון והכתיבה כבר לא ברצף אחד בתור
+        // (handleSave), ושני ייצואי PDF במקביל חולקים את אותו שם להצגה — השני לא היה מוצא יעד
+        if (data && data.__printHtml !== undefined) { pendingWrites.delete(p); call('printHtml', data.__printHtml, ''); return; }
+        const tree = treeOf(p);
         const target = pendingWrites.get(p);
-        if (!target) throw new Error('כתיבה לקובץ אינה נתמכת בגרסת אנדרואיד');
+        if (!target && !(tree && tree.rel)) throw new Error('כתיבה לקובץ אינה נתמכת בגרסת אנדרואיד');
         pendingWrites.delete(p);
-        if (data && data.__printHtml !== undefined) { call('printHtml', data.__printHtml, ''); return; }
-        call('writeUri', target, toBuf(data).toString('base64'));
+        const b64 = toBuf(data, encodingOf(options)).toString('base64');
+        if (target) call('writeUri', target, b64);
+        else call('treeWrite', tree.uri, tree.rel, b64);
       }
     };
 
     const url = { pathToFileURL: p => ({ href: 'file://' + p, toString() { return 'file://' + p; } }) };
 
-    return { Buffer, crypto, 'node:sqlite': { DatabaseSync }, path, fs, url, b64encode, b64decode, call };
+    return { Buffer, crypto, 'node:sqlite': { DatabaseSync }, path, fs, url, b64encode, b64decode, call, DATA_ROOT };
   }
 
-  if (typeof module !== 'undefined' && module.exports) module.exports = { createNodeShims };
-  else root.createNodeShims = createNodeShims;
+  /* ---------- dialog ו-BrowserWindow של Electron (לקוד הכלכלי) ---------- */
+  // shims = תוצאת createNodeShims. bridgeAsync(method, ...args) — פעולה אסינכרונית ב-Java (בוחר קבצים / תיקיות)
+  const PRINT_LABEL = 'מסך ההדפסה של המכשיר (שמירה כ-PDF)';
+  const MIME = { csv: 'text/csv', pdf: 'application/pdf', vcf: 'text/vcard', json: 'application/json', ssbk: 'application/octet-stream', txt: 'text/plain', msv: 'application/octet-stream', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
+  function createElectronShims(shims, { bridgeAsync, alert }) {
+    const show = typeof alert === 'function' ? alert : () => {};
+    const dialog = {
+      async showSaveDialog(a, b) {
+        const opts = (b || a) || {};
+        const name = String(opts.defaultPath || 'file').split(/[\\/]/).pop();
+        const ext = ((opts.filters && opts.filters[0] && opts.filters[0].extensions && opts.filters[0].extensions[0]) || name.split('.').pop() || '').toLowerCase();
+        if (ext === 'pdf') { shims.fs._register(PRINT_LABEL, 'print'); return { canceled: false, filePath: PRINT_LABEL }; }
+        const r = await bridgeAsync('createDocument', name, MIME[ext] || 'application/octet-stream');
+        if (!r || !r.uri) return { canceled: true };
+        shims.fs._register(r.name, r.uri);
+        return { canceled: false, filePath: r.name };
+      },
+      // בחירת תיקייה (למשל קבצים במבנה אחיד) — בוחר התיקיות של אנדרואיד; בחירת קובץ לקריאה אינה בשימוש בקוד הכלכלי
+      async showOpenDialog(a, b) {
+        const opts = (b || a) || {};
+        const props = Array.isArray(opts.properties) ? opts.properties : [];
+        if (!props.includes('openDirectory')) return { canceled: true, filePaths: [] };
+        const r = await bridgeAsync('pickFolder');
+        if (!r || !r.uri) return { canceled: true, filePaths: [] };
+        return { canceled: false, filePaths: [shims.fs._registerDir(r.name, r.uri)] };
+      },
+      async showMessageBox(a, b) { show(((b || a) || {}).message || ''); return { response: 0 }; },
+      showErrorBox(title, msg) { show(title + '\n' + msg); }
+    };
+    // חלון PDF: ה-HTML נשמר, ו-printToPDF מחזיר אותו לכתיבה — fs.writeFileSync פותח את מסך ההדפסה
+    class PdfWindow {
+      constructor() { this.html = ''; const self = this; this.webContents = { printToPDF: async () => ({ __printHtml: self.html }) }; }
+      async loadURL(u) {
+        const m = /^data:text\/html;charset=utf-8;base64,(.*)$/.exec(u);
+        this.html = m ? shims.Buffer.from(m[1], 'base64').toString('utf8') : '';
+      }
+      destroy() {}
+    }
+    return { dialog, BrowserWindow: PdfWindow };
+  }
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = { createNodeShims, createElectronShims };
+  else { root.createNodeShims = createNodeShims; root.createElectronShims = createElectronShims; }
 })(typeof window !== 'undefined' ? window : globalThis);

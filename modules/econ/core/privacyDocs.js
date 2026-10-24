@@ -40,7 +40,7 @@ const orgLine = (org) => `<div>שם בעל המאגר: <b>${org && org.name ? es
 <div>כתובת: ${org && org.address ? esc(org.address) : FILL}</div>`;
 
 const mapTable = (map) => `<table><thead><tr><th>מאגר</th><th>רשומות</th><th>סוגי המידע</th><th>רגישות</th><th>מי ניגש</th></tr></thead><tbody>
-${map.rows.map(r => `<tr><td>${esc(r.area)}</td><td>${Number(r.count)}</td><td>${esc(r.fields)}</td><td>${esc(r.sensitivityLabel)}</td><td>${esc(r.access)}</td></tr>`).join('')
+${map.rows.map(r => `<tr><td>${esc(r.area)}</td><td>${r.count == null ? '—' : Number(r.count) || 0}</td><td>${esc(r.fields)}</td><td>${esc(r.sensitivityLabel)}</td><td>${esc(r.access)}</td></tr>`).join('')
   || '<tr><td colspan="5">אין עדיין רשומות במאגרים</td></tr>'}
 </tbody></table>`;
 

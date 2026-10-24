@@ -55,7 +55,9 @@ const RULE_CATALOG = [
   { id: 'prepayment.capitalizationDiscounts', value: [], effectiveFrom: '2002-01-01', source: 'צו הבנקאות (עמלת פירעון מוקדם). לא הוזנו מדרגות הנחה — יש להזין ולאמת לפי נוסח הצו.', description: 'הנחה בעמלת ההיוון לפי משך הזמן שחלף מנטילת ההלוואה' }
 ].map(r => Object.freeze({ valueYear: VALUE_YEAR, ...r, needsVerification: true }));
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+// תאריך שקיים בלוח (2026-02-31 נדחה) — core/dates.js
+const { isDay } = require('./dates');
+const ISO_DATE = { test: isDay };
 
 class RuleSet {
   constructor(rules = RULE_CATALOG, version = RULES_VERSION) {

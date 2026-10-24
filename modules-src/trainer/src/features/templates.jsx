@@ -3,7 +3,9 @@ import React, { useState } from 'react';
 import { GOALS, LEVELS } from '../data/constants.js';
 import { EXERCISES } from '../data/exercises.js';
 import { PROGRAM_TEMPLATES } from '../data/program-templates.js';
-import { S, K } from '../lib/db.js';
+import { S } from '../lib/db.js';
+import { assignTemplate } from '../lib/program.js';
+import { askConfirm, showSaveError } from '../lib/dialog.js';
 import { FONT_HEADING, FONT_BODY, Btn, Badge, Modal } from '../components/legacy-ui.jsx';
 import { savePdf, printNow } from '../lib/print.js';
 
@@ -16,6 +18,8 @@ export function TemplatesView({ clients, setView, saveClient }) {
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(null);
   const [printMode, setPrintMode] = useState(false);
+  const [assignTo, setAssignTo] = useState(''); // המתאמן שנבחר — ההקצאה רק בלחיצה על "הקצה"
+  const openTemplate = (t) => { setOpen(t); setAssignTo(''); };
 
   const cats = [
     { id: 'all', label: 'הכל' },
@@ -27,22 +31,14 @@ export function TemplatesView({ clients, setView, saveClient }) {
 
   const filtered = filter === 'all' ? PROGRAM_TEMPLATES : PROGRAM_TEMPLATES.filter(t => t.category === filter);
 
+  // פעם onChange של רשימת הבחירה שמר מיד (גם במעבר בחצים) ודרס את התוכנית בלי אישור (בדיקת קוד 23.10.2026).
+  // האישור והשמירה — ב-assignTemplate (lib/program.js, נבדקת בהרצה)
   const assignToClient = async (template, clientId) => {
     const client = clients.find(c => c.id === clientId);
-    if (!client) return;
-    const newProgram = {
-      goal: template.category,
-      level: template.level,
-      daysPerWeek: template.daysPerWeek,
-      createdAt: new Date().toISOString(),
-      templateId: template.id,
-      templateName: template.name,
-      days: template.days.map(d => ({
-        name: d.name,
-        exercises: d.exercises.map(e => ({ ...e, weight: '' })),
-      })),
-    };
-    await S.set(K.program(client.id), newProgram);
+    const result = await assignTemplate({ template, client, get: S.get, set: S.set, askConfirm });
+    if (result === 'failed') { showSaveError('השמירה נכשלה — התוכנית לא הוקצתה. נסו שוב.'); return; }
+    if (result !== 'saved') return;
+    setAssignTo('');
     setView({ name: 'client-detail', id: client.id });
   };
 
@@ -68,7 +64,7 @@ export function TemplatesView({ clients, setView, saveClient }) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {filtered.map(t => (
-          <button key={t.id} onClick={() => setOpen(t)}
+          <button key={t.id} onClick={() => openTemplate(t)}
             className="text-right bg-slate-900/60 border border-slate-800 rounded-xl p-5 hover:border-indigo-600 transition">
             <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
               <Badge tone="indigo">{GOALS.find(g => g.id === t.category)?.label || t.category}</Badge>
@@ -142,11 +138,14 @@ export function TemplatesView({ clients, setView, saveClient }) {
             <div className="border-t border-slate-800 pt-4 flex flex-wrap gap-2">
               <Btn variant="primary" onClick={() => setPrintMode(true)}>⎙ ייצוא PDF</Btn>
               {clients.length > 0 && (
-                <select onChange={(e) => { if (e.target.value) assignToClient(open, e.target.value); }}
-                  className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" defaultValue="">
-                  <option value="">הקצה למתאמן...</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <>
+                  <select value={assignTo} onChange={(e) => setAssignTo(e.target.value)} aria-label="מתאמן להקצאת התוכנית"
+                    className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+                    <option value="">בחירת מתאמן...</option>
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  <Btn variant="secondary" disabled={!assignTo} onClick={() => assignToClient(open, assignTo)}>הקצה למתאמן</Btn>
+                </>
               )}
             </div>
           </div>
