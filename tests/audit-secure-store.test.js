@@ -12,6 +12,9 @@ const path = require('path');
 const crypto = require('crypto');
 const SecureStore = require('../shell/secure-store');
 const { loadShamai } = require('./helpers/shamai-src');
+// הרתמה מחליפה את setTimeout הגלובלי בטיימר unref — כשכל ההמתנות unref, ב-Node 22 לולאת האירועים מסתיימת
+// והבדיקות הממתינות מבוטלות (CI #64). ההמתנות של הבדיקות עצמן — בטיימר האמיתי
+const realSetTimeout = setTimeout;
 const { createMainHarness } = require('./helpers/secure-store-main');
 
 const ROOT = path.join(__dirname, '..');
@@ -202,9 +205,9 @@ test('ממצא 37: לחיצת עכבר מאריכה את הפגישה; תזוז�
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 function fakeIndexedDB(initial = {}) {
   const st = new Map(Object.entries(initial));
-  const req = (fn) => { const r = {}; setTimeout(() => { r.result = fn(); r.onsuccess && r.onsuccess(); }, 0); return r; };
+  const req = (fn) => { const r = {}; realSetTimeout(() => { r.result = fn(); r.onsuccess && r.onsuccess(); }, 0); return r; };
   const db = { objectStoreNames: { contains: () => true }, transaction: () => {
-    const tx = { objectStore: () => ({ get: (k) => req(() => st.get(k)), delete: (k) => { st.delete(k); setTimeout(() => tx.oncomplete && tx.oncomplete(), 0); } }) };
+    const tx = { objectStore: () => ({ get: (k) => req(() => st.get(k)), delete: (k) => { st.delete(k); realSetTimeout(() => tx.oncomplete && tx.oncomplete(), 0); } }) };
     return tx;
   } };
   return { store: st, api: { open: () => req(() => db) } };
@@ -215,7 +218,7 @@ function rejecting(s, message = 'השינוי לא נשמר: לתפקיד שלך
   s.run(`localStorage.setItem = () => { throw new DOMException(__reject.message, __reject.name); };
          localStorage.removeItem = () => { throw new DOMException(__reject.message, __reject.name); };`);
 }
-const loadAll = () => { const s = loadShamai(['core', 'calc', 'prices', 'ledger', 'report', 'purchase', 'casefile', 'case-report']); s.ctx.DOMException = DOMException; s.ctx.console = { ...console, error() {} }; return s; };
+const loadAll = () => { const s = loadShamai(['core', 'calc', 'prices', 'ledger', 'report', 'purchase', 'casefile', 'case-report']); s.ctx.DOMException = DOMException; s.ctx.setTimeout = realSetTimeout; s.ctx.console = { ...console, error() {} }; return s; };
 
 test('ממצא 3 (שמאי): שמירה שנדחתה — false, הודעת שגיאה, ו"נשמר" שמיד אחריה לא מסתיר אותה', () => {
   const s = loadAll();
@@ -239,19 +242,19 @@ test('ממצא 3 (שמאי): תמונה ישנה לא נמחקת מ-IndexedDB כ
   rejecting(s);
   assert.equal(await s.run(`ImageDB.load('opp_old')`), PNG, 'התמונה מוצגת מהישן');
   assert.equal(await s.run(`ImageDB.migrateAll(['opp_old'])`), 0, 'לא הועברה — המחסן דחה');
-  await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => realSetTimeout(r, 5));
   assert.equal(idb.store.get('opp_old'), PNG, 'הישן נשאר — ננסה שוב בפעם הבאה');
   assert.ok(!s.el('#toast').textContent, 'העברה ברקע — בלי הודעה');
   await assert.rejects(s.run(`ImageDB.save('opp_new', ${JSON.stringify(PNG)})`), /צפייה בלבד/);
   assert.equal(await s.run(`ImageDB.delete('opp_2')`), false);
-  await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => realSetTimeout(r, 5));
   assert.equal(idb.store.get('opp_2'), PNG, 'מחיקה שנדחתה לא מוחקת את העותק הישן');
   assert.throws(() => s.run(`saveCasePhoto(${JSON.stringify(PNG)})`), (e) => e.message === 'לתפקיד שלך יש הרשאת צפייה בלבד', 'תמונה בתיק — הסיבה עולה למסך');
   assert.equal(s.run(`saveCases([])`), false);
 });
 
 // ---------- סבב סקירה: אישור שהמחסן נכתב לדיסק, ומסמכים ממוספרים שלא נשמרו ----------
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms) => new Promise((r) => realSetTimeout(r, ms));
 
 test('המחסן: write("flush") כותב לקובץ עכשיו — ok, או "disk" כשהכתיבה נכשלה; מחסן לא זמין — unavailable', () => {
   const dir = tmp();
