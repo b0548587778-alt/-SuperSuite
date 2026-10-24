@@ -17,6 +17,7 @@ fs.writeFileSync(path.join(userData, 'ui-settings.json'), JSON.stringify({ calen
 
 const handlers = {};
 const created = { views: [], windows: [] };
+let noDocuments = false;
 let moduleDumpFails = false; // קריאת localStorage של מודול נכשלת (בדיקת module-read-failed)
 let readyCallback = null;
 
@@ -79,7 +80,8 @@ const electronStub = {
   app: chainable({
     requestSingleInstanceLock: () => true,
     whenReady: () => ({ then: (fn) => { readyCallback = fn; return { catch() {} }; } }),
-    getPath: () => userData,
+    // noDocuments: מחשב שאין בו תיקיית "מסמכים" — Electron זורק (כמו במחשב של הבעלים, 24.10.2026)
+    getPath: (name) => { if (name === 'documents' && noDocuments) throw new Error("Failed to get 'documents' path"); return userData; },
     on() {}, exit() {}, quit() {},
     isPackaged: false,
   }),
@@ -322,4 +324,15 @@ test('saveJson: החלפה שנכשלה ← הקובץ הקודם נשאר; יע
   finally { dialogPlan.open = { canceled: true, filePaths: [] }; }
   assert.equal(backupSettings().targetDir, usb);
   assert.ok(backupSettings().lastAutoBackup, 'מיזוג — הסטטוס הקודם לא נמחק');
+});
+
+test('גיבוי אוטומטי: מחשב בלי תיקיית "מסמכים" — הגיבוי נכתב לתיקייה שנבחרה (פעם — שגיאה בכל סבב)', async () => {
+  await boot();
+  noDocuments = true;
+  try {
+    const before = fs.readdirSync(bkDir).filter(f => /^auto-.*.ssbk$/.test(f)).length;
+    const status = await autoBackup();
+    assert.equal(status.ok, true, JSON.stringify(status));
+    assert.ok(fs.readdirSync(bkDir).filter(f => /^auto-.*.ssbk$/.test(f)).length >= Math.min(before + 1, 1), 'נכתב גיבוי');
+  } finally { noDocuments = false; }
 });

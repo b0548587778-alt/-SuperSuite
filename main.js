@@ -367,7 +367,16 @@ const stateFile = () => path.join(app.getPath('userData'), 'window-state.json');
 const uiFile = () => path.join(app.getPath('userData'), 'ui-settings.json');
 const backupSettingsFile = () => path.join(app.getPath('userData'), 'backup-settings.json');
 // תיקיית הגיבוי האוטומטי: היעד שנבחר (USB), ואם לא נבחר — תיקיית המסמכים
-const backupDir = () => loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
+// תיקיית "מסמכים" — במחשב שאין בו כזו app.getPath זורק, והגיבוי האוטומטי נכשל גם כשנבחרה תיקייה אחרת
+// (נמצא במחשב של הבעלים 24.10.2026). אז — שולחן העבודה, ואחריו תיקיית הבית
+function documentsDir() {
+  for (const name of ['documents', 'desktop', 'home']) {
+    try { const p = app.getPath(name); if (p) return p; } catch (e) { /* הבא בתור */ }
+  }
+  return process.env.USERPROFILE || process.cwd();
+}
+const defaultBackupDir = () => path.join(documentsDir(), 'SuperSuite-Backups');
+const backupDir = () => loadJson(backupSettingsFile()).targetDir || defaultBackupDir();
 function loadJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } }
 // קובץ זמני ← דיסק (fsync) ← החלפה: ניתוק חשמל באמצע לא משאיר קובץ שבור (ש-loadJson היה קורא כ-{},
 // ויעד הגיבוי ל-USB היה חוזר בשקט לתיקיית המסמכים). כשל — הקובץ הקודם נשאר, השגיאה ביומן, ומוחזר false
@@ -607,7 +616,7 @@ function dbAtRestOptions() {
     },
     // גיבוי מוצפן של כל הנתונים לפני ההמרה. בלי גיבוי תקין — ההמרה לא מתחילה
     beforeEncrypt: async (db) => {
-      const dir = loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
+      const dir = loadJson(backupSettingsFile()).targetDir || defaultBackupDir();
       fs.mkdirSync(dir, { recursive: true });
       const out = { suite: 'SuperSuite', version: 2, scope: 'econ', createdAt: new Date().toISOString(), econ: await db.backup(), localStorage: {} };
       const file = path.join(dir, `before-encryption-${AutoBk.localDay()}-${Date.now()}.ssbk`);
@@ -723,7 +732,7 @@ function wireSecureStore() {
   ipcMain.on('secure-store:migrate', (e, mod, items) => {
     if (!fromModuleView(e, mod) || !econSessionAlive()) { e.returnValue = { ok: false }; return; }
     e.returnValue = secureStore(mod).migrate(items, (plain) => {
-      const dir = loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
+      const dir = loadJson(backupSettingsFile()).targetDir || defaultBackupDir();
       fs.mkdirSync(dir, { recursive: true });
       const out = { suite: 'SuperSuite', version: 2, scope: mod, createdAt: new Date().toISOString(), econ: null, localStorage: { [mod]: plain } };
       const file = path.join(dir, `before-encryption-${mod}-${AutoBk.localDay()}-${Date.now()}.ssbk`);
@@ -783,7 +792,7 @@ async function recoverDatabase(firstErr) {
   for (let round = 0; round < 20; round++) {
     const kind = DbRecovery.classifyDbError(err);
     logger.error('db-open', err);
-    const backupDir = loadJson(backupSettingsFile()).targetDir || path.join(app.getPath('documents'), 'SuperSuite-Backups');
+    const backupDir = loadJson(backupSettingsFile()).targetDir || defaultBackupDir();
     // הגיבוי החדש ביותר שבאמת מכיל את הכספים: גיבויים מלפני תיקון collectBackup עשויים להיות בלעדיהם
     const backup = kind === 'corrupt' ? DbRecovery.latestUsableAutoBackup(backupDir, openAutoBackup) : null;
     const d = DbRecovery.dialogFor(kind, backup);
@@ -837,7 +846,7 @@ async function autoBackupRun() {
     status = await AutoBk.runAutoBackup({
       encryptionAvailable: safeStorage.isEncryptionAvailable(),
       customTarget: loadJson(backupSettingsFile()).targetDir || '',
-      defaultTarget: path.join(app.getPath('documents'), 'SuperSuite-Backups'),
+      defaultTarget: defaultBackupDir(),
       collect: () => collectBackup('all'),
       getKey: () => autoBackupKey(true),
       write: AB.writeEncryptedAutoBackup
@@ -1265,7 +1274,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('trainer:save-pdf', async (e, name) => {
     if (!fromView(e, 'trainer')) return { ok: false };
     try {
-      return await PrintPdf.savePagePdf({ dialog, fs, win, wc: e.sender, name, dir: app.getPath('documents') });
+      return await PrintPdf.savePagePdf({ dialog, fs, win, wc: e.sender, name, dir: documentsDir() });
     } catch (err) {
       // ההודעה מוצגת במסך (חלון ההודעה המשותף), כמו שאר השגיאות במודול
       logger.error('trainer:save-pdf', err);
@@ -1292,7 +1301,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('shell:save-user-guide-pdf', async (e) => {
     if (!win || e.sender.id !== win.webContents.id) return false;
-    const r = await dialog.showSaveDialog(win, { title: 'שמירת מדריך המשתמש', defaultPath: path.join(app.getPath('documents'), 'SuperSuite-מדריך.pdf'), filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+    const r = await dialog.showSaveDialog(win, { title: 'שמירת מדריך המשתמש', defaultPath: path.join(documentsDir(), 'SuperSuite-מדריך.pdf'), filters: [{ name: 'PDF', extensions: ['pdf'] }] });
     if (r.canceled || !r.filePath) return false;
     const w = guideWindow(false);
     try {
