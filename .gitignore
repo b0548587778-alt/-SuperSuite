@@ -62,3 +62,7 @@ modules-src/*/dist/
 
 # צילומי מסך מ---smoke --shots (PLAN.md 7.1) — השוואת מראה, לא במאגר
 shots/
+
+# תעודת שרת הרישוי והמפתח הציבורי שלו (tools/licensing/sign-relay-cert.ps1) — מועתקים לשרת, לא במאגר
+/relay-cert.json
+/relay-key.pub.json
