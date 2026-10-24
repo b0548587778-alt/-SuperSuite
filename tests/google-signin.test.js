@@ -47,7 +47,8 @@ test('אסימון פגום או לא שייך — נדחה', async () => {
 test('מפתח שהתחלף אצל Google — נטען מחדש פעם אחת', async () => {
   GS._resetCache();
   let calls = 0;
-  const fetchImpl = async () => { calls++; return { ok: true, json: async () => ({ keys: calls === 1 ? [] : [JWK] }) }; };
+  const OLD = { ...JWK, kid: 'k0' };
+  const fetchImpl = async () => { calls++; return { ok: true, json: async () => ({ keys: calls === 1 ? [OLD] : [OLD, JWK] }) }; };
   const r = await GS.verifyIdToken(token(), { clientId: CLIENT_ID, nonce: 'n1', now: NOW, fetchImpl });
   assert.equal(r.sub, '1001');
   assert.equal(calls, 2);
@@ -60,7 +61,7 @@ test('הגדרות לא תקינות נדחות', () => {
 });
 
 // Google מדומה: "הדפדפן" מבצע את החזרה לכתובת המקומית, ונקודת האסימון מחזירה id_token חתום עם ה-nonce שבבקשה
-function fakeGoogle({ claims = {}, tamperState = false, deny = false } = {}) {
+function fakeGoogle({ claims = {}, tamperState = false, deny = false, certs } = {}) {
   const seen = {};
   const openBrowser = async (url) => {
     const u = new URL(url);
@@ -74,7 +75,7 @@ function fakeGoogle({ claims = {}, tamperState = false, deny = false } = {}) {
     seen.page = await r.text();
   };
   const fetchImpl = async (url, opts) => {
-    if (url === GS.CERTS_URL) return { ok: true, json: async () => ({ keys: [JWK] }) };
+    if (url === GS.CERTS_URL) return certs ? certs() : { ok: true, json: async () => ({ keys: [JWK] }) };
     assert.equal(url, GS.TOKEN_URL);
     const body = new URLSearchParams(opts.body);
     seen.tokenBody = Object.fromEntries(body);
@@ -104,6 +105,38 @@ test('state שגוי לא מתקבל; ביטול בדפדפן — שגיאה ב�
   await assert.rejects(GS.signIn({ clientId: CLIENT_ID }, { ...bad, now: () => NOW, waitMs: 300 }), /הזמן לכניסה/);
   assert.match(bad.seen.page, /אינה תואמת/);
   await assert.rejects(GS.signIn({ clientId: CLIENT_ID }, { ...fakeGoogle({ deny: true }), now: () => NOW }), /בוטלה/);
+});
+
+test('רגרסיה: מפתחות החתימה חסומים בסינון — הכניסה עוברת, כי האסימון הגיע ישירות מ-Google', async () => {
+  const blocked = [
+    () => { throw new TypeError('fetch failed'); },
+    () => ({ ok: false, status: 418, json: async () => ({}) }),
+    () => ({ ok: true, json: async () => { throw new SyntaxError('דף חסימה'); } }),
+    () => ({ ok: true, json: async () => null }),
+    () => ({ ok: true, json: async () => ({}) }),
+    () => ({ ok: true, json: async () => ({ keys: [] }) }),
+  ];
+  for (const certs of blocked) {
+    GS._resetCache();
+    const r = await GS.signIn({ clientId: CLIENT_ID }, { ...fakeGoogle({ certs }), now: () => NOW });
+    assert.equal(r.sub, '1001');
+  }
+  // שאר הבדיקות נשארות גם בלי המפתחות
+  GS._resetCache();
+  await assert.rejects(GS.signIn({ clientId: CLIENT_ID }, { ...fakeGoogle({ certs: blocked[0], claims: { aud: 'other' } }), now: () => NOW }), /לא הונפק לתוכנה/);
+  GS._resetCache();
+  await assert.rejects(GS.signIn({ clientId: CLIENT_ID }, { ...fakeGoogle({ certs: blocked[0], claims: { exp: 1 } }), now: () => NOW }), /תוקף/);
+  // מפתחות שהתקבלו — החתימה נבדקת: אסימון בחתימה זרה נדחה
+  GS._resetCache();
+  const other = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const forged = { ...other.publicKey.export({ format: 'jwk' }), kid: 'k1' };
+  await assert.rejects(GS.signIn({ clientId: CLIENT_ID }, { ...fakeGoogle({ certs: () => ({ ok: true, json: async () => ({ keys: [forged] }) }) }), now: () => NOW }), /חתימת Google/);
+});
+
+test('בלי ערוץ ישיר מ-Google — מפתחות חסומים הם שגיאה ברורה בעברית, לא "שגיאה פנימית"', async () => {
+  GS._resetCache();
+  const fetchImpl = async () => { throw new TypeError('fetch failed'); };
+  await assert.rejects(GS.verifyIdToken(token(), { clientId: CLIENT_ID, nonce: 'n1', now: NOW, fetchImpl }), /מפתחות האימות של Google/);
 });
 
 // ---------- ערוצי IPC ----------
