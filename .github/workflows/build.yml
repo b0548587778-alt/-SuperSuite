@@ -68,6 +68,11 @@ jobs:
           if grep -q '"node_modules/node-llama-cpp"' package-lock.json; then CMD="npm ci"; else CMD="npm install"; fi
           { echo "== $CMD"; $CMD 2>&1; } | tee -a "$LOG"
           cp package-lock.json ci-logs/root-package-lock.json
+      # רכיב ההרצה של המודל המקומי — למחשב, דרך ci-status: node tools/llm-runtime.js fetch.
+      # תוספת בלבד: כישלון כאן לא עוצר את הבנייה (ריצה #62)
+      - name: llm runtime for ci-status
+        continue-on-error: true
+        run: set -o pipefail; { echo "== llm-runtime"; node tools/llm-runtime.js pack ci-logs/llm-runtime 2>&1; } | tee -a "$LOG"
       # המתקין אורז את מודול האימונים שנבנה מהמקור באותה ריצה (PLAN.md 6.1), לא את העותק שבמאגר.
       # עותק לפני הכיווץ — למחשב, דרך ci-status: git checkout FETCH_HEAD -- trainer-module
       - name: build trainer

@@ -1,0 +1,19 @@
+# עדכוני אבטחה אוטומטיים לתלויות: Dependabot פותח PR כשמתגלה חולשה או גרסה חדשה
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /modules-src/trainer
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /tools/passwords
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

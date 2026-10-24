@@ -1,0 +1,70 @@
+name: Security scan
+on:
+  push:
+    branches: [master, 'work/**', 'ci/**']
+  pull_request:
+  # סריקה שבועית: חולשות חדשות מתגלות גם בתלויות שלא השתנו
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+# כל כלי במשימה נפרדת: כישלון של אחד לא עוצר את האחרים
+permissions:
+  contents: read
+jobs:
+  # סודות (מפתחות, סיסמאות) בקוד ובכל היסטוריית ה-git
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ניתוח סטטי של הקוד (JS ו-Python)
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan --config auto --error --exclude node_modules --exclude dist --exclude build --exclude modules
+
+  # ניתוח סטטי של GitHub; התוצאות בלשונית Security של המאגר
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/analyze@v3
+
+  # תלויות עם חולשות ידועות
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: npm audit (ראשי)
+        run: npm audit --omit=dev --audit-level=high
+      - name: npm audit (מודול האימונים)
+        working-directory: modules-src/trainer
+        run: npm audit --omit=dev --audit-level=high
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: pip-audit (כלי הסיסמאות)
+        run: |
+          pip install pip-audit
+          pip-audit -r tools/passwords/requirements.txt
