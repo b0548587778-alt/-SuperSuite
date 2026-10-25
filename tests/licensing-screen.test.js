@@ -221,3 +221,13 @@ test('עבודה מרחוק: בתקופת ניסיון אפשר לשלוח בק�
   const html = await render(admin({ mode: 'licensed', status: 'active', features: ['econ'], limits, reasons: [], expiresAt: NOW + 200 * DAY }));
   assert.doesNotMatch(html, /licRemoteRequestBtn|licRemoteParentBtn/);
 });
+
+test('מצב מנהל-העל: בהתקנה עם מפתח שורש מובנה אין כפתור יצירה — רק שחזור', async () => {
+  const st = { mode: 'licensed', status: 'active', features: ['econ'], limits, reasons: [], expiresAt: NOW + 200 * DAY };
+  let html = await render(admin(st, { getOwnerState: { initialized: false, unlocked: false, rootConfigured: true } }));
+  assert.doesNotMatch(html, /ownerInitBtn/);
+  assert.match(html, /ownerRecoverBtn/);
+  assert.match(html, /ownerImportBtn/);
+  html = await render(admin(st, { getOwnerState: { initialized: false, unlocked: false, rootConfigured: false } }));
+  assert.match(html, /ownerInitBtn/);
+});

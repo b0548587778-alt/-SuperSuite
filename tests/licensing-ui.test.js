@@ -273,8 +273,11 @@ test('ipc: ערוצי מנהל-העל פתוחים גם במערכת נעולה 
   await handlers['auth:login'](ev(31), 'menahel_31', 'a-very-long-pass-2026');
   // תקופת ניסיון שהסתיימה (התחלה רשומה לפני 40 יום) — רק קריאה, אבל ערוצי מנהל-העל פתוחים
   await assert.rejects(handlers['tasks:create'](ev(31), { title: 'שיעור' }), /תקופת הניסיון הסתיימה/);
+  const st = await handlers['owner:getState'](ev(31));
+  assert.equal(st.initialized, false);
+  assert.equal(st.rootConfigured, true);
+  // מפתח שורש מובנה בתוכנה — אין יצירת מנהל-על חדש (25.10.2026); השחזור נשאר פתוח גם במערכת נעולה
+  await assert.rejects(handlers['owner:init'](ev(31), PASS), /כבר מוגדר לתוכנה הזו/);
   assert.equal((await handlers['owner:getState'](ev(31))).initialized, false);
-  await assert.rejects(handlers['owner:init'](ev(31), 'short'), /לפחות 12/);
-  await handlers['owner:init'](ev(31), PASS);
-  assert.equal((await handlers['owner:getState'](ev(31))).unlocked, true);
+  await assert.rejects(handlers['owner:recover'](ev(31), [], PASS), (e) => !/תקופת הניסיון/.test(e.message));
 });

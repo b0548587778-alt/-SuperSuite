@@ -398,8 +398,10 @@ function renderOwnerPanel(o, inbox, remote, releases, ownerOffer, signups) {
   if (!o) return '';
   if (!o.initialized) {
     return `<div class="card"><h3>מצב מנהל-העל</h3>
-      <p class="muted">למנהל-העל (הספק) בלבד: יצירת מפתח שורש שממנו מונפקים כל הרישיונות. המפתח נשמר מוצפן בסיסמה במחשב הזה.</p>
-      <div class="acct-actions"><button class="secondary" id="ownerInitBtn">🔑 הגדרת מצב מנהל-העל</button>
+      <p class="muted">${o.rootConfigured
+        ? 'לספק התוכנה בלבד: העברת מפתח מנהל-העל למחשב הזה מקודי השחזור או מהגיבוי המלא.'
+        : 'למנהל-העל (הספק) בלבד: יצירת מפתח שורש שממנו מונפקים כל הרישיונות. המפתח נשמר מוצפן בסיסמה במחשב הזה.'}</p>
+      <div class="acct-actions">${o.rootConfigured ? '' : '<button class="secondary" id="ownerInitBtn">🔑 הגדרת מצב מנהל-העל</button>'}
       <button class="secondary" id="ownerRecoverBtn">♻ שחזור מקודי שחזור</button>
       <button class="secondary" id="ownerImportBtn">📥 שחזור מגיבוי מלא</button></div></div>`;
   }

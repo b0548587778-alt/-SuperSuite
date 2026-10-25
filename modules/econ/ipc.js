@@ -2214,12 +2214,16 @@ function registerIpcHandlers() {
   handle('owner:getState', async () => {
     const initialized = ownerCore.isInitialized();
     const unlocked = ownerCore.isUnlocked();
-    if (!initialized || !unlocked) return { initialized, unlocked: false };
+    // rootConfigured — בתוכנה מובנה מפתח שורש: מנהל-העל כבר קיים, ובמחשב הזה רק משחזרים אותו (לא יוצרים חדש)
+    if (!initialized) return { initialized, unlocked: false, rootConfigured: (ROOT_KEYS_IN_USE() || []).length > 0 };
+    if (!unlocked) return { initialized, unlocked: false };
     const configured = (ROOT_KEYS_IN_USE() || []).some(k => k.x === ownerCore.pubkey().x);
     return { initialized, unlocked, publicKey: ownerCore.pubkey(), configured, recovery: ownerCore.recoveryInfo(), ...ownerCore.list() };
   });
   // כל פתיחה (הגדרה, סיסמה, שחזור מקודים) — נקשרת לפגישה של מי שפתח (ממצא 4)
   handle('owner:init', async (event, passphrase) => {
+    // מפתח שורש חדש בהתקנה שכבר מוגדר בה מנהל-העל — לא היה מתקבל בשום התקנה, ורק מבלבל לקוחות (25.10.2026)
+    if ((ROOT_KEYS_IN_USE() || []).length) throw new Error('מצב מנהל-העל כבר מוגדר לתוכנה הזו. במחשב חדש — "שחזור מקודי שחזור" או "שחזור מגיבוי מלא"');
     const r = ownerCore.init(passphrase);
     bindOwner(event);
     await ownerAudit(event, 'init', { keyId: r.keyId });
