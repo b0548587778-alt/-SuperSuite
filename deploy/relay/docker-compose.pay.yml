@@ -1,0 +1,11 @@
+# הפעלת הרשמה ותשלום ב-Cardcom — תוספת לקובץ הראשי (deploy/relay/README.md, "תשלום אמיתי — Cardcom").
+# לפני ההפעלה:
+#   1. pay.env בתיקייה הזו (להעתיק מ-pay.env.example) — מספר המסוף ושם ה-API. לא נכנס ל-git.
+#   2. המפתח הציבורי של מנהל-העל ב-/data/owner.pub.json (פקודה ב-README).
+# הפעלה:
+#   docker compose -f deploy/relay/docker-compose.yml -f deploy/relay/docker-compose.pay.yml up -d --build
+services:
+  relay:
+    env_file: pay.env
+    command: ["node", "server/license-relay.js", "--port", "8443", "--data", "/data", "--trust-proxy", "1",
+      "--root-pub", "/data/owner.pub.json", "--pay", "cardcom", "--public-url", "https://${RELAY_DOMAIN}"]

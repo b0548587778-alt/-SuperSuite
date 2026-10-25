@@ -60,11 +60,14 @@ curl https://relay.example.co.il/health
 ## מה לא מופעל בהגדרות האלה
 
 - **הרשמה ותשלום** (`--root-pub` / `--pay`) כבויים. ספק הבדיקות (`--pay test`) מסרב לפעול עם דומיין אמיתי, וזה מכוון.
-- **תשלום אמיתי — Cardcom:** `--root-pub owner.pub.json --pay cardcom --public-url https://<הדומיין>`, ובמשתני הסביבה של השירות:
-  `SS_CARDCOM_TERMINAL` (מספר המסוף) ו-`SS_CARDCOM_API_NAME` (שם ה-API, מממשק הניהול של Cardcom). **אין לשמור אותם בקבצי הפרויקט.**
+- **תשלום אמיתי — Cardcom** (`docker-compose.pay.yml`):
+  1. `cp deploy/relay/pay.env.example deploy/relay/pay.env` ולמלא `SS_CARDCOM_TERMINAL` (מספר המסוף) ו-`SS_CARDCOM_API_NAME` (שם ה-API, מממשק הניהול של Cardcom). `pay.env` לא נכנס ל-git — **אין לשמור את הפרטים בקבצי הפרויקט.**
+  2. המפתח הציבורי של מנהל-העל לכרך הנתונים (ציבורי, לא סוד — מתוך `shell/licensing/root-keys.js` שבתמונה):
+     `docker compose -f deploy/relay/docker-compose.yml exec relay node -e "require('fs').writeFileSync('/data/owner.pub.json', JSON.stringify(require('/app/shell/licensing/root-keys.js')[0]))"`
+  3. `docker compose -f deploy/relay/docker-compose.yml -f deploy/relay/docker-compose.pay.yml up -d --build`
   Cardcom מפיקה חשבונית מס-קבלה ללקוח. ה-webhook שלה אינו חתום — השרת מאמת כל תשלום בפנייה חוזרת ל-Cardcom (`GetLpResult`).
-  לפני הפעלה ללקוחות: עסקת בדיקה אחת בסכום קטן, וביטול שלה בממשק של Cardcom.
-- **הרישוי במחשבים** עדיין כבוי (`root-keys.js` ריק). השרת יעבור הודעות, אבל אכיפת רישיונות תתחיל רק כשיופעל הרישוי.
+  לפני הפעלה ללקוחות: עסקת בדיקה אחת בסכום קטן, וביטול שלה בממשק של Cardcom. ביטול: להריץ שוב בלי `-f deploy/relay/docker-compose.pay.yml`.
+- **הרישוי במחשבים** פעיל מ-22.10.2026 (`root-keys.js`).
 
 ## גיבוי
 
