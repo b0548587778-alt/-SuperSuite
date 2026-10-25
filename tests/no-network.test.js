@@ -23,7 +23,7 @@ const ALLOWED = {
 // מארחים שמותרים רק בקובץ מסוים: פנייה שהמשתמש הפעיל (כניסת Google, שרת הרישוי) או טקסט בתוך ספרייה
 const ALLOWED_IN = {
   'shell/google-signin.js': ['accounts.google.com', 'oauth2.googleapis.com', 'www.googleapis.com'],
-  'shell/licensing/default-relay.js': ['164-90-184-16.sslip.io'],
+  'shell/licensing/default-relay.js': ['supersuite-license.duckdns.org'],
   'modules/shamai/lib/qrcode.js': ['stackoverflow.com', 'www.d-project.com', 'www.denso-wave.com', 'www.opensource.org'],
   'modules/trainer/workbox-9c191d2f.js': ['bit.ly'],
   'modules/trainer/assets/': ['reactjs.org', 'fb.me']

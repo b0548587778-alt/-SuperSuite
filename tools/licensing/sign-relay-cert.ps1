@@ -9,7 +9,7 @@ $secure = Read-Host 'Owner password' -AsSecureString
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 try {
   $env:SS_OWNER_PASSPHRASE = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-  node tools/licensing/owner.js relay-cert --dir "$env:APPDATA\super-suite\owner" --relay-pub relay-key.pub.json --url https://164-90-184-16.sslip.io --months 24 --out relay-cert.json
+  node tools/licensing/owner.js relay-cert --dir "$env:APPDATA\super-suite\owner" --relay-pub relay-key.pub.json --url https://supersuite-license.duckdns.org --months 24 --out relay-cert.json
 } finally {
   Remove-Item Env:SS_OWNER_PASSPHRASE -ErrorAction SilentlyContinue
   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)

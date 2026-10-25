@@ -1,4 +1,4 @@
 // כתובת שרת הרישוי שמוגדרת מראש בכל התקנה (PLAN.md 4.4).
 // משמשת רק כשהמנהל לא בחר כתובת אחרת. מחיקת הכתובת בהגדרות (ערך ריק) מכבה את החיבור לשרת.
 // פנייה לרשת קורית רק במערכת ברישיון או כשהופעלה קבלת הודעות אוטומטית (chatAutoFetch ב-ipc.js).
-module.exports = { DEFAULT_RELAY_URL: 'https://164-90-184-16.sslip.io' };
+module.exports = { DEFAULT_RELAY_URL: 'https://supersuite-license.duckdns.org' };
