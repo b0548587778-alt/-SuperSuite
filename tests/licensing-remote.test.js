@@ -202,3 +202,12 @@ test('אין שרת / אין רשת: הודעה ברורה בעברית', async 
   const rm = createRemote({ url: 'http://localhost:1', fetchImpl: async () => ({ ok: false, json: async () => ({ ok: false, error: 'internal' }) }) });
   await assert.rejects(rm.fetch(L.generateKeyPair().privateJwk), /שרת הרישוי דחה/);
 });
+
+test('חסימה של נטפרי (418) — הודעה שמפנה לחברת הסינון, לא "השרת דחה"', async () => {
+  // כך נראית התשובה של נטפרי לשרת הרישוי (25.10.2026)
+  const fetchImpl = async () => new Response(JSON.stringify({ blockByNetFree: true, blockUrl: '//netfree.link/block/' }),
+    { status: 418, headers: { 'content-type': 'application/json' } });
+  const rm = createRemote({ url: 'https://relay.example.org', fetchImpl });
+  const k = L.generateKeyPair().privateJwk;
+  await assert.rejects(rm.fetch(k), /הסינון באינטרנט .* חוסם את שרת הרישוי/);
+});

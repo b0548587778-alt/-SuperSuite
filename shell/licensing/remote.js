@@ -14,6 +14,8 @@ const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const ACK_BATCH = 1000;
 
 // קריאת גוף התשובה עם תקרה (בלי getReader — למשל fetch מדומה — json() כרגיל, בתוך אותו זמן קצוב)
+const NETFREE_BLOCKED = 'הסינון באינטרנט (נטפרי או אחר) חוסם את שרת הרישוי. יש לבקש מחברת הסינון לאשר את הכתובת של שרת הרישוי';
+
 async function readJsonCapped(res) {
   const len = Number(res.headers && typeof res.headers.get === 'function' ? res.headers.get('content-length') : NaN);
   if (Number.isFinite(len) && len > MAX_RESPONSE_BYTES) throw new Error('too-big');
@@ -68,6 +70,8 @@ function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now, tim
       } catch {
         throw new Error('אין חיבור לשרת הרישוי. בדקו את החיבור לאינטרנט ואת כתובת השרת');
       }
+      // מסנן תוכן (נטפרי) עונה 418 משלו — לא "השרת דחה": המשתמש צריך לפנות לסינון, לא לספק (25.10.2026)
+      if (res.status === 418) throw new Error(NETFREE_BLOCKED);
       let data;
       try { data = await Promise.race([readJsonCapped(res), deadline]); } catch (e) {
         throw new Error(e && e.message === 'timeout' ? 'שרת הרישוי לא השלים את התשובה בזמן — נסו שוב מאוחר יותר' : 'תשובה לא תקינה משרת הרישוי');
