@@ -628,6 +628,7 @@ nav {
 
 .icon-btn {
     background: transparent;
+    color: inherit;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 0.25rem 0.5rem;
@@ -969,7 +970,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* הודעות */
 .chat-layout { display: grid; grid-template-columns: minmax(200px, 280px) 1fr; gap: 12px; min-height: 420px; }
 .chat-list { display: flex; flex-direction: column; gap: 4px; border-inline-end: 1px solid var(--ss-border); padding-inline-end: 8px; overflow-y: auto; max-height: 60vh; }
-.chat-contact { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: start; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; font: inherit; cursor: pointer; }
+.chat-contact { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: start; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .chat-contact:hover, .chat-contact.active { background: var(--ss-bg); }
 .chat-badge { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--ss-info); color: var(--ss-surface); font-size: .8rem; text-align: center; }
 .chat-thread { display: flex; flex-direction: column; min-width: 0; }
@@ -984,7 +985,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .chat-contact-top { display: flex; align-items: center; gap: 4px; width: 100%; }
 .chat-thread-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .chat-thread-head h3 { margin: 0; }
-.chat-act { border: 0; background: transparent; cursor: pointer; font: inherit; font-size: 1rem; padding: 2px 6px; border-radius: 6px; line-height: 1.2; }
+.chat-act { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 1rem; padding: 2px 6px; border-radius: 6px; line-height: 1.2; }
 .chat-act:hover { background: var(--ss-border); }
 .chat-actions { display: none; gap: 2px; margin-top: 2px; }
 .chat-msg:hover .chat-actions, .chat-msg:focus-within .chat-actions { display: flex; }
@@ -1000,7 +1001,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .chat-note { background: var(--ss-warning-soft); border: 1px solid var(--ss-warning-line); border-radius: 8px; padding: 6px 10px; margin: 6px 0; font-size: .9rem; }
 .chat-quick { display: flex; flex-direction: column; border: 1px solid var(--ss-border-strong); border-radius: 8px; background: var(--ss-surface); max-height: 200px; overflow-y: auto; }
 .chat-quick[hidden] { display: none; }
-.chat-quick-item { text-align: start; border: 0; background: transparent; padding: 6px 10px; cursor: pointer; font: inherit; }
+.chat-quick-item { text-align: start; border: 0; background: transparent; color: inherit; padding: 6px 10px; cursor: pointer; font: inherit; }
 .chat-quick-item:hover { background: var(--ss-bg); }
 .chat-panel, .chat-settings { margin: 8px 0; border: 1px solid var(--ss-border); }
 .chat-settings section { border-top: 1px solid var(--ss-border); padding: 8px 0; }
