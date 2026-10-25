@@ -78,7 +78,10 @@ test('פנייה לרשת (fetch / XMLHttpRequest / WebSocket) רק בקבצים
   for (const rel of files()) {
     if (rel.startsWith('modules-src/') || FETCH_ALLOWED.some(p => rel.startsWith(p))) continue;
     // net.fetch(pathToFileURL(...)) בפרוטוקול app:// קורא קובץ מקומי — לא רשת
-    const text = fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/net\.fetch\(pathToFileURL\(/g, '');
+    // fetchImpl ב-main.js — הפניות של הקוד המאושר (shell/licensing, google-signin) דרך net.fetch של Electron,
+    // שסומך על התעודות של Windows (נטפרי); השורה הזו בלבד, לא כל הקובץ
+    let text = fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/net\.fetch\(pathToFileURL\(/g, '');
+    if (rel === 'main.js') text = text.replace('fetchImpl: (url, opts) => net.fetch(url, opts),', '');
     if (/\bfetch\s*\(|new\s+XMLHttpRequest|new\s+WebSocket\s*\(|navigator\.sendBeacon|new\s+EventSource\s*\(/.test(text)) bad.push(rel);
   }
   assert.deepEqual(bad, []);

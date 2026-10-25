@@ -61,6 +61,8 @@ class BrowserWindowStub {
   maximize() {}
 }
 
+let netFetch = () => chainable();
+const safeStorageProps = { isEncryptionAvailable: () => false };
 const dialogPlan = { save: { canceled: true }, open: { canceled: true, filePaths: [] } };
 const dialogLog = [];
 
@@ -85,11 +87,12 @@ const electronStub = {
     showErrorBox(t, m) { dialogLog.push(['error', m]); },
   },
   protocol: chainable(),
-  net: chainable(),
+  // net.fetch — פניות לשרת הרישוי עוברות דרכו (התעודות של Windows); בדיקה אחרונה בקובץ
+  net: chainable({ fetch: (url, opts) => netFetch(url, opts) }),
   session: chainable(),
   shell: chainable(),
   Menu: chainable(),
-  safeStorage: chainable({ isEncryptionAvailable: () => false }),
+  safeStorage: chainable(safeStorageProps),
 };
 
 const origResolve = Module._resolveFilename;
@@ -575,4 +578,26 @@ test('מסך הבית: shell:get-home-summary ו-shell:ai-ask — מהמעטפת
   AuthService.getSession(econView.id).permissions = ['data.view'];
   await assert.rejects(handlers['shell:ai-ask'](shellSender(), 'כמה גביתי החודש?'), /אין הרשאה/);
   AuthService.getSession(econView.id).permissions = perms;
+});
+
+test('פנייה לשרת הרישוי עוברת ב-net.fetch של Electron, לא ב-fetch של Node (נטפרי)', async (t) => {
+  // בתוכנה המותקנת fetch של Node לא מכיר את התעודה של נטפרי (UNABLE_TO_GET_ISSUER_CERT_LOCALLY),
+  // והסנכרון נכשל ב"אין חיבור לשרת הרישוי" (25.10.2026). net.fetch סומך על התעודות של Windows
+  await loginEcon();
+  const econView = created.views[0];
+  const calls = [];
+  const nodeFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('fetch של Node לא אמור להיקרא'); };
+  netFetch = async (url) => { calls.push(String(url)); throw new Error('offline'); };
+  // מפתח המערכת לשרת נשמר ב-DPAPI — כאן הצפנה מדומה, רק לבדיקה הזו
+  Object.assign(safeStorageProps, { isEncryptionAvailable: () => true,
+    encryptString: (v) => Buffer.from('T' + v), decryptString: (b) => Buffer.from(b).toString().slice(1) });
+  t.after(() => {
+    globalThis.fetch = nodeFetch; netFetch = () => chainable();
+    safeStorageProps.isEncryptionAvailable = () => false; delete safeStorageProps.encryptString; delete safeStorageProps.decryptString;
+  });
+  await handlers['license:setRemote'](viewSender(econView), 'https://relay.example.test');
+  await assert.rejects(handlers['license:getOffer'](viewSender(econView)), /אין חיבור לשרת הרישוי/);
+  assert.deepEqual(calls, ['https://relay.example.test/v1']);
+  await handlers['license:setRemote'](viewSender(econView), '');
 });

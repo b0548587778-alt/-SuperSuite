@@ -785,6 +785,10 @@ const econInitOptions = () => ({
   moduleLicensed: (mod) => LG.moduleAllowed(licenseNow(), mod),
   // הצפנת תיבות ההודעות בדיסק (messages.bin, ממצא 26) — במפתח שנגזר ממפתח הגיבוי האוטומטי
   getBackupKey: (create) => autoBackupKey(create),
+  // פניות לרשת (שרת הרישוי, עדכונים, מפתחות Google) — דרך הרשת של Chromium, שסומכת על התעודות של Windows.
+  // fetch של Node לא מכיר אותן, ו-NetFree מציג תעודה משלו — כל חיבור נדחה במחשב מסונן (25.10.2026).
+  // האבטחה לא תלויה ב-TLS: תשובות השרת חתומות ונבדקות בתוכנה (checkin.js)
+  fetchImpl: (url, opts) => net.fetch(url, opts),
 });
 const openAutoBackup = (file) => JSON.parse(BK.decryptBackup(fs.readFileSync(file, 'utf8'), autoBackupKey(false)));
 async function recoverDatabase(firstErr) {
