@@ -181,3 +181,92 @@ details[open] { box-shadow: var(--shadow); }
 .foot-in { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .foot p { margin: 0; }
 .foot .small { color: #9fb0cf; }
+
+/* ---- תפריט לטלפון (בלי סקריפט: details) ---- */
+.mnav { display: none; position: relative; margin-inline-start: auto; }
+.mnav summary {
+  list-style: none; cursor: pointer; color: #fff; font-size: 1.4rem; line-height: 1;
+  padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, .25);
+}
+.mnav summary::-webkit-details-marker { display: none; }
+.mnav ul {
+  position: absolute; inset-inline-end: 0; top: calc(100% + 10px); min-width: 200px;
+  background: var(--navy-2); border: 1px solid #22365e; border-radius: 14px; padding: 8px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .35);
+}
+.mnav a { display: block; color: #dbe3f3; text-decoration: none; padding: 10px 14px; border-radius: 8px; }
+.mnav a:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+@media (max-width: 860px) { .mnav { display: block; } .top .btn { margin-inline-start: 0; } }
+
+/* ---- מספרים ---- */
+.stats { background: var(--navy-0); color: #fff; border-top: 1px solid rgba(255, 255, 255, .08); }
+.stats-in { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 26px 0; text-align: center; }
+.stats strong { display: block; font-size: 1.9rem; color: var(--gold-bright); line-height: 1.2; }
+.stats span { color: #b9c5de; font-size: .95rem; }
+@media (max-width: 720px) { .stats-in { grid-template-columns: repeat(2, 1fr); row-gap: 22px; } }
+
+/* ---- כותרות מקטע: קו זהב קטן ---- */
+.sec h2::after {
+  content: ""; display: block; width: 56px; height: 4px; border-radius: 4px; margin-top: 14px;
+  background: linear-gradient(90deg, var(--gold-bright), var(--gold));
+}
+.sec .center h2::after, .sec h2.center::after { margin-inline: auto; }
+
+/* ---- כרטיסים: תנועה עדינה ---- */
+.card { transition: transform .2s, box-shadow .2s; }
+.mod:hover, .plan:hover, .step:hover { transform: translateY(-4px); box-shadow: 0 16px 40px rgba(20, 33, 61, .14); }
+
+/* ---- איך מתחילים ---- */
+.steps { counter-reset: none; padding: 0; margin: 0; list-style: none; }
+.step { position: relative; padding-top: 34px; }
+.step-n {
+  position: absolute; top: -20px; inset-inline-start: 26px; width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 800; font-size: 1.2rem;
+  background: linear-gradient(135deg, #f0d58a, var(--gold-bright) 55%, var(--gold)); color: var(--navy-0);
+  box-shadow: 0 6px 16px rgba(184, 134, 11, .35);
+}
+.step p { margin: 0; }
+.steps.g3 { row-gap: 40px; margin-top: 20px; }
+
+/* ---- מחירים ---- */
+.plan-for { color: var(--muted) !important; margin: -2px 0 18px !important; font-size: .98rem; }
+
+/* ---- צור קשר ---- */
+.contact-cards { max-width: 640px; margin: 0 auto; }
+.contact-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none; color: var(--text);
+}
+.contact-card:hover { transform: translateY(-3px); border-color: var(--gold-bright); }
+.contact-ic {
+  width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-size: 1.5rem;
+  background: var(--gold-soft); color: var(--gold-deep); margin-bottom: 6px;
+}
+.contact-card .lbl { color: var(--muted); font-size: .95rem; }
+.contact-card .val { font-weight: 700; font-size: 1.15rem; color: var(--primary); }
+
+/* ---- סיום ---- */
+.final {
+  color: #fff; padding: 56px 0;
+  background: radial-gradient(800px 300px at 85% 0%, rgba(212, 167, 58, .22), transparent 60%),
+              linear-gradient(135deg, var(--navy-2), var(--hero-end));
+}
+.final-in { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.final h2 { margin-bottom: 6px; }
+.final p { margin: 0; color: #dbe3f3; font-size: 1.1rem; }
+.foot a { color: var(--gold-bright); }
+
+/* ---- מדיניות פרטיות ---- */
+.doc { max-width: 780px; margin: 40px auto; padding: 36px 40px; }
+.doc h1 { color: var(--navy-2); font-size: 1.9rem; }
+.doc h2 { font-size: 1.2rem; margin-top: 2rem; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.doc ul { list-style: disc; padding-inline-start: 1.4rem; }
+.doc li { margin-bottom: .35rem; color: var(--text-2); }
+.doc .updated { color: var(--muted); font-size: .95rem; }
+@media (max-width: 620px) { .doc { margin: 0; border-radius: 0; padding: 22px; } }
+
+.push-end { margin-inline-start: auto; }
+.sec-soft > .doc { margin-block: 40px; }
+main.sec-soft { padding: 1px 16px; }
+/* התפריט הוא details — בלי העיצוב של השאלות הנפוצות */
+.top .mnav, .top .mnav[open] { background: none; border: 0; padding: 0; margin-bottom: 0; box-shadow: none; }
+.top .mnav summary { padding: 6px 12px; font-weight: 400; }

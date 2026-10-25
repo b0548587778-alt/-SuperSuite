@@ -9,10 +9,10 @@
 <meta name="theme-color" content="#13264a">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="icon.png" type="image/png">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=2">
 <!--
-  ערכים לעריכה על ידי הבעלים מסומנים בהערה EDIT (ראו README.md):
-  מחירים, אימייל, טלפון וקישורי הורדה. אין באתר סקריפטים, גופנים או משאבים חיצוניים.
+  פרטי הקשר כמו באתר ב-GitHub Pages (docs/website). כשקובצי ההתקנה יעלו לתיקייה downloads/ —
+  להחליף את כפתורי ההורדה (מסומנים EDIT, ראו README.md). אין באתר סקריפטים, גופנים או משאבים חיצוניים.
 -->
 </head>
 <body>
@@ -34,7 +34,18 @@
         <li><a href="#contact">צור קשר</a></li>
       </ul>
     </nav>
-    <a class="btn btn-gold btn-sm" href="#download">הורדה</a>
+    <details class="mnav">
+      <summary aria-label="תפריט">☰</summary>
+      <ul>
+        <li><a href="#modules">מה בפנים</a></li>
+        <li><a href="#ai">עוזר חכם</a></li>
+        <li><a href="#shots">צילומי מסך</a></li>
+        <li><a href="#pricing">מחירים</a></li>
+        <li><a href="#faq">שאלות</a></li>
+        <li><a href="#contact">צור קשר</a></li>
+      </ul>
+    </details>
+    <a class="btn btn-gold btn-sm" href="#download">ניסיון חינם</a>
   </div>
 </header>
 
@@ -51,13 +62,13 @@
         הנתונים נשמרים מוצפנים במחשב שלך, ולא בענן של מישהו אחר.
       </p>
       <div class="cta">
-        <a class="btn btn-gold" href="#download">הורדה לניסיון</a>
+        <a class="btn btn-gold" href="#download">30 יום ניסיון חינם</a>
         <a class="btn btn-ghost" href="#modules">מה יש בתוכנה</a>
       </div>
       <ul class="ticks" aria-label="יתרונות עיקריים">
         <li>עובדת במחשבים מסוננים</li>
         <li>גיבוי אוטומטי יומי</li>
-        <li>התקנה בלחיצה אחת</li>
+        <li>בלי כרטיס אשראי לניסיון</li>
       </ul>
     </div>
     <figure class="hero-shot">
@@ -65,6 +76,16 @@
            alt="מסך הבית של SuperSuite: ברכה, זמני היום ושבת קודש, וכרטיסים לכל מסכי הכספים">
     </figure>
   </div>
+</section>
+
+<!-- ===== מספרים ===== -->
+<section class="stats" aria-label="SuperSuite במספרים">
+  <ul class="wrap stats-in">
+    <li><strong>4</strong><span>מערכות בתוכנה אחת</span></li>
+    <li><strong>0</strong><span>תלות באינטרנט בעבודה</span></li>
+    <li><strong>AES-256</strong><span>הצפנת הנתונים והגיבויים</span></li>
+    <li><strong>100%</strong><span>עברית, מימין לשמאל</span></li>
+  </ul>
 </section>
 
 <!-- ===== מודולים ===== -->
@@ -193,31 +214,54 @@
   </div>
 </section>
 
+<!-- ===== איך מתחילים ===== -->
+<section class="sec sec-soft" id="start" aria-labelledby="start-h">
+  <div class="wrap">
+    <h2 id="start-h" class="center">מתחילים בשלושה צעדים</h2>
+    <p class="sub center">בלי טכנאי ובלי הגדרות מסובכות.</p>
+    <ol class="grid g3 steps">
+      <li class="card step">
+        <span class="step-n" aria-hidden="true">1</span>
+        <h3>מתקינים</h3>
+        <p>מקבלים את קובץ ההתקנה, לוחצים פעמיים, והתוכנה מותקנת עם קיצור בשולחן העבודה.</p>
+      </li>
+      <li class="card step">
+        <span class="step-n" aria-hidden="true">2</span>
+        <h3>בוחרים פרופיל</h3>
+        <p>עמותה, גמ"ח, עסק או שמאי — התוכנה מסדרת את המסכים שלכם, ואפשר לנסות עם נתוני דוגמה.</p>
+      </li>
+      <li class="card step">
+        <span class="step-n" aria-hidden="true">3</span>
+        <h3>עובדים</h3>
+        <p>קבלה ראשונה, הלוואה ראשונה או שומה ראשונה — בתוך דקות. הגיבוי רץ לבד מהיום הראשון.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
 <!-- ===== מחירים ===== -->
-<section class="sec sec-soft" id="pricing" aria-labelledby="pricing-h">
+<section class="sec" id="pricing" aria-labelledby="pricing-h">
   <div class="wrap">
     <h2 id="pricing-h">תוכניות ומחירים</h2>
-    <p class="sub">רישיון לכל מחשב. כל התוכניות כוללות עדכוני גרסה וגיבוי אוטומטי.</p>
+    <p class="sub">רישיון שנתי לכל מחשב, עם 30 יום ניסיון חינם. כל התוכניות כוללות עדכוני גרסה וגיבוי אוטומטי.</p>
 
     <div class="grid g3 plans">
       <article class="card plan">
         <h3>בסיסי</h3>
-        <!-- EDIT: מחיר תוכנית בסיסי -->
-        <p class="price"><span class="amt">₪___</span> <span class="per">לחודש</span></p>
+        <p class="plan-for">לעסק קטן או לעצמאי</p>
         <ul>
           <li>מערכת כלכלית: חשבוניות, קבלות ודוחות</li>
           <li>ארגז כלים</li>
           <li>משתמש אחד</li>
           <li>גיבוי אוטומטי יומי</li>
         </ul>
-        <a class="btn btn-ghost-dark" href="#contact">לפרטים</a>
+        <a class="btn btn-ghost-dark" href="#contact">להצעת מחיר</a>
       </article>
 
       <article class="card plan plan-hot" aria-label="מקצועי — התוכנית המומלצת">
         <p class="badge">מומלץ</p>
         <h3>מקצועי</h3>
-        <!-- EDIT: מחיר תוכנית מקצועי -->
-        <p class="price"><span class="amt">₪___</span> <span class="per">לחודש</span></p>
+        <p class="plan-for">לעמותה, לגמ"ח ולארגון</p>
         <ul>
           <li>כל מה שבבסיסי</li>
           <li>עמותה, גמ"ח וחסד</li>
@@ -225,50 +269,46 @@
           <li>כמה משתמשים והרשאות</li>
           <li>מערכות בת ועבודה מרחוק</li>
         </ul>
-        <a class="btn btn-gold" href="#contact">לפרטים</a>
+        <a class="btn btn-gold" href="#contact">להצעת מחיר</a>
       </article>
 
       <article class="card plan">
         <h3>AI</h3>
-        <!-- EDIT: מחיר תוכנית AI -->
-        <p class="price"><span class="amt">₪___</span> <span class="per">לחודש</span></p>
+        <p class="plan-for">למי שרוצה תשובות מהנתונים, בעברית</p>
         <ul>
           <li>כל מה שבמקצועי</li>
           <li>עוזר חכם מקומי בעברית</li>
           <li>עובד בלי אינטרנט</li>
           <li>עדיפות בתמיכה</li>
         </ul>
-        <a class="btn btn-ghost-dark" href="#contact">לפרטים</a>
+        <a class="btn btn-ghost-dark" href="#contact">להצעת מחיר</a>
       </article>
     </div>
-    <!-- EDIT: הערת מחירים -->
-    <p class="note center">המחירים כוללים מע"מ. לעמותות ולגמ"חים קטנים — דברו איתנו.</p>
+    <p class="note center">המחיר לפי התוכנית ומספר המחשבים — <a href="#contact">צרו קשר להצעת מחיר</a>. לעמותות ולגמ"חים קטנים — דברו איתנו.</p>
   </div>
 </section>
 
 <!-- ===== הורדה ===== -->
 <section class="sec" id="download" aria-labelledby="download-h">
   <div class="wrap">
-    <h2 id="download-h">הורדה</h2>
-    <p class="sub">מורידים, לוחצים פעמיים, והתוכנה מותקנת עם קיצור בשולחן העבודה.</p>
+    <h2 id="download-h">30 יום ניסיון חינם</h2>
+    <p class="sub">כל המערכות פתוחות בתקופת הניסיון, בלי כרטיס אשראי. אחרי ההתקנה לוחצים פעמיים, והתוכנה מוכנה לעבודה.</p>
     <div class="grid g2">
       <article class="card dl">
         <h3>Windows</h3>
-        <p>Windows 10 ומעלה.</p>
-        <!-- EDIT: קישור למתקין. ברירת המחדל: קובץ שמעלים לתיקייה downloads/ באתר הזה -->
-        <a class="btn btn-gold" href="downloads/SuperSuite-Setup.exe" download>הורדת SuperSuite-Setup.exe</a>
-        <p class="small">גם גרסה ניידת, בלי התקנה: <a href="downloads/SuperSuite-Portable.exe" download>SuperSuite-Portable.exe</a></p>
+        <p>Windows 10 ומעלה. מתקין רגיל או גרסה ניידת בלי התקנה.</p>
+        <!-- EDIT: כשהמתקין יעלה לתיקייה downloads/ — להחליף בקישור: href="downloads/SuperSuite-Setup.exe" download -->
+        <a class="btn btn-gold" href="#contact">לקבלת קובץ ההתקנה</a>
       </article>
       <article class="card dl">
         <h3>אנדרואיד</h3>
-        <p>לטלפון ולטאבלט.</p>
-        <!-- EDIT: קישור לקובץ ה-APK -->
-        <a class="btn btn-ghost-dark" href="downloads/SuperSuite.apk" download>הורדת SuperSuite.apk</a>
-        <p class="small">בהתקנה הראשונה הטלפון יבקש לאשר התקנה מהדפדפן.</p>
+        <p>לטלפון ולטאבלט, לצד התוכנה במחשב.</p>
+        <!-- EDIT: כשקובץ ה-APK יעלה לתיקייה downloads/ — להחליף בקישור: href="downloads/SuperSuite.apk" download -->
+        <a class="btn btn-ghost-dark" href="#contact">לקבלת האפליקציה</a>
       </article>
     </div>
     <p class="note">
-      <strong>במחשב מסונן?</strong> אם ההורדה נחסמת, בקשו מספק הסינון לאשר את האתר. אפשר גם לקבל את קובץ ההתקנה בדיסק און קי — <a href="#contact">צרו קשר</a>.
+      <strong>במחשב מסונן?</strong> אפשר לקבל את קובץ ההתקנה גם בדיסק און קי. את שרת הרישוי מאשרים פעם אחת אצל ספק הסינון.
     </p>
   </div>
 </section>
@@ -318,14 +358,30 @@
   <div class="wrap narrow center">
     <h2 id="contact-h">צור קשר</h2>
     <p class="sub">שאלה, הדגמה, או הצעת מחיר לארגון. נשמח לעזור.</p>
-    <ul class="contact">
-      <!-- EDIT: אימייל ליצירת קשר -->
-      <li><span class="lbl">אימייל</span> <a href="mailto:info@example.co.il" dir="ltr">info@example.co.il</a></li>
-      <!-- EDIT: טלפון -->
-      <li><span class="lbl">טלפון</span> <a href="tel:+972000000000" dir="ltr">000-000-0000</a></li>
-      <!-- EDIT: שעות מענה -->
-      <li><span class="lbl">שעות מענה</span> א׳–ה׳, <bdi dir="ltr">9:00–17:00</bdi></li>
-    </ul>
+    <div class="grid g2 contact-cards">
+      <a class="card contact-card" href="tel:+972548587778">
+        <span class="contact-ic" aria-hidden="true">☎</span>
+        <span class="lbl">טלפון</span>
+        <span class="val" dir="ltr">054-858-7778</span>
+      </a>
+      <a class="card contact-card" href="mailto:b0548587778@gmail.com">
+        <span class="contact-ic" aria-hidden="true">✉</span>
+        <span class="lbl">דוא"ל</span>
+        <span class="val" dir="ltr">b0548587778@gmail.com</span>
+      </a>
+    </div>
+    <p class="note">בשבת ובחג אין מענה.</p>
+  </div>
+</section>
+
+<!-- ===== סיום ===== -->
+<section class="final" aria-labelledby="final-h">
+  <div class="wrap final-in">
+    <div>
+      <h2 id="final-h">מוכנים לסדר את העבודה?</h2>
+      <p>30 יום ניסיון חינם, כל המערכות פתוחות, והנתונים נשארים אצלכם.</p>
+    </div>
+    <a class="btn btn-gold" href="#download">להתחיל עכשיו</a>
   </div>
 </section>
 
@@ -334,7 +390,7 @@
 <footer class="foot">
   <div class="wrap foot-in">
     <p>© <span>SuperSuite</span>. כל הזכויות שמורות.</p>
-    <p class="small">האתר לא משתמש בעוגיות ולא בכלי מעקב.</p>
+    <p class="small"><a href="privacy.html">מדיניות פרטיות</a> · האתר לא משתמש בעוגיות ולא בכלי מעקב.</p>
   </div>
 </footer>
 </body>
