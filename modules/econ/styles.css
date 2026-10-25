@@ -204,7 +204,7 @@ body {
     min-height: 100vh;
 }
 
-aside {
+body > aside {
     width: 260px;
     background-color: var(--ss-on-primary);
     border-right: 1px solid var(--border);
@@ -523,7 +523,7 @@ nav {
         flex-direction: column;
     }
     
-    aside {
+    body > aside {
         width: 100%;
         height: 60px;
         flex-direction: row;
@@ -576,7 +576,7 @@ nav {
         color: black;
     }
 
-    aside,
+    body > aside,
     .side-bottom,
     #toastContainer {
         display: none;
@@ -848,7 +848,7 @@ button.small { padding: .25rem .6rem; font-size: .85rem; }
 body { background: var(--light); color: var(--dark); -webkit-font-smoothing: antialiased; }
 
 /* מצב משולב: הסרגל הפנימי מוסתר — המעטפת מציגה סרגל אחד לכל התוכנה */
-.embedded aside { display: none; }
+.embedded body > aside { display: none; }
 .embedded main { width: 100%; }
 
 header {
