@@ -356,6 +356,8 @@ function renderRemoteCard(r, st) {
   if (!r) return '';
   const pending = Array.isArray(r.pending) ? r.pending : [];
   const canIssue = st.mode === 'licensed' && st.status === 'active' && st.limits && st.limits.maxChildren > 0;
+  // תקופת ניסיון היא mode 'licensed' בלי רישיון — גם בה שולחים בקשה דרך השרת (25.10.2026)
+  const hasLicense = st.mode === 'licensed' && !st.trial;
   return `<div class="card">
     <div class="acct-header"><h3>🌐 עבודה מרחוק</h3>
       <div class="acct-actions"><button class="secondary small" id="licRemoteSetBtn">${r.url ? 'שינוי שרת' : 'הגדרת שרת רישוי'}</button></div>
@@ -367,8 +369,8 @@ function renderRemoteCard(r, st) {
       ${r.myCode ? `<div class="acct-row"><span>קוד המערכת (למערכות בת)</span><span dir="ltr"><b>${esc(r.myCode)}</b></span></div>` : ''}
       <div class="acct-actions">
         <button class="primary" id="licRemoteSyncBtn">🔄 סנכרון עכשיו</button>
-        ${st.mode === 'licensed' ? '' : '<button class="secondary" id="licRemoteRequestBtn">📤 שליחת בקשת רישיון לספק</button>'}
-        ${st.mode === 'licensed' ? '' : '<button class="secondary" id="licRemoteParentBtn">📤 בקשה ממערכת מנפיקה (קוד)</button>'}
+        ${hasLicense ? '' : '<button class="secondary" id="licRemoteRequestBtn">📤 שליחת בקשת רישיון לספק</button>'}
+        ${hasLicense ? '' : '<button class="secondary" id="licRemoteParentBtn">📤 בקשה ממערכת מנפיקה (קוד)</button>'}
       </div>
       ${pending.length ? `<h4>מערכות בת שביקשו רישיון (${pending.length})</h4>
         <div class="acct-scroll"><table class="acct-table"><tbody>${pending.map(p => `<tr>

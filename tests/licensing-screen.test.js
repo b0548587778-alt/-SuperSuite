@@ -209,3 +209,15 @@ test('ipc: license:getStatus מחזיר תוקף ומקור הסיבה (לכרט
   assert.match(body, /source: String\(r\.source\)/);
   assert.match(body, /step: String\(r\.step\)/);
 });
+
+test('עבודה מרחוק: בתקופת ניסיון אפשר לשלוח בקשת רישיון דרך השרת, ועם רישיון — לא', async () => {
+  // הניסיון הוא mode 'licensed' בלי רישיון, והכפתור הוסתר — לקוח בניסיון לא יכול היה לבקש רישיון (25.10.2026)
+  const trial = (status, endsAt) => admin({ mode: 'licensed', status, features: ['econ'], limits: {}, reasons: [],
+    trial: { startedAt: NOW - DAY, endsAt, daysLeft: 1, warn: false } });
+  for (const html of [await render(trial('active', NOW + 28 * DAY)), await render(trial('trial_ended', NOW - DAY))]) {
+    assert.match(html, /licRemoteRequestBtn/);
+    assert.match(html, /licRemoteParentBtn/);
+  }
+  const html = await render(admin({ mode: 'licensed', status: 'active', features: ['econ'], limits, reasons: [], expiresAt: NOW + 200 * DAY }));
+  assert.doesNotMatch(html, /licRemoteRequestBtn|licRemoteParentBtn/);
+});
