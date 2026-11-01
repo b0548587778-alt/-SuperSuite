@@ -1,23 +1,30 @@
 // גיבויים ישנים לא מוצפנים בתיקיית הגיבוי (PLAN.md 3.6).
 // הגיבוי האוטומטי תמיד היה מוצפן, אבל בתיקייה יכולים להיות קבצים גלויים: גיבוי ידני ישן של המודול הכלכלי
-// (JSON גלוי לפני התיקון), או auto-*.json.
+// (JSON גלוי לפני התיקון), גיבוי ישן של מודול האימונים (trainer-pro-backup-*.json — המודול עבר ל-SuperSuite לימוד,
+// אבל הקובץ נשאר כאן ובו נתוני בריאות גלויים), או auto-*.json.
 // סורקים רק את תיקיית הגיבוי (לא את כל המחשב), מציגים אזהרה, ו"הצפנה" כותבת .ssbk, מאמתת, ורק אז מוחקת.
 // לעולם לא נמחק קובץ אוטומטית.
 const fs = require('fs');
 const path = require('path');
 const BK = require('../modules/econ/core/backupCrypto');
+const Legacy = require('./legacy-modules');
 
 // שמות שהתוכנה נתנה לגיבויים, וכל קובץ .json אחר בתיקייה — אם תוכנו גיבוי (המשתמש בחר שם בחלון השמירה)
 const NAME = /^[^\\/:*?"<>|]{1,200}\.json$/;
 const MAX_BYTES = 200 * 1024 * 1024; // מעל זה לא קוראים (וגם לא מציעים הצפנה) — גיבוי לא סביר
 
-// האם הטקסט הוא גיבוי גלוי של SuperSuite
-function isPlainBackupText(text) {
-  if (typeof text !== 'string' || BK.isEncryptedBackup(text)) return false;
+// הטקסט כגיבוי גלוי: null — לא גיבוי; אחרת { trainer } — האם יש בו נתוני אימונים (נתוני בריאות)
+function plainBackupInfo(text) {
+  if (typeof text !== 'string' || BK.isEncryptedBackup(text)) return null;
   let data;
-  try { data = JSON.parse(text); } catch { return false; }
-  if (data && data.suite === 'SuperSuite') return true;
-  return isLegacyEconBackup(data);
+  try { data = JSON.parse(text); } catch { return null; }
+  if (!((data && data.suite === 'SuperSuite') || isLegacyEconBackup(data) || Legacy.isLegacyTrainerBackup(data))) return null;
+  return { trainer: Legacy.hasTrainerData(data) };
+}
+
+// האם הטקסט הוא גיבוי גלוי של SuperSuite (או של מודול האימונים שעבר למוצר אחר)
+function isPlainBackupText(text) {
+  return !!plainBackupInfo(text);
 }
 
 // גיבוי ידני ישן של המודול הכלכלי (לפני ההצפנה): אובייקט המסד עצמו — version, organization, settings ואוספים
@@ -35,20 +42,23 @@ function looksPlain(file, fsx = fs) {
     const n = fsx.readSync(fd, buf, 0, buf.length, 0);
     const head = buf.subarray(0, n).toString('utf8').replace(/^﻿/, '').trimStart();
     if (!head.startsWith('{')) return false;
-    // גיבוי של SuperSuite מתחיל ב-"suite"; גיבוי כלכלי ישן — "version" ו-"organization"
-    if (/^\{\s*"suite"/.test(head)) return true;
+    // גיבוי של SuperSuite מתחיל ב-"suite"; גיבוי אימונים — במפתח של המודול; גיבוי כלכלי ישן — "version" ו-"organization"
+    if (/^\{\s*"(suite|trainer:profile|clients:index|studio:|client:|program:|sessions:|measurements:|assessments:|memberships:)/.test(head)) return true;
     return /^\{\s*"version"\s*:/.test(head) && /"(organization|settings)"\s*:/.test(head);
   } catch { return false; }
   finally { if (fd !== undefined) try { fsx.closeSync(fd); } catch { /* נסגר */ } }
 }
 
 // בסריקה: זיהוי לפי ההתחלה, ואז אימות מלא (קובץ JSON אחר שנראה דומה — לא מוצג)
+function plainFileInfo(file, fsx = fs) {
+  if (!looksPlain(file, fsx)) return null;
+  try { return plainBackupInfo(fsx.readFileSync(file, 'utf8').replace(/^﻿/, '')); } catch { return null; }
+}
 function isPlainBackupFile(file, fsx = fs) {
-  if (!looksPlain(file, fsx)) return false;
-  try { return isPlainBackupText(fsx.readFileSync(file, 'utf8').replace(/^﻿/, '')); } catch { return false; }
+  return !!plainFileInfo(file, fsx);
 }
 
-// מחזיר [{ name, size, mtime }] — רק קבצים בתיקייה עצמה (לא תתי-תיקיות)
+// מחזיר [{ name, size, mtime, trainer }] — רק קבצים בתיקייה עצמה (לא תתי-תיקיות). trainer — יש בו נתוני אימונים
 function scan(dir, fsx = fs) {
   if (!dir) return [];
   let names;
@@ -60,7 +70,8 @@ function scan(dir, fsx = fs) {
     let st;
     try { st = fsx.statSync(file); } catch { continue; }
     if (!st.isFile() || st.size > MAX_BYTES) continue;
-    if (isPlainBackupFile(file, fsx)) out.push({ name, size: st.size, mtime: st.mtimeMs });
+    const info = plainFileInfo(file, fsx);
+    if (info) out.push({ name, size: st.size, mtime: st.mtimeMs, trainer: info.trainer });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -108,7 +119,9 @@ function deleteFile({ dir, name, fsx = fs }) {
 
 function warningText(list) {
   if (!list || !list.length) return '';
-  return list.length === 1 ? '⚠ בתיקיית הגיבוי יש קובץ גיבוי אחד לא מוצפן' : `⚠ בתיקיית הגיבוי יש ${list.length} קבצי גיבוי לא מוצפנים`;
+  const base = list.length === 1 ? '⚠ בתיקיית הגיבוי יש קובץ גיבוי אחד לא מוצפן' : `⚠ בתיקיית הגיבוי יש ${list.length} קבצי גיבוי לא מוצפנים`;
+  // נתוני האימונים — נתוני בריאות של מתאמנים: אומרים זאת במפורש
+  return list.some(f => f && f.trainer) ? base + ', כולל נתוני בריאות של מתאמנים' : base;
 }
 
-module.exports = { scan, encryptFile, deleteFile, isPlainBackupText, isPlainBackupFile, isLegacyEconBackup, looksPlain, warningText, safeName, NAME };
+module.exports = { scan, encryptFile, deleteFile, isPlainBackupText, plainBackupInfo, isPlainBackupFile, isLegacyEconBackup, looksPlain, warningText, safeName, NAME };
