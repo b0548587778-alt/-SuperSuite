@@ -68,7 +68,7 @@ function open({ identity, peer, env, lastSeq = 0, now = Date.now() }) {
   if (nonce.length !== 12 || tag.length !== 16) throw fail('malformed', 'הודעה לא תקינה');
   let plain;
   try {
-    const decipher = crypto.createDecipheriv('aes-256-gcm', deriveKey(identity, peer), nonce);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', deriveKey(identity, peer), nonce, { authTagLength: 16 });
     decipher.setAAD(headerBytes(env));
     decipher.setAuthTag(tag);
     plain = Buffer.concat([decipher.update(Buffer.from(env.ct, 'base64url')), decipher.final()]);

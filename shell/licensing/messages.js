@@ -34,7 +34,8 @@ function aesGcm(encrypt, key, iv, data, tag) {
     const out = C.concat(new Uint8Array(c.update(data)), new Uint8Array(c.final()));
     return { ct: out, tag: new Uint8Array(c.getAuthTag()) };
   }
-  const d = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  // תג באורך מלא בלבד: תג מקוצר (4 בתים) מהשרת היה מתקבל ומקל על זיוף
+  const d = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
   d.setAuthTag(tag);
   return C.concat(new Uint8Array(d.update(data)), new Uint8Array(d.final()));
 }

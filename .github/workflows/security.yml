@@ -14,13 +14,19 @@ jobs:
   # סודות (מפתחות, סיסמאות) בקוד ובכל היסטוריית ה-git
   gitleaks:
     runs-on: ubuntu-latest
+    # ב-PR הפעולה קוראת את רשימת ה-commits של ה-PR (בלי זה: 403 ו"כישלון" בלי שנסרק דבר)
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # הדוח מוצג ביומן ובסיכום הריצה; העלאת artifact נכשלה כשמכסת האחסון של החשבון התמלאה
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
 
   # ניתוח סטטי של הקוד (JS ו-Python)
   semgrep:
@@ -28,7 +34,7 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: semgrep scan --config auto --error --exclude node_modules --exclude dist --exclude build --exclude modules
 
   # ניתוח סטטי של GitHub; התוצאות בלשונית Security של המאגר
@@ -37,23 +43,25 @@ jobs:
     permissions:
       contents: read
       security-events: write
+      # codeql-action קורא את פרטי הריצה (בלי זה: "configuration error" אחרי שהסריקה הסתיימה)
+      actions: read
     strategy:
       fail-fast: false
       matrix:
         language: [javascript-typescript, python]
     steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: github/codeql-action/init@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3
         with:
           languages: ${{ matrix.language }}
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3
 
   # תלויות עם חולשות ידועות
   dependencies:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
       - name: npm audit (ראשי)
@@ -61,7 +69,7 @@ jobs:
       - name: npm audit (מודול האימונים)
         working-directory: modules-src/trainer
         run: npm audit --omit=dev --audit-level=high
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - name: pip-audit (כלי הסיסמאות)

@@ -49,7 +49,7 @@ function createCipher(key) {
       const all = Buffer.from(text.slice(PREFIX.length), 'base64');
       if (all.length < 28) throw keyError('db-key-wrong', 'הנתונים המוצפנים פגומים');
       try {
-        const d = crypto.createDecipheriv('aes-256-gcm', key, all.subarray(0, 12));
+        const d = crypto.createDecipheriv('aes-256-gcm', key, all.subarray(0, 12), { authTagLength: 16 });
         d.setAuthTag(all.subarray(12, 28));
         return Buffer.concat([d.update(all.subarray(28)), d.final()]).toString('utf8');
       } catch {

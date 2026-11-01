@@ -134,7 +134,7 @@
       let tag = null;
       return {
         update(data, inputEncoding) { parts.push(toBuf(data, inputEncoding)); return Buffer.alloc(0); },
-        setAuthTag(t) { tag = Buffer.from(t); },
+        setAuthTag(t) { tag = Buffer.from(t); if (tag.length !== 16) throw new Error('תג האימות אינו באורך 16 בתים'); },
         getAuthTag() { if (!tag) throw new Error('getAuthTag לפני final'); return tag; },
         final() {
           const input = Buffer.concat(parts);
