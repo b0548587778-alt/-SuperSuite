@@ -78,3 +78,16 @@ test('CI: הרכיב נארז בצעד נפרד שלא עוצר את הבניי�
   assert.match(step, /continue-on-error: true/);
   assert.match(step, /node tools\/llm-runtime\.js pack ci-logs\/llm-runtime/);
 });
+
+test('pack: ה-overrides של הפרויקט (גרסה מתוקנת של תלות) עוברים גם להתקנה הנפרדת', () => {
+  const project = makeProject();
+  fs.writeFileSync(path.join(project, 'package.json'), JSON.stringify({ name: 'x', overrides: { 'simple-git': '4.0.2' } }));
+  let seen = null;
+  const inner = fakeShallow();
+  const out = path.join(tmp(), 'llm-runtime');
+  const r = R.pack(project, out, { installer: (work) => { seen = JSON.parse(fs.readFileSync(path.join(work, 'package.json'), 'utf8')); inner(work); } });
+  assert.equal(r.packed, true);
+  assert.deepStrictEqual(seen.overrides, { 'simple-git': '4.0.2' });
+  const real = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  assert.ok(real.overrides && real.overrides['simple-git'], 'בפרויקט עצמו: simple-git בגרסה מתוקנת');
+});

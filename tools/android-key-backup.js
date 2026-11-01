@@ -35,7 +35,7 @@ function decrypt(buf, password) {
   const salt = buf.subarray(o, o += 16);
   const iv = buf.subarray(o, o += 12);
   const tag = buf.subarray(o, o += 16);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', derive(password, salt), iv);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', derive(password, salt), iv, { authTagLength: 16 });
   decipher.setAAD(MAGIC);
   decipher.setAuthTag(tag);
   try {

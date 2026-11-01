@@ -95,5 +95,8 @@
         "to": "EULA.txt"
       }
     ]
+  },
+  "overrides": {
+    "simple-git": "4.0.2"
   }
 }

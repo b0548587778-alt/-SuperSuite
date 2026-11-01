@@ -54,7 +54,7 @@ function decryptBackup(text, passphrase) {
   if (!payload || typeof payload !== 'object' || typeof payload.salt !== 'string') throw new Error('קובץ הגיבוי פגום');
   const params = paramsOf(payload);
   try {
-    const decipher = crypto.createDecipheriv('aes-256-gcm', deriveKey(passphrase, Buffer.from(payload.salt, 'base64'), params), Buffer.from(payload.iv, 'base64'));
+    const decipher = crypto.createDecipheriv('aes-256-gcm', deriveKey(passphrase, Buffer.from(payload.salt, 'base64'), params), Buffer.from(payload.iv, 'base64'), { authTagLength: 16 });
     decipher.setAuthTag(Buffer.from(payload.tag, 'base64'));
     return Buffer.concat([decipher.update(Buffer.from(payload.data, 'base64')), decipher.final()]).toString('utf8');
   } catch {

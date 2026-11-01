@@ -50,7 +50,7 @@ const B = {
   aesGcm(enc, key, iv, data) {
     const k = Buffer.from(key, 'base64'), v = Buffer.from(iv, 'base64'), d = Buffer.from(data, 'base64');
     if (enc) { const c = crypto.createCipheriv('aes-256-gcm', k, v); return Buffer.concat([c.update(d), c.final(), c.getAuthTag()]).toString('base64'); }
-    const c = crypto.createDecipheriv('aes-256-gcm', k, v);
+    const c = crypto.createDecipheriv('aes-256-gcm', k, v, { authTagLength: 16 });
     c.setAuthTag(d.subarray(d.length - 16));
     return Buffer.concat([c.update(d.subarray(0, d.length - 16)), c.final()]).toString('base64');
   },

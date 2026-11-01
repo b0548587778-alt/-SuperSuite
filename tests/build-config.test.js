@@ -17,7 +17,7 @@ test('CI: משימת הבדיקות מורידה היסטוריה מלאה (בד
   const yml = require('fs').readFileSync(require('path').join(__dirname, '..', '.github', 'workflows', 'build.yml'), 'utf8');
   const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  report:'));
   assert.match(build, /npm test/);
-  assert.match(build, /actions\/checkout@v4\s*\n\s*with:\s*\{\s*fetch-depth:\s*0[,\s}]/);
+  assert.match(build, /actions\/checkout@(?:v4|[0-9a-f]{40} # v4)\s*\n\s*with:\s*\{\s*fetch-depth:\s*0[,\s}]/);
 });
 
 test('CI: המתקין אורז את מודול האימונים שנבנה מהמקור באותה ריצה (PLAN.md 6.1)', () => {
@@ -35,7 +35,7 @@ test('CI: בלי artifacts בין משימות — מכסת אחסון מלאה 
   const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  publish:'));
   const i = build.indexOf('- name: logs for report');
   assert.ok(i > build.indexOf('node tools/smoke-packaged.js'), 'הצעד האחרון');
-  assert.match(build.slice(i, i + 200), /if: always\(\)[\s\S]*actions\/cache\/save@v4[\s\S]*path: ci-logs/);
+  assert.match(build.slice(i, i + 200), /if: always\(\)[\s\S]*actions\/cache\/save@(?:v4|[0-9a-f]{40} # v4)[\s\S]*path: ci-logs/);
   assert.match(build, /cp -r modules\/trainer ci-logs\/trainer-module/);
   assert.ok(build.indexOf('cp -r modules/trainer') < build.indexOf('node tools/minify.js'), 'המודול למחשב — לפני הכיווץ');
   // קובץ הנעילה של השורש נשמר, ו-npm ci רק כשהוא כולל את node-llama-cpp
@@ -50,7 +50,7 @@ test('CI: הדוח ממתין שהמשימות ייסגרו לפני שהוא ק
   const iWait = report.indexOf('.status != "completed"');
   assert.ok(iWait > 0 && iWait < report.indexOf('check-runs/$id/annotations'));
   // היומנים של הריצה הזו בלבד (מפתח לפי מספר הריצה והניסיון), גם כשמשימת build נכשלה
-  assert.match(report, /actions\/cache\/restore@v4[\s\S]*key: ci-logs-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
+  assert.match(report, /actions\/cache\/restore@(?:v4|[0-9a-f]{40} # v4)[\s\S]*key: ci-logs-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
   assert.doesNotMatch(report, /actions\/artifacts/, 'אין artifacts — אין מה לספור או למחוק');
   assert.doesNotMatch(report, /actions: write/);
 });
@@ -62,7 +62,7 @@ test('CI: קוד של צד שלישי רץ בלי טוקן כתיבה — רק �
   const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  publish:')).replace(/^\s*#.*$/gm, '');
   assert.match(build, /permissions:\n\s+contents: read\n/);
   assert.doesNotMatch(build, /contents: write|GITHUB_TOKEN|SS_DOWNLOADS_TOKEN|git push/);
-  assert.match(build, /actions\/checkout@v4\s*\n\s*with:\s*\{[^}]*persist-credentials: false/, 'הטוקן לא נשאר ב-.git/config');
+  assert.match(build, /actions\/checkout@(?:v4|[0-9a-f]{40} # v4)\s*\n\s*with:\s*\{[^}]*persist-credentials: false/, 'הטוקן לא נשאר ב-.git/config');
   // ci-status נדרס בכל ריצה — שתי ריצות חופפות היו מוחקות זו לזו את היומנים
   assert.match(yml, /\nconcurrency:\n\s+group: ci-status\n\s+cancel-in-progress: false/);
 });

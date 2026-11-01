@@ -57,7 +57,11 @@ function pack(projectDir, outDir, { installer = npmInstall } = {}) {
   }
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-llm-pack-'));
   try {
-    fs.writeFileSync(path.join(work, 'package.json'), JSON.stringify({ name: 'ss-llm-runtime', private: true, dependencies: { [ROOT_PKG]: version } }));
+    // אותם overrides כמו בפרויקט (למשל simple-git בגרסה מתוקנת) — אחרת ההתקנה הנפרדת מביאה תלות פגיעה
+    const rootFile = path.join(projectDir, 'package.json');
+    const rootPkg = fs.existsSync(rootFile) ? JSON.parse(fs.readFileSync(rootFile, 'utf8')) : {};
+    const overrides = rootPkg.overrides && typeof rootPkg.overrides === 'object' ? { overrides: rootPkg.overrides } : {};
+    fs.writeFileSync(path.join(work, 'package.json'), JSON.stringify({ name: 'ss-llm-runtime', private: true, dependencies: { [ROOT_PKG]: version }, ...overrides }));
     installer(work);
     const top = path.join(work, 'node_modules');
     // shallow: בשורש רק החבילה עצמה — כל דבר אחר שם לא היה נארז, והחבילה לא הייתה עובדת במחשב

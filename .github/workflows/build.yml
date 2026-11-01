@@ -40,9 +40,9 @@ jobs:
     steps:
       # היסטוריה מלאה: tests/at-rest.test.js קורא את database.js של 3.10.0 מ-git (בדיקת שדרוג)
       # persist-credentials: false — הטוקן לא נשאר ב-.git/config, שסקריפט התקנה של חבילה יכול לקרוא
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
       - run: mkdir -p ci-logs
       # "גרסה להפצה" — ראשון: לא תלוי בחבילות, ונכשל בתוך שניות ולא אחרי ההתקנות והבדיקות.
@@ -122,7 +122,7 @@ jobs:
       # המתקין למשימת publish — רק כשמפרסמים, ורק אחרי בנייה ובדיקת עלייה שעברו (צעד בלי always())
       - name: installer for publish
         if: ${{ inputs.publish || startsWith(github.ref, 'refs/tags/v') }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             dist/SuperSuite-Setup.exe
@@ -132,7 +132,7 @@ jobs:
       # היומנים והמודול הבנוי למשימת report — תמיד, גם אחרי כישלון
       - name: logs for report
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ci-logs
           key: ci-logs-${{ github.run_id }}-${{ github.run_attempt }}
@@ -149,9 +149,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { sparse-checkout: package.json, sparse-checkout-cone-mode: false, persist-credentials: false }
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             dist/SuperSuite-Setup.exe
@@ -190,7 +190,7 @@ jobs:
       actions: read
       checks: read
     steps:
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         continue-on-error: true
         with:
           path: ci-logs
