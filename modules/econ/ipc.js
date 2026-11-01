@@ -1394,6 +1394,21 @@ function registerIpcHandlers() {
     const safe = String(st.donor.name).replace(/[\\/:*?"<>|]/g, '').slice(0, 60) || 'תורם';
     return { html: X.renderDonorStatementHtml(st), name: `סיכום-תרומות-${st.year}-${safe}.pdf`, st };
   }, (event, { st }) => auditEvent(event, 'npo.statement.pdf', { year: st.year, receipts: st.receipts.length }));
+  // חבילת סוף שנה: סיכום שנתי לכל התורמים בקובץ PDF אחד (עמוד לתורם), ורשימת דיוור ב-CSV
+  const yearEndPackOrFail = async (year, opts) => {
+    const pack = await npoService.getYearEndPack(year, opts);
+    if (!pack.statements.length) throw new Error('אין תורמים לחבילה בשנה זו לפי הסינון שנבחר');
+    return pack;
+  };
+  handleSave('npo:exportYearEndPackPdf', async (event, year, opts) => {
+    const pack = await yearEndPackOrFail(year, opts);
+    return { html: X.renderYearEndPackHtml(pack), name: `חבילת-סוף-שנה-${pack.year}.pdf`, pack, result: { donors: pack.totals.donors, skipped: pack.skipped } };
+  }, (event, { pack }) => auditEvent(event, 'npo.yearEndPack.pdf', { year: pack.year, donors: pack.totals.donors, filters: pack.filters }));
+  handleSave('npo:exportYearEndListCsv', async (event, year, opts) => {
+    const { pack, table } = await npoService.getYearEndMailing(year, opts);
+    if (!pack.statements.length) throw new Error('אין תורמים לחבילה בשנה זו לפי הסינון שנבחר');
+    return { ...csvSpec(table), pack };
+  }, (event, { pack }) => auditEvent(event, 'npo.yearEndPack.csv', { year: pack.year, donors: pack.totals.donors, filters: pack.filters }));
   // תיק תורם לשנה: הסיכום השנתי וכל הקבלות שהופקו במערכת — בקובץ אחד
   handleSave('npo:exportDonorFilePdf', async (event, donorKey, year) => {
     const { statement: st, donations } = await npoService.getDonorFile(donorKey, year);

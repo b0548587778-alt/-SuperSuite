@@ -761,7 +761,7 @@
 ### רעיונות נוספים (לא נסקרו לעומק ולא הוערכו)
 | רעיון | למה | מה כבר קיים |
 |---|---|---|
-| **חבילת סוף שנה לתורמים** — מועמד ראשון, לפני ינואר | בכל ינואר שולחים לכל התורמים סיכום שנתי להחזר מס. היום אפשר להפיק רק תורם אחד בכל פעם (`npo:exportDonorStatementPdf`) | `donorAnnualStatement`, `renderDonorStatementHtml`, `thankYouLetter`, `handleSave` |
+| **חבילת סוף שנה לתורמים** — ✅ בוצע 1.11.2026 (`yearEndPack`, `tests/year-end-pack.test.js`) | בכל ינואר שולחים לכל התורמים סיכום שנתי להחזר מס. היום אפשר להפיק רק תורם אחד בכל פעם (`npo:exportDonorStatementPdf`) | `donorAnnualStatement`, `renderDonorStatementHtml`, `thankYouLetter`, `handleSave` |
 | התחייבויות (התחייבות בדינר, במגבית או דרך שגריר) ותשלומיהן | מוסדות גייסו כך הרבה כסף, והקמפיין סופר רק כסף שהתקבל. על התחייבות שלא שולמה אין קבלה ואין דיווח | `campaigns.js`, `standingOrders.js`, `collect.createRequest`, `morningBrief` |
 | לוח הקדשות בתשלום (לימוד יום, נר, לוח זיכרון) לפי תאריך עברי | מקור הכנסה מרכזי לישיבות. מופיע ב-`IDEAS-FROM-CLOUD.md`. ב-`memorials.js` יש רק `plaque` חופשי | `memorials.calendar`, `adarRule`, `addDonation` |
 | העדפות קשר (טלפון כשר, ערוץ, שפה, תואר) וייצוא רשימות חיוג למערכת קולית | לחלק גדול מהקהל אין וואטסאפ או מייל. מופיע ב-`IDEAS-FROM-CLOUD.md`. בלי רשת — רק קובץ שהמשתמש מעלה בעצמו | `dataPorts.toCsv`, `arrearsByGuarantor`, `maskBeneficiary` |
