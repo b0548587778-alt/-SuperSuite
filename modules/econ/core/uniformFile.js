@@ -211,6 +211,18 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
     ...salesDocs.map(d => ({ inv: d, type: SD.KINDS[d.kind].code }))
   ].filter(x => inRange(String(x.inv.date))).sort((a, b) => a.type - b.type || a.inv.number - b.inv.number);
   const docSummary = new Map();
+  // מסמך הבסיס (שדות 1256/1257 ב-D110 — "חובה כאשר המסמך מבוסס על מסמך", הוראות 1.31):
+  // חשבונית או מסמך שהומרו מהזמנה / תעודת משלוח, וזיכוי — לפי החשבונית שהוא מזכה. הצעת מחיר אינה בקובץ
+  const invoiceById = new Map(invoices.map(i => [i.id, i]));
+  const baseDocOf = (doc) => {
+    const src = doc && doc.sourceDoc;
+    if (src && SD.KINDS[src.kind] && SD.KINDS[src.kind].code && src.number != null) return { type: SD.KINDS[src.kind].code, number: String(src.number) };
+    if (doc && doc.kind === 'credit') {
+      const base = invoiceById.get(doc.invoiceId);
+      if (base) return { type: docTypeOf(base), number: String(base.number) };
+    }
+    return null;
+  };
   let link = 0;
   for (const { inv, type } of docs) {
     link += 1;
@@ -232,8 +244,10 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
       1225: custVat.length === 9 ? custVat : String(inv.customer || '').slice(0, 15),
       1228: cancelled ? '1' : '', 1230: ymd(inv.date), 1233: user, 1234: link
     });
+    const baseDoc = baseDocOf(inv);
     (Array.isArray(inv.items) ? inv.items : []).forEach((it, i) => push('D110', {
       1253: type, 1254: String(inv.number), 1255: i + 1,
+      ...(baseDoc ? { 1256: baseDoc.type, 1257: baseDoc.number } : {}),
       1258: String(it.account) === A.SYS.SERVICES ? 1 : 2, 1260: it.description, 1263: 'יחידה',
       1264: Math.round(Number(it.quantity || 0) * 10000), 1265: ag(it.unitPrice), 1266: 0, 1267: ag(it.lineNet),
       1268: vatRateCode(inv, { fallbackRate }), 1272: ymd(inv.date), 1273: link

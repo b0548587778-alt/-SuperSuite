@@ -147,6 +147,11 @@ function draftEntry(input, options = {}) {
     };
   }
 
+  // פרטי הספק כפי שהוקלדו — נשמרים גם בלי מע"מ (ספק פטור): לחסימת כפילות ולהצעת חשבון לפי שם.
+  // vatDoc נשאר כמו שהוא, רק ל-PCN874 (אסמכתה בספרות בלבד)
+  const supplierDoc = validateSupplierDoc({ name: supplierName, taxId: supplierTaxId, reference: docNumber, docDate: date });
+  if (supplierDoc) entry.supplierDoc = supplierDoc;
+
   return {
     entry,
     warnings,
@@ -156,6 +161,46 @@ function draftEntry(input, options = {}) {
     allocation,
     amountsAg: { net, vat, gross: grossAg }
   };
+}
+
+// פרטי ספק ברשומת יומן (שם, ע.מ, אסמכתה מקורית, תאריך) — קלט לא מהימן. ריק = null.
+// האסמכתה נשמרת כפי שהוקלדה (A-100 ו-B-100 הן שתי חשבוניות), ולא רק בספרות כמו ב-vatDoc
+function validateSupplierDoc(input) {
+  if (!input || typeof input !== 'object') return null;
+  const out = {};
+  const name = str(input.name, 120);
+  if (name) out.name = name;
+  const taxId = supplierTaxIdOf(input.taxId);
+  if (taxId) out.taxId = taxId;
+  const reference = str(input.reference, 40);
+  if (reference) out.reference = reference;
+  if (input.docDate !== undefined && input.docDate !== null && input.docDate !== '') {
+    if (!isDate(String(input.docDate))) throw new Error('תאריך חשבונית הספק אינו תקין');
+    out.docDate = String(input.docDate);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+// אסמכתה להשוואה: בלי רווחים כפולים ובלי הבדל בין אותיות גדולות לקטנות
+const refKey = (v) => str(v, 40).replace(/\s+/g, ' ').toUpperCase();
+
+// מפתח לזיהוי חשבונית ספק ברשומה: ע.מ, אסמכתה מקורית (אם נשמרה) ואסמכתה בספרות (vatDoc ישן)
+function supplierDocKey(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const sd = entry.supplierDoc && typeof entry.supplierDoc === 'object' ? entry.supplierDoc : null;
+  const vd = entry.vatDoc && typeof entry.vatDoc === 'object' ? entry.vatDoc : null;
+  const taxId = taxIdKey((sd && sd.taxId) || (vd && vd.supplierTaxId) || '');
+  const full = sd && sd.reference ? refKey(sd.reference) : '';
+  const digits = (vd && vd.reference) ? String(vd.reference) : (full ? full.replace(/\D/g, '').slice(-20) : '');
+  if (!taxId || (!full && !digits)) return null;
+  return { taxId, full, digits };
+}
+
+// אותה חשבונית ספק: אותו ע.מ, ואותה אסמכתה מקורית כשיש לשתיהן; אחרת (רשומה ישנה) — לפי הספרות
+function sameSupplierDoc(a, b) {
+  if (!a || !b || a.taxId !== b.taxId) return false;
+  if (a.full && b.full) return a.full === b.full;
+  return !!a.digits && a.digits === b.digits;
 }
 
 // השלמת חשבון ההוצאה מההיסטוריה: ספק מאותו ת"ז/ח"פ או אותו שם — הספרה הנפוצה ביותר
@@ -176,9 +221,11 @@ function suggestAccount(input, journal, expenseAccounts) {
   let last = null;
   for (const e of Array.isArray(journal) ? journal : []) {
     const doc = e && e.vatDoc;
-    if (!doc || !Array.isArray(e.lines)) continue;
-    const sameId = taxId && taxIdKey(doc.supplierTaxId) === taxId;
-    const sameName = name && str(doc.supplierName, 120) === name;
+    const sd = e && e.supplierDoc;
+    if ((!doc && !sd) || !Array.isArray(e.lines)) continue;
+    const docTaxId = (sd && sd.taxId) || (doc && doc.supplierTaxId) || '';
+    const sameId = taxId && docTaxId && taxIdKey(docTaxId) === taxId;
+    const sameName = name && str((sd && sd.name) || (doc && doc.supplierName), 120) === name;
     if (!sameId && !sameName) continue;
     for (const line of e.lines) {
       const code = String(line && line.account || '');
@@ -204,4 +251,4 @@ function expenseAccountCodes(accounts) {
     .map(a => String(a.code));
 }
 
-module.exports = { draftEntry, suggestAccount, expenseAccountCodes, allocationNumber };
+module.exports = { draftEntry, suggestAccount, expenseAccountCodes, allocationNumber, validateSupplierDoc, supplierDocKey, sameSupplierDoc };

@@ -228,9 +228,10 @@ function renderField(f) {
     const val = f.value !== undefined && f.value !== null ? ` value="${esc(f.value)}"` : '';
     input = `<input id="f_${esc(f.name)}" name="${esc(f.name)}" type="${esc(f.type)}"${val} ${req}>`;
   }
+  // f.hint — הסבר קצר מתחת לשדה (טקסט בלבד)
   return `<label class="field">
     <span>${esc(f.label)}${f.required ? ' *' : ''}</span>
-    ${input}
+    ${input}${f.hint ? `\n    <small class="ss-hint">${esc(f.hint)}</small>` : ''}
   </label>`;
 }
 

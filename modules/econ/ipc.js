@@ -1313,7 +1313,13 @@ function registerIpcHandlers() {
       },
       after: async (event, { args, today, file }) => {
         const out = await svc.createMasavBatch(args, { today });
-        fs.writeFileSync(file, out.text, 'latin1');
+        // כתיבה עמידה (כלל 3). כשל בכתיבה ← האצווה מבוטלת, כדי שלא תישאר אצווה פתוחה בלי קובץ והחיובים יחזרו להיות זמינים
+        try {
+          writeFileDurable(file, out.text, 'latin1');
+        } catch (e) {
+          await svc.cancelMasavBatch(out.batchId).catch(() => {});
+          throw e;
+        }
         await auditEvent(event, `${prefix}.masav.file`, { batchId: out.batchId, month: args.month, chargeDate: args.chargeDate, count: out.count, totalAg: out.totalAg });
         return { ok: true, path: file, count: out.count, totalAg: out.totalAg };
       },
@@ -1641,7 +1647,7 @@ function registerIpcHandlers() {
     return o;
   });
   // מזעור לפי סוג — רק בתחום שפתוח ברישיון (אחרת: רשימת שמות ושינוי נתונים של תחום סגור)
-  const RETENTION_DOMAIN = { beneficiaries: 'chesed:x', donors: 'npo:x', borrowers: 'gemach:x', mortgageClients: 'madv:x', realtyClients: 'rlty:x' };
+  const RETENTION_DOMAIN = { beneficiaries: 'chesed:x', donors: 'npo:x', borrowers: 'gemach:x', itemBorrowers: 'gemach:x', mortgageClients: 'madv:x', realtyClients: 'rlty:x' };
   // תיבות ההודעות במיפוי (ממצא 26) — רק תיבה שקיימת במחשב הזה: של המערכת — כששרת ההודעות מוגדר או שיש בה שיחות;
   // של מנהל-העל — כשהמצב הוגדר כאן (מספר השיחות — רק כשהוא פתוח בסיסמה). הודעות אינן תחום ברישוי (chat: תמיד פתוח ב-gate.js)
   const mailboxPeers = (box) => {
@@ -1954,6 +1960,11 @@ function registerIpcHandlers() {
       const text = fs.readFileSync(pick.filePaths[0], 'utf8').replace(/^﻿/, '');
       return longDone({ text: RI.bracketsText(RI.parseBrackets(text)) });
     },
+  });
+  // אותה קריאה, מטקסט שהמסך קרא בעצמו (pickFileText) — עובד גם באנדרואיד, שבו חלון פתיחת הקובץ בתהליך הראשי לא קיים
+  handle('rlty:parseTaxTableText', async (event, text) => {
+    if (typeof text !== 'string' || text.length > 64 * 1024) throw new Error('הקובץ גדול מדי לטבלת מדרגות');
+    return { text: RI.bracketsText(RI.parseBrackets(text.replace(/^\uFEFF/, ''))) };
   });
   handle('rlty:deleteTaxTable', async (event, id) => {
     await realtyService.deleteTaxTable(String(id || ''));

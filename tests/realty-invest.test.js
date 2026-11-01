@@ -115,6 +115,12 @@ test('IPC: טבלה מקובץ ← שמירה ← אימות למנהל בלבד
   fs.writeFileSync(openFile, '﻿' + SAMPLE, 'utf8');
   const file = await handlers['rlty:readTaxTableFile'](ev(98));
   assert.equal(file.text, '1000000, 0\n2000000, 3.5\nמעל, 8');
+  // אותה תוצאה מטקסט שהמסך קרא (pickFileText) — הדרך שעובדת גם באנדרואיד
+  assert.deepEqual(await handlers['rlty:parseTaxTableText'](ev(98), '﻿' + SAMPLE), { text: file.text });
+  await assert.rejects(handlers['rlty:parseTaxTableText'](ev(98), 'x'.repeat(64 * 1024 + 1)), /גדול מדי/);
+  const ui = fs.readFileSync(path.join(__dirname, '../modules/econ/ui/realty.js'), 'utf8');
+  assert.match(ui, /pickFileText\('\.csv,\.txt'\)[\s\S]{0,200}parseRealtyTaxTableText/, 'המסך קורא את הקובץ בעצמו');
+  assert.doesNotMatch(ui, /readRealtyTaxTableFile/);
 
   const t = await handlers['rlty:saveTaxTable'](ev(98), { year: 2026, kind: 'single', bracketsText: file.text });
   assert.equal(t.verified, false);

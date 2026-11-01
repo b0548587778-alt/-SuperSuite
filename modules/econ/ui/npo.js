@@ -15,6 +15,9 @@ const npoFundOptions = (o) => (Array.isArray(o && o.funds) ? o.funds : [{ id: 'g
   .filter(f => !f.archived).map(f => ({ value: f.id, label: f.name + (f.restricted ? ' (ייעודי)' : '') }));
 const opts = (map) => Object.entries(map).map(([value, label]) => ({ value, label }));
 
+// תשלום תמורת שירות אינו תרומה — הסבר בטופס התרומה ובהוראת הקבע (PLAN שלב 10, 10.1ה; הנוסח לאישור הבעלים, ה15)
+const TUITION_HINT = 'שכר לימוד, דמי רישום או תשלום תמורת שירות אינם תרומה — אין לרשום אותם כאן (קבלה לפי סעיף 46 ניתנת רק על תרומה בלי תמורה).';
+
 formSchemas['npo'] = {
   title: 'תרומה חדשה — הפקת קבלה',
   prepare: async (schema) => {
@@ -36,7 +39,7 @@ formSchemas['npo'] = {
     { name: 'fundId', label: 'קרן', type: 'select', options: [] },
     { name: 'campaignId', label: 'קמפיין', type: 'select', options: [] },
     { name: 'ambassadorId', label: 'שגריר בקמפיין', type: 'select', options: [] },
-    { name: 'purpose', label: 'ייעוד / הערה לקבלה', type: 'text' },
+    { name: 'purpose', label: 'ייעוד / הערה לקבלה', type: 'text', hint: TUITION_HINT },
     { name: 'reference', label: 'אסמכתא (מס\' המחאה / העברה)', type: 'text' },
     { name: 'donorAddress', label: 'כתובת התורם', type: 'text' },
     { name: 'donorPhone', label: 'טלפון התורם', type: 'tel' }
@@ -113,7 +116,7 @@ const npoStandingSchema = {
     { name: 'endMonth', label: 'חודש סיום (ריק = ללא הגבלה)', type: 'text' },
     { name: 'method', label: 'סוג', type: 'select', options: opts(SO_METHODS) },
     { name: 'fundId', label: 'קרן', type: 'select', options: [] },
-    { name: 'purpose', label: 'ייעוד לקבלה', type: 'text' },
+    { name: 'purpose', label: 'ייעוד לקבלה', type: 'text', hint: TUITION_HINT },
     { name: 'donorPhone', label: 'טלפון', type: 'tel' },
     { name: 'donorAddress', label: 'כתובת', type: 'text' },
     { name: 'notes', label: 'הערות (בלי פרטי אשראי או חשבון)', type: 'textarea' }
