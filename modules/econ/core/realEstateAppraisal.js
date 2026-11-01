@@ -83,7 +83,7 @@ function toArea(v, label, { max = 1000000 } = {}) {
 function pctToBp(v, label, { min = -MAX_ADJ_BP, max = MAX_ADJ_BP } = {}) {
   if (v === null || v === undefined || v === '') return 0;
   if (typeof v === 'number' && Number.isInteger(v)) { if (v < min || v > max) throw new Error(`${label}: מחוץ לטווח`); return v; }
-  const s = String(v).trim().replace('%', '').replace(',', '.');
+  const s = String(v).trim().replace(/%/g, '').replace(',', '.');
   const m = s.match(/^([+-]?)(\d{1,4})(?:\.(\d{1,2}))?$/);
   if (!m) throw new Error(`${label}: יש להזין אחוז`);
   const bp = (Number(m[2]) * 100 + Number(((m[3] || '') + '00').slice(0, 2))) * (m[1] === '-' ? -1 : 1);
