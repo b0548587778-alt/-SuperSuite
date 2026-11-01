@@ -601,7 +601,8 @@ function renderCardActions(id) {
 function emptyIcon(view) {
   const btn = [...(elements.navButtons || [])].find(b => b.dataset && b.dataset.view === view);
   const icon = btn && btn.firstChild && String(btn.firstChild.textContent || '').trim();
-  return icon || '📭';
+  // הטקסט נקרא מהסרגל — עובר esc לפני שהוא נכנס ל-HTML
+  return esc(icon || '📭');
 }
 function renderEmpty(message, icon) {
   const raw = String(message);
