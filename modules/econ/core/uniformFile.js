@@ -170,6 +170,32 @@ function vatRateCode(inv, { fallbackRate } = {}) {
 // ---------- ההפקה
 // data: נתוני הנהלת החשבונות (accounts, journal, invoices). business: הגדרות העסק (taxId = מספר עוסק מורשה).
 // range: { from, to } (YYYY-MM-DD, כולל). now: חותמת זמן ההפקה. user: שם המשתמש שמפיק
+// חשבון נגדי לשורת יומן (שדה 1365): השורה היחידה בצד השני, ואם יש כמה — הגדולה שבהן (בשוויון — הראשונה).
+// כך מוסר חשבון נגדי גם בתוכנות שמייבאות "כל תנועה חד-צדדית כולל חשבון נגדי" (כמו חשבשבת)
+function counterAccountOf(entry, index) {
+  const lines = Array.isArray(entry && entry.lines) ? entry.lines : [];
+  const me = lines[index];
+  if (!me) return '';
+  const mine = ag(me.debit) > 0 ? 'debit' : 'credit';
+  const other = mine === 'debit' ? 'credit' : 'debit';
+  let best = null;
+  for (const l of lines) {
+    const amt = ag(l[other]);
+    if (amt > 0 && (!best || amt > best.amt)) best = { amt, account: String(l.account) };
+  }
+  return best ? best.account : '';
+}
+
+// פרטי חשבונית ספק ברשומת יומן (שדות 1357/1358/1363): האסמכתה המקורית, סוג 700 (חשבונית מס רכש) ותאריך החשבונית
+function supplierRefOf(entry) {
+  const sd = entry && entry.supplierDoc;
+  const vd = entry && entry.vatDoc;
+  if (!sd && !vd) return null;
+  const reference = String((sd && sd.reference) || (vd && vd.reference) || '').slice(0, 20);
+  const docDate = (sd && sd.docDate) || (vd && vd.docDate) || '';
+  return { reference, docDate };
+}
+
 function buildUniformFile({ data, business, range, now = Date.now(), user = '', primaryId, software = SOFTWARE }) {
   const vatId = digitsOnly(business && business.taxId);
   if (vatId.length !== 9 || !isValidIsraeliId(vatId)) throw new Error('יש להזין מספר עוסק מורשה תקין (9 ספרות) בהגדרות העסק לפני הפקת קבצים במבנה אחיד');
@@ -280,6 +306,7 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
   entries.forEach((e, t) => {
     const ref = byEntry.get(e.id);
     const typeLabel = ref ? { invoice: 'חשבונית', payment: 'גבייה', cancel: 'ביטול', credit: 'זיכוי', receipt: 'קבלה' }[ref.kind] : e.reversalOf ? 'ביטול' : 'פקודת יומן';
+    const sup = ref ? null : supplierRefOf(e);
     e.lines.forEach((l, i) => {
       const debit = ag(l.debit);
       const credit = ag(l.credit);
@@ -288,8 +315,9 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
       movement.set(String(l.account), m);
       push('B100', {
         1353: t + 1, 1354: i + 1, 1355: 0, 1356: typeLabel,
-        1357: ref ? String(ref.inv.number) : '', 1358: ref ? ref.type || docTypeOf(ref.inv) : 0,
-        1361: e.description, 1362: ymd(e.date), 1363: ymd(e.date), 1364: String(l.account),
+        1357: ref ? String(ref.inv.number) : (sup ? sup.reference : ''), 1358: ref ? ref.type || docTypeOf(ref.inv) : (sup ? 700 : 0),
+        1361: e.description, 1362: ymd(e.date), 1363: ymd(sup && sup.docDate ? sup.docDate : e.date), 1364: String(l.account),
+        1365: counterAccountOf(e, i),
         1366: debit > 0 ? 1 : 2, 1368: debit > 0 ? debit : credit,
         1375: e.createdAt ? localDate(e.createdAt) : ymd(e.date), 1376: user
       });
@@ -386,4 +414,4 @@ function zipSingle(name, content, now = Date.now()) {
   return Buffer.concat([local, fname, data, central, fname, end]);
 }
 
-module.exports = { SOFTWARE, DOC_TYPES, RECORD_LABELS, LAYOUTS, RECORD_LENGTHS, SYSTEM_CONST, toIso8859_8, field, record, newPrimaryId, docTypeOf, vatRateCode, buildUniformFile, crc32, zipSingle, VAT_HISTORY, legalVatRate };
+module.exports = { counterAccountOf, supplierRefOf, SOFTWARE, DOC_TYPES, RECORD_LABELS, LAYOUTS, RECORD_LENGTHS, SYSTEM_CONST, toIso8859_8, field, record, newPrimaryId, docTypeOf, vatRateCode, buildUniformFile, crc32, zipSingle, VAT_HISTORY, legalVatRate };
