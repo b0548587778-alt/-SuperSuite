@@ -22,6 +22,7 @@ apt-get install -y curl ca-certificates gnupg debian-keyring debian-archive-keyr
 
 echo "==> Node.js 22"
 if ! command -v node >/dev/null || [[ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]]; then
+  # nosemgrep: bash.curl.security.curl-pipe-bash.curl-pipe-bash -- סקריפט התקנה ידני לשרת, מהמקור הרשמי של NodeSource ב-HTTPS
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs
 fi

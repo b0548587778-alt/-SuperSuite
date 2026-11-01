@@ -30,6 +30,7 @@ const OWNER_SEAL_INFO = 'SuperSuite owner files v1';
 
 // הצפנה במפתח השורש: AES-256-GCM של core/atRest.js, עם תחילית משלו (SSOW1: ולא SSDB1: של המסד)
 function ownerFileCipher(privateJwk) {
+  // nosemgrep: javascript.node-crypto.security.create-de-cipher-no-iv.create-de-cipher-no-iv -- AR.createCipher של הפרויקט (AES-256-GCM עם IV אקראי לכל הצפנה), לא crypto.createCipher הישן
   const inner = AR.createCipher(Buffer.from(C.hkdfSha256(C.b64uDecode(privateJwk.d), new Uint8Array(0), C.utf8(OWNER_SEAL_INFO), 32)));
   return {
     seal: (text) => OWNER_SEAL_PREFIX + inner.seal(text).slice(AR.PREFIX.length),

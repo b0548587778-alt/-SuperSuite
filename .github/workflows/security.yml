@@ -35,14 +35,21 @@ jobs:
       image: semgrep/semgrep
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: semgrep scan --config auto --error --exclude node_modules --exclude dist --exclude build --exclude modules
+      # שני כללי "audit" (רמזים לבדיקה ידנית, לא ממצאים) — כמעט כל הפגיעות שלהם בכלי בנייה ובנתיבים קבועים;
+      # path traversal בפרוטוקול app:// נבדק בבדיקות (tests/audit-backup-startup.test.js).
+      # התרעות שווא אחרות — nosemgrep בשורה עצמה, עם נימוק (החלטת הבעלים 1.11.2026)
+      - run: >-
+          semgrep scan --config auto --error --exclude node_modules --exclude dist --exclude build --exclude modules
+          --exclude-rule javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+          --exclude-rule javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
 
   # ניתוח סטטי של GitHub; התוצאות בלשונית Security של המאגר
   codeql:
     runs-on: ubuntu-latest
+    # Code scanning לא זמין במאגר (פרטי, בלי GitHub Advanced Security): הסריקה רצה בלי העלאה,
+    # והמשימה נכשלת לפי הממצאים בקובץ התוצאות (החלטת הבעלים 1.11.2026)
     permissions:
       contents: read
-      security-events: write
       # codeql-action קורא את פרטי הריצה (בלי זה: "configuration error" אחרי שהסריקה הסתיימה)
       actions: read
     strategy:
@@ -55,6 +62,19 @@ jobs:
         with:
           languages: ${{ matrix.language }}
       - uses: github/codeql-action/analyze@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3
+        with:
+          upload: never
+          output: codeql-results
+      # כל ממצא בקובץ התוצאות — מודפס ומכשיל את המשימה
+      - name: ממצאי CodeQL
+        run: |
+          shopt -s nullglob
+          files=(codeql-results/*.sarif)
+          [ ${#files[@]} -gt 0 ] || { echo "לא נוצר קובץ תוצאות"; exit 1; }
+          jq -r '.runs[].results[] | "\(.ruleId)  \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine)  \(.message.text)"' "${files[@]}"
+          count=$(jq '[.runs[].results[]] | length' "${files[@]}" | paste -sd+ | bc)
+          echo "ממצאים: $count"
+          [ "$count" -eq 0 ]
 
   # תלויות עם חולשות ידועות
   dependencies:

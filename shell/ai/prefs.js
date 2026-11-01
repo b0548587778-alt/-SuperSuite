@@ -28,6 +28,7 @@ function createPrefs({ fs, dir, getBackupKey, onError = () => {}, now = () => Da
 
   const cipherFor = (key) => {
     if (!key) return null;
+    // nosemgrep: javascript.node-crypto.security.create-de-cipher-no-iv.create-de-cipher-no-iv -- AR.createCipher של הפרויקט (AES-256-GCM עם IV אקראי לכל הצפנה), לא crypto.createCipher הישן
     try { return AR.createCipher(AR.deriveDbKey(key, KEY_INFO)); }
     catch (e) { onError('ai-prefs-key', e); return null; }
   };

@@ -62,6 +62,7 @@ function createSecureStore({ fs, dir, mod, getBackupKey, onError = () => {}, sch
       else state = 'plain';
       return;
     }
+    // nosemgrep: javascript.node-crypto.security.create-de-cipher-no-iv.create-de-cipher-no-iv -- AR.createCipher של הפרויקט (AES-256-GCM עם IV אקראי לכל הצפנה), לא crypto.createCipher הישן
     cipher = AR.createCipher(keyFor(backupKey, mod));
     if (!exists) { state = 'encrypted'; return; }
     try {

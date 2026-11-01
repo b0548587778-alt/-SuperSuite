@@ -37,6 +37,7 @@ function encryptedChatStorage({ fs, file, legacyFile, getBackupKey, scope, clock
   function cipherFor(create) {
     if (!cipher) {
       if (typeof getBackupKey !== 'function') throw new Error('אין מפתח הצפנה לתיבת ההודעות');
+      // nosemgrep: javascript.node-crypto.security.create-de-cipher-no-iv.create-de-cipher-no-iv -- AR.createCipher של הפרויקט (AES-256-GCM עם IV אקראי לכל הצפנה), לא crypto.createCipher הישן
       cipher = AR.createCipher(AR.deriveDbKey(getBackupKey(create), INFO + scope));
     }
     return cipher;

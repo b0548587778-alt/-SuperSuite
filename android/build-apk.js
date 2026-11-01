@@ -57,6 +57,7 @@ function findTools() {
 }
 
 function run(cmd, argv, opts = {}) {
+  // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process -- כלי בנייה; הפקודה והארגומנטים מהסקריפט עצמו, בלי shell
   const r = spawnSync(cmd, argv, { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', ...opts });
   if (r.error) throw r.error;
   if (r.status !== 0) {
