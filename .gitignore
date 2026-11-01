@@ -26,7 +26,7 @@ venv/
 
 # Dev scaffolding / one-off probes (see TODO-FIXES.md #9 — move to scripts/ or delete)
 # מוגבל לשורש הפרויקט בלבד: בלעדי ה-"/" המוביל, הדפוסים היו חוסמים גם קבצים
-# תחת tests/ (למשל tests/fitness-view.test.js).
+# תחת tests/ (למשל tests/fitness-*.test.js).
 /fitness-*.js
 /fitness-*.json
 /probe*.js
@@ -57,9 +57,8 @@ deploy/relay/.env
 deploy/relay/pay.env
 relay-data/
 
-# קוד המקור של מודול האימונים — תוצרי בנייה (התוצר הסופי ב-modules/trainer)
-modules-src/*/node_modules/
-modules-src/*/dist/
+# esbuild לכיווץ ב-CI (tools/minify-deps) — מותקן מקובץ הנעילה, לא במאגר
+tools/minify-deps/node_modules/
 
 # צילומי מסך מ---smoke --shots (PLAN.md 7.1) — השוואת מראה, לא במאגר
 shots/

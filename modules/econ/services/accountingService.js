@@ -170,7 +170,7 @@ class AccountingService {
   }
 
   // paidNow: { method, reference } — חשבונית מס/קבלה: החשבונית והגבייה בשמירה אחת, בלי קבלה נפרדת.
-  // פטור ממע"מ: אין "חשבונית מס/קבלה" — חשבונית עסקה (300) וקבלה נפרדת (400), כמו createTrainerReceipt
+  // פטור ממע"מ: אין "חשבונית מס/קבלה" — חשבונית עסקה (300) וקבלה נפרדת (400), כמו createAdvisoryReceipt
   async createInvoice(invoiceData) {
     const data = await this._load();
     const invoice = this._createInvoiceIn(data, invoiceData);
@@ -234,28 +234,7 @@ class AccountingService {
     return stored;
   }
 
-  // תשלום מנוי ממודול האימונים (core/trainerPayments.js → invoiceInput) ← חשבונית מס/קבלה, פעם אחת לכל תשלום.
-  // הבדיקה שאין כבר חשבונית לאותו תשלום — באותה טעינה של המסד שבה נשמרת החדשה.
-  // exempt (עוסק פטור): חשבונית עסקה בלי מע"מ (300) וקבלה נפרדת (400) — הקבלה היא המסמך הרשמי
-  async createTrainerReceipt({ customer, date, grossAgorot, description, method, reference, trainerPayment, exempt = false }) {
-    if (!Number.isSafeInteger(grossAgorot) || grossAgorot <= 0) throw new Error('סכום החשבונית אינו תקין');
-    const key = trainerPayment && String(trainerPayment.key || '');
-    if (!key) throw new Error('חסר שיוך לתשלום במודול האימונים');
-    const data = await this._load();
-    const prev = data.invoices.find(i => i.trainerPayment && i.trainerPayment.key === key && i.status !== 'cancelled');
-    if (prev) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${prev.number})`);
-    const items = [{ description, quantity: 1, unitPrice: exempt ? A.fromAg(grossAgorot) : A.netFromGross(grossAgorot, this._vatRate(data)), kind: 'service' }];
-    const stored = this._createInvoiceIn(data, exempt ? { customer, date, items, vatExempt: true } : { customer, date, grossAgorot, items });
-    if (Math.round(stored.total * 100) !== grossAgorot) throw new Error('סכום החשבונית אינו תואם לסכום ששולם');
-    this._payIn(data, stored, { date: stored.date, ...SD.validatePayment({ method, reference }), issueReceipt: exempt });
-    if (!exempt) stored.kind = 'tax-invoice-receipt';
-    stored.trainerPayment = { key, clientId: String(trainerPayment.clientId || '').slice(0, 64),
-      membershipId: String(trainerPayment.membershipId || '').slice(0, 64), paymentId: String(trainerPayment.paymentId || '').slice(0, 64) };
-    await this.db.save(data);
-    return stored;
-  }
-
-  // תשלום עמלת ייעוץ משכנתא (madv) ← חשבונית מס/קבלה, פעם אחת לכל תשלום — באותו מבנה כמו createTrainerReceipt.
+  // תשלום עמלת ייעוץ משכנתא (madv) ← חשבונית מס/קבלה, פעם אחת לכל תשלום.
   // source.key ייחודי לתשלום; הבדיקה לכפילות באותה טעינה של המסד שבה נשמרת החדשה
   // גם לדמי תיווך (rlty) — אותו מבנה, מפתח שונה
   async createAdvisoryReceipt({ customer, date, grossAgorot, description, method, reference, key, exempt = false }) {

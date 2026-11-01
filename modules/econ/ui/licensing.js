@@ -19,10 +19,12 @@ const LIC_HOLD_KINDS = { suspended: 'השבתה זמנית', locked: 'נעילה
 const LIC_FEATURES = [
   ['econ', 'מערכת כלכלית (בסיס)'], ['econ.accounting', 'הנהלת חשבונות'], ['econ.npo', 'עמותה ותרומות'], ['econ.gemach', 'גמ"ח'],
   ['econ.chesed', 'חסד וחלוקות'], ['econ.mortgage', 'משכנתאות'], ['econ.mortgage-advisor', 'ייעוץ משכנתאות'], ['econ.mortgage-lab', 'מעבדת תמהיל'], ['econ.realestate', 'נדל"ן (שמאות מקרקעין, תיווך ויזמים)'],
-  ['shamai', 'שמאות'], ['trainer', 'ניהול אימונים'], ['tools', 'ארגז כלים'],
+  ['shamai', 'שמאות'], ['tools', 'ארגז כלים'],
   ['ai', 'עוזר חכם — כללים'], ['ai.local', 'עוזר חכם — מודל במחשב'], ['ai.cloud', 'עוזר חכם — שדרוג ענן']
 ];
-const licFeatureLabel = (f) => (LIC_FEATURES.find(x => x[0] === f) || [f, f])[1];
+// תחומים מרישיונות ישנים שאינם במוצר הזה — מוצגים בשם קריא, ולא מוצעים בהנפקה (trainer: עבר למוצר החינוכי הנפרד)
+const LIC_LEGACY_FEATURES = { trainer: 'ניהול אימונים (מוצר נפרד)' };
+const licFeatureLabel = (f) => (LIC_FEATURES.find(x => x[0] === f) || [f, LIC_LEGACY_FEATURES[f] || f])[1];
 const licDate = (ms) => (ms ? new Date(ms).toLocaleDateString('he-IL') : '');
 const licBadge = (st) => `<span class="${st === 'active' ? 'good' : 'bad'}">${esc(LIC_STATUS[st] || st)}</span>`;
 const licLimits = (l) => l ? `עד ${Number(l.maxUsers)} משתמשים · ${Number(l.maxChildren)} מערכות בת · ${Number(l.maxStorageMb)}MB` : '';

@@ -422,7 +422,7 @@ function startAndroid({ econ, openText, alerts = [], confirms = [], saved = [] }
   MA.start({
     ipcMain: { handle: (c, fn) => h.set(c, fn), on() {} }, econ, frames, SHELL_ID: 1, emitShell() {},
     bridgeAsync: async (m, name, mime, text) => { if (m === 'openText') return { text: openText }; saved.push({ name, text }); return { ok: true, name }; },
-    senderOf: (id) => ({ econ: 2, shamai: 3, trainer: 4, tools: 5 })[id],
+    senderOf: (id) => ({ econ: 2, shamai: 3, tools: 5 })[id],
     ui: (() => { let o = {}; return { load: () => o, save: (v) => { o = v; } }; })(),
     alert: (m) => alerts.push(m), confirm: (m) => { confirms.push(m); return true; }, exit() {}
   });

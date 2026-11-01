@@ -74,15 +74,11 @@ const IC = (function () {
     mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
     pen: '<path d="m4 20 1-4L16 5l3 3L8 19Z"/><path d="m14 7 3 3"/>',
     toolbox: '<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M9 8V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V8M3 13h18M10 13v2h4v-2"/>',
-    activity: '<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>',
-    dumbbell: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>',
     ticket: '<path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4Z"/><path d="M14 7v2M14 11v2M14 15v2"/>',
     bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     clipboard: '<rect x="5" y="4.5" width="14" height="16.5" rx="2"/><path d="M9 3h6v3H9ZM9 11h6M9 15h4"/>',
     list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
     leaf: '<path d="M5 19c0-8 5-14 15-15-1 10-7 15-15 15Z"/><path d="m5 19 8-8"/>',
-    stretch: '<circle cx="12" cy="4.5" r="2"/><path d="M4 9h16M12 9v6l-3 6M12 15l3 6"/>',
-    run: '<circle cx="14" cy="4.5" r="2"/><path d="m6 20 3.5-5 3 2v-5l-3-1.5L7 13M12.5 12l3 3H19M9.5 10.5l3-2.5"/>',
     'book-open': '<path d="M12 6.5C10 5 7 4.5 3 5v14c4-.5 7 0 9 1.5 2-1.5 5-2 9-1.5V5c-4-.5-7 0-9 1.5Z"/><path d="M12 6.5v14"/>',
     wrench: '<path d="M15 4a5 5 0 0 0-4.6 6.9L4 17.3V20h2.7l6.4-6.4A5 5 0 0 0 20 9l-3 1-3-3 1-3Z"/>',
     message: '<path d="M4 5h16v11H9l-5 4Z"/>',
@@ -100,14 +96,11 @@ const IC = (function () {
     'econ:gemach': 'hand-coin', 'econ:chesed': 'package', 'econ:people': 'users', 'econ:mortgage': 'home-lock',
     'econ:mortgage-advisor': 'briefcase', 'econ:mortgage-lab': 'calculator', 'econ:realty': 'realty', 'econ:realestate': 'ruler',
     shamai: 'gem', 'econ:tasks': 'checklist', 'econ:contacts': 'contacts', 'econ:voice-notes': 'mic', 'econ:canvas': 'pen',
-    tools: 'toolbox', 'econ:fitness': 'activity', 'trainer:dashboard': 'dumbbell', 'trainer:clients': 'user',
-    'trainer:schedule': 'calendar', 'trainer:memberships': 'ticket', 'trainer:reminders': 'bell', 'trainer:programs': 'clipboard',
-    'trainer:exercises': 'list', 'trainer:nutrition': 'leaf', 'trainer:flexibility': 'stretch', 'trainer:cardio': 'run',
-    'trainer:knowledge': 'book-open', 'trainer:tools': 'wrench', 'trainer:settings': 'sliders', 'econ:ai': 'sparkles',
+    tools: 'toolbox', 'econ:ai': 'sparkles',
     'econ:settings': 'sliders', 'econ:licensing': 'key', 'econ:messages': 'message',
   };
-  const BY_GROUP = { money: 'coins', home: 'home', realty: 'realty', org: 'briefcase', health: 'activity', trainer: 'dumbbell', system: 'sliders' };
-  const BY_PROFILE = { npo: 'heart', gemach: 'hand-coin', chesed: 'package', business: 'store', household: 'home', mortgage: 'home-lock', appraiser: 'gem', trainer: 'dumbbell' };
+  const BY_GROUP = { money: 'coins', home: 'home', realty: 'realty', org: 'briefcase', system: 'sliders' };
+  const BY_PROFILE = { npo: 'heart', gemach: 'hand-coin', chesed: 'package', business: 'store', household: 'home', mortgage: 'home-lock', appraiser: 'gem' };
 
   // svg(name): סימון מוכן להכנסה ל-innerHTML. השמות קבועים מהטבלה — לעולם לא טקסט מהמשתמש
   function svg(name, cls) {
@@ -131,9 +124,9 @@ const svg = (name) => (IC ? IC.svg(name) : '');
 const itemIcon = (it) => (IC ? IC.forItem(it) : esc(it.icon));
 if (IC && document.querySelectorAll) IC.hydrate(document);
 
-// views — התצוגה הפעילה בכל מודול שיש לו מסכים בסרגל (כלכלי, אימונים)
+// views — התצוגה הפעילה בכל מודול שיש לו מסכים בסרגל (הכלכלי)
 const ui = { active: null, views: {}, query: '' };
-const VIEW_MODS = ['econ', 'trainer'];
+const VIEW_MODS = ['econ'];
 // מצב הרישוי מ-main.js: level ok / limited (קריאה בלבד) / blocked (נעול), ואילו מודולים פתוחים
 let lic = { level: 'ok', message: '', modules: {} };
 const ALWAYS_OPEN_VIEWS = ['licensing', 'messages'];
@@ -160,15 +153,36 @@ function navItem(it) {
     `<span class="ic">${itemIcon(it)}</span><span class="nm">${esc(it.name)}</span></button>`;
 }
 
+// תחומים מקופלים בסרגל — העדפה של המשתמש בלבד (localStorage), נקראת כקלט לא מהימן.
+// בחיפוש כל התחומים פתוחים, והתחום של המסך הפעיל נפתח תמיד.
+const NAV_FOLD_KEY = 'suite.navFolded';
+function loadFolded() {
+  try {
+    const v = JSON.parse(localStorage.getItem(NAV_FOLD_KEY) || '[]');
+    return new Set(Array.isArray(v) ? v.filter(x => typeof x === 'string' && GROUPS.some(g => g.id === x)) : []);
+  } catch { return new Set(); }
+}
+const folded = loadFolded();
+function saveFolded() { try { localStorage.setItem(NAV_FOLD_KEY, JSON.stringify([...folded])); } catch { /* העדפה בלבד */ } }
+function toggleGroup(id) {
+  if (folded.has(id)) folded.delete(id); else folded.add(id);
+  saveFolded();
+  renderNav();
+}
+
 function renderNav() {
   const q = ui.query.trim();
   let html = q ? '' : `<button class="it home" data-key="home"><span class="ic">${IC ? svg('home') : '⌂'}</span><span class="nm">מסך הבית</span></button>`;
   let found = 0;
+  const activeIt = BY_KEY.get(currentKey());
   for (const g of GROUPS) {
     const items = ITEMS.filter(it => it.group === g.id && matches(it, q));
     if (!items.length) continue;
     found += items.length;
-    html += `<div class="grp"><div class="grp-t">${esc(g.title)}</div>${items.map(navItem).join('')}</div>`;
+    const shut = !q && folded.has(g.id) && !(activeIt && activeIt.group === g.id);
+    html += `<div class="grp${shut ? ' shut' : ''}"><button type="button" class="grp-t" data-grp="${esc(g.id)}" aria-expanded="${shut ? 'false' : 'true'}">` +
+      `<span>${esc(g.title)}</span><span class="cnt">${items.length}</span><span class="chev" aria-hidden="true"></span></button>` +
+      `<div class="grp-b">${shut ? '' : items.map(navItem).join('')}</div></div>`;
   }
   if (q && !found) html = '<div class="none">לא נמצא דבר. נסה מילה אחרת.</div>';
   $('nav').innerHTML = html;
@@ -187,7 +201,7 @@ function open(key) {
   if (!itemOpen(it)) { flashLicense(); return; }
   ui.active = it.mod;
   if (it.view) ui.views[it.mod] = it.view;
-  mark();
+  if (folded.has(it.group)) renderNav(); else mark();
   pushRecent(key);
   const api = window.shellAPI;
   if (api.open) api.open(it.mod, it.view || null); else api.switchTo(it.mod);
@@ -201,6 +215,8 @@ function goHome() {
 }
 
 $('nav').onclick = e => {
+  const t = e.target.closest('.grp-t');
+  if (t && t.dataset && t.dataset.grp) { toggleGroup(t.dataset.grp); return; }
   const b = e.target.closest('.it');
   if (b) open(b.dataset.key);
 };
@@ -697,7 +713,7 @@ $('noticesBtn').onclick = () => showDoc('notices');
 $('userGuideBtn').onclick = () => { if (window.shellAPI.openUserGuide) window.shellAPI.openUserGuide().catch(() => {}); };
 $('userGuidePdfBtn').onclick = () => { if (window.shellAPI.saveUserGuidePdf) window.shellAPI.saveUserGuidePdf().catch(() => {}); };
 if (!window.shellAPI.getAbout) for (const id of ['eulaBtn', 'noticesBtn', 'userGuideBtn', 'userGuidePdfBtn']) $(id).hidden = true;
-aboutData().then(a => { if (a) $('aboutText').textContent = 'SuperSuite גרסה ' + a.version + ' · © 2026 Bunim Seller. כל הזכויות שמורות. הנתונים נשמרים במחשב שלך בלבד.'; });
+aboutData().then(a => { if (a) $('aboutText').textContent = 'SuperSuite כלכלה גרסה ' + a.version + ' · © 2026 Bunim Seller. כל הזכויות שמורות. הנתונים נשמרים במחשב שלך בלבד.'; });
 $('crashReportBtn').onclick = () => { if (window.shellAPI.saveCrashReport) window.shellAPI.saveCrashReport().catch(() => {}); };
 $('hm').onclick = goHome;
 

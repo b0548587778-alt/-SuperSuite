@@ -158,17 +158,13 @@ test('הרשאות חדשות: ערוצי הגיבוי/הייצוא/ביטול �
 });
 
 test('תיקון: אין תלות ברשת חיצונית באף מודול — האפליקציה עובדת בסביבה מסוננת', () => {
-  const mods = ['trainer', 'shamai'];
+  const mods = ['shamai', 'tools'];
   for (const m of mods) {
     const html = read(`modules/${m}/index.html`);
     // אין קישור/סקריפט לגוגל פונטים או ל-CDN
     assert.doesNotMatch(html, /fonts\.googleapis\.com/, `${m}/index.html לא יפנה ל-Google Fonts`);
     assert.doesNotMatch(html, /<link[^>]+href="https?:\/\//, `${m}/index.html לא יפנה החוצה`);
   }
-  // הבאנדל של TrainerPro לא מזריק גוגל פונטים בזמן ריצה
-  // שם החבילה משתנה בכל בנייה מהמקור (modules-src/trainer) — נלקח מ-index.html
-  const trainerJs = read('modules/trainer/' + read('modules/trainer/index.html').match(/src="\/(assets\/index-[^"]+\.js)"/)[1]);
-  assert.doesNotMatch(trainerJs, /fonts\.googleapis\.com/, 'הבאנדל של trainer לא מזריק גוגל פונטים');
   // OCR לא נטען בכלל — לא מ-CDN ולא מ-lib/tesseract שאינו בחבילה (הוסר, בדיקת קוד 23.10.2026); ההודעות לא מפנות לאינטרנט
   const shamaiApp = shamaiSource();
   assert.doesNotMatch(shamaiApp, /cdn\.jsdelivr\.net/, 'שַׁמַּאי לא טוען tesseract מ-CDN');

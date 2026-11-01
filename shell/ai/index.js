@@ -39,7 +39,7 @@ const TASK_PROMPT = {
 
 const clip = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n);
 
-// ctx: { today, summary, invoices, analytics, npo, shamai, trainer, opened, range } — נאסף על ידי הקורא (ipc.js) לפי הרשאות ורישיון
+// ctx: { today, summary, invoices, analytics, npo, shamai, opened, range } — נאסף על ידי הקורא (ipc.js) לפי הרשאות ורישיון
 // licenseState() — מצב הרישיון (shell/licensing); בלעדיו המודל המקומי נעול. localEngine / rootKeys — להזרקה בבדיקות
 function createAI({ userDataPath, getBackupKey, onError = () => {}, clock = () => Date.now(), licenseState = () => null,
   localEngine = null, rootKeys = null } = {}) {

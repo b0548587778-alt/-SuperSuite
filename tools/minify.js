@@ -6,7 +6,6 @@
 // - בלי שינוי שמות ברמה העליונה: ב-modules/econ/ui/*.js כל הקבצים חולקים טווח שמות גלובלי (CLAUDE.md),
 //   ו-main.js / preload / שירותים מייצאים שמות. לכן minifyIdentifiers רק בתוך פונקציות (esbuild עושה זאת
 //   כשהקובץ אינו מודול ES — format לא מוגדר), ובקבצים הגלובליים: רק רווחים והערות.
-// - מודול האימונים כבר מכווץ (Vite) — לא נוגעים בו, חוץ מ-preload.js.
 // - קובץ שהכיווץ נכשל בו — הבנייה נכשלת (לא נארז קוד חצי מכווץ).
 const fs = require('fs');
 const path = require('path');
@@ -16,7 +15,7 @@ const ROOT = path.join(__dirname, '..');
 // קבצים שהשמות ברמה העליונה שלהם משותפים לכמה קבצים (סקריפטים רגילים בדף) — רק רווחים
 const GLOBAL_SCOPE = [/^modules[\\/]econ[\\/]ui[\\/]/, /^shell[\\/](shell|catalog|hebcal|onboarding|history)\.js$/, /^modules[\\/](tools|shamai)[\\/]/];
 // קבצים שלא מכווצים בכלל
-const SKIP = [/^modules[\\/]trainer[\\/](?!preload\.js$)/, /\.min\.js$/, /[\\/]sw\.js$/, /[\\/]lib[\\/]/];
+const SKIP = [/\.min\.js$/, /[\\/]sw\.js$/, /[\\/]lib[\\/]/];
 
 const rel = (f) => path.relative(ROOT, f);
 const matches = (list, r) => list.some(re => re.test(r));

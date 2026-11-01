@@ -7,7 +7,7 @@ const G = require('./gemach');
 
 const ROLES = {
   donor: 'תורם', standing: 'הוראת קבע', memorial: 'קרוב משפחה (הנצחה)', borrower: 'לווה בגמ"ח',
-  guarantor: 'ערב בגמ"ח', depositor: 'מפקיד בגמ"ח', itemBorrower: 'שואל חפץ בגמ"ח', beneficiary: 'נתמך', volunteer: 'מתנדב', trainee: 'מתאמן'
+  guarantor: 'ערב בגמ"ח', depositor: 'מפקיד בגמ"ח', itemBorrower: 'שואל חפץ בגמ"ח', beneficiary: 'נתמך', volunteer: 'מתנדב'
 };
 const MAX_RESULTS = 200;
 
@@ -24,8 +24,7 @@ const toAg = (n) => Math.round(Number(n || 0) * 100);
 const localToday = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
 
 // התחומים שמהם נבנה המאגר. sources מגביל לתחומים הפתוחים ברישיון — תחום סגור לא נחשף דרך כרטיס אדם.
-// trainer: המתאמנים ממודול האימונים (data.trainerClients — מגיע מ-ipc.js רק כשהמודול ברישיון והמחסן שלו פתוח)
-const SOURCES = ['npo', 'gemach', 'chesed', 'trainer'];
+const SOURCES = ['npo', 'gemach', 'chesed'];
 
 // כל ה"הופעות" של אנשים בנתונים, בצורה אחידה
 function collect(data, { canSeeConfidential = false, today, sources = SOURCES } = {}) {
@@ -55,12 +54,6 @@ function collect(data, { canSeeConfidential = false, today, sources = SOURCES } 
     add('beneficiary', b.headName || b.familyName, b.idNumber, b.phone, { kind: 'beneficiary', id: b.id, family: b.familyName, active: b.active !== false, confidential: b.tier === 'confidential' });
   }
   for (const v of ch.volunteers || []) add('volunteer', v.name, '', v.phone, { kind: 'volunteer', id: v.id, area: v.area || '', active: v.active !== false });
-  // מתאמנים: בלי ת.ז במודול — שיוך לפי שם בלבד (כמו מתנדבים), ובלי מידע רפואי
-  if (open.has('trainer')) for (const c of data.trainerClients || []) {
-    const ms = c.memberships || [];
-    add('trainee', c.name, '', c.phone, { kind: 'trainee', id: c.clientId, since: c.since || '', memberships: ms.map(m => ({ name: m.name, start: m.start, end: m.end, active: m.active, cancelled: m.cancelled, dueAg: m.dueAg })),
-      active: ms.some(m => m.active), dueAg: ms.filter(m => !m.cancelled).reduce((s, m) => s + (m.dueAg || 0), 0) });
-  }
   return out;
 }
 
@@ -106,9 +99,7 @@ function summarize(p) {
     activeLoansOutstanding: loans.reduce((t, h) => t + toAg(h.ref.outstanding), 0) / 100,
     activeGuarantees: guarantees.length,
     late: loans.some(h => h.ref.lateCount > 0) || guarantees.some(h => h.ref.lateCount > 0),
-    itemsOut: p.hits.filter(h => h.role === 'itemBorrower' && !h.ref.returned).length,
-    trainee: p.hits.some(h => h.role === 'trainee'),
-    traineeActive: p.hits.some(h => h.role === 'trainee' && h.ref.active)
+    itemsOut: p.hits.filter(h => h.role === 'itemBorrower' && !h.ref.returned).length
   };
 }
 
@@ -134,7 +125,7 @@ function card(data, key, opts = {}) {
     standing: by('standing'), memorials: by('memorial'),
     loans: by('borrower'), guarantees: by('guarantor'), deposits: by('depositor').sort((a, b) => b.date.localeCompare(a.date)),
     lendings: by('itemBorrower').sort((a, b) => b.date.localeCompare(a.date)),
-    beneficiary: by('beneficiary'), volunteer: by('volunteer'), trainee: by('trainee')
+    beneficiary: by('beneficiary'), volunteer: by('volunteer')
   };
 }
 

@@ -15,7 +15,6 @@ const SCREENS = Object.freeze([
   { view: 'acct-reports', domain: 'acct', label: 'דוחות', words: ['דוח', 'דוחות', 'מע"מ', 'מעמ', 'רווח', 'הפסד', 'הכנסות', 'הוצאות', 'מאזן'] },
   { view: 'npo', domain: 'npo', label: 'עמותה ותרומות', words: ['עמותה', 'תרומה', 'תרומות', 'תורם', 'תורמים', 'מכתב תודה', 'סעיף 46'] },
   { view: 'realestate', domain: 'shamai', label: 'שמאות', words: ['שמאות', 'שמאי', 'הערכת שווי', 'שווי', 'דירה', 'נכס'] },
-  { view: 'trainer', domain: 'trainer', label: 'אימונים', words: ['אימון', 'אימונים', 'מתאמן', 'מתאמנים', 'מנוי', 'סטודיו'] },
 ]);
 
 const TOOL_DEFS = Object.freeze([
@@ -25,12 +24,11 @@ const TOOL_DEFS = Object.freeze([
   { name: 'donors_summary', domain: 'npo', description: 'סיכום התרומות של השנה שבשדה year בלבד: מספר תרומות, תורמים וסך הכול, והתורמים הגדולים.', params: { type: 'object', properties: {} } },
   { name: 'donor_record', domain: 'npo', description: 'פרטי תורם אחד לפי שם (לניסוח מכתב תודה או נוסח קבלה): מספר התרומות וסך הכול בשנה שבשדה year בלבד.', params: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
   { name: 'appraisal_last', domain: 'shamai', description: 'הערכת השווי האחרונה: שווי, רמת ביטחון וגורמים.', params: { type: 'object', properties: {} } },
-  { name: 'trainer_alerts', domain: 'trainer', description: 'מתאמנים שדורשים תשומת לב (מנוי מסתיים, יתרה, היעדרות).', params: { type: 'object', properties: {} } },
   { name: 'find_screen', domain: null, description: 'חיפוש מסך בתוכנה לפי תיאור חופשי (לחיפוש Ctrl+K). מחזיר מסכים מתאימים בלבד.', params: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
   { name: 'search_records', domain: null, description: 'חיפוש לקוח או תורם לפי שם או חלק משם. מחזיר רשומות מתאימות.', params: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
 ]);
 
-const DOMAIN_LABEL = { acct: 'חשבונאות', npo: 'עמותה', shamai: 'שמאות', trainer: 'אימונים' };
+const DOMAIN_LABEL = { acct: 'חשבונאות', npo: 'עמותה', shamai: 'שמאות' };
 
 function periodSummary(ctx) {
   const s = ctx.summary;
@@ -88,12 +86,6 @@ function appraisal(ctx) {
     warnings: s.warnings || [], note: 'ההערכה אינה ייעוץ מקצועי' };
 }
 
-function trainerAlerts(ctx) {
-  const t = ctx.trainer;
-  if (!t || !Array.isArray(t.alerts)) return { error: 'נתוני האימונים אינם זמינים' };
-  return { clients: t.clients == null ? null : Number(t.clients), alerts: t.alerts.slice(0, 8).map(a => ({ name: a.title, detail: a.detail, urgent: a.tone === 'red' })) };
-}
-
 // Ctrl+K: התאמה לפי מילים — רק מסכים שפתוחים למשתמש
 function findScreen(ctx, args) {
   const q = norm(args && args.text);
@@ -122,7 +114,7 @@ function searchRecords(ctx, args) {
 
 const IMPL = {
   period_summary: periodSummary, unpaid_invoices: unpaid, repeat_customers: repeatCustomers,
-  donors_summary: donors, donor_record: donorRecord, appraisal_last: appraisal, trainer_alerts: trainerAlerts,
+  donors_summary: donors, donor_record: donorRecord, appraisal_last: appraisal,
   find_screen: findScreen, search_records: searchRecords,
 };
 

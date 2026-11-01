@@ -65,7 +65,7 @@ function load(overrides = {}, opts = {}) {
   };
   const context = { document, window: {}, console, confirm: () => true, alert() {}, prompt: () => null, setTimeout, clearTimeout,
     setInterval: () => 0, clearInterval() {}, Intl, Date: opts.now == null ? Date : fixedDate(opts.now), Math,
-    localStorage: { getItem: () => null, setItem() {} } };
+    localStorage: { getItem: (k) => (opts.storage && k in opts.storage ? opts.storage[k] : null), setItem() {} } };
   context.window = context;
   context.shellAPI = shellAPI;
   context.window.shellAPI = shellAPI;
@@ -138,13 +138,37 @@ test('לחיצה על פריט בסרגל פותחת את המודול והתצ�
   assert.equal(s.calls.open.length, 2, 'מפתח לא מוכר לא פותח דבר');
 });
 
+test('קיפול תחום בסרגל: נשמר, נפתח בחיפוש, ושומר מפני ערך פגום', () => {
+  const s = load();
+  s.elements.nav.onclick({ target: { closest: (sel) => sel === '.grp-t' ? { dataset: { grp: 'money' } } : null } });
+  let html = s.elements.nav.innerHTML;
+  assert.match(html, /class="grp shut"><button type="button" class="grp-t" data-grp="money" aria-expanded="false"/);
+  assert.doesNotMatch(html, /data-key="econ:acct-invoices"/, 'פריטי תחום מקופל אינם בסרגל');
+  // בחיפוש — כל התחומים פתוחים
+  s.elements.q.value = 'חשבוניות';
+  s.elements.q._l.input();
+  assert.match(s.elements.nav.innerHTML, /data-key="econ:acct-invoices"/);
+  s.elements.q.value = '';
+  s.elements.q._l.input();
+  // לחיצה נוספת פותחת שוב
+  s.elements.nav.onclick({ target: { closest: (sel) => sel === '.grp-t' ? { dataset: { grp: 'money' } } : null } });
+  assert.match(s.elements.nav.innerHTML, /data-key="econ:acct-invoices"/);
+});
+
+test('קיפול תחום: ערך פגום ב-localStorage לא מפיל את הסרגל', () => {
+  const s = load({}, { storage: { 'suite.navFolded': '{not json' } });
+  assert.match(s.elements.nav.innerHTML, /data-key="econ:acct-invoices"/);
+  const s2 = load({}, { storage: { 'suite.navFolded': JSON.stringify(['money', 42, 'no-such-group']) } });
+  assert.doesNotMatch(s2.elements.nav.innerHTML, /data-key="econ:acct-invoices"/);
+});
+
 test('חיפוש מסנן את הסרגל לפי שם הפריט', () => {
   const s = load();
   s.elements.q.value = 'חשבוניות';
   s.elements.q._l.input();
   const html = s.elements.nav.innerHTML;
   assert.match(html, /data-key="econ:acct-invoices"/);
-  assert.doesNotMatch(html, /data-key="trainer"/);
+  assert.doesNotMatch(html, /data-key="trainer/);
   s.elements.q.value = 'אין-כזה-דבר';
   s.elements.q._l.input();
   assert.match(s.elements.nav.innerHTML, /לא נמצא/);

@@ -3,7 +3,7 @@
 // פתיחה בלי כניסה ← מעבר למסך הכניסה, והמודול המבוקש נשמר ונפתח מיד אחרי הכניסה.
 'use strict';
 
-const LOCKED_MODS = ['shamai', 'trainer'];
+const LOCKED_MODS = ['shamai'];
 
 /* isLoggedIn() — בדיקה שקטה: לא נחשבת "פעילות" ולא מאריכה את הפגישה */
 function createLoginGate({ isLoggedIn, locked = LOCKED_MODS } = {}) {

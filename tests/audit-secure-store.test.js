@@ -110,7 +110,7 @@ test('ממצא 24: צופה ורואה חשבון — הכתיבה נדחית ב
     assert.throws(() => p.run(`localStorage.removeItem('shamai_v2_prices')`), /צפייה בלבד/);
     assert.throws(() => p.run(`localStorage.removeItem('no-such-key')`), /צפייה בלבד/, 'גם מחיקה של מפתח חסר — כדי שהעמוד לא ימחק עותק אחר בעקבותיה');
     assert.throws(() => p.run(`localStorage.clear()`), /צפייה בלבד/);
-    assert.equal(ipcSync(modView('trainer'), 'secure-store:write', 'trainer', 'set', 'trainer:profile', '{}').reason, 'forbidden', who + ' — גם באימונים');
+    assert.equal(ipcSync(modView('shamai'), 'secure-store:write', 'shamai', 'set', 'shamai_v2_props', '[]').reason, 'forbidden', who + ' — גם בערוץ עצמו');
     assert.equal(ipcSync(modView('shamai'), 'secure-store:load', 'shamai').data.shamai_v2_prices, 'מקורי', who + ' — קריאה מותרת');
   }
   await loginAs('orech');
@@ -119,21 +119,24 @@ test('ממצא 24: צופה ורואה חשבון — הכתיבה נדחית ב
   await loginAs(ADMIN[0]);
 });
 
-test('ממצא 24: רישיון במצב קריאה בלבד (סוף תקופת ניסיון) — גם שמאי ואימונים לקריאה בלבד', async () => {
+test('ממצא 24: רישיון במצב קריאה בלבד (סוף תקופת ניסיון) — גם השמאי לקריאה בלבד', async () => {
   await boot();
   await loginAs(ADMIN[0]);
   const ipc = require(path.join(ROOT, 'modules', 'econ', 'ipc'));
   const orig = ipc.licenseState;
-  ipc.licenseState = () => ({ mode: 'licensed', status: 'trial_ended', features: ['econ', 'shamai', 'trainer'], reasons: [] });
+  ipc.licenseState = () => ({ mode: 'licensed', status: 'trial_ended', features: ['econ', 'shamai'], reasons: [] });
   try {
-    const r = ipcSync(modView('trainer'), 'secure-store:write', 'trainer', 'set', 'trainer:profile', '{}');
+    const r = ipcSync(modView('shamai'), 'secure-store:write', 'shamai', 'set', 'shamai_v2_lic', '{}');
     assert.equal(r.ok, false);
     assert.equal(r.reason, 'license');
     assert.match(r.message, /תקופת הניסיון הסתיימה/);
     ipc.licenseState = () => ({ mode: 'licensed', status: 'active', features: ['econ'], reasons: [] });
-    assert.match(ipcSync(modView('trainer'), 'secure-store:write', 'trainer', 'set', 'trainer:profile', '{}').message, /אינו כלול ברישיון/);
+    assert.match(ipcSync(modView('shamai'), 'secure-store:write', 'shamai', 'set', 'shamai_v2_lic', '{}').message, /אינו כלול ברישיון/);
+    // רישיון ישן שכולל את מודול האימונים (עבר למוצר נפרד) — התכונה לא פותחת את השמאי
+    ipc.licenseState = () => ({ mode: 'licensed', status: 'active', features: ['econ', 'trainer'], reasons: [] });
+    assert.match(ipcSync(modView('shamai'), 'secure-store:write', 'shamai', 'set', 'shamai_v2_lic', '{}').message, /אינו כלול ברישיון/);
   } finally { ipc.licenseState = orig; }
-  assert.equal(ipcSync(modView('trainer'), 'secure-store:write', 'trainer', 'set', 'trainer:profile', '{}').ok, true);
+  assert.equal(ipcSync(modView('shamai'), 'secure-store:write', 'shamai', 'set', 'shamai_v2_lic', '{}').ok, true);
 });
 
 test('ממצא 3: ערך גדול מדי — QuotaExceededError בעמוד, והערך הקודם נשאר', async () => {
@@ -152,26 +155,28 @@ test('ממצא 3: ערך גדול מדי — QuotaExceededError בעמוד, וה
 test('ממצא 3: בלי כניסה — כתיבה נזרקת (לא נבלעת), ועמוד שנטען בלי כניסה לא מקבל נתונים', async () => {
   await boot();
   await loginAs(ADMIN[0]);
-  const p = runPreload('trainer');
-  p.run(`localStorage.setItem('clients:index', '["a"]')`);
+  const p = runPreload('shamai');
+  p.run(`localStorage.setItem('shamai_v2_logout', '["a"]')`);
   await handlers['auth:logout'](econ());
-  assert.throws(() => p.run(`localStorage.setItem('clients:index', '[]')`), (e) => e.name === 'SecurityError' && /הכניסה למערכת פגה/.test(e.message));
-  assert.equal(p.run(`localStorage.getItem('clients:index')`), '["a"]');
-  const fresh = runPreload('trainer');
-  assert.equal(fresh.run(`localStorage.getItem('clients:index')`), null, 'בלי כניסה — אחסון ריק');
+  assert.throws(() => p.run(`localStorage.setItem('shamai_v2_logout', '[]')`), (e) => e.name === 'SecurityError' && /הכניסה למערכת פגה/.test(e.message));
+  assert.equal(p.run(`localStorage.getItem('shamai_v2_logout')`), '["a"]');
+  const fresh = runPreload('shamai');
+  assert.equal(fresh.run(`localStorage.getItem('shamai_v2_logout')`), null, 'בלי כניסה — אחסון ריק');
   assert.throws(() => fresh.run(`localStorage.setItem('x', '1')`), /יש להיכנס למערכת/);
   await loginAs(ADMIN[0]);
-  assert.equal(ipcSync(modView('trainer'), 'secure-store:load', 'trainer').data['clients:index'], '["a"]', 'הנתון לא נדרס');
+  assert.equal(ipcSync(modView('shamai'), 'secure-store:load', 'shamai').data['shamai_v2_logout'], '["a"]', 'הנתון לא נדרס');
 });
 
 test('ערוצי המחסן: מודול אחר או שולח זר — אין נתונים ואין כתיבה, תמיד עם תשובה', async () => {
   await boot();
   await loginAs(ADMIN[0]);
-  assert.equal(ipcSync(modView('trainer'), 'secure-store:load', 'shamai'), null);
-  assert.equal(ipcSync(econView(), 'secure-store:load', 'trainer'), null);
-  const r = ipcSync(modView('trainer'), 'secure-store:write', 'shamai', 'set', 'shamai_v2_x', '1');
+  assert.equal(ipcSync(modView('tools'), 'secure-store:load', 'shamai'), null);
+  assert.equal(ipcSync(econView(), 'secure-store:load', 'shamai'), null);
+  // מודול האימונים עבר למוצר נפרד — גם מהתצוגה של השמאי, אין מחסן בשם הזה
+  assert.equal(ipcSync(modView('shamai'), 'secure-store:load', 'trainer'), null);
+  const r = ipcSync(modView('tools'), 'secure-store:write', 'shamai', 'set', 'shamai_v2_x', '1');
   assert.equal(r.ok, false, 'יש תשובה — ה-sendSync בעמוד לא נתקע');
-  assert.deepEqual(ipcSync(modView('trainer'), 'secure-store:migrate', 'shamai', { a: '1' }), { ok: false });
+  assert.deepEqual(ipcSync(modView('tools'), 'secure-store:migrate', 'shamai', { a: '1' }), { ok: false });
   assert.equal(ipcSync(modView('shamai'), 'secure-store:write', 'econ', 'set', 'a', '1').ok, false);
   assert.ok(!('shamai_v2_x' in ipcSync(modView('shamai'), 'secure-store:load', 'shamai').data));
 });
@@ -184,19 +189,19 @@ test('ממצא 37: לחיצת עכבר מאריכה את הפגישה; תזוז�
   AuthService.now = () => clock;
   try {
     await loginAs(ADMIN[0]);
-    const trainer = modView('trainer');
-    assert.ok((trainer.listeners['input-event'] || []).length, 'יש מאזין לאירועי עכבר');
+    const shamai = modView('shamai');
+    assert.ok((shamai.listeners['input-event'] || []).length, 'יש מאזין לאירועי עכבר');
     clock += 14 * 60 * 1000;
-    trainer.emit('input-event', {}, { type: 'mouseMove' });
+    shamai.emit('input-event', {}, { type: 'mouseMove' });
     clock += 2 * 60 * 1000; // 16 דקות בלי פעולה
-    assert.equal(ipcSync(trainer, 'secure-store:write', 'trainer', 'set', 'studio:plans', '[]').reason, 'no-session', 'תזוזת עכבר אינה פעילות');
+    assert.equal(ipcSync(shamai, 'secure-store:write', 'shamai', 'set', 'shamai_v2_plans', '[]').reason, 'no-session', 'תזוזת עכבר אינה פעילות');
     await loginAs(ADMIN[0]);
     clock += 14 * 60 * 1000;
-    trainer.emit('input-event', {}, { type: 'mouseDown', button: 'left', x: 5, y: 5 });
+    shamai.emit('input-event', {}, { type: 'mouseDown', button: 'left', x: 5, y: 5 });
     clock += 10 * 60 * 1000; // 24 דקות מהכניסה, 10 מהלחיצה
-    assert.equal(ipcSync(trainer, 'secure-store:write', 'trainer', 'set', 'studio:plans', '[]').ok, true, 'עבודה בעכבר שומרת על הכניסה');
+    assert.equal(ipcSync(shamai, 'secure-store:write', 'shamai', 'set', 'shamai_v2_plans', '[]').ok, true, 'עבודה בעכבר שומרת על הכניסה');
     clock += 6 * 60 * 1000;
-    assert.equal(ipcSync(trainer, 'secure-store:write', 'trainer', 'set', 'studio:plans', '[]').reason, 'no-session', 'כתיבה עצמה אינה פעילות');
+    assert.equal(ipcSync(shamai, 'secure-store:write', 'shamai', 'set', 'shamai_v2_plans', '[]').reason, 'no-session', 'כתיבה עצמה אינה פעילות');
   } finally { AuthService.now = origNow; }
   await loginAs(ADMIN[0]);
 });

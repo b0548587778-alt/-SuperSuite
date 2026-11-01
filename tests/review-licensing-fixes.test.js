@@ -113,10 +113,10 @@ test('קובצי הרישוי ומפתח המערכת: קובץ זמני, fsync 
   assert.equal(fs.readFileSync(path.join(dir, 'b.json'), 'utf8'), 'x');
 });
 
-test('המחסן המוצפן של השמאי והאימונים: fsync לפני ההחלפה', () => {
+test('המחסן המוצפן של השמאי: fsync לפני ההחלפה', () => {
   const spy = spyFs();
   const key = crypto.randomBytes(32).toString('base64');
-  const s = createSecureStore({ fs: spy.fs, dir: newDir(), mod: 'trainer', getBackupKey: () => key, schedule: (fn) => { fn(); return 0; } });
+  const s = createSecureStore({ fs: spy.fs, dir: newDir(), mod: 'shamai', getBackupKey: () => key, schedule: (fn) => { fn(); return 0; } });
   spy.calls.length = 0;
   assert.ok(s.set('x', '1'));
   assert.deepEqual(spy.calls, ['fsync', 'rename']);

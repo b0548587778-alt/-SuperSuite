@@ -1,11 +1,12 @@
-// מחסן מוצפן לנתוני המודולים (PLAN.md 3.2): שמאות ואימונים שמרו הכול ב-localStorage גלוי.
+// מחסן מוצפן לנתוני המודולים (PLAN.md 3.2): השמאות שמרה הכול ב-localStorage גלוי.
 // עכשיו ה-preload (shell/secure-ls-preload.js) מחליף את localStorage בעמוד בעותק בזיכרון,
 // וכל שינוי נשלח לכאן ונכתב לקובץ secure-<mod>.bin, מוצפן AES-256-GCM.
 // המפתח נגזר ממפתח הגיבוי האוטומטי (DPAPI) — קוד השחזור (🔑) פותח גם אותו. בלי תלות ב-Electron, כדי שייבדק.
 const path = require('path');
 const AR = require('../modules/econ/core/atRest');
 
-const MODULES = ['shamai', 'trainer'];
+// מודול האימונים עבר למוצר החינוכי הנפרד: secure-trainer.bin של משתמשים קיימים לא נפתח כאן — ולא נמחק
+const MODULES = ['shamai'];
 const MAX_KEY = 256;
 const MAX_VALUE = 5 * 1024 * 1024;
 const MAX_TOTAL = 64 * 1024 * 1024;

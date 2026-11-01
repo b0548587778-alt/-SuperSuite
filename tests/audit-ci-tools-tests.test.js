@@ -1,5 +1,5 @@
 // בדיקת קוד 23.10.2026 — קבוצת "CI, כלים ובדיקות": בדיקות רגרסיה לממצאים 33, 34 ולממצאים הנמוכים
-// (חתימה עם רווח, build-trainer, README של האימונים, פיצול הסיסמאות, בדיקות שתלויות בסדר).
+// (חתימה עם רווח, פיצול הסיסמאות, בדיקות שתלויות בסדר).
 // ממצא 44 (תאריך קבוע בבדיקה) — ב-tests/integration.test.js; שבת במעטפת — ב-tests/shell-ui.test.js.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -45,7 +45,7 @@ const SCENARIOS = [
   { name: 'הפעלה ידנית עם release', github: { ref: 'refs/heads/master' }, inputs: { release: true, publish: false }, release: true, publish: false },
   { name: 'הפעלה ידנית בלי בחירה', github: { ref: 'refs/heads/master' }, inputs: { release: false, publish: false }, release: false, publish: false },
   { name: 'דחיפה ל-master', github: { ref: 'refs/heads/master' }, inputs: {}, release: false, publish: false },
-  { name: 'דחיפה לענף build/trainer', github: { ref: 'refs/heads/build/trainer' }, inputs: {}, release: false, publish: false },
+  { name: 'דחיפה לענף build/test', github: { ref: 'refs/heads/build/test' }, inputs: {}, release: false, publish: false },
 ];
 
 test('ממצא 33: בכל ריצה שמפרסמת (תגית v* או publish) — בדיקת ההפצה רצה; בדחיפה רגילה — לא', () => {
@@ -75,27 +75,37 @@ test('ממצא 34: סודות החתימה רק בצעד שאין בו התקנ�
   const withSecrets = all.filter(s => /secrets\./.test(s.text));
   assert.ok(withSecrets.length >= 1, 'צעד החתימה קיים');
   for (const s of withSecrets) {
-    assert.doesNotMatch(s.text, /\bnpm (?:install|i|ci|exec|run|test)\b|--no-save|tools\/minify\.js|tools\/build-trainer\.js/, s.name + ': קוד של חבילות רץ ליד הסודות');
+    assert.doesNotMatch(s.text, /\bnpm (?:install|i|ci|exec|run|test)\b|--no-save|tools\/minify\.js/, s.name + ': קוד של חבילות רץ ליד הסודות');
     // npx בלי החבילה מקומית מוריד את הגרסה העדכנית מה-registry (ב-CI בלי שאלה) ומריץ אותה עם הסודות
     assert.doesNotMatch(s.text, /\bnpx\b/, s.name + ': npx ליד הסודות');
   }
-  for (const name of ['npm install (trainer)', 'npm install', 'build trainer', 'npm test', 'minify']) {
+  for (const name of ['npm ci (minify)', 'npm install', 'npm test', 'minify']) {
     const s = step(BUILD_JOB, name);
     assert.ok(s, 'צעד ' + name);
     assert.doesNotMatch(s.text, /secrets\./, name + ': בלי סודות');
   }
 });
 
-test('ממצא 34: הכיווץ — צעד נפרד בלי סודות, עם esbuild הנעול של מודול האימונים (בלי npm install --no-save)', () => {
+test('ממצא 34: הכיווץ — צעד נפרד בלי סודות, עם esbuild הנעול (tools/minify-deps, בלי npm install --no-save)', () => {
   assert.doesNotMatch(BUILD_JOB, /npm install --no-save/);
   const names = steps(BUILD_JOB).map(s => s.name);
   const minify = step(BUILD_JOB, 'minify');
-  assert.match(minify.text, /NODE_PATH: \$\{\{ github\.workspace \}\}\/modules-src\/trainer\/node_modules/);
+  assert.match(minify.text, /NODE_PATH: \$\{\{ github\.workspace \}\}\/tools\/minify-deps\/node_modules/);
   assert.match(minify.text, /node tools\/minify\.js/);
   assert.ok(names.indexOf('npm test') < names.indexOf('minify') && names.indexOf('minify') < names.indexOf('Build'), 'אחרי הבדיקות, לפני האריזה');
-  // NODE_PATH מוצא את esbuild רק אם הוא מותקן בשורש node_modules של האימונים (תלות של vite, נעולה)
-  const lock = JSON.parse(read('modules-src', 'trainer', 'package-lock.json'));
-  assert.match(String(lock.packages['node_modules/esbuild'] && lock.packages['node_modules/esbuild'].version), /^\d+\.\d+\.\d+$/);
+  // NODE_PATH מוצא את esbuild מקובץ הנעילה של tools/minify-deps (npm ci בצעד קודם, בלי סודות), בגרסה מדויקת
+  const pkg = JSON.parse(read('tools', 'minify-deps', 'package.json'));
+  const lock = JSON.parse(read('tools', 'minify-deps', 'package-lock.json'));
+  const ver = pkg.devDependencies && pkg.devDependencies.esbuild;
+  assert.match(String(ver), /^\d+\.\d+\.\d+$/, 'בלי ^ או ~');
+  assert.equal(lock.packages['node_modules/esbuild'] && lock.packages['node_modules/esbuild'].version, ver);
+  assert.deepEqual(lock.packages[''].devDependencies, pkg.devDependencies, 'קובץ הנעילה תואם ל-package.json (npm ci)');
+  for (const [k, v] of Object.entries(lock.packages)) if (k) assert.match(String(v.integrity), /^sha512-/, k + ': עם integrity');
+  const ci = step(BUILD_JOB, 'npm ci (minify)');
+  assert.match(ci.text, /working-directory: tools\/minify-deps/);
+  assert.match(ci.text, /\bnpm ci\b/);
+  assert.doesNotMatch(ci.text, /npm install/);
+  assert.ok(names.indexOf('npm ci (minify)') < names.indexOf('minify'));
   assert.match(read('tools', 'minify.js'), /require\('esbuild'\)/);
 });
 
@@ -192,156 +202,6 @@ test('ממצא 34: הנתיב של electron-builder ב-build.yml הוא החבי
   assert.ok(fs.existsSync(path.join(dir, 'out', 'cli', 'cli.js')), 'out/cli/cli.js בחבילה');
   // ה-bin הרשמי רק טוען את out/cli/cli.js — אותו קוד, בלי ה-wrapper של npm
   assert.match(fs.readFileSync(path.join(dir, pkg.bin['electron-builder']), 'utf8'), /require\(["']\.\/out\/cli\/cli["']\)/);
-});
-
-// ── build-trainer: קודם בודקים, אחר כך מחליפים ──
-const BT = require('../tools/build-trainer');
-const BUILT_HEAD = '<head><link rel="stylesheet" href="/design-tokens.css"><link rel="stylesheet" href="/ui-kit.css">'
-  + '<script src="/screen-guard.js"></script><script src="/ss-dialog.js"></script>'
-  + '<script type="module" src="/assets/index-X.js"></script><link rel="stylesheet" href="/assets/index-Y.css"></head>';
-
-function snapshot(dir) {
-  const out = {};
-  (function walk(d) {
-    for (const n of fs.readdirSync(d)) {
-      const p = path.join(d, n);
-      if (fs.statSync(p).isDirectory()) walk(p);
-      else out[path.relative(dir, p).replace(/\\/g, '/')] = fs.readFileSync(p, 'utf8');
-    }
-  })(dir);
-  return out;
-}
-
-function fixture({ head = BUILT_HEAD, withIndex = true, withPreload = true } = {}) {
-  const base = tmp('bt-');
-  const out = path.join(base, 'trainer');
-  fs.mkdirSync(path.join(out, 'assets'), { recursive: true });
-  fs.writeFileSync(path.join(out, 'assets', 'index-OLD.js'), 'old');
-  fs.writeFileSync(path.join(out, 'index.html'), 'OLD');
-  if (withPreload) fs.writeFileSync(path.join(out, 'preload.js'), 'PRELOAD');
-  const dist = tmp('bt-dist-');
-  fs.mkdirSync(path.join(dist, 'assets'));
-  fs.writeFileSync(path.join(dist, 'assets', 'index-NEW.js'), 'new');
-  if (withIndex) fs.writeFileSync(path.join(dist, 'index.html'), head);
-  return { base, out, dist, before: snapshot(out) };
-}
-
-function assertUntouched(f, msg) {
-  assert.deepEqual(snapshot(f.out), f.before, msg + ': modules/trainer לא השתנה');
-  assert.deepEqual(fs.readdirSync(f.base), ['trainer'], msg + ': לא נשארו תיקיות זמניות');
-}
-
-function withRename(fake, fn) {
-  const real = fs.renameSync;
-  fs.renameSync = (a, b) => fake(a, b, real);
-  try { return fn(); } finally { fs.renameSync = real; }
-}
-
-test('build-trainer: תוצר פגום נדחה לפני שנוגעים ב-modules/trainer', () => {
-  let f = fixture({ head: BUILT_HEAD.replace('<link rel="stylesheet" href="/design-tokens.css">', '') });
-  assert.throws(() => BT.install(f.dist, f.out), /design-tokens/);
-  assertUntouched(f, 'בלי שפת העיצוב');
-  f = fixture({ withIndex: false });
-  assert.throws(() => BT.install(f.dist, f.out), /index\.html/);
-  assertUntouched(f, 'בלי index.html');
-  f = fixture({ withPreload: false });
-  assert.throws(() => BT.install(f.dist, f.out), /preload\.js/);
-  assertUntouched(f, 'בלי קובץ השילוב');
-});
-
-test('build-trainer: החלפה שנכשלה (קובץ נעול / שינוי שם שני) — המודול הקודם שלם, בלי שאריות', () => {
-  let f = fixture();
-  withRename((a, b, real) => { if (a === f.out) { const e = new Error('EBUSY: resource busy'); e.code = 'EBUSY'; throw e; } return real(a, b); },
-    () => assert.throws(() => BT.install(f.dist, f.out), /ייתכן שהתוכנה פתוחה/));
-  assertUntouched(f, 'שינוי השם הראשון נכשל');
-  f = fixture();
-  withRename((a, b, real) => { if (a.includes('.new-')) throw new Error('EPERM'); return real(a, b); },
-    () => assert.throws(() => BT.install(f.dist, f.out), /EPERM/));
-  assertUntouched(f, 'שינוי השם השני נכשל — חזרה למודול הקודם');
-});
-
-test('build-trainer: התקנה תקינה — התוצר החדש, קובץ השילוב נשמר, ובלי תיקיות זמניות', () => {
-  const f = fixture();
-  BT.install(f.dist, f.out);
-  const after = snapshot(f.out);
-  assert.deepEqual(Object.keys(after).sort(), ['assets/index-NEW.js', 'index.html', 'preload.js']);
-  assert.equal(after['preload.js'], 'PRELOAD');
-  assert.equal(after['index.html'], BUILT_HEAD);
-  assert.deepEqual(fs.readdirSync(f.base), ['trainer']);
-});
-
-function withRm(fake, fn) {
-  const real = fs.rmSync;
-  fs.rmSync = (p, o) => fake(p, o, real);
-  try { return fn(); } finally { fs.rmSync = real; }
-}
-const fakeLog = () => { const lines = { error: [], warn: [], log: [] }; return { lines, error: (m) => lines.error.push(m), warn: (m) => lines.warn.push(m), log: (m) => lines.log.push(m) }; };
-
-test('build-trainer: מחיקת המודול הישן נכשלה אחרי החלפה מוצלחת — הצלחה עם אזהרה, לא "לא שונה"', () => {
-  const f = fixture();
-  const busy = (p, o, real) => {
-    if (/\.old-\d+$/.test(p) && fs.existsSync(p)) { const e = new Error('EBUSY: resource busy'); e.code = 'EBUSY'; throw e; }
-    return real(p, o);
-  };
-  const r = withRm(busy, () => BT.install(f.dist, f.out));
-  assert.equal(r.leftover, f.out + '.old-' + process.pid);
-  assert.match(r.error, /EBUSY/);
-  assert.deepEqual(Object.keys(snapshot(f.out)).sort(), ['assets/index-NEW.js', 'index.html', 'preload.js'], 'התוצר החדש הותקן');
-  assert.equal(fs.readFileSync(path.join(r.leftover, 'index.html'), 'utf8'), 'OLD');
-  // דרך main: יציאה 0, אזהרה עם שם התיקייה, ובלי "ההתקנה נכשלה"
-  const g = fixture();
-  const log = fakeLog();
-  assert.equal(withRm(busy, () => BT.installStep(g.dist, g.out, log)), 0);
-  assert.deepEqual(log.lines.error, []);
-  assert.match(log.lines.warn.join('\n'), /\.old-\d+/);
-  assert.match(log.lines.log.join('\n'), /נבנה והועתק/);
-});
-
-test('build-trainer: שאריות של ריצה שקרסה (PID אחר) נמחקות — הן תחת modules/ והיו נארזות במתקין', () => {
-  const f = fixture();
-  for (const n of ['trainer.new-99999', 'trainer.old-12345']) {
-    fs.mkdirSync(path.join(f.base, n, 'assets'), { recursive: true });
-    fs.writeFileSync(path.join(f.base, n, 'assets', 'stale.js'), 'stale');
-  }
-  fs.mkdirSync(path.join(f.base, 'trainer.old-backup'));
-  assert.deepEqual(BT.staleDirs(f.out).map(p => path.basename(p)).sort(), ['trainer.new-99999', 'trainer.old-12345']);
-  const r = BT.install(f.dist, f.out);
-  assert.equal(r.leftover, null);
-  assert.deepEqual(fs.readdirSync(f.base).sort(), ['trainer', 'trainer.old-backup'], 'רק השאריות לפי התבנית נמחקו');
-});
-
-test('build-trainer: גם השחזור נכשל — הודעה מפורשת עם מיקום המודול הקודם, והוא לא נמחק בהרצה הבאה', () => {
-  const f = fixture();
-  const old = f.out + '.old-' + process.pid;
-  const fail = (a, b, real) => {
-    if (a.includes('.new-') || (a === old && b === f.out)) { const e = new Error('EPERM: operation not permitted'); e.code = 'EPERM'; throw e; }
-    return real(a, b);
-  };
-  let err;
-  withRename(fail, () => { try { BT.install(f.dist, f.out); } catch (e) { err = e; } });
-  assert.ok(err && err.moduleMissing, 'שגיאה מסוג "המודול חסר"');
-  assert.match(err.message, /modules\/trainer חסר, המודול הקודם נמצא ב-/);
-  assert.ok(err.message.includes(old));
-  assert.equal(fs.existsSync(f.out), false);
-  assert.deepEqual(snapshot(old), f.before, 'המודול הקודם שלם בתיקייה הזמנית');
-  // ההודעה של main לא אומרת "לא שונה"
-  const log = fakeLog();
-  fs.renameSync(old, f.out);
-  withRename(fail, () => assert.equal(BT.installStep(f.dist, f.out, log), 1));
-  assert.doesNotMatch(log.lines.error.join('\n'), /לא שונה/);
-  assert.match(log.lines.error.join('\n'), /modules\/trainer חסר/);
-  // הרצה נוספת כשהמודול חסר: נכשלת בבדיקה, ולא מוחקת את העותק היחיד שלו
-  assert.throws(() => BT.install(f.dist, f.out), /חסר קובץ שילוב/);
-  assert.deepEqual(snapshot(old), f.before);
-});
-
-test('README של מודול האימונים: המודול הבנוי מגיע דרך ci-status, לא דרך Artifacts', () => {
-  const md = read('modules-src', 'trainer', 'README-SUPERSUITE.md');
-  // ההוראה הישנה: "התוצר זמין להורדה (Artifacts → trainer-module)" — הורדה חסומה ב-NetFree, ומ-5f9854e אין artifacts
-  assert.doesNotMatch(md, /Artifacts →|זמין להורדה/);
-  assert.match(md, /git fetch origin ci-status/);
-  assert.match(md, /git checkout FETCH_HEAD -- trainer-module/);
-  assert.doesNotMatch(YML, /upload-artifact|download-artifact/, 'וגם ב-CI אין artifacts');
 });
 
 test('README הראשי: אין הפניה ל-Artifacts — תוצאת הבנייה ב-ci-status, המתקין במאגר ההורדות', () => {

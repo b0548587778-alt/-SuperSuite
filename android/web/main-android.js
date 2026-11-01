@@ -10,32 +10,31 @@ const Hebcal = require('../../shell/hebcal');
 const NavHistory = require('../../shell/history');
 const { canShellNavigate, canModuleOpen } = require('../../shell/nav-guard');
 const LoginGate = require('../../shell/login-gate');
-const TrainerCheck = require('../../shell/trainer-backup-check');
+const Legacy = require('../../shell/legacy-modules');
 const ModCounters = require('../../shell/module-counters');
 const Chat = require('../../shell/licensing/chat');
 const LG = require('../../shell/licensing/gate');
 const { issuedAfter } = require('../../modules/econ/core/database');
 const { createRelayFetch } = require('./relay-fetch');
 
-const MODS = ['econ', 'shamai', 'trainer', 'tools'];
-const LS_MODS = ['shamai', 'trainer', 'tools'];
-const MOD_NAMES = { shamai: 'השמאות', trainer: 'האימונים', tools: 'ארגז הכלים', chat: 'תיבת ההודעות' };
+// מודול האימונים (trainer) עבר למוצר החינוכי הנפרד — כמו ב-main.js
+const MODS = ['econ', 'shamai', 'tools'];
+const LS_MODS = ['shamai', 'tools'];
+const MOD_NAMES = { shamai: 'השמאות', tools: 'ארגז הכלים', chat: 'תיבת ההודעות' };
 // localStorage מלא (WebView): אותו זיהוי כמו ב-frame.js
 const isQuotaError = e => !!e && (e.name === 'QuotaExceededError' || e.code === 22);
 const ENTRY = {
   econ: '/views/index.html?embedded=1',
   shamai: '/index.html',
-  trainer: '/index.html',
   tools: '/index.html'
 };
 const LS_VALUE_MAX = 5 * 1024 * 1024;
 
 // ערוצים שכל מודול (iframe) רשאי להפעיל — כמו ה-preload שלו בשולחן העבודה. לשמאות ולארגז הכלים אין preload,
 // ולכן אין להם אף ערוץ (למשל: מודול לא ינסה כניסה בשם המנהל וינעל אותו). ערוצי המעטפת — רק מהמעטפת
-const SHELL_ONLY = /^(shell|sync|display|trainer):/;
+const SHELL_ONLY = /^(shell|sync|display):/;
 const MODULE_CHANNELS = {
   econ: ch => !SHELL_ONLY.test(ch) || ch === 'shell:econ-view' || ch === 'shell:open-module',
-  trainer: ch => ch === 'shell:trainer-view' || ch === 'trainer:save-pdf',
 };
 const moduleMayInvoke = (id, channel) => !!(MODULE_CHANNELS[id] && MODULE_CHANNELS[id](String(channel)));
 
@@ -65,9 +64,9 @@ function econOptions({ ui, bridgeAsync, version, licenseState }) {
   };
 }
 
-// קריאה בלבד לפי הרישיון בשמאות ובאימונים — חלק הרישוי של secureWriteBlock ב-main.js (האכיפה ב-frame.js).
+// קריאה בלבד לפי הרישיון בשמאות — חלק הרישוי של secureWriteBlock ב-main.js (האכיפה ב-frame.js).
 // null = מותר, אחרת ההודעה שנזרקת בעמוד בכל כתיבה ל-localStorage
-const WRITE_GUARDED = ['shamai', 'trainer'];
+const WRITE_GUARDED = ['shamai'];
 function licenseWriteBlock(lic, mod) {
   if (!lic || lic.mode === 'unlicensed') return null;
   if (!LG.moduleAllowed(lic, mod)) return 'השינוי לא נשמר: המודול אינו כלול ברישיון';
@@ -80,9 +79,7 @@ function start(ctx) {
   const { ipcMain, econ, frames, emitShell, bridgeAsync, SHELL_ID } = ctx;
   const ECON_EXTRAS = Array.isArray(ctx.econExtras) ? ctx.econExtras : [];
   const ECON_VIEWS = [...Catalog.ECON_VIEWS, ...ECON_EXTRAS.map(x => x.view)];
-  const TRAINER_VIEWS = Catalog.TRAINER_VIEWS;
-  const TRAINER_BY_LABEL = Object.fromEntries(Object.entries(Catalog.TRAINER_LABELS).map(([v, l]) => [l, v]));
-  const moduleHasView = (id, view) => (id === 'econ' && ECON_VIEWS.includes(view)) || (id === 'trainer' && TRAINER_VIEWS.includes(view));
+  const moduleHasView = (id, view) => id === 'econ' && ECON_VIEWS.includes(view);
 
   const history = NavHistory.create();
   let replaying = false;
@@ -98,7 +95,7 @@ function start(ctx) {
     try { return econ.licenseState ? econ.licenseState() : { mode: 'unlicensed' }; } catch { return { mode: 'unlicensed' }; }
   }
   const sendLicenseToShell = st => emitShell('shell:license', LG.shellState(st));
-  // מי רשאי לשנות נתונים בשמאות ובאימונים — כמו secureWriteBlock ב-main.js (ממצא 24): כניסה פעילה עם data.edit
+  // מי רשאי לשנות נתונים בשמאות — כמו secureWriteBlock ב-main.js (ממצא 24): כניסה פעילה עם data.edit
   // (צופה ורואה חשבון — קריאה בלבד), ואחר כך הרישיון. בדיקה שקטה: לא מאריכה את הפגישה (הפעילות — onActivity למטה)
   function sessionWriteBlock() {
     const sid = frames.exists('econ') ? ctx.senderOf('econ') : -1;
@@ -106,7 +103,7 @@ function start(ctx) {
     if (!(econ.sessionCan && econ.sessionCan(sid, 'data.edit'))) return 'השינוי לא נשמר: לתפקיד שלך יש הרשאת צפייה בלבד';
     return null;
   }
-  // מצב הכתיבה בשמאות ובאימונים (host.js ← frame.js) — נשלח רק כשהשתנה. גם שינוי בתחומים בלי שינוי סטטוס
+  // מצב הכתיבה בשמאות (host.js ← frame.js) — נשלח רק כשהשתנה. גם שינוי בתחומים בלי שינוי סטטוס
   // (שאינו מפעיל את onLicenseChange) נקלט — בכל פתיחת מודול, בכל כניסה / יציאה ובבדיקה של כל דקה
   const writeBlockSent = {};
   function syncWriteBlocks(st) {
@@ -146,7 +143,7 @@ function start(ctx) {
     return true;
   }
   function show() { for (const id of MODS) frames.setVisible(id, !overlay && id === active); }
-  // שמאי ואימונים — רק אחרי כניסה (shell/login-gate.js). עבודה בהם (לחיצה, מקש, מגע, גלילה — frame.js) מאריכה
+  // שמאי — רק אחרי כניסה (shell/login-gate.js). עבודה בהם (לחיצה, מקש, מגע, גלילה — frame.js) מאריכה
   // את הפגישה, כמו touchActivity ב-main.js; לכן הבדיקה של כל דקה (למטה) מוציאה למסך הכניסה רק אחרי זמן הניתוק בלי שום פעולה
   const loginGate = LoginGate.createLoginGate({
     isLoggedIn: () => frames.exists('econ') && !!(econ.hasSession && econ.hasSession(ctx.senderOf('econ'))) });
@@ -200,13 +197,6 @@ function start(ctx) {
   }
   function openModuleView(id, view) {
     if (id === 'econ') return openEconView(view);
-    if (id === 'trainer' && TRAINER_VIEWS.includes(view)) {
-      if (!LG.moduleAllowed(licenseNow(), 'trainer')) return false;
-      if (loginGate.pending && loginGate.pending.id === 'trainer') { loginGate.setPendingView('trainer', view); return true; }
-      frames.ensure('trainer', ENTRY.trainer);
-      frames.whenReady('trainer').then(() => frames.send('trainer', 'trainer:goto', Catalog.TRAINER_LABELS[view]));
-      return true;
-    }
     return false;
   }
 
@@ -280,8 +270,8 @@ function start(ctx) {
     return { ok: true };
   }
   // ערכי מודול מקובץ גיבוי (קלט חיצוני): רק מחרוזות בגודל סביר. null — אין מה לשחזר
-  function restoreItems(data, id, trainerItems) {
-    const items = id === 'trainer' ? trainerItems : data.localStorage && data.localStorage[id];
+  function restoreItems(data, id) {
+    const items = data.localStorage && data.localStorage[id];
     if (!items || typeof items !== 'object' || Array.isArray(items)) return null;
     const clean = {};
     for (const [k, val] of Object.entries(items)) {
@@ -333,41 +323,34 @@ function start(ctx) {
       ctx.alert('שגיאה: ' + (e.message || 'הקובץ אינו גיבוי תקין'));
       return { ok: false };
     }
-    // קובץ JSON ישן מכפתור הייצוא של מודול האימונים (לפני PLAN.md 3.4)
-    data = TrainerCheck.legacyTrainerBackup(data) || data;
     if (!data || data.suite !== 'SuperSuite') { ctx.alert('שגיאה: הקובץ אינו גיבוי של SuperSuite'); return { ok: false }; }
-    // נתוני האימונים נבדקים לפני האישור ולפני כל מחיקה — קובץ פגום לא נוגע בשום דבר
-    let trainerItems = null;
-    if (data.localStorage && TrainerCheck.hasTrainerItems(data.localStorage.trainer)) { // trainer = {} — אין מה לשחזר
-      const t = TrainerCheck.checkTrainerItems(data.localStorage.trainer);
-      if (!t.ok) { ctx.alert('שגיאה: ' + t.error + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
-      trainerItems = t.clean;
-    }
+    // נתוני מודול האימונים (עבר למוצר נפרד) לא משוחזרים — שאר הגיבוי כן (shell/legacy-modules.js)
+    const legacyData = Legacy.hasLegacyModuleData(data);
     // תיבת ההודעות (גיבוי מלא מגרסה שכוללת אותה) — נבדקת לפני האישור ולפני כל מחיקה. גיבוי ישן בלי chat לא נוגע בתיבה
     let chatData = null;
     if (data.chat != null) {
       try { chatData = Chat.mailboxFromBackup(data.chat); }
       catch (e) { ctx.alert('שגיאה: ' + e.message + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
     }
-    const scopeText = data.legacy ? '(גיבוי ישן של ניהול האימונים)' : data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
+    const scopeText = data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
     // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע מחזיר הכול למצב שלפני (כמו main.js).
     // נקרא לפני האישור — גם לאזהרה על מסמכים שהופקו אחרי הגיבוי (בדיקת קוד 22.10.2026, ממצא 5)
-    const mods = LS_MODS.filter(id => restoreItems(data, id, trainerItems));
-    // אין מה לשחזר (למשל גיבוי של מודול האימונים בלבד, בלי מתאמנים) — לא "השחזור הושלם" כשלא שוחזר דבר
-    if (!data.econ && !mods.length && !chatData) { ctx.alert('שגיאה: אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו'); return { ok: false }; }
+    const mods = LS_MODS.filter(id => restoreItems(data, id));
+    // אין מה לשחזר (למשל גיבוי של מודול האימונים בלבד) — לא "השחזור הושלם" כשלא שוחזר דבר
+    if (!data.econ && !mods.length && !chatData) { ctx.alert('שגיאה: ' + (legacyData ? Legacy.LEGACY_ONLY : '') + 'אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו'); return { ok: false }; }
     let before;
     try {
       before = { econ: data.econ ? await econ.getDb().backup() : null, localStorage: {}, chat: chatData ? econ.chatBackup() : null };
       for (const id of mods) { frames.ensure(id, ENTRY[id]); before.localStorage[id] = await frames.request(id, 'ls-dump'); }
     } catch (e) { ctx.alert('שגיאה: לא ניתן לשמור את המצב הנוכחי לפני השחזור, ולכן לא שוחזר דבר.'); return { ok: false }; }
     const missingItems = data.econ && before.econ ? issuedAfter(data.econ, before.econ) : [];
-    for (const id of mods) missingItems.push(...ModCounters.moduleIssuedAfter(id, restoreItems(data, id, trainerItems), before.localStorage[id]));
+    for (const id of mods) missingItems.push(...ModCounters.moduleIssuedAfter(id, restoreItems(data, id), before.localStorage[id]));
     const missing = ModCounters.issuedAfterText(missingItems);
     const chatNote = chatData ? '\nתיבת ההודעות תשוחזר מהגיבוי; הודעות שהתקבלו או נשלחו אחרי הגיבוי יישארו בה.' : '';
-    if (!ctx.confirm('השחזור יחליף את הנתונים הקיימים ' + scopeText + (missing ? '\n⚠ ' + missing : '') + chatNote + '\nמומלץ לבצע גיבוי לפני כן. להמשיך?')) return { ok: false };
+    if (!ctx.confirm('השחזור יחליף את הנתונים הקיימים ' + scopeText + (missing ? '\n⚠ ' + missing : '') + chatNote + (legacyData ? '\n' + Legacy.LEGACY_NOTE : '') + '\nמומלץ לבצע גיבוי לפני כן. להמשיך?')) return { ok: false };
     let skipped;
     try {
-      skipped = await applyRestore(data.econ, mods.map(id => [id, ModCounters.keepModuleCounters(id, restoreItems(data, id, trainerItems), before.localStorage[id])]), before.localStorage,
+      skipped = await applyRestore(data.econ, mods.map(id => [id, ModCounters.keepModuleCounters(id, restoreItems(data, id), before.localStorage[id])]), before.localStorage,
         chatData && { data: chatData, previous: before.chat });
     } catch (e) {
       let back = 'הנתונים הוחזרו למצב שלפני השחזור.';
@@ -425,14 +408,6 @@ function start(ctx) {
     if (!LG.viewAllowed(licenseNow(), 'econ', view)) { openEconView('licensing'); return false; }
     emitShell('shell:active-view', view, 'econ');
     if (active === 'econ') recordNav({ mod: 'econ', view });
-    return true;
-  });
-  ipcMain.handle('shell:trainer-view', (e, label) => {
-    if (!frames.exists('trainer') || e.sender.id !== ctx.senderOf('trainer')) return false;
-    const view = typeof label === 'string' ? TRAINER_BY_LABEL[label] : undefined;
-    if (!view) return false;
-    emitShell('shell:active-view', view, 'trainer');
-    if (active === 'trainer') recordNav({ mod: 'trainer', view });
     return true;
   });
   ipcMain.handle('shell:history-go', (e, delta) => (isShell(e) ? navigateHistory(delta === 1 ? 1 : -1) : false));

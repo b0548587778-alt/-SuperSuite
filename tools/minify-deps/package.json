@@ -1,0 +1,9 @@
+{
+  "name": "supersuite-minify-deps",
+  "private": true,
+  "version": "1.0.0",
+  "description": "esbuild הנעול לכיווץ הקוד ב-CI (tools/minify.js) — לא נארז בתוכנה",
+  "devDependencies": {
+    "esbuild": "0.21.5"
+  }
+}

@@ -44,7 +44,6 @@ function renderCollect(d) {
         <div class="acct-actions">
           <button class="primary" id="collectNewBtn">➕ דרישת תשלום</button>
           <button class="secondary" id="collectImportBtn" title="קובץ CSV מאתר חברת הסליקה — התשלומים נרשמים אוטומטית">📥 קליטת דוח סליקה</button>
-          <button class="secondary" id="collectTrainerBtn" title="תשלומי מנויים שנרשמו במודול האימונים — הפקת חשבונית מס/קבלה">🏋️ תשלומי אימונים</button>
           ${s.linkTemplate ? '<button class="secondary" id="collectSettingsBtn">⚙ הגדרות</button>' : ''}
         </div>
       </div>
@@ -193,52 +192,12 @@ async function collectImport() {
   return true;
 }
 
-// נוסח האישור לפני הפקה — כל הפרטים שיופיעו במסמך
-// חשד לכפילות (duplicateWarning מהשרת) — בראש הנוסח, כדי שייקרא לפני האישור
-function collectTrainerConfirmText(p) {
-  return (p.duplicateWarning ? p.duplicateWarning + ' ' : '') +
-    `הפקת מסמך על ${money(p.amount)} ל${p.clientName} (${p.membershipName}), בתאריך ${p.date}, ב${p.methodLabel}. ` +
-    'המסמך נרשם ביומן ומקבל מספר רץ. אחרי ההפקה אפשר לבטל אותו רק במסך החשבוניות.';
-}
-const COLLECT_TRAINER_DOCS = [['taxed', 'חשבונית מס/קבלה — עוסק מורשה (הסכום כולל מע"מ)'], ['exempt', 'חשבונית עסקה וקבלה — עוסק פטור (בלי מע"מ)']];
-
-// תשלומי מנויים ממודול האימונים: רשימה, ולכל תשלום בלי חשבונית — הפקה אחרי אישור מפורש
-async function collectTrainerPayments() {
-  for (;;) {
-    const r = await window.systemAPI.collectTrainerPayments();
-    if (!r.available) { showError(r.reason || 'תשלומי האימונים אינם זמינים'); return false; }
-    const list = r.payments || [];
-    const pick = await openDialog((card, finish) => {
-      card.style.maxWidth = '720px';
-      const row = (p) => `<tr><td>${esc(p.date)}</td><td>${esc(p.clientName)}<br><small class="muted">${esc(p.membershipName)}${p.cancelled ? ' · בוטל' : ''}</small></td>
-        <td>${money(p.amount)}</td><td>${esc(p.methodLabel)}</td>
-        <td>${p.invoiceNumber ? `<span class="ss-badge ss-badge-success">חשבונית ${esc(p.invoiceNumber)}</span>` : `<button type="button" class="primary small" data-trainer-issue="${esc(p.key)}">🧾 הפקה</button>`}${p.duplicateWarning ? `<br><span class="ss-badge ss-badge-warning" title="${esc(p.duplicateWarning)}">⚠ ייתכן שכבר הופקה</span>` : ''}</td></tr>`;
-      card.innerHTML = `<h2>🏋️ תשלומי אימונים</h2>
-        <p class="muted" style="padding:0 1.5rem">התשלומים שנרשמו במודול האימונים, בכרטיס המתאמן. לכל תשלום אפשר להפיק חשבונית מס/קבלה אחת, אחרי אישור.</p>
-        <div class="table-wrap" style="max-height:55vh"><table><thead><tr><th>תאריך</th><th>מתאמן</th><th>סכום</th><th>אמצעי</th><th></th></tr></thead><tbody>
-        ${list.map(row).join('') || '<tr><td colspan="5" class="muted">לא נרשמו תשלומים במודול האימונים</td></tr>'}
-        </tbody></table></div><div class="modal-actions"><button type="button" class="secondary" data-close>סגירה</button></div>`;
-      card.querySelector('[data-close]').addEventListener('click', () => finish(null));
-      card.querySelectorAll('[data-trainer-issue]').forEach(b => b.addEventListener('click', () => finish(b.dataset.trainerIssue)));
-    });
-    const p = pick && list.find(x => x.key === pick);
-    if (!p) return true;
-    const v = await licForm('אישור הפקה', [{ name: 'doc', label: 'סוג המסמך', type: 'select', options: COLLECT_TRAINER_DOCS,
-      value: r.exemptDefault ? 'exempt' : 'taxed' }], '🧾 אישור והפקה', collectTrainerConfirmText(p));
-    if (!v) continue;
-    const inv = await window.systemAPI.collectIssueTrainerReceipt(p.key, { confirmed: true, exempt: v.doc === 'exempt' });
-    showToast(inv.exempt ? `הופקו חשבונית עסקה ${inv.number} וקבלה ${inv.receiptNumber} — להדפסה במסך החשבוניות`
-      : `הופקה חשבונית מס/קבלה ${inv.number} — להדפסה במסך החשבוניות`);
-  }
-}
-
 function attachCollectHandlers() {
   const act = (fn) => async () => { try { await fn(); } catch (error) { showError(errMsg(error)); return; } await switchView('collect'); };
   const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener('click', act(fn)); };
   on('collectNewBtn', collectNewRequest);
   on('collectSettingsBtn', collectSettings);
   on('collectImportBtn', collectImport);
-  on('collectTrainerBtn', collectTrainerPayments);
   const flt = document.getElementById('collectFilter');
   if (flt) flt.addEventListener('change', act(() => { state.collectFilter = flt.value; }));
   document.querySelectorAll('[data-collect-msg]').forEach(b => b.addEventListener('click', act(async () => {

@@ -19,16 +19,24 @@ test('מפתחות הקטלוג ייחודיים, וכל פריט שייך למ�
   const keys = CAT.ITEMS.map(it => it.key);
   assert.equal(new Set(keys).size, keys.length);
   for (const it of CAT.ITEMS) {
-    assert.ok(['econ', 'shamai', 'trainer', 'tools'].includes(it.mod), it.key);
-    assert.ok(!it.view || ['econ', 'trainer'].includes(it.mod), 'תצוגה פנימית רק במודול הכלכלי או באימונים: ' + it.key);
+    assert.ok(['econ', 'shamai', 'tools'].includes(it.mod), it.key);
+    assert.ok(!it.view || it.mod === 'econ', 'תצוגה פנימית רק במודול הכלכלי: ' + it.key);
     assert.match(it.name, /[֐-׿]/, 'שם בעברית: ' + it.key);
   }
 });
 
 test('כל מודול נגיש מהקטלוג', () => {
-  for (const mod of ['econ', 'shamai', 'trainer', 'tools']) {
+  for (const mod of ['econ', 'shamai', 'tools']) {
     assert.ok(CAT.ITEMS.some(it => it.mod === mod), mod);
   }
+});
+
+test('מוצר כלכלי: אין בקטלוג את מודול האימונים (עבר למוצר החינוכי) ולא את יומן הכושר', () => {
+  assert.ok(!CAT.ITEMS.some(it => it.mod === 'trainer'));
+  assert.ok(!CAT.GROUPS.some(g => g.id === 'trainer' || g.id === 'health'));
+  assert.ok(!CAT.ECON_VIEWS.includes('fitness'));
+  assert.equal(CAT.TRAINER_VIEWS, undefined);
+  assert.equal(CAT.TRAINER_LABELS, undefined);
 });
 
 function loadEconPreload() {

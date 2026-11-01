@@ -19,7 +19,7 @@ import java.util.Map;
 final class AssetServer {
     /** דומיין שמור של Google לתוכן מקומי ב-WebView — לא מתנגש באתר אמיתי. */
     static final String DOMAIN = "supersuite.androidplatform.net";
-    static final String[] MODULES = {"shell", "econ", "shamai", "trainer", "tools"};
+    static final String[] MODULES = {"shell", "econ", "shamai", "tools"};
 
     private static final Map<String, String> MIME = new HashMap<>();
     static {

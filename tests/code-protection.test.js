@@ -68,7 +68,7 @@ test('main.js: כל חלון ותצוגה עוברים דרך guardPrefs, והב
 });
 
 // ---------- כיווץ ----------
-test('כיווץ: קבצים גלובליים (ui/*.js, המעטפת, שמאות, כלים) — רק רווחים; השאר — מלא; האימונים — לא', () => {
+test('כיווץ: קבצים גלובליים (ui/*.js, המעטפת, שמאות, כלים) — רק רווחים; השאר — מלא', () => {
   assert.equal(MIN.modeFor('modules/econ/ui/core.js'), 'whitespace');
   assert.equal(MIN.modeFor('shell/shell.js'), 'whitespace');
   assert.equal(MIN.modeFor('shell/catalog.js'), 'whitespace');
@@ -77,8 +77,6 @@ test('כיווץ: קבצים גלובליים (ui/*.js, המעטפת, שמאות
   assert.equal(MIN.modeFor('main.js'), 'full');
   assert.equal(MIN.modeFor('modules/econ/ipc.js'), 'full');
   assert.equal(MIN.modeFor('modules/econ/core/database.js'), 'full');
-  assert.equal(MIN.modeFor('modules/trainer/assets/index-X.js'), null);
-  assert.equal(MIN.modeFor('modules/trainer/preload.js'), 'full');
   assert.equal(MIN.modeFor('modules/shamai/sw.js'), null);
   assert.equal(MIN.modeFor('shell/shell.html'), null);
   assert.equal(MIN.optionsFor('whitespace').minifyIdentifiers, false);

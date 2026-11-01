@@ -4,7 +4,7 @@
   "contexts": {
     "full": {
       "today": "2026-10-22",
-      "opened": { "acct": true, "npo": true, "shamai": true, "trainer": true },
+      "opened": { "acct": true, "npo": true, "shamai": true },
       "range": { "from": "2026-10-01", "to": "2026-10-22", "label": "אוקטובר 2026" },
       "summary": { "income": 48250, "expenses": 12780.5, "outputVat": 8685, "inputVat": 2300.49, "vatPayable": 6384.51, "cashAfterVat": 29084.99 },
       "invoices": [
@@ -19,12 +19,11 @@
         { "name": "משפחת גולדברג", "count": 2, "total": 3600 },
         { "name": "תורם בעילום שם", "count": 1, "total": 500 }
       ] },
-      "trainer": { "clients": 12, "alerts": [{ "title": "דוד שפירא", "detail": "המנוי מסתיים בעוד 3 ימים", "tone": "yellow" }] },
       "shamai": { "label": "דירה ברחוב רבי עקיבא", "valueAg": 245000000, "confidence": 72, "factors": [{ "name": "קומה", "bp": 150 }], "warnings": [] }
     },
     "acctClosed": {
       "today": "2026-10-22",
-      "opened": { "acct": false, "npo": true, "shamai": false, "trainer": false },
+      "opened": { "acct": false, "npo": true, "shamai": false },
       "npo": { "donors": [{ "name": "ר' אברהם פרידמן", "count": 4, "total": 18000 }] }
     }
   },
@@ -39,8 +38,6 @@
       "expect": { "engine": "rules", "contains": ["ר' אברהם פרידמן"] } },
     { "id": "rules-howto", "kind": "ask", "q": "איך מוציאים חשבונית?", "ctx": "full",
       "expect": { "engine": "rules", "contains": ["חשבונית חדשה"] } },
-    { "id": "rules-trainer", "kind": "ask", "q": "איזה מתאמנים דורשים תשומת לב?", "ctx": "full",
-      "expect": { "engine": "rules", "contains": ["דוד שפירא"] } },
 
     { "id": "local-free-question", "kind": "ask", "q": "תן לי תמונת מצב קצרה של העסק", "ctx": "full",
       "expect": { "engine": "local", "tools": ["period_summary", "unpaid_invoices"], "contains": ["₪48,250.00", "₪18,000.00"] },

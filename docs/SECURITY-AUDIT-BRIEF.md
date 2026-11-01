@@ -19,7 +19,7 @@
 |-----|-----------|------|
 | מסד הנתונים הכלכלי (חשבוניות, תורמים, לווים, נזקקים, תיקי משכנתא) | `econ.db` (SQLite) בתיקיית הנתונים | `SSDB1:` + AES-256-GCM על `collections.payload` ו-`audit_events.details`; מפתח = HKDF ממפתח הגיבוי |
 | מפתח הגיבוי האוטומטי | `autobackup.key` | DPAPI של Windows; קוד שחזור בן 55 תווים (Base32 של Crockford) |
-| נתוני שמאות ואימונים (localStorage) | `secure-shamai.bin`, `secure-trainer.bin` | AES-256-GCM, מפתח לכל מודול (HKDF) |
+| נתוני שמאות (localStorage) | `secure-shamai.bin` (`secure-trainer.bin` של גרסאות קודמות — לא נפתח ולא נמחק; מודול האימונים עבר למוצר נפרד) | AES-256-GCM, מפתח לכל מודול (HKDF) |
 | תמונות שמאות | בתוך `secure-shamai.bin` (מ-20.10.2026; ישנות מ-IndexedDB מועברות בפתיחה) | כמו המחסן — AES-256-GCM |
 | גיבויים | קבצי `.ssbk` | `SSBK1:` + AES-256-GCM, בסיסמה או במפתח האוטומטי |
 | סיסמאות משתמשים | טבלת `auth_users` | scrypt עם salt; נעילה אחרי 5 ניסיונות (`MAX_FAILED_ATTEMPTS`) |
@@ -32,7 +32,7 @@
 
 1. **מסך ← תהליך ראשי (IPC).** כל מודול הוא `WebContentsView` עם `contextIsolation:true`, `nodeIntegration:false`, `sandbox:true`. כל ערוץ כלכלי עובר ב-`handle()` ב-`modules/econ/ipc.js`: פגישה פעילה ← הרשאת תפקיד (`permissionFor`) ← רישיון (`runGuarded` / `shell/licensing/gate.js`). ערוצים ציבוריים בלבד: `auth:status`, `auth:setup`, `auth:login`, `auth:logout`, `auth:google-login`.
 2. **מודול ← מעטפת.** פעולות רגישות (ניווט, גיבוי, שחזור, קוד שחזור) — רק מהמעטפת (`e.sender.id === win.webContents.id`, `shellGuard`). מעבר בין מודולים — `shell/nav-guard.js`.
-3. **מודול ← מודול.** ערוצי המחסן המוצפן בודקים `fromModuleView`: שמאות לא קוראת נתוני אימונים ולהפך.
+3. **מודול ← מודול.** ערוצי המחסן המוצפן בודקים `fromModuleView`: מודול אחר (או הכלכלי) לא קורא את נתוני השמאות.
 4. **קובץ ← תוכנה.** פרוטוקול `app://` מגיש רק מ-`modules/<mod>/`, עם חסימת path traversal אחרי `path.normalize`.
 5. **רשת ← תוכנה.** CSP מחמיר בכל חלון (`script-src 'self'`, בלי `unsafe-eval`). `tests/no-network.test.js` סורק את כל הקבצים הארוזים. קישורים נפתחים בדפדפן המערכת.
 6. **קוד הפצה.** `devTools:false`, יציאה על פרמטר דיבוג, `electronFuses` (בלי `runAsNode`, בלי `NODE_OPTIONS`, בדיקת שלמות `app.asar`), כיווץ קוד ב-CI.
@@ -46,7 +46,7 @@
 - לעקוף את מסך הכניסה, את הנעילה אחרי ניסיונות כושלים, או את חלוקת התפקידים (משתמש "צופה" / "רואה חשבון" שמבצע כתיבה או מחיקה).
 - לקרוא את מסד הנתונים, את המחסנים או את הגיבויים מחוץ לתוכנה (משתמש אחר באותו מחשב, דיסק שהוצא, קובץ גיבוי שנשלח בדוא"ל).
 - להזריק סקריפט דרך נתונים (שם תורם, תיאור חשבונית, קובץ CSV מיובא, vCard, קובץ טבלת שכר, לוגו) ולראות אם הוא רץ במסך או במסמך להדפסה/PDF.
-- לטעון קובץ גיבוי זדוני או פגום בשחזור (נתוני אימונים, גיבוי ישן לא מוצפן).
+- לטעון קובץ גיבוי זדוני או פגום בשחזור (גיבוי ישן עם נתוני אימונים, גיבוי ישן לא מוצפן).
 - path traversal בפרוטוקול `app://` ובשמות קבצים שהמעטפת שולחת.
 - לעקוף את הרישוי (כשיופעל): החזרת שעון, מחיקת קובץ הרישוי, העתקה בין מחשבים, זיוף תשובת שרת.
 
@@ -64,7 +64,7 @@
 | כניסה, נעילה, פגישה | `tests/login-gate.test.js`, `tests/security.test.js` |
 | ניווט בין מודולים | `tests/nav-guard.test.js`, `tests/ui-nav.test.js` |
 | הצפנת מסד, מחסן וגיבוי | `tests/at-rest.test.js`, `tests/secure-store.test.js`, `tests/backupCrypto.test.js`, `tests/auto-backup.test.js`, `tests/backup-recovery-code.test.js`, `tests/plain-backups.test.js` |
-| בדיקת גיבוי אימונים לפני שחזור | `tests/trainer-backup.test.js` |
+| גיבוי ישן עם נתוני אימונים (מוצר נפרד) — משוחזר בלעדיהם | `tests/audit-backup-startup.test.js` |
 | אפס רשת | `tests/no-network.test.js` |
 | הגנת קוד בהפצה | `tests/code-protection.test.js`, `tests/release-guard.test.js` |
 | רישוי, זיוף ושרת | `tests/licensing-*.test.js` (22 קבצים), `tests/relay-security-review.test.js`, `tests/sync-crypto.test.js` |

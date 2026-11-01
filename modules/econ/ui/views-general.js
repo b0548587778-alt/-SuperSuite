@@ -1,4 +1,4 @@
-// ממשק המודול הכלכלי — תצוגות כלליות: לוח בקרה, תכנון פיננסי, עסקים, משכנתאות, משימות, אנשי קשר, כושר.
+// ממשק המודול הכלכלי — תצוגות כלליות: לוח בקרה, תכנון פיננסי, עסקים, משכנתאות, משימות, אנשי קשר.
 // סקריפט רגיל (לא מודול): כל קבצי ui/ חולקים טווח שמות אחד, לפי הסדר ב-views/index.html.
 'use strict';
 
@@ -82,7 +82,6 @@ function renderDashboard(data) {
         <h3 class="modules-title">מודולים נוספים בחבילה</h3>
         <div class="modules-grid">
           <button class="module-card" data-module="shamai"><span class="module-ic">💎</span><strong>שמאות נכסים</strong><small>הערכת שווי ופנקס הזדמנויות</small></button>
-          <button class="module-card" data-module="trainer"><span class="module-ic">🏋️</span><strong>ניהול אימונים</strong><small>למאמני כושר: מתאמנים ותוכניות</small></button>
           <button class="module-card" data-module="tools"><span class="module-ic">🧰</span><strong>ארגז כלים</strong><small>13 כלים שימושיים</small></button>
         </div>
       </section>
@@ -368,75 +367,6 @@ function renderContacts(data) {
           ${renderCardActions(c.id)}
         </div>
       `).join('')}
-    </div>
-  `;
-}
-
-// Render fitness view — אימונים, תזונה ומדדים
-const FITNESS_KINDS = {
-  workout: { emoji: '🏃', label: 'אימון' },
-  nutrition: { emoji: '🍎', label: 'תזונה' },
-  metric: { emoji: '⚖️', label: 'מדד' }
-};
-
-// תרגום ערכי המקרא (השירות שומר באנגלית) לתוויות בעברית
-const FITNESS_WORKOUT_TYPES = {
-  cardio: 'אירובי', strength: 'כוח', yoga: 'גמישות ומתיחות', // הערך נשאר yoga — רשומות קיימות
-  walking: 'הליכה', sports: 'ספורט', other: 'אחר'
-};
-const FITNESS_MEAL_TYPES = {
-  breakfast: 'בוקר', lunch: 'צהריים', dinner: 'ערב', snack: 'ביניים'
-};
-
-function renderFitness(data) {
-  const fitness = data || {};
-  const workouts = fitness.workouts || [];
-  const nutrition = fitness.nutrition || [];
-  const metrics = fitness.metrics || [];
-  const total = workouts.length + nutrition.length + metrics.length;
-
-  // כרטיס אימון
-  const workoutCard = (w) => `
-    <div class="card">
-      <h4>${FITNESS_KINDS.workout.emoji} ${esc(FITNESS_WORKOUT_TYPES[w.type] || w.type || 'אימון')}</h4>
-      <p>משך: ${Number(w.durationMinutes) || 0} דקות${w.caloriesBurned ? ` · ${Number(w.caloriesBurned)} קלוריות` : ''}</p>
-      ${w.notes ? `<p>${esc(w.notes)}</p>` : ''}
-      <small>תאריך: ${esc(w.date || '')}</small>
-    </div>`;
-  // כרטיס תזונה
-  const nutritionCard = (n) => `
-    <div class="card">
-      <h4>${FITNESS_KINDS.nutrition.emoji} ${esc(FITNESS_MEAL_TYPES[n.mealType] || n.mealType || 'ארוחה')}</h4>
-      <p>${Number(n.calories) || 0} קלוריות</p>
-      ${n.description ? `<p>${esc(n.description)}</p>` : ''}
-      ${n.notes ? `<p>${esc(n.notes)}</p>` : ''}
-      <small>תאריך: ${esc(n.date || '')}</small>
-    </div>`;
-  // כרטיס מדד
-  const metricCard = (m) => `
-    <div class="card">
-      <h4>${FITNESS_KINDS.metric.emoji} מדד</h4>
-      ${m.weightKg !== null && m.weightKg !== undefined ? `<p>משקל: ${Number(m.weightKg)} ק"ג</p>` : ''}
-      ${m.bodyFatPercent !== null && m.bodyFatPercent !== undefined ? `<p>אחוז שומן: ${Number(m.bodyFatPercent)}%</p>` : ''}
-      ${m.notes ? `<p>${esc(m.notes)}</p>` : ''}
-      <small>תאריך: ${esc(m.date || '')}</small>
-    </div>`;
-
-  const section = (title, items, renderCard) => `
-    <div class="section">
-      <h4>${title} (${items.length})</h4>
-      ${items.length === 0
-        ? renderEmpty('אין רשומות עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל')
-        : items.map(renderCard).join('')}
-    </div>`;
-
-  return `
-    <div class="fitness">
-      <h3>כושר ובריאות</h3>
-      ${total === 0
-        // מסך ריק — הודעה אחת, ולא ארבע הודעות זהות זו מתחת לזו
-        ? renderEmpty('אין רשומות כושר עדיין — לחץ "＋ הוספת רשומה" ובחר אימון, תזונה או מדד')
-        : section('אימונים', workouts, workoutCard) + section('תזונה', nutrition, nutritionCard) + section('מדדים', metrics, metricCard)}
     </div>
   `;
 }

@@ -51,7 +51,7 @@ node android/build-apk.js --web   # רק קבצי ה-web (android/build/assets) 
 | `web/relay-fetch.js` | `fetch` לקוד הרישוי: רק `POST https://<שרת>/v1`, דרך הגשר (`relayPost`). כל כתובת אחרת (עדכונים, Google) נדחית |
 | `web/host.js` | `ipcMain` מדומה בחלון המעטפת; ה-`ipc.js` המקורי רץ שם כמו שהוא. כל מודול — רק הערוצים שלו (`moduleMayInvoke`) |
 | `web/main-android.js` | מקבילה ל-`main.js`: ניווט, היסטוריה, לוח עברי, רישוי ושער המודולים, גיבוי/שחזור מוצפנים |
-| `web/frame.js` | מוזרק לכל מודול: `ipcRenderer` מעל postMessage (עם אימות origin), הדפסה, הורדות, ביטול SW, קריאה בלבד בשמאות ובאימונים (כניסה, תפקיד, רישיון) ודיווח פעילות שמאריך את הכניסה |
+| `web/frame.js` | מוזרק לכל מודול: `ipcRenderer` מעל postMessage (עם אימות origin), הדפסה, הורדות, ביטול SW, קריאה בלבד בשמאות (כניסה, תפקיד, רישיון) ודיווח פעילות שמאריך את הכניסה |
 | `web/mobile.css`, `web/mobile.js` | פס עליון + מגירה בטלפון; סרגל קבוע בטאבלט (≥900px) |
 | `lib/bundle.js` | מאגד CommonJS מינימלי (אין esbuild בסביבה המסוננת) |
 | `dev/webview-sim.js` | סימולציה של ה-WebView מעל Electron לבדיקה בלי מכשיר |
@@ -68,12 +68,12 @@ node android/build-apk.js --web   # רק קבצי ה-web (android/build/assets) 
   וה-WebView לא יכול לפנות לשום מקום אחר. הבדיקה החתומה (`checkin.js`) רצה כמו בשולחן העבודה.
 - **שער המודולים** (`shell/licensing/gate.js`) כמו ב-`main.js`: מודול שאינו ברישיון (או מערכת נעולה) לא נפתח — גם לא מתוך מודול אחר,
   ותצוגה כלכלית סגורה עוברת למסך הרישוי. שינוי מצב הרישוי בזמן עבודה מוציא מהמודול שנסגר. ערוצי המודול הכלכלי נבדקים ב-`runGuarded` כרגיל.
-- **קריאה בלבד בשמאות ובאימונים** — כמו `secureWriteBlock` ב-`main.js` (ממצא 24): בלי כניסה פעילה, תפקיד בלי `data.edit`
+- **קריאה בלבד בשמאות** — כמו `secureWriteBlock` ב-`main.js` (ממצא 24): בלי כניסה פעילה, תפקיד בלי `data.edit`
   (צופה / רואה חשבון), ואחר כך הרישיון (סוף תקופת ניסיון, ממתין לתשלום, מושעה, מודול שאינו ברישיון).
   `sessionWriteBlock` + `licenseWriteBlock` ← `syncWriteBlocks` (`main-android.js`) ← `setWriteBlock` (`host.js`, גם בכתובת ה-iframe ‏`ss-ro`) ←
   `frame.js`, שעוטף את `setItem` / `removeItem` / `clear` של `Storage.prototype` וזורק `SecurityError` עם ההודעה בעברית. השחזור מהמעטפת
   (`ls-restore`) עובר. המצב נשלח מחדש בפתיחת מודול, **בכל כניסה / יציאה** (`onAuthChange` — כניסה עם הרשאת עריכה משחררת מיד) ובבדיקה של כל דקה.
-- **ניתוק אוטומטי בזמן עבודה בשמאות ובאימונים** (החלטה 24.10.2026): `frame.js` שולח `activity` (לחיצה, מקש, מגע, גלילה — לכל היותר
+- **ניתוק אוטומטי בזמן עבודה בשמאות** (החלטה 24.10.2026): `frame.js` שולח `activity` (לחיצה, מקש, מגע, גלילה — לכל היותר
   פעם ב-2 שניות, בלי פרטים) ו-`main-android.js` מאריך בו את הפגישה (`econ.touchSession`), כמו `touchActivity` ב-`main.js`. לכן פגישה
   פגה רק אחרי זמן הניתוק בלי שום פעולה — ואז הבדיקה של כל דקה חוסמת כתיבה ומעבירה למסך הכניסה; ה-iframe נשאר (מה שהוקלד ולא נשמר
   לא אובד), ואחרי הכניסה חוזרים אליו.
@@ -87,14 +87,14 @@ node android/build-apk.js --web   # רק קבצי ה-web (android/build/assets) 
 ### ערוצים לכל מודול
 
 כל iframe מפעיל רק את הערוצים של ה-preload שלו בשולחן העבודה (`moduleMayInvoke` ב-`main-android.js`): המודול הכלכלי — את ערוצי
-`ipc.js` ו-`shell:econ-view` / `shell:open-module`; האימונים — `shell:trainer-view` / `trainer:save-pdf`; השמאות וארגז הכלים — אף ערוץ.
+`ipc.js` ו-`shell:econ-view` / `shell:open-module`; השמאות וארגז הכלים — אף ערוץ.
 תשובות הגיבוי/השחזור (`ls`) מתקבלות רק מהמסגרת שנשאלה. ערוץ של המעטפת שאין לו מקבילה כאן (`NOT_ON_ANDROID`) מחזיר הודעה בעברית.
 
 ## בדיקות
 
 - `tests/android-port.test.js` (חלק מ-`npm test`): הקוד הכלכלי מעל ה-shims, תאימות גיבוי לשולחן העבודה, הרשאות מעטפת, הזרקה ו-CSP.
 - `tests/audit-android.test.js`: `host.js` ו-`frame.js` עצמם בתוך `vm` (ערוצים לכל מודול, תשובות גיבוי, ייצוא מבנה אחיד), קידוד בכתיבת
-  קבצים (מס"ב), שער הרישוי וקריאה בלבד בשמאות ובאימונים, `relay-fetch.js` מעל `remote.js`, ושחזור כשאין מקום ב-localStorage.
+  קבצים (מס"ב), שער הרישוי וקריאה בלבד בשמאות, `relay-fetch.js` מעל `remote.js`, ושחזור כשאין מקום ב-localStorage.
 - `tests/no-network.test.js`: באנדרואיד — רק `RelayClient.java` פותח חיבור, ובקוד ה-web אין `fetch`.
 - סימולציה מלאה עם צילומי מסך:
   ```bash

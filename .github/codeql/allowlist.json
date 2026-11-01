@@ -10,19 +10,9 @@
     "reason": "שחזור גיבוי: הנתונים נכנסים לקוד כ-JSON.stringify של אובייקט מחרוזות שנבדק (clean), ורצים בתצוגה של המודול עצמו — לא HTML"
   },
   {
-    "rule": "js/bad-code-sanitization",
-    "path": "tools/trainer-shots.js",
-    "reason": "כלי פיתוח לצילומי מסך (לא נארז בתוכנה); הקוד נבנה מקבועים של הסקריפט"
-  },
-  {
     "rule": "js/clear-text-storage-of-sensitive-data",
     "path": "modules/tools/app.js",
     "reason": "טבלת מדרגות מס ציבורית (parseSalaryTable), לא מידע אישי"
-  },
-  {
-    "rule": "js/clear-text-storage-of-sensitive-data",
-    "path": "modules-src/trainer/src/lib/storage.js",
-    "reason": "localStorage במודול האימונים מוחלף בעותק של המחסן המוצפן (shell/secure-store.js, secure-ls-preload.js) — הנתונים נשמרים מוצפנים"
   },
   {
     "rule": "py/clear-text-logging-sensitive-data",

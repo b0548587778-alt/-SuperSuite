@@ -1,12 +1,12 @@
-// שמאי ואימונים נפתחים רק אחרי כניסה: הכלל המשותף (shell/login-gate.js) לדסקטופ ולאנדרואיד
+// שמאי נפתח רק אחרי כניסה: הכלל המשותף (shell/login-gate.js) לדסקטופ ולאנדרואיד
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { createLoginGate, LOCKED_MODS } = require('../shell/login-gate');
 
-test('המודולים הנעולים: שמאי ואימונים בלבד', () => {
-  assert.deepEqual(LOCKED_MODS, ['shamai', 'trainer']);
+test('המודולים הנעולים: שמאי בלבד', () => {
+  assert.deepEqual(LOCKED_MODS, ['shamai']);
 });
 
 test('בלי כניסה: מודול נעול מנותב למסך הכניסה ונשמר; אחרי כניסה — נפתח פעם אחת', () => {
@@ -14,12 +14,12 @@ test('בלי כניסה: מודול נעול מנותב למסך הכניסה ו
   const g = createLoginGate({ isLoggedIn: () => logged });
   assert.equal(g.route('tools'), 'tools', 'ארגז הכלים פתוח');
   assert.equal(g.route('econ'), 'econ');
-  assert.equal(g.route('trainer', 'nutrition'), 'econ');
-  assert.deepEqual(g.pending, { id: 'trainer', view: 'nutrition' });
+  assert.equal(g.route('shamai', 'cases'), 'econ');
+  assert.deepEqual(g.pending, { id: 'shamai', view: 'cases' });
   assert.equal(g.route('econ'), 'econ', 'מסך הכניסה עצמו לא מבטל את הבקשה');
   assert.equal(g.takePending(), null, 'לפני כניסה לא נמסר');
   logged = true;
-  assert.deepEqual(g.takePending(), { id: 'trainer', view: 'nutrition' });
+  assert.deepEqual(g.takePending(), { id: 'shamai', view: 'cases' });
   assert.equal(g.takePending(), null, 'נמסר פעם אחת בלבד');
   assert.equal(g.route('shamai'), 'shamai', 'אחרי כניסה — נפתח ישירות');
 });
@@ -32,10 +32,10 @@ test('מעבר למודול אחר או למסך הבית מבטל את הבקש
   g.route('shamai');
   g.clear();
   assert.equal(g.pending, null);
-  g.route('trainer');
-  g.setPendingView('trainer', 'cardio');
-  g.setPendingView('shamai', 'x');
-  assert.deepEqual(g.pending, { id: 'trainer', view: 'cardio' });
+  g.route('shamai');
+  g.setPendingView('shamai', 'cases');
+  g.setPendingView('tools', 'x');
+  assert.deepEqual(g.pending, { id: 'shamai', view: 'cases' });
 });
 
 test('יציאה/פגישה שפגה במודול נעול — חובה לצאת, והמודול חוזר אחרי הכניסה', () => {

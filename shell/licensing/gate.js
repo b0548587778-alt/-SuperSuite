@@ -1,8 +1,9 @@
 // שער הרישוי: האם ערוץ IPC / מודול מותרים לפי מצב הרישיון (docs/LICENSING-DESIGN.md, שלב 2).
 // פונקציות טהורות — בלי Electron ובלי קבצים. ההרשאה בפועל = חיתוך של RBAC (ipc.js) עם השער הזה.
 
-// מודולי התוכנה — כל אחד הוא תכונה ברישיון
-const MODULE_FEATURES = { econ: 'econ', shamai: 'shamai', trainer: 'trainer', tools: 'tools' };
+// מודולי התוכנה — כל אחד הוא תכונה ברישיון.
+// תכונה שאינה כאן (למשל 'trainer' ברישיון ישן — המודול עבר למוצר החינוכי הנפרד) לא פותחת דבר ולא פוסלת את הרישיון
+const MODULE_FEATURES = { econ: 'econ', shamai: 'shamai', tools: 'tools' };
 
 // תחומים במערכת הכלכלית שנפתחים בנפרד. תחילית ערוץ שאינה כאן דורשת רק 'econ'
 const ECON_SUB_FEATURES = {
@@ -35,7 +36,7 @@ const STATUS_TEXT = {
 };
 
 // מאגר האנשים נבנה מתחומים אחרים — הוא פתוח רק אם לפחות אחד מהם פתוח, ומציג רק את הפתוחים
-const PEOPLE_SOURCES = { npo: 'econ.npo', gemach: 'econ.gemach', chesed: 'econ.chesed', trainer: 'trainer' };
+const PEOPLE_SOURCES = { npo: 'econ.npo', gemach: 'econ.gemach', chesed: 'econ.chesed' };
 
 // התחומים שמותר לבנות מהם את מאגר האנשים. null = בלי רישוי (הכול)
 function peopleSources(state) {

@@ -38,7 +38,8 @@ test('יום 1: הכול פתוח, נותרו 30 יום, בלי אזהרה; הה
   assert.equal(st.trial.warn, false);
   assert.equal(st.trial.startedAt, T0);
   assert.equal(st.trial.endsAt, T0 + 30 * DAY);
-  for (const m of ['econ', 'shamai', 'trainer', 'tools']) assert.equal(G.moduleAllowed(st, m), true, m);
+  for (const m of ['econ', 'shamai', 'tools']) assert.equal(G.moduleAllowed(st, m), true, m);
+  assert.ok(!st.features.includes('trainer'), 'תקופת הניסיון לא כוללת את מודול האימונים (מוצר נפרד)');
   assert.equal(G.checkChannel(st, 'npo:addDonation', 'data.edit'), null);
   assert.equal(G.checkChannel(st, 'acct:createInvoice', 'data.edit'), null);
   assert.equal(JSON.parse(storage.peek()).trialStart, T0);
@@ -71,7 +72,7 @@ test('יום 31: קריאה, ייצוא וגיבוי בלבד — שום נתו�
   assert.match(G.checkChannel(st, 'tasks:create', 'data.edit'), /תקופת הניסיון הסתיימה/);
   assert.match(G.checkChannel(st, 'tasks:delete', 'data.delete'), /תקופת הניסיון הסתיימה/);
   assert.equal(G.checkChannel(st, 'license:install', 'users.manage'), null); // התקנת רישיון — תמיד
-  assert.equal(G.moduleAllowed(st, 'trainer'), true); // צפייה במודולים
+  assert.equal(G.moduleAllowed(st, 'shamai'), true); // צפייה במודולים
   const sh = G.shellState(st);
   assert.equal(sh.level, 'limited');
   assert.match(sh.message, /תקופת הניסיון הסתיימה/);

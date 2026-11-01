@@ -1,4 +1,4 @@
-// localStorage מוצפן לשמאות ולאימונים (PLAN.md 3.2). נרשם לכל ה-session (session.registerPreloadScript)
+// localStorage מוצפן לשמאות (PLAN.md 3.2). נרשם לכל ה-session (session.registerPreloadScript)
 // ופועל רק במודולים האלה. רץ לפני קוד העמוד:
 // 1. מקבל מהתהליך הראשי את הנתונים המפוענחים;
 // 2. בפעם הראשונה — מעביר את ה-localStorage הגלוי הישן לתהליך הראשי, ומוחק אותו אחרי שנשמר מוצפן;
@@ -8,7 +8,7 @@
 // אין חשיפה של אובייקט חדש לעמוד: פונקציית השליחה עוברת כארגומנט ל-executeInMainWorld בלבד.
 const { contextBridge, ipcRenderer } = require('electron');
 
-const MOD = { 'shamai': 'shamai', 'trainer': 'trainer' }[location.protocol === 'app:' ? location.host : ''];
+const MOD = { 'shamai': 'shamai' }[location.protocol === 'app:' ? location.host : ''];
 
 if (MOD && window === window.top) {
   let init = null;

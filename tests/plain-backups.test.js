@@ -16,7 +16,7 @@ const suite = { suite: 'SuperSuite', version: 2, scope: 'all', econ: { version: 
 const econOld = { version: 4, organization: { name: 'גמ"ח אור' }, settings: {}, records: [] };
 const trainerOld = { 'trainer:profile': '{"name":"משה כהן"}', 'clients:index': '[]' };
 
-test('סריקה: גיבויים גלויים נמצאים — SuperSuite, כלכלי ישן, אימונים ישן; שאר הקבצים לא', () => {
+test('סריקה: גיבויים גלויים נמצאים — SuperSuite, כלכלי ישן; שאר הקבצים לא (גם לא גיבוי ישן של מודול האימונים, שעבר למוצר נפרד)', () => {
   const dir = tmp();
   write(dir, 'auto-2026-01-01.json', suite);
   write(dir, 'גיבוי-מערכת-כלכלית-2026-01-02.json', econOld);
@@ -27,7 +27,7 @@ test('סריקה: גיבויים גלויים נמצאים — SuperSuite, כל�
   write(dir, 'notes.txt', JSON.stringify(suite));
   fs.mkdirSync(path.join(dir, 'sub.json'));
   const names = PB.scan(dir).map(f => f.name);
-  assert.deepEqual(names.sort(), ['auto-2026-01-01.json', 'trainer-pro-backup-2026-01-03.json', 'גיבוי-מערכת-כלכלית-2026-01-02.json'].sort());
+  assert.deepEqual(names.sort(), ['auto-2026-01-01.json', 'גיבוי-מערכת-כלכלית-2026-01-02.json'].sort());
 });
 
 test('סריקה: תיקייה שלא קיימת או ריקה — רשימה ריקה, בלי שגיאה', () => {
@@ -82,11 +82,14 @@ test('הצפנה ומחיקה: רק שם קובץ בתיקייה, ורק קוב�
   assert.ok(fs.existsSync(path.join(dir, 'settings.json')));
 });
 
-test('מחיקה: גיבוי גלוי נמחק', () => {
+test('מחיקה: גיבוי גלוי נמחק; קובץ של מודול האימונים (מוצר נפרד) לא נמחק', () => {
   const dir = tmp();
-  write(dir, 'trainer-pro-backup-2026-01-03.json', trainerOld);
-  assert.deepEqual(PB.deleteFile({ dir, name: 'trainer-pro-backup-2026-01-03.json' }), { deleted: 'trainer-pro-backup-2026-01-03.json' });
+  write(dir, 'גיבוי-מערכת-כלכלית-2026-01-02.json', econOld);
+  assert.deepEqual(PB.deleteFile({ dir, name: 'גיבוי-מערכת-כלכלית-2026-01-02.json' }), { deleted: 'גיבוי-מערכת-כלכלית-2026-01-02.json' });
   assert.deepEqual(fs.readdirSync(dir), []);
+  write(dir, 'trainer-pro-backup-2026-01-03.json', trainerOld);
+  assert.throws(() => PB.deleteFile({ dir, name: 'trainer-pro-backup-2026-01-03.json' }), /אינו גיבוי גלוי/);
+  assert.deepEqual(fs.readdirSync(dir), ['trainer-pro-backup-2026-01-03.json']);
 });
 
 test('טקסט האזהרה בעברית, לפי מספר הקבצים', () => {

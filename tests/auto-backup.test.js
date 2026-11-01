@@ -120,7 +120,7 @@ test('npm start: electron.exe נמצא גם כש-path.txt חסר (התקנה ש�
 });
 
 test('CSP: לכל מודול יש מדיניות אבטחת תוכן, בלי unsafe-eval ובלי סקריפט inline', () => {
-  for (const f of ['modules/shamai/index.html', 'modules/trainer/index.html', 'modules/tools/index.html', 'modules/econ/views/index.html']) {
+  for (const f of ['modules/shamai/index.html', 'modules/tools/index.html', 'modules/econ/views/index.html']) {
     const html = fs.readFileSync(path.join(ROOT, f), 'utf8');
     const m = html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/);
     assert.ok(m, `${f}: חסר CSP`);

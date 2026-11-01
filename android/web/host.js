@@ -8,7 +8,8 @@
   const SUFFIX = location.host.replace(/^shell\./, '');
   const originOf = id => location.protocol + '//' + id + '.' + SUFFIX;
   const SHELL_ID = 1;
-  const SENDER = { econ: 2, shamai: 3, trainer: 4, tools: 5 };
+  // 4 היה של מודול האימונים (עבר למוצר נפרד) — המזהים של השאר לא משתנים
+  const SENDER = { econ: 2, shamai: 3, tools: 5 };
   const info = window.__ssBuildInfo || {};
 
   function fatal(msg) {
@@ -74,7 +75,7 @@
   const frames = {};
   let lsSeq = 0;
   const lsPending = new Map();
-  // קריאה בלבד לפי הרישיון בשמאות ובאימונים (main-android.js — syncWriteBlocks; האכיפה ב-frame.js): ההודעה לכל מודול
+  // קריאה בלבד לפי הרישיון בשמאות (main-android.js — syncWriteBlocks; האכיפה ב-frame.js): ההודעה לכל מודול
   // עוברת בכתובת ה-iframe ביצירה (ss-ro) — כך היא בתוקף כבר בטעינה — ונשלחת למסגרת בכל שינוי ובכל טעינה
   const writeBlocks = {};
   const withWriteBlock = (id, entry) => (writeBlocks[id] ? entry + (entry.includes('?') ? '&' : '?') + 'ss-ro=' + encodeURIComponent(writeBlocks[id]) : entry);

@@ -38,7 +38,9 @@ test('רישיון: קנייני, הסכם בעברית עם BOM, והקבצים
   const extra = pkg.build.extraFiles.map(x => (typeof x === 'string' ? x : x.to));
   assert.ok(extra.includes('LICENSE.txt') && extra.includes('THIRD-PARTY-NOTICES.txt') && extra.includes('EULA.txt'));
   const notices = read('THIRD-PARTY-NOTICES.txt');
-  for (const name of ['Electron', 'React', 'Recharts', 'lz-string']) assert.match(notices, new RegExp(name), name);
+  for (const name of ['Electron', 'lz-string', 'QR Code Generator', 'node-llama-cpp']) assert.match(notices, new RegExp(name), name);
+  // רכיבי מודול האימונים (מוצר נפרד) אינם בחבילה
+  for (const name of ['React', 'Recharts', 'Workbox']) assert.doesNotMatch(notices, new RegExp(name), name);
 });
 
 test('אודות ומדריך: הערוצים פועלים רק מהמעטפת, וחלון המדריך בלי סקריפט ובלי ניווט', () => {

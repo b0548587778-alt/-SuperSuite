@@ -11,8 +11,8 @@ const AutoBk = require('./shell/auto-backup');
 const DbRecovery = require('./shell/db-recovery');
 const DbKey = require('./shell/db-key');
 const SecureStore = require('./shell/secure-store');
-const TrainerCheck = require('./shell/trainer-backup-check');
 const ModCounters = require('./shell/module-counters');
+const Legacy = require('./shell/legacy-modules');
 const Chat = require('./shell/licensing/chat');
 const { issuedAfter } = require('./modules/econ/core/database');
 const CodeGuard = require('./shell/code-guard');
@@ -44,24 +44,21 @@ const ECON_EXTRAS = (() => {
   catch { return []; }
 })();
 const ECON_VIEWS = [...Catalog.ECON_VIEWS, ...ECON_EXTRAS.map(x => x.view)];
-// מסכי מודול האימונים בסרגל האחיד: תצוגה ← הטקסט של הכפתור בסרגל הפנימי של המודול
-const TRAINER_VIEWS = Catalog.TRAINER_VIEWS;
-const TRAINER_BY_LABEL = Object.fromEntries(Object.entries(Catalog.TRAINER_LABELS).map(([v, l]) => [l, v]));
-// האם מותר לפתוח תצוגה פנימית במודול
-const moduleHasView = (id, view) => (id === 'econ' && ECON_VIEWS.includes(view)) || (id === 'trainer' && TRAINER_VIEWS.includes(view));
+// האם מותר לפתוח תצוגה פנימית במודול (רק במודול הכלכלי יש תצוגות בסרגל)
+const moduleHasView = (id, view) => id === 'econ' && ECON_VIEWS.includes(view);
 
 const SIDEBAR = 264;
 // היסטוריית ניווט (אחורה/קדימה). replaying: מעבר שמקורו בהיסטוריה עצמה לא נרשם כצעד חדש
 const history = NavHistory.create();
 let replaying = false;
-const MODS = ['econ', 'shamai', 'trainer', 'tools'];
-const LS_MODS = ['shamai', 'trainer', 'tools'];
+// מודול האימונים (trainer) עבר למוצר החינוכי הנפרד — גיבוי ישן שכולל אותו משוחזר בלי החלק הזה (restoreAllRun)
+const MODS = ['econ', 'shamai', 'tools'];
+const LS_MODS = ['shamai', 'tools'];
 const BACKUP_SCOPES = ['all', ...MODS];
 const ENTRY = {
   // embedded=1: הסרגל הפנימי של המודול מוסתר — הניווט כולו בסרגל האחיד של המעטפת
   econ: 'app://econ/views/index.html?embedded=1',
   shamai: 'app://shamai/index.html',
-  trainer: 'app://trainer/index.html',
   tools: 'app://tools/index.html'
 };
 const ZOOM_MIN = 0.8, ZOOM_MAX = 1.6, ZOOM_STEP = 0.1;
@@ -120,7 +117,7 @@ function handleShortcut(input, wc) {
   if (input.type !== 'keyDown') return false;
   // חזרות אוטומטיות (החזקת מקש) לא מפעילות ניווט/זום — מונע "הצפה" בשינויי מצב
   if (input.isAutoRepeat) return false;
-  if (input.control && !input.shift && /^[1-4]$/.test(input.key)) {
+  if (input.control && !input.shift && /^[1-3]$/.test(input.key)) {
     // מבטלים את הקיצור תמיד (Ctrl+ספרה לא מכניס תו), ומעבירים מודול רק אם לא מקלידים בשדה
     const target = MODS[+input.key - 1];
     wc.executeJavaScript(EDITING_CHECK_JS)
@@ -211,8 +208,6 @@ function ensureView(id) {
   if (views[id]) return views[id];
   const prefs = { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true };
   if (id === 'econ') prefs.preload = path.join(modulesRoot(), 'econ', 'preload.js');
-  // מודול האימונים: preload בלי חשיפה לעמוד — ניווט מהסרגל האחיד ודיווח המסך הפעיל
-  if (id === 'trainer') prefs.preload = path.join(modulesRoot(), 'trainer', 'preload.js');
   const v = new WebContentsView({ webPreferences: CodeGuard.guardPrefs(prefs, app.isPackaged) });
   views[id] = v;
   v.setVisible(false); // תצוגות מוסתרות לא מציירות ולא קולטות קלט
@@ -240,7 +235,7 @@ function enforceLicense(state) {
   else if (!LG.moduleAllowed(state, active)) goHome();
 }
 
-// שמאי ואימונים — רק אחרי כניסה. בלי כניסה: מסך הכניסה במודול הכלכלי, והמודול נפתח אחרי הכניסה
+// שמאי — רק אחרי כניסה. בלי כניסה: מסך הכניסה במודול הכלכלי, והמודול נפתח אחרי הכניסה
 const loginGate = LoginGate.createLoginGate({ isLoggedIn: () => econSessionAlive() });
 function econSessionAlive() {
   const v = views.econ;
@@ -318,21 +313,8 @@ function openEconView(view) {
   return true;
 }
 
-// פתיחת תצוגה במודול האימונים: ה-preload לוחץ על הכפתור המתאים בסרגל הפנימי (ושומר את הבקשה עד שהוא קיים)
-function openTrainerView(view) {
-  if (!TRAINER_VIEWS.includes(view)) return false;
-  // לפני כניסה — התצוגה נשמרת עם המודול הממתין ונפתחת אחרי הכניסה
-  if (loginGate.pending && loginGate.pending.id === 'trainer') { loginGate.setPendingView('trainer', view); return true; }
-  const v = ensureView('trainer');
-  waitLoaded(v.webContents).then(() => {
-    if (!v.webContents.isDestroyed()) v.webContents.send('trainer:goto', Catalog.TRAINER_LABELS[view]);
-  });
-  return true;
-}
-
 function openModuleView(id, view) {
   if (id === 'econ') return openEconView(view);
-  if (id === 'trainer') return openTrainerView(view);
   return false;
 }
 
@@ -504,7 +486,7 @@ function waitLoaded(wc) {
   if (!wc.isLoading()) return Promise.resolve();
   return new Promise(r => { wc.once('did-finish-load', r); wc.once('did-fail-load', r); });
 }
-// scope: 'all' או שם מודול בודד ('econ' | 'shamai' | 'trainer' | 'tools')
+// scope: 'all' או שם מודול בודד ('econ' | 'shamai' | 'tools')
 // כשל בקריאת הכספים = כשל של הגיבוי כולו (code: 'econ-read-failed'): קודם נכתב גיבוי בלי הכספים, הסטטוס
 // הראה "הצליח", והסבב האוטומטי מחק בגללו את הגיבוי התקין הישן ביותר. עכשיו לא נכתב דבר ולא נמחק דבר
 // כך גם כשל בקריאת מודול (code: 'module-read-failed') — קודם נשמר {} בשקט, והגיבוי נראה שלם בלי נתוני המודול.
@@ -645,7 +627,7 @@ function promptRecoveryCode({ message }) {
   });
 }
 
-/* ---------- מחסן מוצפן לשמאות ולאימונים (PLAN.md 3.2) ----------
+/* ---------- מחסן מוצפן לשמאות (PLAN.md 3.2) ----------
    shell/secure-ls-preload.js מחליף את localStorage בעמוד; כאן — הקריאה, הכתיבה והעברת הנתונים הישנים.
    כל בקשה נבדקת מול התצוגה של אותו מודול: מודול אחד לא קורא ולא כותב נתונים של אחר. */
 const secureStores = {};
@@ -659,18 +641,8 @@ function secureStore(mod) {
 const fromView = (e, mod) => !!(views[mod] && !views[mod].webContents.isDestroyed() && e.sender.id === views[mod].webContents.id);
 const fromModuleView = (e, mod) => SecureStore.MODULES.includes(mod) && fromView(e, mod);
 
-/* תשלומי האימונים למסך הגבייה (PLAN.md 9.11): המערכת הכלכלית מקבלת את נתוני האימונים לקריאה בלבד, ורק
-   מתצוגת המודול הכלכלי (הערוצים עצמם — ב-handle() של ipc.js: כניסה, הרשאה ורישיון החשבוניות). מודול האימונים
-   לא שולח ולא מקבל דבר; בלי רישיון לאימונים, או כשהמחסן שלו לא מוצפן/נעול — אין נתונים */
-function trainerDataForEcon(senderId) {
-  if (!fromView({ sender: { id: senderId } }, 'econ')) throw new Error('תשלומי האימונים זמינים רק מתוך המערכת הכלכלית');
-  if (!LG.moduleAllowed(licenseNow(), 'trainer')) throw new Error('מודול האימונים אינו כלול ברישיון');
-  const s = secureStore('trainer');
-  if (s.state !== 'encrypted') throw new Error('נתוני האימונים אינם זמינים (המחסן המוצפן של המודול לא נפתח)');
-  return s.snapshot();
-}
-/* עוזר ה-AI: „מה הערכת השווי האחרונה?” — התיק האחרון שננעל בשמאות (shell/ai/module-context.js). אותם תנאים כמו
-   באימונים: קריאה בלבד, רק מתצוגת המודול הכלכלי (ערוץ ai:run, ב-handle()), רק ברישיון לשמאות ורק ממחסן מוצפן */
+/* עוזר ה-AI: „מה הערכת השווי האחרונה?” — התיק האחרון שננעל בשמאות (shell/ai/module-context.js).
+   קריאה בלבד, רק מתצוגת המודול הכלכלי (ערוץ ai:run, ב-handle()), רק ברישיון לשמאות ורק ממחסן מוצפן */
 function shamaiDataForEcon(senderId) {
   if (!fromView({ sender: { id: senderId } }, 'econ')) throw new Error('נתוני השמאות זמינים רק מתוך המערכת הכלכלית');
   if (!LG.moduleAllowed(licenseNow(), 'shamai')) throw new Error('מודול השמאות אינו כלול ברישיון');
@@ -758,7 +730,7 @@ function wireSecureStore() {
     } catch (err) { logger.error('secure-store', err); e.returnValue = SecureStore.rejectWrite('error'); }
   });
 }
-// מי רשאי לשנות נתונים בשמאי ובאימונים (ממצא 24): כניסה פעילה עם data.edit — צופה ורואה חשבון קוראים בלבד —
+// מי רשאי לשנות נתונים בשמאי (ממצא 24): כניסה פעילה עם data.edit — צופה ורואה חשבון קוראים בלבד —
 // ורישיון שמאפשר עבודה (סוף תקופת ניסיון / ממתין לתשלום — קריאה בלבד, כמו במודול הכלכלי).
 // בדיקה שקטה: כתיבה אינה "פעילות" (שמירה אוטומטית לא תמנע ניתוק). null = מותר, אחרת תשובת דחייה לעמוד
 function secureWriteBlock(mod) {
@@ -778,7 +750,6 @@ function secureWriteBlock(mod) {
 const econInitOptions = () => ({
   isRestTime: syncPaused,
   dbOptions: dbAtRestOptions(),
-  trainerData: trainerDataForEcon,
   shamaiData: shamaiDataForEcon,
   // עוזר ה-AI: מפתח הגיבוי להצפנת ההעדפות (קריאה לא יוצרת מפתח), ופתיחת מודול — לפי הרישיון של ההתקנה
   aiOptions: () => ({ getBackupKey: (create) => autoBackupKey(create) }),
@@ -928,8 +899,8 @@ async function offerPlainFile(file, text) {
 }
 
 // ערכי מודול מקובץ גיבוי (קלט חיצוני): רק מחרוזות בגודל סביר. null — אין מה לשחזר במודול הזה
-function restoreItems(data, id, trainerItems) {
-  const items = id === 'trainer' ? trainerItems : data.localStorage && data.localStorage[id];
+function restoreItems(data, id) {
+  const items = data.localStorage && data.localStorage[id];
   if (!items || typeof items !== 'object' || Array.isArray(items)) return null;
   const clean = {};
   for (const [k, val] of Object.entries(items)) {
@@ -1012,38 +983,34 @@ async function restoreAllRun(passphrase) {
     dialog.showErrorBox('שגיאה', e.message || 'הקובץ אינו גיבוי תקין');
     return { ok: false };
   }
-  // קובץ JSON ישן מכפתור הייצוא של מודול האימונים (לפני PLAN.md 3.4)
-  data = TrainerCheck.legacyTrainerBackup(data) || data;
   if (!data || data.suite !== 'SuperSuite') { dialog.showErrorBox('שגיאה', 'הקובץ אינו גיבוי של SuperSuite'); return { ok: false }; }
-  // נתוני האימונים נבדקים לפני האישור ולפני כל מחיקה — קובץ פגום לא נוגע בשום דבר
-  let trainerItems = null;
-  // גיבוי מלא בלי נתוני אימונים (trainer = {}) — אין מה לבדוק, ושאר השחזור ממשיך
-  if (data.localStorage && TrainerCheck.hasTrainerItems(data.localStorage.trainer)) {
-    const t = TrainerCheck.checkTrainerItems(data.localStorage.trainer);
-    if (!t.ok) { dialog.showErrorBox('שגיאה', t.error + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
-    trainerItems = t.clean;
-  }
+  // גיבוי מגרסה שכללה את מודול האימונים (עבר למוצר החינוכי הנפרד): localStorage.trainer לא נקרא ולא נבדק —
+  // LS_MODS בלעדיו — ושאר הגיבוי משוחזר כרגיל. ההודעה בחלון האישור אומרת שהחלק הזה לא שוחזר
+  const legacyData = Legacy.hasLegacyModuleData(data);
   // תיבת ההודעות (גיבוי מלא מגרסה שכוללת אותה) — נבדקת כאן, לפני האישור ולפני כל מחיקה. גיבוי ישן בלי chat לא נוגע בתיבה
   let chatData = null;
   if (data.chat != null) {
     try { chatData = Chat.mailboxFromBackup(data.chat); }
     catch (e) { dialog.showErrorBox('שגיאה', e.message + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
   }
-  const scopeText = data.legacy ? '(גיבוי ישן של ניהול האימונים)' : data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
-  const mods = LS_MODS.filter(id => restoreItems(data, id, trainerItems));
-  // אין מה לשחזר (למשל גיבוי של מודול האימונים בלבד, בלי מתאמנים): לא מציגים "השחזור הושלם" כשלא שוחזר דבר
-  if (!data.econ && !mods.length && !chatData) { dialog.showErrorBox('שגיאה', 'אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו'); return { ok: false }; }
+  const scopeText = data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
+  const mods = LS_MODS.filter(id => restoreItems(data, id));
+  // אין מה לשחזר (למשל גיבוי של מודול האימונים בלבד): לא מציגים "השחזור הושלם" כשלא שוחזר דבר
+  if (!data.econ && !mods.length && !chatData) {
+    dialog.showErrorBox('שגיאה', (legacyData ? Legacy.LEGACY_ONLY : '') + 'אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו');
+    return { ok: false };
+  }
   // גיבוי ישן מהמסמך האחרון שהופק — אזהרה בחלון האישור (בדיקת קוד 22.10.2026, ממצא 5). קריאה בלבד; כשל — בלי אזהרה
   let missing = '';
   try {
     const items = data.econ ? issuedAfter(data.econ, await econ.getDb().load()) : [];
     for (const id of mods.filter(m => ModCounters.MODULE_COUNTERS[m])) {
-      items.push(...ModCounters.moduleIssuedAfter(id, restoreItems(data, id, trainerItems), (await snapshotFor(false, [id])).localStorage[id]));
+      items.push(...ModCounters.moduleIssuedAfter(id, restoreItems(data, id), (await snapshotFor(false, [id])).localStorage[id]));
     }
     missing = ModCounters.issuedAfterText(items);
   } catch (e) { logger.error('restore-missing-docs', e); }
   const chatNote = chatData ? 'תיבת ההודעות תשוחזר מהגיבוי; הודעות שהתקבלו או נשלחו אחרי הגיבוי יישארו בה.\n\n' : '';
-  const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: (missing ? '⚠ ' + missing + '\n\n' : '') + chatNote + 'מומלץ לבצע גיבוי לפני כן.' });
+  const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: (missing ? '⚠ ' + missing + '\n\n' : '') + chatNote + (legacyData ? Legacy.LEGACY_NOTE + '\n\n' : '') + 'מומלץ לבצע גיבוי לפני כן.' });
   if (c.response !== 0) return { ok: false };
   // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע (למשל הכספים שוחזרו ומודול אחר נכשל) מחזיר הכול למצב שלפני
   let before;
@@ -1051,7 +1018,7 @@ async function restoreAllRun(passphrase) {
   catch (e) { dialog.showErrorBox('שגיאה', 'לא ניתן לשמור את המצב הנוכחי לפני השחזור, ולכן לא שוחזר דבר. ' + (e.message || '')); return { ok: false }; }
   try {
     // מוני המסמכים במודולים (שטרי קנייה, תיקים ודוחות בשמאות) לא חוזרים אחורה — כמו keepCounters בכספים
-    await applyRestore(data.econ, mods.map(id => [id, ModCounters.keepModuleCounters(id, restoreItems(data, id, trainerItems), before.localStorage[id])]),
+    await applyRestore(data.econ, mods.map(id => [id, ModCounters.keepModuleCounters(id, restoreItems(data, id), before.localStorage[id])]),
       chatData && { data: chatData });
   } catch (e) {
     let back = '';
@@ -1263,27 +1230,6 @@ app.whenReady().then(async () => {
     if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view, 'econ');
     if (active === 'econ') recordNav({ mod: 'econ', view });
     return true;
-  });
-  // מודול האימונים מדווח על המסך הפעיל (לפי הטקסט בסרגל הפנימי) — רק מתצוגת המודול עצמה
-  ipcMain.handle('shell:trainer-view', (e, label) => {
-    const v = views.trainer;
-    if (!v || v.webContents.isDestroyed() || e.sender.id !== v.webContents.id) return false;
-    const view = typeof label === 'string' ? TRAINER_BY_LABEL[label] : undefined;
-    if (!view) return false;
-    if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view, 'trainer');
-    if (active === 'trainer') recordNav({ mod: 'trainer', view });
-    return true;
-  });
-  // מודול האימונים: שמירת המסך המוצג כ-PDF (תוכנית, תזונה, תבנית, דוח למתאמן) — רק מתצוגת המודול עצמה
-  ipcMain.handle('trainer:save-pdf', async (e, name) => {
-    if (!fromView(e, 'trainer')) return { ok: false };
-    try {
-      return await PrintPdf.savePagePdf({ dialog, fs, win, wc: e.sender, name, dir: documentsDir() });
-    } catch (err) {
-      // ההודעה מוצגת במסך (חלון ההודעה המשותף), כמו שאר השגיאות במודול
-      logger.error('trainer:save-pdf', err);
-      return { ok: false, error: 'שמירת הקובץ נכשלה. אפשר לנסות שוב, או לבחור תיקייה אחרת.' };
-    }
   });
   ipcMain.handle('shell:history-go', (e, delta) => {
     if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return false;

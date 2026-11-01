@@ -17,7 +17,7 @@ const TODAY = '2026-10-22';
 function fullCtx() {
   return {
     today: TODAY,
-    opened: { acct: true, npo: true, shamai: true, trainer: true },
+    opened: { acct: true, npo: true, shamai: true },
     summary: { income: 10000, expenses: 4000, balance: 6000, count: 2, categories: [] },
     invoices: [
       { number: 11, customer: 'משפחת כהן', total: 600, balance: 600, date: '2026-10-05', status: 'open' },
@@ -25,10 +25,9 @@ function fullCtx() {
     ],
     npo: { year: 2026, donors: [{ name: 'משפחת כהן', count: 2, total: 400 }, { name: 'תורם בעילום שם', count: 1, total: 200 }] },
     shamai: { label: 'צמיד זהב 14 קראט', valueAg: 350000, confidence: 80, factors: [{ name: 'משקל', bp: 120 }], warnings: ['המחירים ממקור שהוזן ידנית'] },
-    trainer: { alerts: [{ title: 'מנוי מסתיים', detail: 'דוד לוי — 3 ימים', tone: 'red' }], clients: 12 },
   };
 }
-const closedCtx = () => ({ today: TODAY, opened: { acct: false, npo: false, shamai: false, trainer: false } });
+const closedCtx = () => ({ today: TODAY, opened: { acct: false, npo: false, shamai: false } });
 // שני סימנים בתשובה: שם של אדם מהנתונים, וסכום שלא היה מגיע מ„אין הרשאה”
 const leaks = (text) => text.includes('כהן') || text.includes('לוי');
 
@@ -52,7 +51,7 @@ test('„כמה גבייתי החודש?” — הכנסות התקופה בתצ
 });
 
 test('כל תחומי הנתונים סגורים — התשובה מסבירה שאין הרשאה ואינה מחזירה נתונים', () => {
-  for (const q of ['כמה גבייתי החודש?', 'מי לא שילם?', 'אילו תורמים תרמו השנה?', 'מה הערכת השווי האחרונה?', 'איזה מתאמנים דורשים תשומת לב?']) {
+  for (const q of ['כמה גבייתי החודש?', 'מי לא שילם?', 'אילו תורמים תרמו השנה?', 'מה הערכת השווי האחרונה?']) {
     const a = R.runRules(q, closedCtx());
     assert.equal(a.data, undefined, q);
     assert.match(a.text, /הרשאה|רישיון|פתוח/, q);
@@ -84,10 +83,10 @@ test('שמאות — ההערכה האחרונה עם הגורמים והאזה�
   assert.match(a.text, /אינה ייעוץ מקצועי/);
 });
 
-test('אימונים — מונה את המתאמנים שדורשים טיפול', () => {
-  const a = R.runRules('איזה מתאמנים דורשים תשומת לב?', fullCtx());
-  assert.equal(a.data.kind, 'trainer');
-  assert.equal(a.data.urgent, 1);
+test('אימונים (עבר למוצר נפרד): אין תחום אימונים בעוזר, ושאלה עליהם לא מחזירה נתוני אימונים', () => {
+  const a = R.runRules('איזה מתאמנים דורשים תשומת לב?', { ...fullCtx(), trainer: { alerts: [{ title: 'דוד לוי', detail: 'x', tone: 'red' }], clients: 1 } });
+  assert.notEqual(a.data && a.data.kind, 'trainer');
+  assert.ok(!a.text.includes('דוד לוי'));
 });
 
 test('שמאות בלי הערכה בזיכרון — אומרים זאת בפשטות, בלי להמציא מספר', () => {
@@ -189,18 +188,19 @@ test('AI_OPEN_IDS — יעדים רק מהמסכים המוכרים לממשק, 
   const titles = econViewTitles();
   const serverTargets = assertServerTargets();
   for (const [kind, view] of Object.entries(ai.AI_OPEN_IDS)) {
-    // המסך נפתח בממשק הכלכלי, או מודול האימונים / השמאות (נפתחים ב-openModule, לא ב-switchView)
-    const inShell = Object.prototype.hasOwnProperty.call(titles, view) || view === 'trainer' || view === 'shamai';
+    // המסך נפתח בממשק הכלכלי, או מודול השמאות (נפתח ב-openModule, לא ב-switchView)
+    const inShell = Object.prototype.hasOwnProperty.call(titles, view) || view === 'shamai';
     assert.ok(inShell, `${kind} ← ${view}: מסך מוכר בממשק`);
     assert.ok(serverTargets.has(view), `${kind} ← ${view}: היעד מאושר ב-ai:open`);
   }
-  assert.equal(ai.AI_OPEN_IDS.trainer, 'trainer');
+  assert.equal(ai.AI_OPEN_IDS.trainer, undefined);
+  assert.ok(!serverTargets.has('trainer'), 'מודול האימונים אינו יעד');
   assert.equal(ai.AI_OPEN_IDS.shamai, 'shamai', 'הערכת השווי מתיק השמאות — פותחים את מודול השמאות');
   assert.equal(ai.AI_OPEN_IDS.donors, 'npo');
   assert.equal(ai.AI_OPEN_IDS.unpaid, 'acct-invoices');
 });
 
-// כותרות המסכים — טווח השמות של ui/*.js (הדפוס של tests/fitness-view.test.js)
+// כותרות המסכים — טווח השמות של ui/*.js
 function econViewTitles() {
   const src = fs.readFileSync(path.join(ROOT, 'modules/econ/ui/core.js'), 'utf8');
   const m = src.match(/const viewTitles = \{[\s\S]*?\n\};/);
@@ -224,7 +224,7 @@ test('renderAi + attachAiHandlers — הכפתור „שאל” קורא ל-aiRu
   const status = {
     engine: 'local', prefs: { conceal: true, engine: 'local-only' },
     cloud: { licensed: false, ready: false, consented: false },
-    opened: { acct: true, npo: false, shamai: false, trainer: false },
+    opened: { acct: true, npo: false, shamai: false },
   };
   const calls = [];
   const sampleButton = fakeEl({ dataset: { aiSample: 'מי לא שילם?' } });

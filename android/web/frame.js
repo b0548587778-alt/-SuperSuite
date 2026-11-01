@@ -4,8 +4,8 @@
 //  2. הדפסה: window.print שולח צילום HTML של המסמך למעטפת, והיא פותחת את מסך ההדפסה של אנדרואיד.
 //  3. הורדות: קישור download עם blob/data נשמר דרך בוחר הקבצים של אנדרואיד (WebView לא מוריד blob).
 //  4. Service Worker כבוי: הקבצים כבר מקומיים, ו-SW מעל מארח מיורט לא עובד באנדרואיד.
-//  5. קריאה בלבד בשמאות ובאימונים (רישיון, כניסה והרשאת עריכה): כתיבה ל-localStorage נחסמת (write-block).
-//  6. פעילות בשמאות ובאימונים מאריכה את הכניסה למערכת (activity).
+//  5. קריאה בלבד בשמאות (רישיון, כניסה והרשאת עריכה): כתיבה ל-localStorage נחסמת (write-block).
+//  6. פעילות בשמאות מאריכה את הכניסה למערכת (activity).
 (function () {
   'use strict';
   if (window.parent === window) return; // לא בתוך המעטפת
@@ -34,13 +34,13 @@
   const contextBridge = { exposeInMainWorld(key, api) { Object.defineProperty(window, key, { value: Object.freeze(api), configurable: false }); } };
   window.__ssElectron = { ipcRenderer, contextBridge };
 
-  /* ---------- קריאה בלבד (שמאות ואימונים) ---------- */
+  /* ---------- קריאה בלבד (שמאות) ---------- */
   // כמו secureWriteBlock ב-main.js: בלי כניסה פעילה, תפקיד בלי הרשאת עריכה (צופה / רואה חשבון), סוף תקופת ניסיון,
   // ממתין לתשלום, מושעה או מודול שאינו ברישיון —
   // כתיבה ל-localStorage זורקת SecurityError עם ההודעה מהמעטפת, והנתונים לא משתנים. המצב מגיע בכתובת ה-iframe
   // (ss-ro, ביצירה) ובהודעת write-block (בכל שינוי ובכל טעינה), ונשמר ב-sessionStorage — כך טעינה מחדש של
   // המודול לא מתחילה ממצב ישן. השחזור מהמעטפת (ls-restore) עוקף את החסימה, כמו בשולחן העבודה (כותב ישירות למחסן)
-  const GUARDED = /^(shamai|trainer)\./.test(location.host);
+  const GUARDED = /^shamai\./.test(location.host);
   const RO_KEY = 'ss-write-block';
   let writeBlock = null;
   let restoring = false;
@@ -68,7 +68,7 @@
     }
   }
 
-  /* ---------- פעילות בשמאות ובאימונים ---------- */
+  /* ---------- פעילות בשמאות ---------- */
   // כמו touchActivity ב-main.js: לחיצה, מקש, מגע וגלילה מאריכים את הכניסה למערכת (main-android.js) — אחרת הניתוק
   // האוטומטי היה חוסם את הכתיבה ומוציא למסך הכניסה באמצע עבודה. נשלח רק "הייתה פעילות", בלי פרטים, ולכל היותר פעם ב-2 שניות.
   // במסגרת הלכידה (capture) של window — נקלט לפני כל מאזין של המודול

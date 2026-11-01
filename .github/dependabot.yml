@@ -9,7 +9,7 @@ updates:
     cooldown:
       default-days: 7
   - package-ecosystem: npm
-    directory: /modules-src/trainer
+    directory: /tools/minify-deps
     schedule:
       interval: weekly
     # גרסה חדשה מוצעת רק אחרי שבוע — זמן לגילוי חבילה זדונית לפני שהיא נכנסת

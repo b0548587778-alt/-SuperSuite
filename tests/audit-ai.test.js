@@ -3,7 +3,7 @@
 // 46: „תרומות השנה” ומכתב התודה — רק התרומות של אותה שנה, לא סכום כל השנים.
 // 47: „החודש שעבר” — עד היום האחרון שלו בלבד; ספירת החשבוניות לפי הטווח, לא לפי חודשים שלמים.
 // 48: טקסט חופשי של המודל — רק עם קריאה מוצלחת לכלי וציטוט ממנה; מספרים במילים נדחים; שאלה כללית ← תשובה קבועה.
-// נמוכים: כפתור „פתיחת המסך הרלוונטי”, מקור נתונים לשמאות ולאימונים, וניקוי ההקשר ביציאה.
+// נמוכים: כפתור „פתיחת המסך הרלוונטי”, מקור נתונים לשמאות, וניקוי ההקשר ביציאה.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -325,45 +325,7 @@ test('48: כלי שנכשל (error) אינו מקור — שאלה כללית מ
   ai.dispose();
 });
 
-// ================= נמוכים: נתוני השמאות והאימונים =================
-function trainerItems(today) {
-  const d = (n) => shiftDays(today, n);
-  const mem = (o) => ({ payments: [], uses: [], ...o });
-  return {
-    'clients:index': JSON.stringify(['c_1', 'c_2', 'c_3', 'c_4', 'c_5', 'c_bad', '../x']),
-    'client:c_1': JSON.stringify({ id: 'c_1', name: 'יוסף כהן' }),
-    'memberships:c_1': JSON.stringify([mem({ id: 'm_1', name: 'מנוי חודשי', start: d(-27), end: d(3), priceAg: 30000, payments: [{ id: 'p', amountAg: 30000 }] })]),
-    'client:c_2': JSON.stringify({ id: 'c_2', name: 'שמעון לוי' }),
-    'memberships:c_2': JSON.stringify([mem({ id: 'm_2', name: 'מנוי חודשי', start: d(-40), end: d(-5), priceAg: 50000, payments: [{ id: 'p', amountAg: 30000 }] })]),
-    'client:c_3': JSON.stringify({ id: 'c_3', name: 'אהרן פרידמן' }),
-    'memberships:c_3': JSON.stringify([mem({ id: 'm_3', name: 'כרטיסייה', sessions: 2, start: d(-20), uses: [{}, {}], priceAg: 0 })]),
-    'client:c_4': JSON.stringify({ id: 'c_4', name: 'דוד שפירא' }),
-    'memberships:c_4': JSON.stringify([mem({ id: 'm_4', name: 'מנוי שנתי', start: d(-100), priceAg: 0 })]),
-    'sessions:c_4': JSON.stringify([{ completedAt: atTen(d(-20)) }]),
-    'client:c_5': JSON.stringify({ id: 'c_5', name: 'בנימין גרין' }),
-    'memberships:c_5': JSON.stringify([mem({ id: 'm_5', name: 'מנוי שנתי', start: d(-10), priceAg: 0 })]),
-    'studio:schedule': JSON.stringify([{ date: d(-2), participants: [{ clientId: 'c_1', status: 'attended' }] }]),
-    'client:c_bad': '{not json',
-  };
-}
-
-test('נמוך: trainerContext — מנוי שמסתיים, אין מנוי פעיל, יתרה, ולא התאמן; רשומה פגומה מדולגת', () => {
-  const t = MC.trainerContext(trainerItems(TODAY), TODAY);
-  assert.equal(t.clients, 5);
-  const titles = t.alerts.map(a => a.title);
-  assert.ok(titles.includes('יוסף כהן — מנוי חודשי עומד להסתיים'));
-  assert.ok(titles.includes('שמעון לוי — אין מנוי פעיל'));
-  assert.ok(titles.includes('שמעון לוי — יתרה לתשלום'));
-  assert.ok(titles.includes('אהרן פרידמן — אין מנוי פעיל'));
-  assert.ok(titles.includes('דוד שפירא — לא התאמן 20 ימים'));
-  assert.ok(titles.includes('בנימין גרין — עדיין לא התאמן'));
-  assert.ok(!titles.some(x => x.startsWith('יוסף כהן — לא התאמן')), 'התאמן לפני יומיים');
-  assert.equal(t.alerts.find(a => a.title === 'שמעון לוי — יתרה לתשלום').detail, R.nis(20000));
-  assert.equal(t.alerts[0].tone, 'red', 'הדחוף ראשון');
-  assert.equal(MC.trainerContext(null, TODAY), null);
-  assert.deepEqual(MC.trainerContext({ 'clients:index': '"x"' }, TODAY), { clients: 0, alerts: [] });
-});
-
+// ================= נמוכים: נתוני השמאות =================
 function shamaiItems() {
   const cases = [
     { id: 'a', no: 7, rev: 0, status: 'final', finalizedAt: '2026-10-10T08:00:00.000Z', reportDate: '2026-10-10', basis: 'replacement', currency: 'ILS',
@@ -390,49 +352,48 @@ test('נמוך: shamaiContext — התיק האחרון שננעל, בלי שם 
   assert.equal(a.data.kind, 'shamai');
 });
 
-test('נמוך: דרך ipc — שאלות השמאות והאימונים נענות מהמחסן של המודול, ושאלות הדוגמה מוצעות רק כשיש מקור', async () => {
+test('נמוך: דרך ipc — שאלות השמאות נענות מהמחסן של המודול, ושאלות הדוגמה מוצעות רק כשיש מקור', async () => {
   await freshEcon();
   const plain = await handlers['ai:sample'](ev(1));
   assert.ok(!plain.includes('מה הערכת השווי האחרונה?'), 'בלי מקור — לא מציעים');
-  assert.ok(!plain.includes('איזה מתאמנים דורשים תשומת לב?'));
 
-  const today = dayOf(new Date());
   const asked = [];
+  // trainerData — אפשרות של גרסה קודמת (מודול האימונים עבר למוצר נפרד): לא נקראת, ואין שאלת דוגמה עליה
   await freshEcon({
-    trainerData: (id) => { asked.push(['trainer', id]); return trainerItems(today); },
+    trainerData: (id) => { asked.push(['trainer', id]); return {}; },
     shamaiData: (id) => { asked.push(['shamai', id]); return shamaiItems(); },
   });
   const samples = await handlers['ai:sample'](ev(1));
   assert.ok(samples.includes('מה הערכת השווי האחרונה?'));
-  assert.ok(samples.includes('איזה מתאמנים דורשים תשומת לב?'));
-  const t = await handlers['ai:run'](ev(1), 'איזה מתאמנים דורשים תשומת לב?');
-  assert.equal(t.data.kind, 'trainer');
-  assert.match(t.text, /שמעון לוי — אין מנוי פעיל/);
+  assert.ok(!samples.includes('איזה מתאמנים דורשים תשומת לב?'));
+  const st = await handlers['ai:status'](ev(1));
+  assert.equal(st.opened.trainer, undefined, 'אין תחום אימונים בעוזר');
   const s = await handlers['ai:run'](ev(1), 'מה הערכת השווי האחרונה?');
   assert.equal(s.data.kind, 'shamai');
   assert.match(s.text, /₪25,000\.00/);
-  assert.ok(asked.every(([, id]) => id === 1), 'המקור נקרא בשם החלון ששאל');
+  assert.ok(asked.every(([m, id]) => m === 'shamai' && id === 1), 'רק מקור השמאות נקרא, בשם החלון ששאל');
   // מקור שנכשל (מחסן נעול) — תשובה מסודרת, לא קריסה
-  await freshEcon({ trainerData: () => { throw new Error('נתוני האימונים אינם זמינים'); } });
-  assert.match((await handlers['ai:run'](ev(1), 'איזה מתאמנים דורשים תשומת לב?')).text, /אינם זמינים כרגע/);
+  await freshEcon({ shamaiData: () => { throw new Error('נתוני השמאות אינם זמינים'); } });
+  assert.equal((await handlers['ai:run'](ev(1), 'מה הערכת השווי האחרונה?')).data, undefined);
   assert.ok(logged.some(([scope]) => scope === 'ai-module-context'), 'הכשל נרשם ביומן התקלות');
 });
 
 test('נמוך: ההקשר של ai:context מתנקה ביציאה — לא עובר למשתמש שנכנס אחריו באותו חלון', async () => {
   await freshEcon();
-  const injected = { trainer: { alerts: [{ title: 'מתאמן מההקשר', detail: 'פרט', tone: 'red' }], clients: 1 } };
+  const injected = { shamai: { label: 'תיק מההקשר', valueAg: 123400, confidence: 50, factors: [], warnings: [] } };
+  const Q = 'מה הערכת השווי האחרונה?';
   // ביקורת: באותה פגישה — ההקשר משמש (אין מקור אחר במכשיר הזה)
   await handlers['ai:context'](ev(1), injected);
-  assert.match((await handlers['ai:run'](ev(1), 'איזה מתאמנים דורשים תשומת לב?')).text, /מתאמן מההקשר/);
+  assert.match((await handlers['ai:run'](ev(1), Q)).text, /תיק מההקשר/);
   // יציאה וכניסה מחדש — ההקשר שנשלח לפני היציאה לא נוצל
   await handlers['ai:context'](ev(1), injected);
   await handlers['auth:logout'](ev(1));
   await handlers['auth:login'](ev(1), 'menahel', 'menahel-pass-long-1');
-  assert.ok(!(await handlers['ai:run'](ev(1), 'איזה מתאמנים דורשים תשומת לב?')).text.includes('מתאמן מההקשר'));
+  assert.ok(!(await handlers['ai:run'](ev(1), Q)).text.includes('תיק מההקשר'));
   // כניסה של משתמש אחר באותו חלון בלי יציאה (setSession מחליף פגישה) — גם אז לא
   await handlers['ai:context'](ev(1), injected);
   await handlers['auth:login'](ev(1), 'menahel', 'menahel-pass-long-1');
-  assert.ok(!(await handlers['ai:run'](ev(1), 'איזה מתאמנים דורשים תשומת לב?')).text.includes('מתאמן מההקשר'));
+  assert.ok(!(await handlers['ai:run'](ev(1), Q)).text.includes('תיק מההקשר'));
 });
 
 // ================= נמוך: כפתור „פתיחת המסך הרלוונטי” =================
@@ -465,21 +426,36 @@ async function clickOpen(kind) {
   return { calls, errors };
 }
 
-test('נמוך: „פתיחת המסך הרלוונטי” — עובד לכל סוג תשובה, לא רק לאימונים', async () => {
+test('נמוך: „פתיחת המסך הרלוונטי” — עובד לכל סוג תשובה, כולל מודול השמאות', async () => {
   for (const [kind, view] of [['unpaid', 'acct-invoices'], ['income', 'acct-reports'], ['donors', 'npo']]) {
     const r = await clickOpen(kind);
     assert.deepEqual(r.errors, [], kind);
     assert.deepEqual(r.calls, [['aiOpen', view], ['switch', view]], kind);
   }
-  for (const mod of ['trainer', 'shamai']) {
-    const r = await clickOpen(mod);
-    assert.deepEqual(r.errors, []);
-    assert.deepEqual(r.calls, [['aiOpen', mod], ['module', mod]], mod + ': נפתח כמודול');
-  }
+  const r = await clickOpen('shamai');
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.calls, [['aiOpen', 'shamai'], ['module', 'shamai']], 'shamai: נפתח כמודול');
 });
 
 test('נמוך: ai:open — מודול השמאות ברשימה הסגורה', async () => {
   await freshEcon();
   assert.deepEqual(await handlers['ai:open'](ev(1), 'shamai'), { view: 'shamai' });
   await assert.rejects(handlers['ai:open'](ev(1), 'acct-invoices-x'), /אינו מוכר/);
+});
+
+// (הועבר מבדיקות תשלומי האימונים, שהוסרו עם המודול) — המקור של נתוני השמאות לעוזר, ו-econInitOptions כמקום יחיד
+test('main.js: נתוני השמאות לעוזר — רק לתצוגת המודול הכלכלי, רק ברישיון לשמאות ורק ממחסן מוצפן; כל initEcon דרך econInitOptions', () => {
+  const MAIN = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+  const i = MAIN.indexOf('function shamaiDataForEcon');
+  assert.ok(i > 0);
+  const body = MAIN.slice(i, MAIN.indexOf('\n}', i));
+  assert.match(body, /fromView\(\{ sender: \{ id: senderId \} \}, 'econ'\)/);
+  assert.match(body, /LG\.moduleAllowed\(licenseNow\(\), 'shamai'\)/);
+  assert.match(body, /s\.state !== 'encrypted'/);
+  assert.match(body, /snapshot\(\)/);
+  assert.doesNotMatch(body, /\.set\(|\.remove\(|\.clear\(/, 'קריאה בלבד');
+  assert.equal((MAIN.match(/shamaiData: shamaiDataForEcon/g) || []).length, 1, 'מוגדר במקום אחד — econInitOptions');
+  assert.doesNotMatch(MAIN, /trainerData|trainerDataForEcon/, 'מודול האימונים עבר למוצר נפרד');
+  const calls = MAIN.match(/econ\.initEcon\([^\n]*/g) || [];
+  assert.ok(calls.length >= 2 && calls.every(c => c.includes('econInitOptions()')), 'כל קריאה ל-initEcon עוברת דרך econInitOptions: ' + calls.join(' | '));
 });

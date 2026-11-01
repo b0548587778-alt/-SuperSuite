@@ -51,12 +51,11 @@ const viewTitles = {
   'settings': 'הגדרות ומשתמשים — ייבוא/ייצוא ויומן ביקורת',
   'licensing': 'רישוי ומערכות — רישיון, מערכות בת ומנהל-העל',
   'messages': 'הודעות — תקשורת מאובטחת בין המערכות',
-  'ai': 'שאל את התוכנה — עוזר מקומי על נתוני החשבונות, העמותה, השמאות והאימונים',
+  'ai': 'שאל את התוכנה — עוזר מקומי על נתוני החשבונות, העמותה והשמאות',
   'collect': 'גבייה וקישורי תשלום',
   'personal-finance': 'התוכנית הפיננסית — הגדרה ופריטים',
   'tasks': 'משימות',
   'contacts': 'אנשי קשר',
-  'fitness': 'כושר ובריאות',
   'voice-notes': 'הערות קוליות',
   'canvas': 'לוח לבן',
   'acct-reports': 'דוחות כספיים ומע"מ',
@@ -321,9 +320,6 @@ async function loadViewData(viewName) {
       case 'contacts':
         state.data.contacts = await window.systemAPI.getContacts();
         break;
-      case 'fitness':
-        state.data.fitness = await window.systemAPI.getFitnessData();
-        break;
       case 'voice-notes':
         state.data.voiceNotes = await window.systemAPI.getVoiceNotes();
         break;
@@ -427,7 +423,6 @@ const DATA_KEYS = {
   'personal-finance': 'personalFinance',
   'tasks': 'tasks',
   'contacts': 'contacts',
-  'fitness': 'fitness',
   'voice-notes': 'voiceNotes',
   'canvas': 'canvas',
   'acct-reports': 'acctReports',
@@ -508,9 +503,6 @@ function renderView(viewName) {
       break;
     case 'contacts':
       html = renderContacts(data);
-      break;
-    case 'fitness':
-      html = renderFitness(data);
       break;
     case 'voice-notes':
       html = renderVoiceNotes(data);
