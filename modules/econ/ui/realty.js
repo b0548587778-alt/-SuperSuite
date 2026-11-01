@@ -585,8 +585,11 @@ function attachRealtyInvestHandlers() {
   const file = document.getElementById('rltyTaxFile');
   if (file) file.addEventListener('click', async () => {
     try {
-      const r = await window.systemAPI.readRealtyTaxTableFile();
-      if (r && !r.canceled) await openSubForm(rltyTaxTableSchema, { bracketsText: r.text });
+      // הקובץ נקרא במסך (UTF-8 או windows-1255) — כך זה עובד גם באנדרואיד; הבדיקה והפענוח בשרת
+      const text = await pickFileText('.csv,.txt');
+      if (text === null) return;
+      const r = await window.systemAPI.parseRealtyTaxTableText(text);
+      await openSubForm(rltyTaxTableSchema, { bracketsText: r.text });
     } catch (error) { showError('שגיאה בקריאת הקובץ: ' + errMsg(error)); }
   });
   document.querySelectorAll('[data-rlty-tax-verify]').forEach(b => b.addEventListener('click', async () => {

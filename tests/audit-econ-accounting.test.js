@@ -217,7 +217,8 @@ test('ממצא 52: חשבונית ספק שכבר נרשמה — אזהרה בט
   await assert.rejects(acc.createEntry(again.entry), /כבר נרשמה ביומן[\s\S]*לאשר במפורש/);
   assert.equal(db.peek().journal.length, 1, 'לא נרשם כלום');
   // ספק אחר או אסמכתה אחרת — לא כפילות
-  await acc.createEntry({ ...again.entry, vatDoc: { ...again.entry.vatDoc, reference: '78' } });
+  // (האסמכתה המקורית ב-supplierDoc קובעת — משנים את שתיהן, כמו חשבונית אחרת אמיתית)
+  await acc.createEntry({ ...again.entry, vatDoc: { ...again.entry.vatDoc, reference: '78' }, supplierDoc: { ...again.entry.supplierDoc, reference: 'INV-78' } });
   // אישור מפורש — נרשם
   const forced = await acc.createEntry({ ...again.entry, confirmDuplicate: true });
   assert.ok(forced.id);

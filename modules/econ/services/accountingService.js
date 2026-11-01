@@ -76,11 +76,13 @@ class AccountingService {
       .sort((a, b) => (b.date + (b.createdAt || '')).localeCompare(a.date + (a.createdAt || '')));
   }
 
-  // חשבונית ספק שכבר נרשמה: רשומה פעילה (לא בוטלה ואינה ביטול) עם אותו ע.מ ספק ואותה אסמכתה
-  _duplicateSupplierDoc(data, vatDoc) {
-    if (!vatDoc || !vatDoc.supplierTaxId || !vatDoc.reference) return null;
-    return (data.journal || []).find(e => e && !e.reversedBy && !e.reversalOf && e.vatDoc
-      && e.vatDoc.supplierTaxId === vatDoc.supplierTaxId && e.vatDoc.reference === vatDoc.reference) || null;
+  // חשבונית ספק שכבר נרשמה: רשומה פעילה (לא בוטלה ואינה ביטול) עם אותו ע.מ ספק ואותה אסמכתה.
+  // האסמכתה המקורית (supplierDoc) גוברת: A-100 ו-B-100 אינן כפולות. גם ספק פטור (בלי vatDoc) נבדק
+  _duplicateSupplierDoc(data, entryLike) {
+    const key = IC.supplierDocKey(entryLike);
+    if (!key) return null;
+    return (data.journal || []).find(e => e && !e.reversedBy && !e.reversalOf
+      && IC.sameSupplierDoc(IC.supplierDocKey(e), key)) || null;
   }
 
   // entryData.confirmDuplicate — אישור מפורש לרשום חשבונית ספק שכבר נרשמה (אחרת נחסם: מע"מ התשומות נדרש פעמיים)
@@ -95,13 +97,16 @@ class AccountingService {
     if (vatDoc && vatDoc.supplierTaxId && !isValidIsraeliId(vatDoc.supplierTaxId)) {
       throw new Error('מספר העוסק / ח"פ של הספק אינו תקין (ספרת ביקורת) — יש לבדוק מול החשבונית, או להשאיר ריק');
     }
-    const dup = this._duplicateSupplierDoc(data, vatDoc);
+    // פרטי הספק כפי שהוקלדו (שם, ע.מ, אסמכתה מקורית) — נשמרים גם בלי מע"מ תשומות (ספק פטור)
+    const supplierDoc = IC.validateSupplierDoc(entryData && entryData.supplierDoc);
+    const dup = this._duplicateSupplierDoc(data, { vatDoc, supplierDoc });
     if (dup && entryData.confirmDuplicate !== true) {
-      const err = new Error(`חשבונית ${vatDoc.reference} של הספק ${vatDoc.supplierTaxId} כבר נרשמה ביומן (${dup.date}) — רישום נוסף יכפיל את מע"מ התשומות. אם זו חשבונית אחרת — יש לאשר במפורש`);
+      const k = IC.supplierDocKey({ vatDoc, supplierDoc });
+      const err = new Error(`חשבונית ${(supplierDoc && supplierDoc.reference) || k.digits} של הספק ${k.taxId} כבר נרשמה ביומן (${dup.date}) — רישום נוסף יכפיל את מע"מ התשומות. אם זו חשבונית אחרת — יש לאשר במפורש`);
       err.code = 'duplicate-supplier-invoice';
       throw err;
     }
-    const entry = { id: crypto.randomUUID(), ...validated, ...(vatDoc ? { vatDoc } : {}), createdAt: new Date().toISOString() };
+    const entry = { id: crypto.randomUUID(), ...validated, ...(vatDoc ? { vatDoc } : {}), ...(supplierDoc ? { supplierDoc } : {}), createdAt: new Date().toISOString() };
     data.journal.push(entry);
     await this.db.save(data);
     return entry;
@@ -951,7 +956,12 @@ class AccountingService {
       .map(a => ({ code: String(a.code), name: a.name }))
       .sort((a, b) => a.code.localeCompare(b.code));
     // כפילות: מוצגת בטיוטה; הרישום עצמו נחסם ב-createEntry עד אישור מפורש
-    const dup = this._duplicateSupplierDoc(data, out.entry.vatDoc);
+    // מעל סף מספר ההקצאה (לפי תאריך החשבונית), עם מע"מ ובלי מספר הקצאה — אין ניכוי מס תשומות. לידיעה בלבד
+    const amt = out.amountsAg || {};
+    if (amt.vat > 0 && !out.allocation && AL.overThreshold({ date: out.entry.date, net: amt.net / 100, vat: amt.vat / 100 })) {
+      out.warnings.push('חשבונית מעל סף מספר ההקצאה בלי מספר הקצאה — לפי הכללים מ-2025 אין לנכות בגינה מס תשומות. יש לבקש מהספק מספר הקצאה, או לבדוק עם רו"ח');
+    }
+    const dup = this._duplicateSupplierDoc(data, out.entry);
     const duplicate = dup ? { entryId: dup.id, date: dup.date, description: dup.description } : null;
     if (duplicate) out.warnings.unshift(`חשבונית זו של הספק כבר נרשמה ביומן (${dup.date}: ${dup.description}) — רישום נוסף יכפיל את מע"מ התשומות`);
     return { ...out, suggestion, expenseAccounts, duplicate };

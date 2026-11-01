@@ -269,7 +269,7 @@ test('ערוצים, הרשאות, preload ומסכים', () => {
   assert.match(ipc, /handle\('npo:setStandingBank'/);
   assert.match(ipc, /handle\('gemach:setLoanBank'/);
   // הקובץ נכתב ב-latin1 לנתיב שנבחר בחלון השמירה (שרץ מחוץ לתור — ממצא 39)
-  assert.match(ipc, /writeFileSync\(file, out\.text, 'latin1'\)/);
+  assert.match(ipc, /writeFileDurable\(file, out\.text, 'latin1'\)/);
   // preload: תחום לא מוכר נדחה
   const exposed = {};
   const calls = [];

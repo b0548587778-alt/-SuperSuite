@@ -48,6 +48,8 @@ function dataMap(data, userCounts = {}, opts = {}) {
     { area: 'עמותה — הנצחות', count: len(npo.memorials), fields: 'שם הנפטר, איש קשר, ת.ז וטלפון של איש הקשר', sensitivity: 'regular', access: all },
     { area: 'גמ"ח — לווים וערבים', count: len(gm.loans), fields: 'שם, ת.ז, טלפון, סכום הלוואה, פיגורים, ערבים; בחיוב במס"ב — בנק, סניף וחשבון', sensitivity: 'sensitive', access: all },
     { area: 'גמ"ח — מפקידים', count: len(gm.deposits), fields: 'שם, סכום', sensitivity: 'regular', access: all },
+    { area: 'גמ"ח — בקשות הלוואה', count: len(gm.applications), fields: 'פרטי המבקש והערבים (שם, ת.ז, טלפון), סכום מבוקש, מצב הבקשה והערות הראיון', sensitivity: 'sensitive', access: all },
+    { area: 'גמ"ח חפצים — שואלים', count: len(gm.lendings), fields: 'שם, ת.ז, טלפון, הפריט שהושאל, פיקדון ותאריכים', sensitivity: 'regular', access: all },
     { area: 'חסד — נזקקים (רגילים)', count: bens.length - conf, fields: 'משפחה, ראש משפחה, ת.ז, נפשות, טלפון, כתובת, הערות', sensitivity: 'sensitive', access: all },
     { area: 'חסד — נזקקים חסויים', count: conf, fields: 'כמו נזקקים — מוסתר בשרת', sensitivity: 'high', access: 'מנהל בלבד (צפייה נרשמת ביומן הביקורת)' },
     { area: 'חסד — מתנדבים', count: len(ch.volunteers), fields: 'שם, טלפון, אזור, זמינות', sensitivity: 'regular', access: all },
@@ -56,7 +58,12 @@ function dataMap(data, userCounts = {}, opts = {}) {
     { area: 'נדל"ן ותיווך — הזמנות שירותי תיווך', count: len(data.realty && data.realty.orders), fields: 'לקוח (מהרשימה), כתובת הלקוח, תיאור הנכס, מחיר ועמלה', sensitivity: 'regular', access: all },
     { area: 'נדל"ן ותיווך — עסקאות', count: len(data.realty && data.realty.deals), fields: 'קונה ומוכר (מהרשימה), מחיר, מועדים, עמלות ותשלומים; קישור לתיק משכנתא', sensitivity: 'regular', access: all },
     { area: 'שמאות מקרקעין — תיקי שומה', count: len(data.realEstate && data.realEstate.cases), fields: 'שם מזמין השומה, ת.ז, טלפון, כתובת הנכס, גוש/חלקה ושווי', sensitivity: 'sensitive', access: all },
-    { area: 'אנשי קשר', count: len(data.contacts), fields: 'שם, טלפון, דוא"ל, כתובת', sensitivity: 'regular', access: all }
+    { area: 'אנשי קשר', count: len(data.contacts), fields: 'שם, טלפון, דוא"ל, כתובת', sensitivity: 'regular', access: all },
+    { area: 'הנהלת חשבונות — לקוחות בחשבוניות', count: len(data.invoices), fields: 'שם הלקוח, ע.מ / ת.ז (רשות), כתובת, פריטים וסכומים', sensitivity: 'regular', access: all },
+    { area: 'הנהלת חשבונות — ספקים ביומן', count: (Array.isArray(data.journal) ? data.journal : []).filter(e => e && (e.vatDoc || e.supplierDoc)).length,
+      fields: 'שם הספק, ע.מ (בעוסק שהוא יחיד — מספר ת.ז), מספר החשבונית, תאריך וסכומים', sensitivity: 'regular', access: all },
+    { area: 'שמאות ואימונים (במחסן המוצפן של כל מודול)', count: null,
+      fields: 'שמאות: פרטי לקוחות, פריטים, שטרי קנייה ותמונות. אימונים: פרטי מתאמנים, מדידות, הערות בריאות ותשלומים', sensitivity: 'sensitive', access: 'משתמשים מחוברים עם רישיון למודול' }
   ];
   const mail = mailboxRows(opts && opts.mailboxes);
   rows.push(...mail);
@@ -164,6 +171,8 @@ const RETENTION_KINDS = {
     removes: 'טלפון, כתובת והערות של הלווה, וטלפון הערבים. נשמרים: שמות, ת.ז, סכום ולוח התשלומים.' },
   mortgageClients: { label: 'תיקי ייעוץ משכנתאות שלא עודכנו', minYears: 1,
     removes: 'טלפון והערות. נשמרים: שם הלקוח, הבנק, הסכומים וההצעות.' },
+  itemBorrowers: { label: 'שואלי חפצים שהחזירו (גמ"ח חפצים)', minYears: 1,
+    removes: 'הטלפון וההערות בהשאלות שהוחזרו. נשמרים: שם, ת.ז, הפריט, התאריכים והפיקדון (להיסטוריית הפריט).' },
   realtyClients: { label: 'לקוחות נדל"ן שלא עודכנו (תיווך)', minYears: 1,
     removes: 'ת.ז, טלפון, דוא"ל, הערות ודרישות החיפוש, וכתובת הלקוח בהזמנות שירותי התיווך. נשמרים: השם, סוג הלקוח והעסקאות. לקוח עם עסקה פתוחה אינו נכלל.' }
 };
@@ -220,6 +229,13 @@ function candidatesFor(data, kind, today, years) {
       .map(l => ({ id: l.id, label: normName(l.borrowerName), last: maxDay(l.issueDate, l.updatedAt, l.cancelledAt, ...(l.schedule || []).map(x => x.paidDate)) }))
       .filter(x => x.last && x.last < cutoff).sort((a, b) => a.last.localeCompare(b.last));
   }
+  if (k === 'itemBorrowers') {
+    // רק השאלה שהוחזרה; השאלה פתוחה — השואל עדיין פעיל
+    return ((data.gemach && data.gemach.lendings) || [])
+      .filter(l => l && l.id && l.returnedAt && !l.privacyMinimizedAt && (l.borrowerPhone || l.notes))
+      .map(l => ({ id: l.id, label: normName(l.borrowerName), last: maxDay(l.returnedAt, l.date) }))
+      .filter(x => x.last && x.last < cutoff).sort((a, b) => a.last.localeCompare(b.last));
+  }
   if (k === 'realtyClients') {
     const r = data.realty || {};
     const deals = r.deals || [];
@@ -266,6 +282,8 @@ function applyRetention(data, kind, ids, today, years, at) {
     data.gemach.loans = data.gemach.loans.map(l => (ok(l.id)
       ? (done++, { ...withoutBank(l), borrowerPhone: '', borrowerAddress: '', notes: '', guarantors: (l.guarantors || []).map(g => ({ ...g, phone: '' })), privacyMinimizedAt: at })
       : l));
+  } else if (k === 'itemBorrowers') {
+    data.gemach.lendings = data.gemach.lendings.map(l => (ok(l.id) ? (done++, { ...l, borrowerPhone: '', notes: '', privacyMinimizedAt: at }) : l));
   } else if (k === 'realtyClients') {
     data.realty.clients = data.realty.clients.map(c => {
       if (!ok(c.id)) return c;

@@ -313,6 +313,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   calcRealtyInvestment: (input) => ipcRenderer.invoke('rlty:calcInvestment', input),
   saveRealtyTaxTable: (input) => ipcRenderer.invoke('rlty:saveTaxTable', input),
   readRealtyTaxTableFile: () => ipcRenderer.invoke('rlty:readTaxTableFile'),
+  parseRealtyTaxTableText: (text) => ipcRenderer.invoke('rlty:parseTaxTableText', text),
   deleteRealtyTaxTable: (id) => ipcRenderer.invoke('rlty:deleteTaxTable', id),
   verifyRealtyTaxTable: (id, note) => ipcRenderer.invoke('rlty:verifyTaxTable', id, note),
   unverifyRealtyTaxTable: (id) => ipcRenderer.invoke('rlty:unverifyTaxTable', id),

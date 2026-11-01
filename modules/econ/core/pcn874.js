@@ -6,6 +6,7 @@
 // אין כאן ייבוא, יצוא, קופה קטנה וחשבונית עצמית (Y / R / K / M / C) — אין להם מקור בתוכנה.
 const A = require('./accounting');
 const { isDay } = require('./dates');
+const AL = require('./allocation');
 
 const LENGTHS = { O: 131, T: 60, X: 10 };
 const SALE_TYPES = ['S', 'L'];
@@ -84,6 +85,10 @@ function inputItems(data, inRange, issues) {
     if (!supplierId) {
       issues.push({ kind: 'input-no-supplier', entryId: e.id, date: e.date, text: `תשומה בלי מספר עוסק של הספק — לא נכללה בקובץ: ${item.source}`, vat: A.fromAg(vatAg) });
       continue;
+    }
+    // מעל סף מספר ההקצאה בלי מספר — נכלל בקובץ, אבל מוצג לבדיקה (מ-2025 אין ניכוי תשומות בלי מספר הקצאה)
+    if (vatAg > 0 && !item.allocation && AL.overThreshold({ date: item.date, net: A.fromAg(netAg), vat: A.fromAg(vatAg) })) {
+      issues.push({ kind: 'input-no-allocation', entryId: e.id, date: e.date, text: `תשומה מעל סף מספר ההקצאה בלי מספר הקצאה — לבדיקה עם רו"ח: ${item.source}`, vat: A.fromAg(vatAg) });
     }
     items.push(item);
   }

@@ -18,7 +18,7 @@ test('הקובץ טהור — בלי require, רשת, קבצים או תהליכ
   assert.doesNotMatch(src, /\bfetch\s*\(|XMLHttpRequest|WebSocket/);
   assert.doesNotMatch(src, /\brequire\(['"](fs|node:fs|child_process)['"]\)/);
   assert.doesNotMatch(src, /\bprocess\./);
-  assert.deepStrictEqual(Object.keys(IC).sort(), ['allocationNumber', 'draftEntry', 'expenseAccountCodes', 'suggestAccount']);
+  assert.deepStrictEqual(Object.keys(IC).sort(), ['allocationNumber', 'draftEntry', 'expenseAccountCodes', 'sameSupplierDoc', 'suggestAccount', 'supplierDocKey', 'validateSupplierDoc']);
 });
 
 test('מע"מ נגזר: סה"כ 1180 בשיעור 18% ← נטו 1000, מע"מ 180, והיתרה תמיד שווה לסה"כ', () => {

@@ -157,7 +157,8 @@ const LABELS = {
   cheques: 'המחאות', receivedDate: 'ההמחאות התקבלו', bouncedCheque: 'המחאה שחזרה', replacesReceipt: 'מחליפה את קבלה', bank: 'בנק', branch: 'סניף',
   role: 'סוג לקוח', email: 'דוא"ל', areas: 'אזורים מבוקשים', types: 'סוגי נכס מבוקשים', minRooms: 'חדרים — מינימום', maxRooms: 'חדרים — מקסימום',
   budgetMinAg: 'תקציב מינימלי (אגורות)', budgetMaxAg: 'תקציב מקסימלי (אגורות)', needsMortgage: 'צריך משכנתא',
-  propertyAddress: 'כתובת הנכס', effectiveDate: 'מועד קובע', caseStatus: 'מצב התיק'
+  propertyAddress: 'כתובת הנכס', effectiveDate: 'מועד קובע', caseStatus: 'מצב התיק',
+  supplierName: 'שם הספק', supplierTaxId: 'מספר עוסק'
 };
 // מזהים פנימיים בלבד — לא מידע על האדם
 const SKIP = new Set(['id', 'entryId', 'paymentEntryId', 'reversalEntryId', 'loanId', 'itemId', 'applicationId', 'ambassadorId', 'standingOrderId', 'chequeGroupId', 'replacesId', 'replacedBy', 'realtyDealId', 'mortgageCaseId', 'advisorId', 'buyerClientId', 'sellerClientId', 'propertyId']);
@@ -238,6 +239,16 @@ function subjectReport(data, idNumber, opts = {}) {
   if (opts.acct) {
     for (const inv of data.invoices || []) {
       if (String(inv.customerTaxId || '').replace(/\D/g, '').padStart(9, '0') === key) sections.push({ title: `חשבונית ${inv.number}`, byName: false, fields: fieldsOf(inv) });
+    }
+    // ספק שהוא עוסק יחיד — מספר העוסק שלו הוא מספר הזהות. רק פרטי החשבונית, בלי שורות היומן
+    for (const e of data.journal || []) {
+      const sd = (e && e.supplierDoc) || {};
+      const vd = (e && e.vatDoc) || {};
+      const tax = String(sd.taxId || vd.supplierTaxId || '').replace(/\D/g, '');
+      if (!tax || tax.padStart(9, '0') !== key) continue;
+      sections.push({ title: 'חשבונית ספק ביומן', byName: false, fields: fieldsOf({
+        supplierName: sd.name, supplierTaxId: tax, reference: sd.reference || vd.reference, date: sd.docDate || vd.docDate || e.date, total: e.total,
+      }) });
     }
   }
   const names = person ? [...person.names] : [];

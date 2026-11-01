@@ -55,7 +55,7 @@ function renderAnalytics() {
       </div>
       <div class="stat-cell">
         <div class="sc-value" style="color:var(--yellow)">₪${fmt0(inventoryValue)}</div>
-        <div class="sc-label">שווי מלאי</div>
+        <div class="sc-label">שווי מלאי (הערכת שוק, לא עלות)</div>
       </div>
     </div>
   `;
