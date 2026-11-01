@@ -737,6 +737,7 @@ function createServer({ dataDir, cert, key, clock, billing, trustProxy = false, 
   };
   const server = cert && key
     ? https.createServer({ cert: fs.readFileSync(cert), key: fs.readFileSync(key), minVersion: 'TLSv1.2' }, onRequest)
+    // nosemgrep: problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server -- בלי תעודה השרת רץ מאחורי פרוקסי HTTPS (deploy/relay); הלקוח מאמת תשובה חתומה (checkin.js)
     : http.createServer(onRequest);
   // חיבורים איטיים (slowloris) לא מחזיקים את השרת
   server.headersTimeout = 15000;

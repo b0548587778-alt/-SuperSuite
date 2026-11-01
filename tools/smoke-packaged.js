@@ -18,6 +18,7 @@ const log = (s) => { lines.push(s); console.log(s); };
 const tmp = (n) => fs.mkdtempSync(path.join(os.tmpdir(), 'ss-smoke-' + n + '-'));
 
 function launch(exe, args, timeout = 150 * 1000) {
+  // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process -- כלי CI; מריץ את התוכנה הארוזה עצמה, בלי shell
   const r = spawnSync(exe, args, { timeout, encoding: 'utf8', windowsHide: true });
   return { code: r.status, signal: r.signal, timedOut: !!(r.error && r.error.code === 'ETIMEDOUT'), error: r.error && r.error.message };
 }

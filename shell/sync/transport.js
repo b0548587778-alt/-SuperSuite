@@ -134,6 +134,7 @@ function createPeerNode({ identity, getPeers, savePeers, state, onState = () => 
   const perAddress = new Map(); // כתובת → חיבורים פתוחים (כולל כאלה שעוד בלחיצת יד)
   const addressOf = (sock) => String(sock.remoteAddress || '').replace(/^::ffff:/, '');
 
+  // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification -- האימות הוא הצמדה לטביעת האצבע של המכשיר שצומד (docs/SYNC-DESIGN.md), לא שרשרת אישורים
   const tlsBase = {
     cert, key, minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3',
     ALPNProtocols: [ALPN], rejectUnauthorized: false, // האימות הוא ההצמדה, לא שרשרת אישורים

@@ -17,6 +17,7 @@ const wait = (ms) => new Promise(r => setTimeout(r, ms));
 async function target(match) {
   for (let i = 0; i < 60; i++) {
     try {
+      // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request -- כלי צילומי מסך; פרוטוקול הניפוי של Chromium ב-127.0.0.1 בלבד
       const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
       const t = list.find(x => x.type === 'page' && x.url.includes(match));
       if (t) return t;

@@ -133,6 +133,7 @@
     moduleSenderIds: () => Object.keys(frames).map(id => SENDER[id])
   };
 
+  // nosemgrep: javascript.browser.security.insufficient-postmessage-origin-validation.insufficient-postmessage-origin- -- המקור והשולח נבדקים מיד בתחילת המאזין (e.source מול המסגרות המוכרות, e.origin מול המקור שלהן)
   window.addEventListener('message', e => {
     const id = Object.keys(frames).find(k => frames[k].el.contentWindow === e.source);
     if (!id || e.origin !== originOf(id)) return; // רק iframe מוכר מה-origin שלו
