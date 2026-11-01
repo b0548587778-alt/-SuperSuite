@@ -472,6 +472,10 @@ function renderNpo(o) {
         </div>
         <div class="card">
           <h3>תורמים (${donors.length})</h3>
+          <div class="acct-actions">
+            <button type="button" class="secondary small" data-npo-yearend="pdf" title="סיכום שנתי לכל התורמים בקובץ PDF אחד — עמוד לכל תורם, לבקשת החזר מס">📦 חבילת סוף שנה (PDF)</button>
+            <button type="button" class="secondary small" data-npo-yearend="csv" title="רשימת התורמים לשנה עם כתובת וסכומים — לדיוור ולמיזוג מכתבים">📋 רשימת דיוור (CSV)</button>
+          </div>
           ${donors.slice(0, 15).map(d => `<div class="acct-row"><span>${esc(d.name)} <small class="muted">${d.count} תרומות · אחרונה ${esc(d.lastDate)}</small></span><span>${money(d.total)} <button class="icon-btn" data-npo-statement="${esc(d.key)}" title="סיכום שנתי לתורם (PDF) — לבקשת החזר מס" aria-label="סיכום שנתי לתורם">📄</button> <button class="icon-btn" data-npo-thankyou="${esc(d.key)}" title="מכתב תודה לתורם — טיוטה לפי תרומות השנה, ל-PDF" aria-label="מכתב תודה לתורם">💌</button> <button class="icon-btn" data-npo-donor-file="${esc(d.key)}" title="תיק תורם (PDF) — הסיכום השנתי וכל הקבלות בקובץ אחד" aria-label="תיק תורם">🗂️</button></span></div>`).join('') || '<div class="acct-row muted">אין תורמים עדיין</div>'}
         </div>
       </div>
@@ -619,6 +623,24 @@ function attachNpoHandlers() {
       const r = await window.systemAPI.exportNpoDonorStatementPdf(btn.dataset.npoStatement, npoYear());
       if (r && r.ok) showToast('הסיכום השנתי נשמר כ-PDF');
     } catch (error) { showError('שגיאה בהפקת הסיכום: ' + errMsg(error)); }
+  }));
+  // חבילת סוף שנה: סינון (סכום מינימלי, רק סעיף 46) ואז קובץ אחד לכל התורמים של השנה המוצגת
+  document.querySelectorAll('[data-npo-yearend]').forEach(btn => btn.addEventListener('click', async () => {
+    const year = npoYear();
+    const v = await askFields(`חבילת סוף שנה לתורמים — ${year}`, [
+      { name: 'minTotal', label: 'סכום מינימלי לשנה (₪)', type: 'number', hint: '0 = כל התורמים. תורמים בעילום שם אינם נכללים' }
+    ], btn.dataset.npoYearend === 'pdf' ? 'המשך להפקת PDF' : 'המשך להפקת הרשימה', { minTotal: '0' });
+    if (!v) return;
+    const onlySec46 = await askConfirm('לכלול רק תורמים שיש להם תרומות המוכרות לסעיף 46? (ביטול = כל התורמים)');
+    const opts = { minTotal: v.minTotal, onlySec46 };
+    btn.disabled = true;
+    try {
+      const r = btn.dataset.npoYearend === 'pdf'
+        ? await window.systemAPI.exportNpoYearEndPackPdf(year, opts)
+        : await window.systemAPI.exportNpoYearEndListCsv(year, opts);
+      if (r && r.ok) showToast(btn.dataset.npoYearend === 'pdf' ? `החבילה נשמרה — ${r.donors} תורמים` : 'רשימת הדיוור נשמרה');
+    } catch (error) { showError('שגיאה בהפקת החבילה: ' + errMsg(error)); }
+    finally { btn.disabled = false; }
   }));
   document.querySelectorAll('[data-npo-donor-file]').forEach(btn => btn.addEventListener('click', async () => {
     try {

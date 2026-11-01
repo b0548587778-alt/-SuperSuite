@@ -299,6 +299,15 @@ function renderDonorStatementHtml(st) {
   return htmlDoc(`סיכום תרומות לשנת ${esc(st.year)}`, STATEMENT_CSS, donorStatementBody(st));
 }
 
+// חבילת סוף שנה: כל הסיכומים השנתיים בקובץ אחד, עמוד לכל תורם (קלט: npo.yearEndPack)
+function renderYearEndPackHtml(pack) {
+  const pages = (pack.statements || []).map(st => `<section class="ye-page">${donorStatementBody(st)}</section>`).join('\n');
+  const css = STATEMENT_CSS + `
+  .ye-page { page-break-after: always; break-after: page; }
+  .ye-page:last-child { page-break-after: auto; break-after: auto; }`;
+  return htmlDoc(`חבילת סוף שנה לתורמים — ${esc(pack.year)}`, css, pages);
+}
+
 // שלד מסמך HTML מוכן להדפסה / PDF
 function htmlDoc(title, css, body) {
   return `<!doctype html>
@@ -529,4 +538,4 @@ function renderUniformReportHtml(r) {
 </html>`;
 }
 
-module.exports = { renderInvoiceHtml, renderReceiptHtml, renderDonationReceiptHtml, renderDonorStatementHtml, renderDonorFileHtml, renderLoanStatementHtml, renderCustomerLedgerHtml, scopeCss, renderUniformReportHtml, toCsv, csvFormulaRisk, esc, money };
+module.exports = { renderInvoiceHtml, renderReceiptHtml, renderDonationReceiptHtml, renderDonorStatementHtml, renderYearEndPackHtml, renderDonorFileHtml, renderLoanStatementHtml, renderCustomerLedgerHtml, scopeCss, renderUniformReportHtml, toCsv, csvFormulaRisk, esc, money };

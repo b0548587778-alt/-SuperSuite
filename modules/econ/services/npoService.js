@@ -475,6 +475,19 @@ class NpoService {
     return d;
   }
 
+  // חבילת סוף שנה: opts = { minTotal (שקלים), onlySec46 }
+  async getYearEndPack(year, opts) {
+    const { npo } = await this._load();
+    const o = opts && typeof opts === 'object' ? opts : {};
+    return N.yearEndPack(npo.donations, npo.settings, year, { minTotal: o.minTotal, onlySec46: o.onlySec46 === true });
+  }
+
+  // רשימת הדיוור לאותה חבילה (CSV)
+  async getYearEndMailing(year, opts) {
+    const pack = await this.getYearEndPack(year, opts);
+    return { pack, table: N.yearEndMailingRows(pack) };
+  }
+
   async getDonorStatement(donorKey, year) {
     const { npo } = await this._load();
     return N.donorAnnualStatement(npo.donations, npo.settings, donorKey, year);

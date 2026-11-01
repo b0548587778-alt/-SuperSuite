@@ -402,6 +402,37 @@ function donorAnnualStatement(donations, settings, donorKey, year) {
   };
 }
 
+// חבילת סוף שנה: סיכום שנתי לכל תורם שתרם בשנה (לבקשת החזר מס), בבת אחת.
+// בלי תרומות בעילום שם (אין למי לשלוח). סינון: סכום מינימלי לשנה (שקלים), ו"רק מי שיש לו חלק המוכר לסעיף 46".
+// הסדר — לפי סכום יורד, כמו ברשימת התורמים. החישוב לכל תורם — אותו donorAnnualStatement של הסיכום הבודד
+function yearEndPack(donations, settings, year, opts = {}) {
+  const y = Number(year);
+  if (!Number.isInteger(y) || y < 2000 || y > 2100) throw new Error('שנה לא תקינה');
+  const minRaw = opts.minTotal === undefined || opts.minTotal === null || opts.minTotal === '' ? 0 : Number(String(opts.minTotal).replace(/[,\s₪]/g, ''));
+  if (!Number.isFinite(minRaw) || minRaw < 0) throw new Error('הסכום המינימלי אינו תקין');
+  const minAg = toAg(minRaw);
+  const onlySec46 = opts.onlySec46 === true;
+  const named = (Array.isArray(donations) ? donations : []).filter(d => donorType(d) !== 'anonymous');
+  const statements = [];
+  const skipped = { belowMin: 0, noSec46: 0, anonymous: live(donations || []).filter(d => inYear(d.date, y) && donorType(d) === 'anonymous').length };
+  for (const d of donorSummary(named, y)) {
+    const st = donorAnnualStatement(named, settings, d.key, y);
+    if (toAg(st.total) < minAg) { skipped.belowMin += 1; continue; }
+    if (onlySec46 && !(toAg(st.sec46Total) > 0)) { skipped.noSec46 += 1; continue; }
+    statements.push({ ...st, key: d.key, phone: d.phone || '' });
+  }
+  const totalAg = statements.reduce((t, st) => t + toAg(st.total), 0);
+  const sec46Ag = statements.reduce((t, st) => t + toAg(st.sec46Total), 0);
+  return { year: y, statements, skipped, totals: { donors: statements.length, total: fromAg(totalAg), sec46Total: fromAg(sec46Ag) }, filters: { minTotal: fromAg(minAg), onlySec46 } };
+}
+
+// רשימת דיוור לחבילה (CSV): פרטי התורם וסכומי השנה, לשליחה בדואר או למיזוג מכתבים
+function yearEndMailingRows(pack) {
+  const headers = ['שם', 'ת.ז / ח.פ', 'כתובת', 'טלפון', 'מספר קבלות', 'סה"כ תרומות', 'מוכר לסעיף 46'];
+  const rows = pack.statements.map(st => [st.donor.name, st.donor.id, st.donor.address, st.phone, st.receipts.length, st.total, st.sec46Total]);
+  return { headers, rows, name: `רשימת-דיוור-תורמים-${pack.year}` };
+}
+
 // יתרות לפי קרן: תרומות + תמיכות שהתקבלו, בהפרדה בין ייעודי לכללי
 function fundSummary(donations, grants, settings, year) {
   const funds = allFunds(settings);
@@ -564,6 +595,6 @@ module.exports = {
   GENERAL_FUND, VAT_STATUSES, METHODS, GRANT_STATUSES, TAX_STATUSES, DONOR_TYPES, REPORT_IDS, donorType, reportId, DEFAULT_SETTINGS, MAX_DONATIONS, MAX_GRANTS,
   parseDocuments, matchingRequired, grantAlerts, taxStatus, recordTaxReport, taxSummary,
   normalizeSettings, allFunds, applySettings, sec46Eligible, validateDonation, issueReceipt,
-  validateGrant, donorSummary, receiptNo, byReceipt, receiptLabel, donorYearDonations, donorAnnualStatement, fundSummary, annualReport, exportTable,
+  validateGrant, donorSummary, receiptNo, byReceipt, receiptLabel, donorYearDonations, donorAnnualStatement, yearEndPack, yearEndMailingRows, fundSummary, annualReport, exportTable,
   MAX_CHEQUES, MAX_CHEQUE_YEARS, validateCheques, splitChequesByYear, chequeYearDate, generateCheques, planChequeDonation, issueChequeReceipts, chequeBounce
 };
