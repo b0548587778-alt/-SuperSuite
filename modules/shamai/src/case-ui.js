@@ -286,8 +286,11 @@ function priceWarningsFor(c) {
     .map(x => `${PRICE_FIELDS.find(f => f.k === x.k)?.name || x.k}: ${priceAgeLabel(x.f)}`);
 }
 
+// נתיב "a.b.c" מהמסך. מפתח של אב-טיפוס (__proto__ / constructor / prototype) נדחה — בלי זיהום אובייקטים
+const CASE_UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 function caseSetPath(obj, path, value) {
-  const parts = path.split('.');
+  const parts = String(path).split('.');
+  if (parts.some(k => CASE_UNSAFE_KEYS.has(k))) return;
   let o = obj;
   for (let i = 0; i < parts.length - 1; i++) { o = o[parts[i]]; if (o === undefined || o === null) return; }
   o[parts[parts.length - 1]] = value;

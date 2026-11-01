@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "js/disabling-certificate-validation",
+    "path": "shell/sync/transport.js",
+    "reason": "הסנכרון ברשת המקומית מאמת את המכשיר בהצמדה לטביעת האצבע שלו (docs/SYNC-DESIGN.md), לא בשרשרת אישורים"
+  }
+]

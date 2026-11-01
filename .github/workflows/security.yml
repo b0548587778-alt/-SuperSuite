@@ -61,19 +61,26 @@ jobs:
       - uses: github/codeql-action/init@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3
         with:
           languages: ${{ matrix.language }}
+          config-file: ./.github/codeql/codeql-config.yml
       - uses: github/codeql-action/analyze@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3
         with:
           upload: never
           output: codeql-results
-      # כל ממצא בקובץ התוצאות — מודפס ומכשיל את המשימה
+      # כל ממצא בקובץ התוצאות — מודפס ומכשיל את המשימה, חוץ מחריגים מאושרים עם נימוק
+      # (.github/codeql/allowlist.json: כלל + קובץ — חריג לא חל על קובץ אחר)
       - name: ממצאי CodeQL
         run: |
           shopt -s nullglob
           files=(codeql-results/*.sarif)
           [ ${#files[@]} -gt 0 ] || { echo "לא נוצר קובץ תוצאות"; exit 1; }
-          jq -r '.runs[].results[] | "\(.ruleId)  \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine)  \(.message.text)"' "${files[@]}"
-          count=$(jq '[.runs[].results[]] | length' "${files[@]}" | paste -sd+ | bc)
-          echo "ממצאים: $count"
+          jq -s -r --slurpfile allow .github/codeql/allowlist.json '
+            [ .[].runs[].results[]
+              | { rule: .ruleId, path: .locations[0].physicalLocation.artifactLocation.uri,
+                  line: .locations[0].physicalLocation.region.startLine, msg: .message.text } ]
+            | map(. as $r | . + { allowed: ($allow[0] | any(.rule == $r.rule and .path == $r.path)) })
+            | .[] | "\(if .allowed then "מאושר" else "ממצא" end)  \(.rule)  \(.path):\(.line)  \(.msg)"' "${files[@]}" | tee findings.txt
+          count=$(grep -c '^ממצא ' findings.txt || true)
+          echo "ממצאים שלא אושרו: $count"
           [ "$count" -eq 0 ]
 
   # תלויות עם חולשות ידועות
