@@ -16,7 +16,7 @@ const suite = { suite: 'SuperSuite', version: 2, scope: 'all', econ: { version: 
 const econOld = { version: 4, organization: { name: 'גמ"ח אור' }, settings: {}, records: [] };
 const trainerOld = { 'trainer:profile': '{"name":"משה כהן"}', 'clients:index': '[]' };
 
-test('סריקה: גיבויים גלויים נמצאים — SuperSuite, כלכלי ישן; שאר הקבצים לא (גם לא גיבוי ישן של מודול האימונים, שעבר למוצר נפרד)', () => {
+test('סריקה: גיבויים גלויים נמצאים — SuperSuite, כלכלי ישן ואימונים ישן (נתוני בריאות); שאר הקבצים לא', () => {
   const dir = tmp();
   write(dir, 'auto-2026-01-01.json', suite);
   write(dir, 'גיבוי-מערכת-כלכלית-2026-01-02.json', econOld);
@@ -26,8 +26,27 @@ test('סריקה: גיבויים גלויים נמצאים — SuperSuite, כל�
   write(dir, 'broken.json', '{"suite": "SuperSuite", ');
   write(dir, 'notes.txt', JSON.stringify(suite));
   fs.mkdirSync(path.join(dir, 'sub.json'));
-  const names = PB.scan(dir).map(f => f.name);
-  assert.deepEqual(names.sort(), ['auto-2026-01-01.json', 'גיבוי-מערכת-כלכלית-2026-01-02.json'].sort());
+  const found = PB.scan(dir);
+  assert.deepEqual(found.map(f => f.name).sort(), ['auto-2026-01-01.json', 'trainer-pro-backup-2026-01-03.json', 'גיבוי-מערכת-כלכלית-2026-01-02.json'].sort());
+  // רק גיבוי האימונים מסומן כנתוני בריאות
+  assert.deepEqual(found.filter(f => f.trainer).map(f => f.name), ['trainer-pro-backup-2026-01-03.json']);
+});
+
+test('גיבוי אימונים ישן: זוהה גם בשם אחר ובכל מפתח של המודול; קובץ JSON אחר שמזכיר אותו — לא', () => {
+  const dir = tmp();
+  write(dir, 'מתאמנים-שמור.json', { 'client:c1': '{"name":"דוד לוי","weight":82}', 'measurements:c1': '[{"date":"2026-01-01","weight":82}]' });
+  write(dir, 'studio.json', { 'studio:plans': '[]' });
+  write(dir, 'other.json', { 'trainer:profile': 'לא JSON' });
+  write(dir, 'array.json', [{ 'trainer:profile': '{}' }]);
+  write(dir, 'random.json', { clients: [], profile: {} });
+  assert.deepEqual(PB.scan(dir).map(f => [f.name, f.trainer]).sort(), [['studio.json', true], ['מתאמנים-שמור.json', true]].sort());
+});
+
+test('גיבוי מלא גלוי עם נתוני אימונים (localStorage.trainer) — מסומן כנתוני בריאות', () => {
+  const dir = tmp();
+  write(dir, 'auto-2025-12-01.json', { ...suite, localStorage: { trainer: { 'trainer:profile': '{"name":"משה"}' } } });
+  write(dir, 'auto-2025-12-02.json', { ...suite, localStorage: { trainer: {} } });
+  assert.deepEqual(PB.scan(dir).map(f => [f.name, f.trainer]), [['auto-2025-12-01.json', true], ['auto-2025-12-02.json', false]]);
 });
 
 test('סריקה: תיקייה שלא קיימת או ריקה — רשימה ריקה, בלי שגיאה', () => {
@@ -82,20 +101,40 @@ test('הצפנה ומחיקה: רק שם קובץ בתיקייה, ורק קוב�
   assert.ok(fs.existsSync(path.join(dir, 'settings.json')));
 });
 
-test('מחיקה: גיבוי גלוי נמחק; קובץ של מודול האימונים (מוצר נפרד) לא נמחק', () => {
+test('מחיקה: גיבוי גלוי נמחק — גם גיבוי אימונים ישן, רק בבקשה מפורשת', () => {
   const dir = tmp();
   write(dir, 'גיבוי-מערכת-כלכלית-2026-01-02.json', econOld);
   assert.deepEqual(PB.deleteFile({ dir, name: 'גיבוי-מערכת-כלכלית-2026-01-02.json' }), { deleted: 'גיבוי-מערכת-כלכלית-2026-01-02.json' });
   assert.deepEqual(fs.readdirSync(dir), []);
   write(dir, 'trainer-pro-backup-2026-01-03.json', trainerOld);
-  assert.throws(() => PB.deleteFile({ dir, name: 'trainer-pro-backup-2026-01-03.json' }), /אינו גיבוי גלוי/);
-  assert.deepEqual(fs.readdirSync(dir), ['trainer-pro-backup-2026-01-03.json']);
+  assert.deepEqual(PB.deleteFile({ dir, name: 'trainer-pro-backup-2026-01-03.json' }), { deleted: 'trainer-pro-backup-2026-01-03.json' });
+  assert.deepEqual(fs.readdirSync(dir), []);
+});
+
+test('הצפנה: גיבוי אימונים ישן — עותק מוצפן זהה, והמקור הגלוי נמחק רק אחרי האימות', () => {
+  const dir = tmp();
+  const text = write(dir, 'trainer-pro-backup-2026-01-03.json', trainerOld);
+  const r = PB.encryptFile({ dir, name: 'trainer-pro-backup-2026-01-03.json', key: KEY });
+  assert.equal(r.file, 'trainer-pro-backup-2026-01-03.ssbk');
+  assert.equal(BK.decryptBackup(fs.readFileSync(path.join(dir, r.file), 'utf8'), KEY), text);
+  assert.deepEqual(fs.readdirSync(dir), ['trainer-pro-backup-2026-01-03.ssbk']);
+  assert.ok(!fs.readFileSync(path.join(dir, r.file), 'utf8').includes('משה כהן'), 'אין שם גלוי בקובץ המוצפן');
 });
 
 test('טקסט האזהרה בעברית, לפי מספר הקבצים', () => {
   assert.equal(PB.warningText([]), '');
   assert.match(PB.warningText([{}]), /קובץ גיבוי אחד לא מוצפן/);
   assert.match(PB.warningText([{}, {}, {}]), /3 קבצי גיבוי לא מוצפנים/);
+  assert.doesNotMatch(PB.warningText([{}, {}]), /בריאות/);
+  assert.match(PB.warningText([{}, { trainer: true }]), /2 קבצי גיבוי לא מוצפנים, כולל נתוני בריאות של מתאמנים/);
+});
+
+test('ממשק: קובץ אימונים מסומן ברשימה, וההסבר מפנה ל-SuperSuite לימוד לפני הצפנה או מחיקה', () => {
+  const js = read('shell/shell.js');
+  const html = read('shell/shell.html');
+  assert.match(js, /if \(f\.trainer\)/);
+  assert.match(js, /\$\('pbTrainer'\)\.hidden = !files\.some\(f => f\.trainer\)/);
+  assert.match(html, /<p id="pbTrainer" hidden>[^<]*<b>נתוני אימונים ובריאות<\/b>[^<]*SuperSuite לימוד/);
 });
 
 test('main.js: הערוצים דורשים הרשאת גיבוי מהמעטפת; אין מחיקה אוטומטית', () => {

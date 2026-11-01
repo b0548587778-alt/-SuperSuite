@@ -816,6 +816,13 @@ async function showPlainBackups() {
       name.textContent = f.name;
       name.dir = 'ltr';
       li.appendChild(name);
+      // גיבוי של מודול האימונים (עבר ל-SuperSuite לימוד) — נתוני בריאות של מתאמנים
+      if (f.trainer) {
+        const tag = document.createElement('small');
+        tag.className = 'pb-tag';
+        tag.textContent = 'נתוני אימונים ובריאות';
+        li.appendChild(tag);
+      }
       if (r.canEncrypt) li.appendChild(actionBtn('הצפן', () => window.shellAPI.plainBackupEncrypt(f.name)));
       li.appendChild(actionBtn('מחק', async () => {
         if (!(await ssDialog.confirm(`למחוק את ${f.name}?\nהקובץ יימחק לצמיתות.`, { danger: true, okText: 'מחיקה' }))) return null;
@@ -824,6 +831,7 @@ async function showPlainBackups() {
       list.appendChild(li);
     }
     $('pbAll').hidden = !r || !r.canEncrypt || files.length < 2;
+    $('pbTrainer').hidden = !files.some(f => f.trainer);
     if (!files.length) { $('pbErr').textContent = ''; close(); }
     else if (r && !r.canEncrypt) $('pbErr').textContent = 'הצפנת Windows אינה זמינה בחשבון הזה — אפשר רק למחוק.';
     return files;

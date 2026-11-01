@@ -335,6 +335,7 @@ dialog[open]{animation:ss-rise var(--ss-dur-slow) var(--ss-ease) both}
 dialog p.rk-hint{font-size:12.5px;margin-bottom:8px}
 #rkDlg{width:440px}
 #pbDlg{width:520px}
+.pb-tag{margin-inline-start:8px;padding:1px 8px;border-radius:999px;background:var(--ss-warning-soft);color:var(--ss-warning-ink);font-size:var(--ss-fs-xs)}
 .pb-list{list-style:none;margin:0 0 10px;padding:0;max-height:240px;overflow:auto}
 .pb-list li{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
 .pb-list li span{flex:1;overflow-wrap:anywhere}
@@ -549,6 +550,7 @@ dialog .ds-seg button[aria-pressed="true"],dialog .ds-presets button[aria-presse
   <h3 id="pbTitle">גיבויים ישנים לא מוצפנים</h3>
   <p>בתיקיית הגיבוי נמצאו קבצי גיבוי ישנים שנשמרו בלי הצפנה. כל מי שיש לו גישה לתיקייה (או לכונן ה-USB) יכול לקרוא אותם.</p>
   <p><b>הצפן</b> — נשמר עותק מוצפן (נפתח במחשב הזה, או בקוד השחזור 🔑), ורק אחרי שנבדק שהוא תקין המקור נמחק. <b>מחק</b> — אם אין בו צורך.</p>
+  <p id="pbTrainer" hidden><b>נתוני אימונים ובריאות</b> — גיבוי של ניהול האימונים, שעבר ל-SuperSuite לימוד. יש בו פרטי מתאמנים ומדדי בריאות בטקסט גלוי. כדי להמשיך לעבוד עם הנתונים — שחזרו את הקובץ ב-SuperSuite לימוד, ורק אחר כך הצפינו או מחקו אותו כאן.</p>
   <p class="rk-hint" id="pbDir" dir="ltr"></p>
   <ul id="pbList" class="pb-list"></ul>
   <div class="err" id="pbErr"></div>
