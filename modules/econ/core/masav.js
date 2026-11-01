@@ -131,6 +131,44 @@ function buildDebitFile({ settings, chargeDate, createdDate, items }) {
   return { text: lines.join('\r\n') + '\r\n', totalAg, count: rows.length };
 }
 
+/* קובץ זיכויים (תשלומים: כסף יוצא מחשבון המוסד) — PLAN שלב 10, 10.4. מקור: "מפרט טכני לבצוע תשלומים באמצעות מס"ב".
+   אותו מבנה כמו קובץ החיובים, בהבדלים: סוג התנועה 006 (במקום 504), וברשומת הסה"כ הסכום במיקום 22 (15 תווים)
+   ומספר התנועות במיקום 52 (7 תווים) — הפוך מקובץ החיובים. אסמכתה — מספר התשלום אצל המוסד (ספרות, רשות).
+   ⚠ לא נבדק מול סימולטור הבנק: אין שימוש אמיתי לפני בדיקה (8א.3). טעות כאן שולחת כסף לחשבון אחר.
+   input: settings; paymentDate — YYYY-MM-DD (יום הזיכוי); createdDate; items — [{ bank, branch, account, idNumber, name, amountAg, reference, period }]
+   מחזיר { text, totalAg, count } */
+function buildCreditFile({ settings, paymentDate, createdDate, items }) {
+  const s = validateSettings(settings);
+  if (!isDay(paymentDate)) throw new Error('תאריך התשלום אינו תקין');
+  if (!isDay(createdDate)) throw new Error('תאריך יצירת הקובץ אינו תקין');
+  if (!Array.isArray(items) || items.length === 0) throw new Error('אין תשלומים לקובץ');
+  if (items.length > MAX_ITEMS) throw new Error('יותר מדי תשלומים בקובץ אחד');
+  const inst = N(s.institution, 8);
+  const head = 'K' + inst + '00' + isoToYYMMDD(paymentDate) + '0' + '001' + '0' + isoToYYMMDD(createdDate) + N(s.sender, 5) + '0'.repeat(6) +
+    textField(s.name, 30, s.hebrew) + ' '.repeat(56) + 'KOT';
+  const rows = items.map((it, i) => {
+    const acc = validateBankAccount(it);
+    const ag = Number(it.amountAg);
+    if (!Number.isInteger(ag) || ag <= 0 || ag > MAX_AMOUNT_AG) throw new Error(`סכום התשלום אינו תקין (שורה ${i + 1}) — חייב להיות חיובי`);
+    const id = digits(it.idNumber);
+    if (id.length > 9) throw new Error(`מספר הזהות ארוך מדי (שורה ${i + 1})`);
+    if (!String(it.name ?? '').trim()) throw new Error(`שם המוטב חסר (שורה ${i + 1})`);
+    const ref = digits(it.reference);
+    if (ref.length > 20) throw new Error(`האסמכתה ארוכה מדי (שורה ${i + 1})`);
+    const period = /^\d{4}-\d{2}$/.test(String(it.period || '')) ? isoToYYMM(it.period).repeat(2) : '0'.repeat(8);
+    const line = '1' + inst + '00' + '000000' + acc.bank + acc.branch + '0000' + acc.account + '0' + N(id, 9) +
+      textField(it.name, 16, s.hebrew) + N(ag, 13) + N(ref, 20) + period + '000' + '006' + '0'.repeat(18) + '  ';
+    return { line, ag, sortKey: acc.bank + acc.branch + acc.account + N(ref, 20) };
+  }).sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
+  const totalAg = rows.reduce((t, r) => t + r.ag, 0);
+  if (totalAg > 1e15 - 1) throw new Error('סכום הקובץ גדול מדי');
+  const total = '5' + inst + '00' + isoToYYMMDD(paymentDate) + '0' + '001' + N(totalAg, 15) + '0'.repeat(15) + N(rows.length, 7) + '0'.repeat(7) +
+    ' '.repeat(63);
+  const lines = [head, ...rows.map(r => r.line), total, '9'.repeat(DEBIT_LEN)];
+  for (const l of lines) if (l.length !== DEBIT_LEN) throw new Error(`שגיאה פנימית: רשומה באורך ${l.length} במקום ${DEBIT_LEN}`);
+  return { text: lines.join('\r\n') + '\r\n', totalAg, count: rows.length };
+}
+
 /* קליטת קובץ החזרות חיובים (220 תווים לרשומה; רווחים בסוף שורה עשויים להיחתך — משלימים).
    מחזיר { items, errors } — items: [{ institution, reasonCode, reason, reference, bank, branch, account, amountAg, chargeDate, returnDate, period }] */
 function parseReturnsFile(text) {
@@ -230,7 +268,7 @@ function applyReturns(batches, parsed, institution) {
 
 module.exports = {
   DEBIT_LEN, RETURN_LEN, HEBREW_CODES, RETURN_REASONS, FATAL_REASONS,
-  validateBankAccount, maskAccount, validateSettings, textField, referenceField, buildDebitFile, parseReturnsFile,
+  validateBankAccount, maskAccount, validateSettings, textField, referenceField, buildDebitFile, buildCreditFile, parseReturnsFile,
   returnKey, busyKeys, applyReturns, isDay
 };
 
