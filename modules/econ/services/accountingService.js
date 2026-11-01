@@ -690,13 +690,18 @@ class AccountingService {
     const data = await this._load();
     const names = Object.fromEntries(data.accounts.map(a => [a.code, a.name]));
     if (kind === 'journal') {
-      const headers = ['תאריך', 'תיאור', 'קוד חשבון', 'שם חשבון', 'חובה', 'זכות', 'מזהה רשומה', 'סטטוס'];
+      // טווח תאריכים — רק תאריך אמיתי (2026-02-31 נדחה)
+      if ((from && !isDay(from)) || (to && !isDay(to))) throw new Error('טווח התאריכים לייצוא אינו תקין');
+      const headers = ['תאריך', 'תיאור', 'קוד חשבון', 'שם חשבון', 'חובה', 'זכות', 'חשבון נגדי', 'פרטי השורה', 'אסמכתה', 'תאריך אסמכתה', 'ע.מ ספק', 'מזהה רשומה', 'סטטוס'];
       const rows = [];
       const entries = data.journal.filter(e => (!from || e.date >= from) && (!to || e.date <= to))
         .sort((a, b) => a.date.localeCompare(b.date));
       for (const e of entries) {
         const status = e.reversedBy ? 'בוטלה' : (e.reversalOf ? 'ביטול' : 'פעילה');
-        for (const l of e.lines) rows.push([e.date, e.description, l.account, names[l.account] || '', l.debit || '', l.credit || '', e.id, status]);
+        const sup = UF.supplierRefOf(e);
+        const supTax = (e.supplierDoc && e.supplierDoc.taxId) || (e.vatDoc && e.vatDoc.supplierTaxId) || '';
+        e.lines.forEach((l, i) => rows.push([e.date, e.description, l.account, names[l.account] || '', l.debit || '', l.credit || '',
+          UF.counterAccountOf(e, i), l.memo || '', sup ? sup.reference : '', sup ? sup.docDate : '', supTax, e.id, status]));
       }
       return { headers, rows, name: `יומן-${from || 'הכל'}-${to || 'היום'}` };
     }
