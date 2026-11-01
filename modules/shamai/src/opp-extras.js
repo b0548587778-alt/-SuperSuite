@@ -71,8 +71,10 @@ function showPhotoZoom(src) {
   modal.className = 'photo-zoom';
   modal.innerHTML = `
     <button class="photo-zoom-close" aria-label="סגור">×</button>
-    <img src="${src}" alt="תמונת הפריט" />
+    <img alt="תמונת הפריט" />
   `;
+  // הכתובת דרך המאפיין ולא בתוך ה-HTML — ערך עם מרכאות לא יכול לשבור את התג
+  modal.querySelector('img').src = String(src || '');
   modal.addEventListener('click', () => modal.remove());
   document.body.appendChild(modal);
 }
