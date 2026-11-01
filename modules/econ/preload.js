@@ -84,14 +84,6 @@ contextBridge.exposeInMainWorld('systemAPI', {
   deleteContact: (contactId) => ipcRenderer.invoke('contacts:delete', contactId),
   searchContacts: (query) => ipcRenderer.invoke('contacts:search', query),
 
-  // Fitness
-  getFitnessData: () => ipcRenderer.invoke('fitness:get'),
-  createWorkout: (workoutData) => ipcRenderer.invoke('fitness:createWorkout', workoutData),
-  createNutrition: (nutritionData) => ipcRenderer.invoke('fitness:createNutrition', nutritionData),
-  createMetric: (metricData) => ipcRenderer.invoke('fitness:createMetric', metricData),
-  getWorkoutsByType: (type) => ipcRenderer.invoke('fitness:getWorkoutsByType', type),
-  getMetricsByDateRange: (startDate, endDate) => ipcRenderer.invoke('fitness:getMetricsByDateRange', startDate, endDate),
-
   // Voice Notes
   getVoiceNotes: () => ipcRenderer.invoke('voiceNotes:get'),
   createVoiceNote: (noteData) => ipcRenderer.invoke('voiceNotes:create', noteData),
@@ -437,8 +429,6 @@ contextBridge.exposeInMainWorld('systemAPI', {
   collectMarkPaid: (id, input) => ipcRenderer.invoke('collect:markPaid', id, input),
   collectPreviewImport: (csvText) => ipcRenderer.invoke('collect:previewImport', csvText),
   collectImportReport: (csvText, mapping) => ipcRenderer.invoke('collect:importReport', csvText, mapping),
-  collectTrainerPayments: () => ipcRenderer.invoke('collect:getTrainerPayments'),
-  collectIssueTrainerReceipt: (key, opts) => ipcRenderer.invoke('collect:issueTrainerReceipt', key, opts),
   chatOverview: (as, filter) => ipcRenderer.invoke('chat:overview', as, filter),
   chatEdit: (input, as) => ipcRenderer.invoke('chat:edit', input, as),
   chatDeleteForAll: (mid, as) => ipcRenderer.invoke('chat:deleteForAll', mid, as),

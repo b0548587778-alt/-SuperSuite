@@ -27,7 +27,7 @@ const collections = [
   'personalFinance',   // Personal financial plans
   'mortgageScenarios', // Mortgage/loan scenarios
   'canvasBoards',      // Kanban/whiteboard
-  'fitnessData',       // Health & fitness tracking
+  'fitnessData',       // יומן כושר אישי — המסך הוסר (מוצר כלכלי); האוסף נשאר כדי שנתונים קיימים וגיבויים לא יאבדו
   'voiceNotes',        // Voice notes/audio memos
   'accounts',          // Chart of accounts (תוכנית חשבונות)
   'journal',           // Double-entry journal (יומן)

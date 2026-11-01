@@ -15,7 +15,6 @@ const { BusinessService: businessService } = require('./services/businessService
 const { CanvasService: canvasService } = require('./services/canvasService');
 const { TasksService: tasksService } = require('./services/tasksService');
 const { ContactsService: contactsService } = require('./services/contactsService');
-const { FitnessService: fitnessService } = require('./services/fitnessService');
 const { VoiceNotesService: voiceNotesService } = require('./services/voiceNotesService');
 const { AccountingService: accountingService } = require('./services/accountingService');
 const { NpoService: npoService } = require('./services/npoService');
@@ -47,7 +46,6 @@ const HS = require('./core/homeSummary');
 const { IDLE_MIN_RANGE } = require('./services/authService');
 const path = require('path');
 const LG = require('../../shell/licensing/gate');
-const TP = require('./core/trainerPayments');
 const GS = require('../../shell/google-signin');
 const GOOGLE_CLIENT = require('../../shell/google-client');
 const LS = require('../../shell/licensing/store');
@@ -66,7 +64,7 @@ const ACT = require('../../shell/licensing/activation');
 const LIC = require('../../shell/licensing/license');
 const AI = require('../../shell/ai');
 const AI_RULES = require('../../shell/ai/rules'); // טהור — לזיהוי התחום ולקביעת התקופה, כדי שהסיכום והתשובה יתאימו
-const AI_MODS = require('../../shell/ai/module-context'); // טהור — נתוני השמאות והאימונים לעוזר, מתוך המחסן של המודול
+const AI_MODS = require('../../shell/ai/module-context'); // טהור — נתוני השמאות לעוזר, מתוך המחסן של המודול
 
 let db;
 let licenseStore = null;
@@ -106,8 +104,6 @@ function withActivation(s) {
   return { ...s, status: 'locked', activation: act, reasons: [{ kind: 'locked', reason: ACT.message(act), source: 'activation', step: first && first.id }, ...(s.reasons || [])] };
 }
 let clockNow = () => Date.now();
-// מקור תשלומי האימונים (main.js): (senderId) ← נתוני מחסן האימונים. בלי מקור (אנדרואיד, בדיקות) — לא זמין
-let trainerSource = null;
 // עוזר ה-AI (shell/ai): { status, prefsGet, prefsSave, run, explain } — נבנה ב-initEcon, ושומר את העדפותיו
 let aiAssistant = null;
 let aiOptions = null;
@@ -118,7 +114,7 @@ let aiRunFn = null;
 let moduleLicensed = null;
 // מקור נתוני השמאות לעוזר ה-AI (main.js): (senderId) ← תמונת המחסן המוצפן של השמאות. בלי מקור (אנדרואיד, בדיקות) — לא זמין
 let shamaiSource = null;
-// הקשר זמני לעוזר ה-AI (מקום אחד לכל חלון): { session, data: { shamai, trainer } } — נמחק אחרי כל שאלה, בסוף הפגישה
+// הקשר זמני לעוזר ה-AI (מקום אחד לכל חלון): { session, data: { shamai } } — נמחק אחרי כל שאלה, בסוף הפגישה
 // (יציאה, ניתוק, כניסה של משתמש אחר באותו חלון), ואינו נשמר לדיסק
 const aiContextBySender = new Map();
 let aiSessionHooked = false;
@@ -210,9 +206,8 @@ async function initEcon(userDataPath, opts = {}) {
   // אתחול חוזר: התור מול השרת מתחיל מחדש (פעולה של המופע הקודם לא מעכבת את החדש)
   relayChain = Promise.resolve();
   const { rootKeys = ROOT_KEYS, relayUrl = DEFAULT_RELAY_URL, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
-  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, trainerData, googleClient } = opts;
+  updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, googleClient } = opts;
   restTime = isRestTime;
-  trainerSource = typeof trainerData === 'function' ? trainerData : null;
   shamaiSource = typeof opts.shamaiData === 'function' ? opts.shamaiData : null;
   // שם הפרמטר חופף למשתנה הגלובלי — כאן מעדכנים רק את הגלובלי (הצהרה מחודשת הייתה אסורה)
   aiOptions = typeof opts.aiOptions === 'function' ? opts.aiOptions : null;
@@ -283,7 +278,6 @@ async function initEcon(userDataPath, opts = {}) {
   canvasService.initialize(db);
   tasksService.initialize(db);
   contactsService.initialize(db);
-  fitnessService.initialize(db);
   voiceNotesService.initialize(db);
   accountingService.initialize(db);
   npoService.initialize(db);
@@ -353,9 +347,9 @@ function permissionFor(channel) {
   // עוזר ה-AI: קריאה — לכל משתמש; שאלה — עריכה (מוגבלת לקריאה בכל מקרה); שינוי העדפות, הסכמה לענן ובדיקת הגדרות — מנהל בלבד
   if (channel === 'ai:status' || channel === 'ai:prefs:get' || channel === 'ai:modules' || channel === 'ai:sample' || channel === 'ai:explain') return 'data.view';
   if (channel === 'ai:run') return 'data.edit';
-  // העוזר שמבקש תצוגה אחרת (עמותה, שמאות, אימונים) — קריאה בלבד, בלי שינוי דבר
+  // העוזר שמבקש תצוגה אחרת (עמותה, שמאות) — קריאה בלבד, בלי שינוי דבר
   if (channel === 'ai:open') return 'data.view';
-  // העברת הקשר זמני (הערכה אחרונה מהשמאות, דוח מן האימונים) — דורש גם הרשאת צפייה בחשבונות
+  // העברת הקשר זמני (הערכה אחרונה מהשמאות) — דורש גם הרשאת צפייה בחשבונות
   if (channel === 'ai:context') return 'data.view';
   // חיפוש בשפה טבעית (Ctrl+K) — קריאה בלבד; מצב המודל — לכל משתמש. התקנה, אימות והסרה — נופלים ל-users.manage למטה
   if (channel === 'ai:search' || channel === 'ai:model:status') return 'data.view';
@@ -885,31 +879,6 @@ function registerIpcHandlers() {
 
   handle('contacts:search', async (event, query) => {
     return await contactsService.searchContacts(event.sender.id, query);
-  });
-
-  // Fitness handlers
-  handle('fitness:get', async (event) => {
-    return await fitnessService.getFitnessData(event.sender.id);
-  });
-  
-  handle('fitness:createWorkout', async (event, workoutData) => {
-    return await fitnessService.createWorkout(event.sender.id, workoutData);
-  });
-  
-  handle('fitness:createNutrition', async (event, nutritionData) => {
-    return await fitnessService.createNutrition(event.sender.id, nutritionData);
-  });
-  
-  handle('fitness:createMetric', async (event, metricData) => {
-    return await fitnessService.createMetric(event.sender.id, metricData);
-  });
-  
-  handle('fitness:getWorkoutsByType', async (event, type) => {
-    return await fitnessService.getWorkoutsByType(event.sender.id, type);
-  });
-  
-  handle('fitness:getMetricsByDateRange', async (event, startDate, endDate) => {
-    return await fitnessService.getMetricsByDateRange(event.sender.id, startDate, endDate);
   });
 
   // Voice Notes handlers
@@ -1499,33 +1468,6 @@ function registerIpcHandlers() {
     await auditEvent(event, 'collect.import', { recorded: r.recorded.length, failed: r.failed.length, unmatched: r.unmatched.length });
     return r;
   });
-  // תשלומי מנויים ממודול האימונים (PLAN.md 9.11) ← חשבונית מס/קבלה. main.js מאמת שהבקשה מתצוגת המודול הכלכלי,
-  // שמודול האימונים ברישיון ושהמחסן שלו פתוח; הסכום, התאריך והשם נקראים שוב מהמחסן — לא מהממשק
-  const trainerItems = (event) => {
-    if (!trainerSource) throw new Error('תשלומי האימונים אינם זמינים במכשיר הזה');
-    return trainerSource(event.sender.id);
-  };
-  handle('collect:getTrainerPayments', async (event) => {
-    assertCollectDomain('invoice');
-    if (!trainerSource) return { available: false, reason: 'תשלומי האימונים אינם זמינים במכשיר הזה', payments: [] };
-    const payments = TP.readPayments(trainerItems(event));
-    const { invoices } = await accountingService._load();
-    // סוג המסמך המוצע — כמו בהפקה האחרונה (עוסק פטור / מורשה)
-    const last = invoices.filter(i => i.trainerPayment).sort((a, b) => b.number - a.number)[0];
-    return { available: true, exemptDefault: !!(last && last.vatExempt), payments: TP.withReceipts(payments, invoices) };
-  });
-  // אישור מפורש של המשתמש (confirmed) — אחרת לא מופקת חשבונית. exempt: עוסק פטור — חשבונית עסקה וקבלה, בלי מע"מ
-  handle('collect:issueTrainerReceipt', async (event, key, opts) => {
-    assertCollectDomain('invoice');
-    if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
-    const p = TP.readPayments(trainerItems(event)).find(x => x.key === String(key || ''));
-    if (!p) throw new Error('התשלום לא נמצא במודול האימונים (ייתכן שנמחק)');
-    const exempt = opts.exempt === true;
-    const created = await accountingService.createTrainerReceipt({ ...TP.invoiceInput(p), exempt });
-    const inv = await accountingService.getInvoice(created.id);
-    await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'trainer', amountAg: p.amountAg, exempt });
-    return { id: inv.id, number: inv.number, total: inv.total, customer: inv.customer, exempt, ...(inv.receiptNumber ? { receiptNumber: inv.receiptNumber } : {}) };
-  });
 
   handle('gemach:getOverview', async (event, asOf) => gemachService.getOverview(asOf || localDay(Date.now())));
   handle('gemach:getLoan', async (event, id) => gemachService.getLoan(id));
@@ -1622,18 +1564,13 @@ function registerIpcHandlers() {
   });
   // מאגר אנשים — קריאה בלבד. נזקק חסוי נכלל רק למי שמורשה לראות חסויים (כמו במסך החסד)
   // רק התחומים הפתוחים ברישיון — כרטיס אדם לא חושף תחום סגור (סקירת אבטחה 10.2026, ממצא 6)
-  // המתאמנים (PLAN.md 6.4): רק כשמודול האימונים ברישיון ונתוניו פתוחים (trainerSource בודק ב-main.js). בלי — המאגר בלעדיהם, בלי שגיאה
-  const peopleTrainerClients = (event, sources) => {
-    if (!trainerSource || (sources && !sources.includes('trainer'))) return [];
-    try { return TP.readClients(trainerSource(event.sender.id), localDay(Date.now())); } catch { return []; }
-  };
   handle('people:search', async (event, query) => {
     const sources = LG.peopleSources(licenseState());
-    return peopleService.search(query, canSeeConfidential(event), sources, peopleTrainerClients(event, sources));
+    return peopleService.search(query, canSeeConfidential(event), sources);
   });
   handle('people:getCard', async (event, key) => {
     const sources = LG.peopleSources(licenseState());
-    const c = await peopleService.getCard(key, canSeeConfidential(event), sources, peopleTrainerClients(event, sources));
+    const c = await peopleService.getCard(key, canSeeConfidential(event), sources);
     if (c.beneficiary.some(b => b.confidential)) await auditEvent(event, 'chesed.confidential.view', { via: 'people', key });
     return c;
   });
@@ -2988,7 +2925,6 @@ function registerIpcHandlers() {
     { id: 'acct', label: 'חשבונאות וחשבוניות', opened: canRead(event, 'data.view') && moduleLicensedFlag('econ') },
     { id: 'npo', label: 'עמותה ותרומות', opened: npoOpen(event) },
     { id: 'shamai', label: 'שמאות', opened: moduleLicensedFlag('shamai') && canRead(event, 'data.view') },
-    { id: 'trainer', label: 'אימונים', opened: moduleLicensedFlag('trainer') && canRead(event, 'data.view') },
   ]);
 
   // ניקוי טקסט שהגיע מהממשק — בלי תווי בקרה, באורך מוגבל
@@ -3004,7 +2940,7 @@ function registerIpcHandlers() {
     return { from, to, label: clipText(r.label, 40) || null };
   }
 
-  // נתוני מודול (שמאות / אימונים) מהמחסן המוצפן שלו, דרך main.js — קריאה בלבד. בלי מקור או בכשל — null
+  // נתוני מודול (שמאות) מהמחסן המוצפן שלו, דרך main.js — קריאה בלבד. בלי מקור או בכשל — null
   const readModule = (source, event) => {
     if (!source) return null;
     try { return source(event.sender.id); } catch (e) { errorLogger('ai-module-context', e); return null; }
@@ -3012,7 +2948,7 @@ function registerIpcHandlers() {
 
   // הקשר מהמנוע הקיים. כל קריאה כפופה להרשאה ולרישיון של התחום שלה
   // range (אופציונלי) — הטווח המבוקש; הסיכום נטען לתקופה עצמה, לא לכל הזמן.
-  // opts.npoYear — שנת התרומות שבשאלה (donorYear); opts.modules — לקרוא גם את נתוני השמאות והאימונים (שאלה, לא חיפוש)
+  // opts.npoYear — שנת התרומות שבשאלה (donorYear); opts.modules — לקרוא גם את נתוני השמאות (שאלה, לא חיפוש)
   async function aiRulesContext(event, today, range = null, opts = {}) {
     const ctx = { today, opened: {} };
     const lic = licenseState();
@@ -3021,7 +2957,6 @@ function registerIpcHandlers() {
     ctx.opened.acct = acctCanSee;
     ctx.opened.npo = npoCanSee;
     ctx.opened.shamai = moduleLicensedFlag('shamai') && canRead(event, 'data.view');
-    ctx.opened.trainer = moduleLicensedFlag('trainer') && canRead(event, 'data.view');
     if (acctCanSee) {
       const period = { from: range && range.from, to: range && range.to };
       try { ctx.summary = await accountingService.getPeriodSummary(period); } catch { ctx.summary = null; }
@@ -3043,16 +2978,14 @@ function registerIpcHandlers() {
     aiContextBySender.delete(event.sender.id);
     const extra = held && held.session && held.session === authService.sessions.get(event.sender.id) ? held.data : null;
     // נתוני המודולים עצמם (המחסן המוצפן) קודמים להקשר שנשלח מהמסך
-    if (opts.modules && ctx.opened.trainer) ctx.trainer = AI_MODS.trainerContext(readModule(trainerSource, event), today);
     if (opts.modules && ctx.opened.shamai) ctx.shamai = AI_MODS.shamaiContext(readModule(shamaiSource, event));
     if (extra) {
       if (ctx.opened.shamai && !ctx.shamai && extra.shamai) ctx.shamai = extra.shamai;
-      if (ctx.opened.trainer && !ctx.trainer && extra.trainer) ctx.trainer = extra.trainer;
     }
     return ctx;
   }
 
-  // הקשר מהשמאות/האימונים — קלט לא מהימן: רק השדות המוכרים, בגבולות גודל. לא נשמר לשום מקום
+  // הקשר מהשמאות — קלט לא מהימן: רק השדות המוכרים, בגבולות גודל. לא נשמר לשום מקום
   const clipAg = (v) => (Number.isSafeInteger(v) && v >= 0 && v <= 100_000_000_000 ? v : null);
   function cleanAiContext(raw) {
     const r = raw && typeof raw === 'object' ? raw : {};
@@ -3071,16 +3004,6 @@ function registerIpcHandlers() {
           warnings: (Array.isArray(s.warnings) ? s.warnings.slice(0, 10) : []).map(w => clipText(w, 200)).filter(Boolean),
         };
       }
-    }
-    const t = r.trainer && typeof r.trainer === 'object' ? r.trainer : null;
-    if (t) {
-      const alerts = (Array.isArray(t.alerts) ? t.alerts.slice(0, 50) : []).map(a => ({
-        title: clipText(a && a.title, 60),
-        detail: clipText(a && a.detail, 160),
-        tone: ['red', 'yellow', 'info'].includes(a && a.tone) ? a.tone : 'info',
-      })).filter(a => a.title);
-      const clients = Number(t.clients);
-      out.trainer = { alerts, clients: Number.isFinite(clients) && clients >= 0 ? Math.round(clients) : undefined };
     }
     return out;
   }
@@ -3143,7 +3066,7 @@ function registerIpcHandlers() {
       const range = hint && AI_RULES.rangeAgrees(hint, fallback) ? hint : fallback;
       const ctx = await aiRulesContext(event, today, range, { npoYear: AI_RULES.donorYear(q, today), modules: true });
       if (ctx.opened.acct) ctx.range = range;
-      // קשר השמאות/האימונים נשרף בכל שאלה — גם כשהוא לא נוצל (בלי כשירות לאימות/canRead) — והוא לא נשמר.
+      // קשר השמאות נשרף בכל שאלה — גם כשהוא לא נוצל (בלי כשירות לאימות/canRead) — והוא לא נשמר.
       // כאן ולא אחרי התשובה: הקשר חדש שנשלח בזמן שהמודל עונה שייך לשאלה הבאה
       aiContextBySender.delete(event.sender.id);
       return { q, ctx };
@@ -3195,15 +3118,15 @@ function registerIpcHandlers() {
     after: async (ev, res) => { await auditEvent(ev, 'ai.model.remove', {}); return res; },
   });
   // העוזר מצביע על המסך שבו אפשר לראות את הנתונים. רשימת יעדים סגורה — בלי ניווט חופשי
-  // trainer / shamai — מודולים (הממשק פותח אותם ב-openModule); השאר — מסכים במודול הכלכלי
-  const AI_VIEW_TARGETS = new Set(['acct-invoices', 'acct-reports', 'npo', 'realestate', 'trainer', 'shamai']);
+  // shamai — מודול (הממשק פותח אותם ב-openModule); השאר — מסכים במודול הכלכלי
+  const AI_VIEW_TARGETS = new Set(['acct-invoices', 'acct-reports', 'npo', 'realestate', 'shamai']);
   handle('ai:open', async (event, target) => {
     const view = AI_VIEW_TARGETS.has(target) ? target : null;
     if (!view) throw new Error('המסך המבוקש אינו מוכר');
     await auditEvent(event, 'ai.open', { view });
     return { view };
   });
-  // דוגמת שאלות — לפי התחומים שפתוחים למשתמש הזה. שמאות ואימונים — רק כשיש מקור לנתונים שלהם במכשיר הזה
+  // דוגמת שאלות — לפי התחומים שפתוחים למשתמש הזה. שמאות — רק כשיש מקור לנתונים שלה במכשיר הזה
   // (main.js); בלעדיו השאלה הייתה נענית תמיד „אין נתונים”
   handle('ai:sample', async (event) => {
     const open = await aiModules(event);
@@ -3211,7 +3134,6 @@ function registerIpcHandlers() {
     if (open.find(m => m.id === 'acct').opened) qs.push('כמה גבייתי החודש?', 'מי לא שילם?', 'מה דוח המע"מ של החודש?');
     if (open.find(m => m.id === 'npo').opened) qs.push('אילו תורמים תרמו השנה?');
     if (shamaiSource && open.find(m => m.id === 'shamai').opened) qs.push('מה הערכת השווי האחרונה?');
-    if (trainerSource && open.find(m => m.id === 'trainer').opened) qs.push('איזה מתאמנים דורשים תשומת לב?');
     qs.push('איך מוציאים חשבונית?');
     return qs;
   });
@@ -3260,7 +3182,7 @@ module.exports = { toUserError, setErrorLogger, initEcon, chatAutoFetch, flushCh
   // מודולים שדורשים כניסה: בדיקה שקטה, רישום פעילות (עבודה במודול כזה מונעת ניתוק), ואירוע כניסה/יציאה
   hasSession: (senderId) => authService.peekSession(senderId),
   touchSession: (senderId) => { authService.getSession(senderId); },
-  // הרשאה בפגישה פעילה — בלי לרשום פעילות (כתיבה במחסן של שמאי / אימונים ב-main.js)
+  // הרשאה בפגישה פעילה — בלי לרשום פעילות (כתיבה במחסן של שמאי ב-main.js)
   sessionCan: (senderId, permission) => {
     const s = authService.peekSession(senderId) && authService.sessions.get(senderId);
     return !!(s && Array.isArray(s.permissions) && s.permissions.includes(permission));

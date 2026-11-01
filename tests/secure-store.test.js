@@ -1,4 +1,4 @@
-// מחסן מוצפן לשמאות ולאימונים (PLAN.md 3.2): הקובץ לא מכיל שמות, העברה חד-פעמית עם גיבוי לפני,
+// מחסן מוצפן לשמאות (PLAN.md 3.2): הקובץ לא מכיל שמות, העברה חד-פעמית עם גיבוי לפני,
 // קובץ שלא נפתח לא נדרס, ורק התצוגה של המודול עצמו ניגשת לנתונים שלו.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -13,7 +13,7 @@ const ROOT = path.join(__dirname, '..');
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'ss-secure-'));
 const newKey = () => crypto.randomBytes(32).toString('base64');
 const now = (fn) => { fn(); return 0; }; // כתיבה מיידית בבדיקות
-const make = (dir, key, mod = 'trainer', extra = {}) => createSecureStore({ fs, dir, mod, getBackupKey: () => key, schedule: now, ...extra });
+const make = (dir, key, mod = 'shamai', extra = {}) => createSecureStore({ fs, dir, mod, getBackupKey: () => key, schedule: now, ...extra });
 const NAME = 'רחל כהן';
 
 test('כתיבה וקריאה: הקובץ מוצפן ואין בו שמות', () => {
@@ -31,15 +31,21 @@ test('כתיבה וקריאה: הקובץ מוצפן ואין בו שמות', ()
   assert.deepEqual(make(dir, key).snapshot(), {});
 });
 
-test('מודולים נפרדים: מפתח וקובץ שונים לכל מודול', () => {
+test('מודולים נפרדים: מפתח וקובץ לכל מודול; מחסן האימונים (עבר למוצר נפרד) לא נפתח ולא נמחק', () => {
   const dir = tmp();
   const key = newKey();
-  const a = make(dir, key, 'trainer');
-  const b = make(dir, key, 'shamai');
+  const { keyFor } = require('../shell/secure-store');
+  assert.notDeepEqual(keyFor(key, 'shamai'), keyFor(key, 'trainer'), 'מפתח נגזר לפי שם המודול');
+  // קובץ של משתמש קיים מגרסה שכללה את מודול האימונים — נשאר בדיסק כמו שהוא
+  const old = path.join(dir, 'secure-trainer.bin');
+  fs.writeFileSync(old, 'encrypted-trainer-data');
+  const a = make(dir, key, 'shamai');
   a.set('x', '1');
-  assert.notEqual(a.file, b.file);
-  assert.deepEqual(make(dir, key, 'shamai').snapshot(), {});
+  assert.equal(path.basename(a.file), 'secure-shamai.bin');
+  assert.equal(fs.readFileSync(old, 'utf8'), 'encrypted-trainer-data');
+  assert.throws(() => make(dir, key, 'trainer'), /מודול לא מוכר/);
   assert.throws(() => make(dir, key, 'econ'), /מודול לא מוכר/);
+  assert.equal(fs.readFileSync(old, 'utf8'), 'encrypted-trainer-data');
 });
 
 test('העברה: גיבוי לפני, ואם הגיבוי נכשל — אין העברה', () => {
@@ -73,7 +79,7 @@ test('קובץ שלא נפתח במפתח (Windows הותקן מחדש): נעו�
   const before = fs.readFileSync(s.file, 'utf8');
   let created = null;
   const errors = [];
-  const other = make(dir, newKey(), 'trainer', { getBackupKey: (create) => { created = create; return newKey(); }, onError: (_s, e) => errors.push(e) });
+  const other = make(dir, newKey(), 'shamai', { getBackupKey: (create) => { created = create; return newKey(); }, onError: (_s, e) => errors.push(e) });
   assert.equal(created, false, 'קובץ קיים — מבקשים מפתח בלי ליצור חדש');
   assert.equal(other.state, 'locked');
   assert.equal(other.set('a', 'x'), false);
@@ -110,7 +116,7 @@ test('כתיבה נדחית ומאוחדת (debounce), ו-flush כותב מיד'
   const dir = tmp();
   const key = newKey();
   const queued = [];
-  const s = make(dir, key, 'trainer', { schedule: (fn) => { queued.push(fn); return 1; } });
+  const s = make(dir, key, 'shamai', { schedule: (fn) => { queued.push(fn); return 1; } });
   s.set('a', '1'); s.set('b', '2');
   assert.equal(queued.length, 1, 'שינויים רצופים — כתיבה אחת');
   assert.ok(!fs.existsSync(s.file));
@@ -132,9 +138,9 @@ test('main.js: כל ערוץ של המחסן בודק שהשולח הוא התצ
   assert.match(src, /for \(const s of Object\.values\(secureStores\)\) s\.flush\(\)/, 'כתיבה אחרונה ביציאה');
 });
 
-test('preload: פועל רק בשמאות ובאימונים, במסגרת העליונה, ומוחק את הישן רק אחרי העברה מוצלחת', () => {
+test('preload: פועל רק בשמאות, במסגרת העליונה, ומוחק את הישן רק אחרי העברה מוצלחת', () => {
   const src = fs.readFileSync(path.join(ROOT, 'shell', 'secure-ls-preload.js'), 'utf8');
-  assert.match(src, /\{ 'shamai': 'shamai', 'trainer': 'trainer' \}/);
+  assert.match(src, /\{ 'shamai': 'shamai' \}/);
   assert.match(src, /window === window\.top/);
   assert.match(src, /if \(r && r\.ok\) \{\s*localStorage\.clear\(\)/);
   assert.doesNotMatch(src, /exposeInMainWorld/, 'אין אובייקט חדש בעמוד');

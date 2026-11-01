@@ -60,7 +60,7 @@ function startAndroid({ econFails, moduleFails = false }) {
   MA.start({
     ipcMain: { handle: (c, fn) => handlers.set(c, fn), on() {} }, econ, frames, SHELL_ID: 1, emitShell() {},
     bridgeAsync: async (m, name, mime, text) => { saved.push({ m, name, text }); return { ok: true, name }; },
-    senderOf: (id) => ({ econ: 2, shamai: 3, trainer: 4, tools: 5 })[id],
+    senderOf: (id) => ({ econ: 2, shamai: 3, tools: 5 })[id],
     ui: (() => { let o = {}; return { load: () => o, save: (v) => { o = v; } }; })(),
     alert: (m) => alerts.push(m), confirm: () => true, exit() {}
   });

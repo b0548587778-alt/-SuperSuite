@@ -7,8 +7,7 @@
 const AI_SOURCES = [
   { id: 'acct', label: 'חשבונאות וחשבוניות' },
   { id: 'npo', label: 'עמותה ותרומות' },
-  { id: 'shamai', label: 'שמאות' },
-  { id: 'trainer', label: 'אימונים' }
+  { id: 'shamai', label: 'שמאות' }
 ];
 
 // התשובה נשמרת בזיכרון התצוגה בלבד — היא לא נשמרת למסד ולא נשלחת לשום מקום
@@ -24,11 +23,10 @@ const AI_OPEN_IDS = {
   profit: 'acct-reports',
   donors: 'npo',
   shamai: 'shamai',
-  trainer: 'trainer',
   howto: 'acct-invoices'
 };
 // יעדים שהם מודולים (נפתחים ב-openModule) ולא מסכים בממשק הכלכלי
-const AI_OPEN_MODULES = ['trainer', 'shamai'];
+const AI_OPEN_MODULES = ['shamai'];
 
 // טווח התקופה שהממשק מבקש במפורש. התאריכים נקבעים כאן לפי תאריך המחשב — לא UTC
 function aiUiRange(text) {
@@ -64,7 +62,7 @@ function renderAi(data) {
     : 'כלול בשדרוג';
 
   const sourceTags = AI_SOURCES.map(s => {
-    if (s.id === 'shamai' || s.id === 'trainer') {
+    if (s.id === 'shamai') {
       return `<span class="ss-badge ${opened[s.id] ? 'ss-badge-success' : ''}">${esc(s.label)} — ${opened[s.id] ? 'מודול פתוח' : 'מודול סגור'}</span>`;
     }
     return `<span class="ss-badge ${opened[s.id] ? 'ss-badge-success' : ''}">${esc(s.label)} — ${opened[s.id] ? 'פתוח' : 'לא בהרשאה'}</span>`;
@@ -101,7 +99,7 @@ function renderAi(data) {
   if (aiUi.answer) {
     const a = aiUi.answer;
     // הכפתור נושא את סוג התשובה (kind), והמסך נגזר ממנו בלחיצה. פעם נשמר בו המסך עצמו, והבדיקה בלחיצה
-    // חיפשה אותו כמפתח בטבלה — רק „trainer” (מפתח וגם מסך) עבד
+    // חיפשה אותו כמפתח בטבלה, ורק מפתח שהוא גם שם המסך עבד
     const kind = a.data && typeof a.data.kind === 'string' && Object.prototype.hasOwnProperty.call(AI_OPEN_IDS, a.data.kind) ? a.data.kind : '';
     html.push(`<div class="ss-card">
       <h4 class="ss-section-title">התשובה</h4>
@@ -249,7 +247,7 @@ function attachAiHandlers(root) {
       const kind = btn.dataset.aiOpen || '';
       // רק סוג תשובה מוכר, ורק מסך שמופיע בטבלה — סוג חדש בלי יעד לא מנווט לשום מקום
       const view = Object.prototype.hasOwnProperty.call(AI_OPEN_IDS, kind) ? AI_OPEN_IDS[kind] : '';
-      // מודול (אימונים, שמאות) אינו מסך בממשק הכלכלי (נפתח ב-openModule) — ולכן אינו בטבלת viewTitles
+      // מודול (שמאות) אינו מסך בממשק הכלכלי (נפתח ב-openModule) — ולכן אינו בטבלת viewTitles
       const isModule = AI_OPEN_MODULES.includes(view);
       const known = isModule || Object.prototype.hasOwnProperty.call(viewTitles, view);
       if (!view || !known) {

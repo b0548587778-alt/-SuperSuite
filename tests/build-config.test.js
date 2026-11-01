@@ -20,12 +20,11 @@ test('CI: משימת הבדיקות מורידה היסטוריה מלאה (בד
   assert.match(build, /actions\/checkout@(?:v4|[0-9a-f]{40} # v4)\s*\n\s*with:\s*\{\s*fetch-depth:\s*0[,\s}]/);
 });
 
-test('CI: המתקין אורז את מודול האימונים שנבנה מהמקור באותה ריצה (PLAN.md 6.1)', () => {
+test('CI: מודול האימונים (עבר למוצר החינוכי הנפרד) לא נבנה ולא נארז', () => {
   const yml = require('fs').readFileSync(require('path').join(__dirname, '..', '.github', 'workflows', 'build.yml'), 'utf8').replace(/\r\n/g, '\n');
-  const build = yml.slice(yml.indexOf('\n  build:'), yml.indexOf('\n  report:'));
-  const iTrainer = build.indexOf('node tools/build-trainer.js');
-  assert.ok(iTrainer > 0 && iTrainer < build.indexOf('node node_modules/electron-builder/out/cli/cli.js'), 'המודול נבנה באותה משימה, לפני האריזה');
-  assert.match(yml, /if \[ -f package-lock\.json \]; then CMD="npm ci"/);
+  assert.doesNotMatch(yml, /trainer/);
+  assert.ok(!require('fs').existsSync(require('path').join(__dirname, '..', 'modules', 'trainer')));
+  assert.ok(!require('fs').existsSync(require('path').join(__dirname, '..', 'modules-src')));
 });
 
 test('CI: בלי artifacts בין משימות — מכסת אחסון מלאה לא עוצרת את הבנייה, והיומנים מגיעים ל-ci-status', () => {
@@ -36,8 +35,6 @@ test('CI: בלי artifacts בין משימות — מכסת אחסון מלאה 
   const i = build.indexOf('- name: logs for report');
   assert.ok(i > build.indexOf('node tools/smoke-packaged.js'), 'הצעד האחרון');
   assert.match(build.slice(i, i + 200), /if: always\(\)[\s\S]*actions\/cache\/save@(?:v4|[0-9a-f]{40} # v4)[\s\S]*path: ci-logs/);
-  assert.match(build, /cp -r modules\/trainer ci-logs\/trainer-module/);
-  assert.ok(build.indexOf('cp -r modules/trainer') < build.indexOf('node tools/minify.js'), 'המודול למחשב — לפני הכיווץ');
   // קובץ הנעילה של השורש נשמר, ו-npm ci רק כשהוא כולל את node-llama-cpp
   assert.match(build, /cp package-lock\.json ci-logs\/root-package-lock\.json/);
   assert.match(build, /grep -q '"node_modules\/node-llama-cpp"' package-lock\.json; then CMD="npm ci"/);

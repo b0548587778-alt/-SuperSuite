@@ -6,11 +6,14 @@ const OFFER_TYPE = 'supersuite-offer';
 const MAX_PLANS = 20;
 const MAX_TERMS = 100000;
 const FEATURES = ['econ', 'econ.accounting', 'econ.npo', 'econ.gemach', 'econ.chesed', 'econ.mortgage', 'econ.mortgage-advisor', 'econ.mortgage-lab', 'econ.realestate',
-  'shamai', 'trainer', 'tools', 'ai', 'ai.local', 'ai.cloud'];
+  'shamai', 'tools', 'ai', 'ai.local', 'ai.cloud'];
+// תחומים שהיו במוצר ועברו למוצר אחר: לא מוצעים בהצעה חדשה, אבל הצעה חתומה ישנה שכוללת אותם עדיין מאומתת
+// (בלעדי זה תכנית שכל תחומיה ישנים הייתה "בלי אף תחום", וכל ההצעה נפסלת). 'trainer' — המוצר החינוכי הנפרד
+const LEGACY_FEATURES = ['trainer'];
 
 const clean = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, max);
 
-function cleanPlan(p, i) {
+function cleanPlan(p, i, { legacy = false } = {}) {
   const id = clean(p && p.id, 40) || 'plan-' + (i + 1);
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) throw new Error('מזהה תכנית אינו תקין');
   const name = clean(p.name, 60);
@@ -21,7 +24,8 @@ function cleanPlan(p, i) {
   if (!Number.isSafeInteger(priceAgorot) || priceAgorot < 0 || priceAgorot > 100000000) throw new Error(`המחיר בתכנית "${name}" אינו תקין`);
   const months = Number(p.months);
   if (!Number.isSafeInteger(months) || months < 12 || months > 60) throw new Error(`התקופה בתכנית "${name}" אינה תקינה — הרישיון שנתי (12–60 חודשים)`);
-  const features = [...new Set((Array.isArray(p.features) ? p.features : []).map(String))].filter(f => FEATURES.includes(f));
+  const known = (f) => FEATURES.includes(f) || (legacy && LEGACY_FEATURES.includes(f));
+  const features = [...new Set((Array.isArray(p.features) ? p.features : []).map(String))].filter(known);
   if (!features.length) throw new Error(`בתכנית "${name}" לא נבחר אף תחום`);
   const lim = p.limits || {};
   const int = (v, def, max) => { const n = Number(v); return Number.isSafeInteger(n) && n >= 0 && n <= max ? n : def; };
@@ -31,8 +35,8 @@ function cleanPlan(p, i) {
   return { id, name, desc: clean(p.desc, 300), priceAgorot, currency: 'ILS', months, features, limits };
 }
 
-function cleanOffer(input) {
-  const plans = (Array.isArray(input.plans) ? input.plans : []).slice(0, MAX_PLANS).map(cleanPlan);
+function cleanOffer(input, opts) {
+  const plans = (Array.isArray(input.plans) ? input.plans : []).slice(0, MAX_PLANS).map((p, i) => cleanPlan(p, i, opts));
   if (!plans.length) throw new Error('יש להגדיר לפחות תכנית אחת');
   if (new Set(plans.map(p => p.id)).size !== plans.length) throw new Error('מזהי התכניות חייבים להיות שונים');
   const t = input.terms || {};
@@ -55,7 +59,7 @@ function verifyOffer(text, rootKeys) {
   const key = (rootKeys || []).find(k => L.keyId(k) === o.payload.issuer);
   if (!key) throw new Error('ההצעה אינה מהספק של התוכנה הזו');
   if (!L.verifyObject(o.payload, o.sig, key)) throw new Error('חתימת ההצעה אינה תקינה');
-  const c = cleanOffer(o.payload);
+  const c = cleanOffer(o.payload, { legacy: true });
   if (c.terms.sha256 !== o.payload.terms.sha256) throw new Error('נוסח התקנון שונה מהחתום');
   return o.payload;
 }
@@ -68,4 +72,4 @@ const planOf = (offer, planId) => {
 
 const formatAgorot = (a) => '₪' + (Math.round(a) / 100).toLocaleString('he-IL', { minimumFractionDigits: a % 100 ? 2 : 0, maximumFractionDigits: 2 });
 
-module.exports = { OFFER_TYPE, FEATURES, createOffer, verifyOffer, planOf, formatAgorot };
+module.exports = { OFFER_TYPE, FEATURES, LEGACY_FEATURES, createOffer, verifyOffer, planOf, formatAgorot };

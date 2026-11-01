@@ -13,7 +13,7 @@ on:
         type: boolean
         default: false
   push:
-    # build/** — בניית מודול האימונים מענף עבודה לפני מיזוג (vite חסום ב-NetFree), בלי לגעת ב-master
+    # build/** — בנייה מענף עבודה לפני מיזוג, בלי לגעת ב-master
     branches: [master, 'build/**']
     # תגית גרסה (v3.11.0) ← בנייה ופרסום במאגר ההורדות (PLAN.md 1.1). דף ה-Actions חסום ב-NetFree, ותגית אפשר לדחוף ב-git
     tags: ['v*']
@@ -24,7 +24,7 @@ concurrency:
   group: ci-status
   cancel-in-progress: false
 jobs:
-  # משימה אחת: מודול האימונים מקוד המקור (modules-src/trainer; vite חסום ב-NetFree), הבדיקות, האריזה ובדיקת העלייה.
+  # משימה אחת: הבדיקות, הכיווץ, האריזה ובדיקת העלייה.
   # בלי artifacts בין משימות: כשמכסת האחסון של המאגר מלאה (ריצות #54–#59) העברת קבצים בין משימות נכשלה,
   # וכל הבנייה נעצרה אף שהבדיקות עברו. היומנים (ובפרסום — המתקין) עוברים ב-actions/cache, שאינו במכסה הזו.
   # קריאה בלבד: כאן רץ קוד של צד שלישי (npm install, electron-builder) — בלי טוקן כתיבה למאגר ובלי טוקן הפרסום
@@ -52,13 +52,10 @@ jobs:
         if: ${{ inputs.release || inputs.publish || startsWith(github.ref, 'refs/tags/v') }}
         run: set -o pipefail; { echo "== release-check"; node tools/release-check.js 2>&1; } | tee -a "$LOG"
       # עם קובץ נעילה — אותן גרסאות בדיוק בכל בנייה (npm ci); בלעדיו — npm install, והקובץ שנוצר נשמר ב-ci-status
-      - name: npm install (trainer)
-        working-directory: modules-src/trainer
-        run: |
-          set -o pipefail
-          if [ -f package-lock.json ]; then CMD="npm ci"; else CMD="npm install"; fi
-          { echo "== $CMD (trainer)"; $CMD 2>&1; } | tee -a "$LOG"
-          cp package-lock.json "$GITHUB_WORKSPACE/ci-logs/trainer-package-lock.json"
+      # esbuild לכיווץ — מקובץ הנעילה שלו בלבד (tools/minify-deps), בלי סודות. לא נארז בתוכנה
+      - name: npm ci (minify)
+        working-directory: tools/minify-deps
+        run: set -o pipefail; { echo "== npm ci (minify)"; npm ci 2>&1; } | tee -a "$LOG"
       # גם בשורש: npm ci רק כשקובץ הנעילה כולל את node-llama-cpp (אחרת npm ci נכשל על אי-התאמה).
       # הקובץ שנוצר נשמר ב-ci-status (root-package-lock.json) — אחרי commit שלו, כל בנייה מקבלת אותן גרסאות בדיוק.
       # node-llama-cpp בגרסה מדויקת ב-package.json: הוא נפרס ל-app.asar.unpacked, מחוץ לבדיקת השלמות של app.asar
@@ -73,21 +70,14 @@ jobs:
       - name: llm runtime for ci-status
         continue-on-error: true
         run: set -o pipefail; { echo "== llm-runtime"; node tools/llm-runtime.js pack ci-logs/llm-runtime 2>&1; } | tee -a "$LOG"
-      # המתקין אורז את מודול האימונים שנבנה מהמקור באותה ריצה (PLAN.md 6.1), לא את העותק שבמאגר.
-      # עותק לפני הכיווץ — למחשב, דרך ci-status: git checkout FETCH_HEAD -- trainer-module
-      - name: build trainer
-        run: |
-          set -o pipefail
-          { echo "== build-trainer"; node tools/build-trainer.js 2>&1; } | tee -a "$LOG"
-          cp -r modules/trainer ci-logs/trainer-module
       # הבדיקות רצות על הקוד המקורי, לפני הכיווץ
       - name: npm test
         run: set -o pipefail; { echo "== npm test"; npm test 2>&1; } | tee -a "$LOG"
       # כיווץ הקוד (PLAN.md 3.5) — במקום, בעותק של GitHub בלבד, אחרי הבדיקות.
-      # צעד נפרד בלי סודות החתימה, ובלי npm install: esbuild הנעול של מודול האימונים (modules-src/trainer/package-lock.json)
+      # צעד נפרד בלי סודות החתימה, ובלי npm install: esbuild הנעול (tools/minify-deps/package-lock.json)
       - name: minify
         env:
-          NODE_PATH: ${{ github.workspace }}/modules-src/trainer/node_modules
+          NODE_PATH: ${{ github.workspace }}/tools/minify-deps/node_modules
         run: set -o pipefail; { echo "== minify"; node tools/minify.js 2>&1; } | tee -a "$LOG"
       # --publish never: בלי זה electron-builder מזהה CI ומנסה לפרסם ל-GitHub Releases (ונכשל בלי GH_TOKEN).
       # פרסום גרסאות — משימת publish למטה (PLAN.md 1.1), למאגר ההורדות הציבורי.
@@ -129,7 +119,7 @@ jobs:
             dist/SuperSuite-Portable.exe
           key: installer-${{ github.run_id }}-${{ github.run_attempt }}
           enableCrossOsArchive: true
-      # היומנים והמודול הבנוי למשימת report — תמיד, גם אחרי כישלון
+      # היומנים למשימת report — תמיד, גם אחרי כישלון
       - name: logs for report
         if: always()
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -179,7 +169,7 @@ jobs:
           fi
           gh release create "v$V" --repo "$REPO" --title "SuperSuite $V" --latest --notes "SuperSuite גרסה $V" dist/SuperSuite-Setup.exe dist/SuperSuite-Portable.exe
           echo "פורסם: https://github.com/$REPO/releases/latest/download/SuperSuite-Setup.exe"
-  # היומנים, המודול הבנוי והסיכום לענף ci-status (קומיט אחד לריצה, נדרס בכל ריצה). הענף לא מפעיל בנייה.
+  # היומנים והסיכום לענף ci-status (קומיט אחד לריצה, נדרס בכל ריצה). הענף לא מפעיל בנייה.
   # רק כאן יש הרשאת כתיבה, ואין כאן קוד של צד שלישי
   report:
     needs: [build, publish]
@@ -228,7 +218,7 @@ jobs:
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # היומנים והמודול ממשימת build; אם היא נפלה לפני שמירתם — רק הסיכום
+          # היומנים ממשימת build; אם היא נפלה לפני שמירתם — רק הסיכום
           mkdir -p ci-logs logs && cd ci-logs
           git init -q
           git config user.name "ci"

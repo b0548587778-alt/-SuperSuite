@@ -1,6 +1,6 @@
 // אחידות חזותית בין המסכים והמודולים (רגרסיות מסקירת צילומי המסכים).
 // המודול הכלכלי: ממשק המודול (modules/econ/ui) רץ ב-vm עם DOM מדומה ונבדק מה המשתמש רואה.
-// שמאות ואימונים: בדיקות סטטיות לקבצי הסגנון והתבנית (המודולים אינם נטענים ב-Node).
+// שמאות: בדיקות סטטיות לקבצי הסגנון והתבנית (המודולים אינם נטענים ב-Node).
 const test = require('node:test');
 const { shamaiSource } = require('./helpers/shamai-src');
 const EconUI = require('./helpers/econ-ui');
@@ -91,23 +91,6 @@ test('תוכנית חשבונות — טבלה אחת מקובצת לפי סוג
   assert.ok(html.indexOf('נכס (2)') < html.indexOf('הכנסה (1)'), 'הסדר לפי סוג החשבון');
 });
 
-test('כושר ובריאות ריק — הודעת "אין רשומות" אחת ולא ארבע', async () => {
-  const h = await makeHarness({ getFitnessData: { workouts: [], nutrition: [], metrics: [] } });
-  await goTo(h, 'fitness');
-  const html = h.elements.view.innerHTML;
-  assert.equal((html.match(/אין רשומות/g) || []).length, 1);
-  assert.doesNotMatch(html, /אימונים \(0\)/);
-});
-
-test('כושר ובריאות עם נתונים — שלושת האזורים מוצגים', async () => {
-  const h = await makeHarness({ getFitnessData: { workouts: [{ id: 'w1', type: 'הליכה', duration: 30, date: '2026-10-01' }], nutrition: [], metrics: [] } });
-  await goTo(h, 'fitness');
-  const html = h.elements.view.innerHTML;
-  assert.match(html, /אימונים \(1\)/);
-  assert.match(html, /תזונה \(0\)/);
-  assert.match(html, /מדדים \(0\)/);
-});
-
 test('מסך ההגדרות: אותו שם בסרגל האחיד ובסרגל הפנימי', () => {
   const catalog = require('../shell/catalog');
   const m = [, (catalog.ITEMS.find(x => x.key === 'econ:settings') || {}).name];
@@ -155,37 +138,6 @@ test('שמאות: ערכת התוכנה (data-theme="light" קבוע), ברוח�
   assert.doesNotMatch(read('modules/shamai/style.css'), /max-width: 720px/);
 });
 
-// ---------- אימונים ----------
-// ערכת הצבעים בקוד המקור (PLAN.md 6.4) — נבנית לתוך החבילה
-const TRAINER_THEME = 'modules-src/trainer/src/theme.css';
-
-test('אימונים: ערכת הצבעים בתוך החבילה, ושפת העיצוב נטענת לפניה (PLAN.md 6.4)', () => {
-  const html = read('modules/trainer/index.html');
-  const bundle = html.match(/href="\/assets\/(index-[^"]+\.css)"/);
-  assert.ok(bundle, 'קובץ ה-CSS המהודר מקושר');
-  for (const href of ['/design-tokens.css', '/ui-kit.css']) {
-    const at = html.indexOf(`href="${href}"`);
-    assert.ok(at > 0 && at < html.indexOf(bundle[0]), href + ' לפני ה-CSS של החבילה (המיפוי בחבילה גובר עליו)');
-  }
-  assert.doesNotMatch(html, /suite-theme\.css/);
-  assert.ok(!fs.existsSync(path.join(ROOT, 'modules/trainer/suite-theme.css')), 'הקובץ הישן הוסר');
-  // המיפוי נבנה לתוך החבילה, אחרי Tailwind
-  const css = read('modules/trainer/assets/' + bundle[1]);
-  assert.ok(css.lastIndexOf('.bg-slate-950{background-color:var(--ss-bg)}') > css.indexOf('.bg-slate-950{'), 'המיפוי אחרי מחלקת Tailwind המקורית');
-});
-
-test('אימונים: כל מחלקת צבע כהה בחבילה המהודרת ממופה בערכת הצבעים', () => {
-  const html = read('modules/trainer/index.html');
-  const bundleCss = read('modules/trainer/assets/' + html.match(/href="\/assets\/(index-[^"]+\.css)"/)[1]);
-  const theme = read(TRAINER_THEME);
-  // המחלקות שקובעות את המראה הכהה: רקע/גבול כהים (slate 600–950), טקסט בהיר (slate 100–600) ואינדיגו.
-  // גוונים שכבר מתאימים לרקע בהיר (גבול slate-200, טקסט slate-900 — בתצוגת ההדפסה) אינם נדרשים.
-  const classes = [...new Set(bundleCss.match(/\.(?:hover\\:|focus\\:)?(?:(?:bg|border)-slate-(?:[6-9]00|950)|text-slate-[1-6]00|(?:bg|border|text)-indigo-[0-9]{2,3})(?:\\\/[0-9]+)?/g) || [])];
-  assert.ok(classes.length > 10);
-  const missing = classes.filter(c => !theme.includes(c));
-  assert.deepEqual(missing, [], 'מחלקות שלא מופו (בנייה חדשה של המודול?)');
-});
-
 // ---------- סבב שני ----------
 
 test('שדה החיפוש: מירכאות בטקסט (דוא"ל) לא קוטעות את ה-placeholder', async () => {
@@ -197,8 +149,7 @@ test('שדה החיפוש: מירכאות בטקסט (דוא"ל) לא קוטעו
 
 test('לוח הבקרה: שמות המודולים כמו בסרגל, ותוויות הספירה תואמות למה שנספר', () => {
   assert.match(UI_SRC, /<strong>שמאות נכסים<\/strong>/);
-  assert.match(UI_SRC, /<strong>ניהול אימונים<\/strong>/);
-  assert.doesNotMatch(UI_SRC, /<strong>TrainerPro<\/strong>/);
+  assert.doesNotMatch(UI_SRC, /data-module="trainer"|<strong>ניהול אימונים<\/strong>|<strong>TrainerPro<\/strong>/, 'מודול האימונים עבר למוצר נפרד');
   assert.match(UI_SRC, /<p>הכנסות: \$\{finance\?\.incomes\?\.length/);
   assert.doesNotMatch(UI_SRC, /<p>נכסים: \$\{finance\?\.incomes/);
   assert.match(UI_SRC, /<p>באיחור: \$\{tasks\?\.tasks\?\.filter\(t => t\.isOverdue\)/);
@@ -226,13 +177,6 @@ test('שמאות: אנליטיקה ריקה מסתירה את כותרות הא�
   assert.match(js, /ערך ייחוס/);
 });
 
-test('אימונים: פס הגלילה ותיבת המידע בגרפים בצבעים בהירים', () => {
-  const theme = read(TRAINER_THEME);
-  // מאז 7.1 — דרך משתני שפת העיצוב (רקע בהיר / משטח לבן)
-  assert.match(theme, /::-webkit-scrollbar-track \{ background: var\(--ss-bg\); \}/);
-  assert.match(theme, /\.recharts-default-tooltip \{ background: var\(--ss-surface\) !important;/);
-});
-
 test('ברכת השעה זהה במעטפת ובמודול השמאות בכל שעה (בעבר 05:00–06:00: "בוקר טוב" מול "לילה טוב")', () => {
   const shellFn = read('shell/shell.js').match(/function greeting\(h\) \{[\s\S]*?\n\}/);
   assert.ok(shellFn, 'greeting במעטפת');
@@ -246,7 +190,7 @@ test('ברכת השעה זהה במעטפת ובמודול השמאות בכל �
 // ---------- שפת עיצוב אחת (PLAN.md 7.1) ----------
 const TOKENS = read('shell/design-tokens.css');
 const TOKEN_NAMES = new Set([...TOKENS.matchAll(/(--ss-[a-z0-9-]+)\s*:/g)].map(m => m[1]));
-const STYLED = ['shell/shell.html', 'modules/econ/styles.css', 'modules/tools/index.html', TRAINER_THEME, 'modules/shamai/style.css'];
+const STYLED = ['shell/shell.html', 'modules/econ/styles.css', 'modules/tools/index.html', 'modules/shamai/style.css'];
 const ECON_UI = () => fs.readdirSync(path.join(ROOT, 'modules/econ/ui')).map(f => 'modules/econ/ui/' + f);
 // חריגים מתועדים: בורר צבע (input type=color חייב hex), theme-color של הדפדפן, צבע מסמכים שהמשתמש מקליד,
 // צבעי תוויות בהודעות (נשמרים בנתונים), ודיו החתימה על הקנבס
@@ -279,7 +223,6 @@ test('שפת עיצוב: הקובץ נטען לפני כל סגנון אחר ב�
   first(read('modules/tools/index.html'), 'href="/design-tokens.css"');
   const shamai = read('modules/shamai/index.html');
   assert.ok(shamai.indexOf('href="/design-tokens.css"') > 0 && shamai.indexOf('href="/design-tokens.css"') < shamai.indexOf('href="style.css"'));
-  first(read('modules-src/trainer/index.html'), 'href="/design-tokens.css"');
   assert.match(read('shell/shell.html'), /style-src 'self' 'unsafe-inline'/);
   assert.match(read('main.js'), /if \(rel === '\/design-tokens\.css'\) return net\.fetch\(pathToFileURL\(path\.join\(__dirname, 'shell', 'design-tokens\.css'\)\)/);
   const apk = read('android/build-apk.js');

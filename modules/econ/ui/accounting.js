@@ -129,63 +129,6 @@ const formSchemas = {
     create: (data) => window.systemAPI.saveCanvasBoard(data),
     update: (id, data) => window.systemAPI.updateCanvasBoard(id, data),
     remove: (id) => window.systemAPI.deleteCanvasBoard(id)
-  },
-  'fitness': {
-    title: 'רשומת כושר חדשה',
-    // טופס אחד עם בחירת סוג — השדות מוחלפים לפי הסוג הנבחר
-    dynamic: true,
-    fields: [
-      { name: 'fitnessKind', label: 'סוג הרשומה', type: 'select', required: true, options: [
-        { value: 'workout', label: 'אימון' },
-        { value: 'nutrition', label: 'תזונה' },
-        { value: 'metric', label: 'מדד גוף' }
-      ]},
-      // אימון
-      { name: 'date', label: 'תאריך', type: 'date', required: true, kinds: ['workout', 'nutrition', 'metric'] },
-      { name: 'type', label: 'סוג האימון', type: 'select', required: true, kinds: ['workout'], options: [
-        { value: 'cardio', label: 'אירובי' },
-        { value: 'strength', label: 'כוח' },
-        { value: 'yoga', label: 'גמישות ומתיחות' }, // הערך נשאר yoga — רשומות קיימות
-        { value: 'walking', label: 'הליכה' },
-        { value: 'sports', label: 'ספורט' },
-        { value: 'other', label: 'אחר' }
-      ]},
-      { name: 'durationMinutes', label: 'משך (דקות)', type: 'number', required: true, kinds: ['workout'] },
-      { name: 'caloriesBurned', label: 'קלוריות שנשרפו', type: 'number', kinds: ['workout'] },
-      // תזונה
-      { name: 'mealType', label: 'סוג הארוחה', type: 'select', required: true, kinds: ['nutrition'], options: [
-        { value: 'breakfast', label: 'בוקר' },
-        { value: 'lunch', label: 'צהריים' },
-        { value: 'dinner', label: 'ערב' },
-        { value: 'snack', label: 'ביניים' }
-      ]},
-      { name: 'calories', label: 'קלוריות', type: 'number', required: true, kinds: ['nutrition'] },
-      { name: 'description', label: 'תיאור הארוחה', type: 'text', kinds: ['nutrition'] },
-      // מדד
-      { name: 'weightKg', label: 'משקל (ק"ג)', type: 'number', kinds: ['metric'] },
-      { name: 'bodyFatPercent', label: 'אחוז שומן (%)', type: 'number', kinds: ['metric'] },
-      // הערות — לכל הסוגים
-      { name: 'notes', label: 'הערות', type: 'textarea', kinds: ['workout', 'nutrition', 'metric'] }
-    ],
-    create: (data) => {
-      const kind = data.fitnessKind;
-      const base = { date: data.date, notes: data.notes };
-      if (kind === 'workout') {
-        return window.systemAPI.createWorkout({
-          ...base, type: data.type,
-          durationMinutes: data.durationMinutes, caloriesBurned: data.caloriesBurned
-        });
-      }
-      if (kind === 'nutrition') {
-        return window.systemAPI.createNutrition({
-          ...base, mealType: data.mealType,
-          calories: data.calories, description: data.description
-        });
-      }
-      return window.systemAPI.createMetric({
-        ...base, weightKg: data.weightKg, bodyFatPercent: data.bodyFatPercent
-      });
-    }
   }
 };
 

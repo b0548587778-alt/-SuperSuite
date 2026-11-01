@@ -85,11 +85,3 @@ test('ממצא 6: ברירת המחדל בכלי התאריכים — היום �
   assert.match(APP, /const t=C\.localDay\(\);\$\('dA'\)\.value=t/, 'הפרש תאריכים / הוספת ימים');
 });
 
-test('ממצא 6 (מודול האימונים): שאלון PAR-Q ושם קובץ התוכנית — לפי todayStr המקומי', () => {
-  const src = (f) => fs.readFileSync(path.join(__dirname, '..', 'modules-src', 'trainer', 'src', 'features', f), 'utf8');
-  for (const f of ['tools.jsx', 'program.jsx']) {
-    assert.doesNotMatch(src(f), /toISOString\(\)\.split\('T'\)\[0\]/, f);
-    assert.match(src(f), /import \{ todayStr \} from '\.\.\/lib\/studio\.js'/, f);
-  }
-  assert.match(src('tools.jsx'), /useState\(todayStr\(\)\)/);
-});

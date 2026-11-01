@@ -240,7 +240,7 @@ test('סקירה: host.js — מצב הכתיבה של השמאות עובר ב�
   const h = await bootHost();
   // אותו מופע של ipc.js שבתוך ה-vm (המאגד שומר מטמון) — מצב רישיון מדומה
   const econ = h.sandbox.__ssHost.require('econ-ipc', {});
-  const ended = { mode: 'licensed', status: 'trial_ended', features: ['econ', 'shamai', 'trainer', 'tools'], reasons: [] };
+  const ended = { mode: 'licensed', status: 'trial_ended', features: ['econ', 'shamai', 'tools'], reasons: [] };
   const MSG = 'השינוי לא נשמר: ' + LG.statusMessage(ended);
   econ.licenseState = () => ended;
   assert.equal(await h.shellAPI().open('shamai', null), true);
@@ -376,7 +376,7 @@ async function bootEcon() {
   return { econ, host, ext, handlers, auth };
 }
 
-const SENDERS = { econ: 2, shamai: 3, trainer: 4, tools: 5 };
+const SENDERS = { econ: 2, shamai: 3, tools: 5 };
 function startAndroid({ econ, host, ext, handlers }, { license, about } = {}) {
   const visible = {}, sent = [], emitted = [], ensured = [], alerts = [], blocks = [];
   const licListeners = [], activityListeners = [];
@@ -426,12 +426,14 @@ test('ממצא 32: מודול שאינו ברישיון לא נפתח באנדר
   assert.equal(lic[1].modules.econ, true);
   // מודול מתוך מודול (shell:open-module) — אותו שער
   await t.call(1, 'shell:open', 'econ', 'dashboard');
-  assert.equal(await t.call(2, 'shell:open-module', 'trainer'), true);
+  assert.equal(await t.call(2, 'shell:open-module', 'shamai'), true);
   assert.equal(t.api.active, 'econ');
+  assert.ok(!t.ensured.includes('shamai'));
+  // מודול האימונים עבר למוצר נפרד — אין לו מסגרת ואין לו תצוגות
+  assert.equal(await t.call(2, 'shell:open-module', 'trainer'), false);
+  assert.equal(await t.call(1, 'shell:open', 'trainer', 'clients'), false);
   assert.ok(!t.ensured.includes('trainer'));
-  // תצוגת אימונים של מודול סגור — לא נטענת ברקע
-  await t.call(1, 'shell:open', 'trainer', 'clients');
-  assert.ok(!t.ensured.includes('trainer'));
+  assert.equal(b.handlers.has('shell:trainer-view'), false);
   // shell:license-state — רק למעטפת
   assert.deepEqual(await t.call(1, 'shell:license-state'), LG.shellState({ mode: 'licensed', status: 'active', features: ['econ'] }));
   assert.equal(await t.call(3, 'shell:license-state'), null);
@@ -463,84 +465,83 @@ test('ממצא 32: שינוי ברישיון בזמן עבודה מוציא ממ
   assert.equal(t.api.active, 'tools');
 });
 
-/* ---------- סקירה: קריאה בלבד לפי הרישיון בשמאות ובאימונים (כמו secureWriteBlock ב-main.js) ---------- */
+/* ---------- סקירה: קריאה בלבד לפי הרישיון בשמאות (כמו secureWriteBlock ב-main.js) ---------- */
 test('סקירה: licenseWriteBlock — סוף ניסיון / ממתין לתשלום / מושעה חוסמים כתיבה, בדיוק כמו חלק הרישוי של main.js', () => {
-  const ALL = ['econ', 'shamai', 'trainer', 'tools'];
+  const ALL = ['econ', 'shamai', 'tools'];
   assert.equal(MA.licenseWriteBlock({ mode: 'unlicensed' }, 'shamai'), null);
-  assert.equal(MA.licenseWriteBlock(null, 'trainer'), null);
+  assert.equal(MA.licenseWriteBlock(null, 'shamai'), null);
   assert.equal(MA.licenseWriteBlock({ mode: 'licensed', status: 'active', features: ALL }, 'shamai'), null);
   for (const status of ['trial_ended', 'pending_payment', 'suspended']) {
     const st = { mode: 'licensed', status, features: ALL, reasons: [{ reason: 'סיבה לדוגמה' }] };
     assert.equal(LG.moduleAllowed(st, 'shamai'), true, 'המודול נשאר פתוח לצפייה');
     assert.equal(MA.licenseWriteBlock(st, 'shamai'), 'השינוי לא נשמר: ' + LG.statusMessage(st), status);
-    assert.equal(MA.licenseWriteBlock(st, 'trainer'), 'השינוי לא נשמר: ' + LG.statusMessage(st), status);
   }
-  assert.equal(MA.licenseWriteBlock({ mode: 'licensed', status: 'active', features: ['econ', 'shamai'] }, 'trainer'), 'השינוי לא נשמר: המודול אינו כלול ברישיון');
+  assert.equal(MA.licenseWriteBlock({ mode: 'licensed', status: 'active', features: ['econ', 'trainer'] }, 'shamai'), 'השינוי לא נשמר: המודול אינו כלול ברישיון');
   assert.equal(MA.licenseWriteBlock({ mode: 'licensed', status: 'locked', features: ALL }, 'shamai'), 'השינוי לא נשמר: המודול אינו כלול ברישיון');
 });
 
 const NO_SESSION = 'השינוי לא נשמר: הכניסה למערכת פגה — יש להיכנס שוב';
 const VIEW_ONLY = 'השינוי לא נשמר: לתפקיד שלך יש הרשאת צפייה בלבד';
 
-test('סקירה: main-android שולח את מצב הכתיבה לשמאות ולאימונים — בהפעלה, בכניסה, בשינוי סטטוס, בבדיקה של כל דקה ובפתיחת מודול', async () => {
+test('סקירה: main-android שולח את מצב הכתיבה לשמאות — בהפעלה, בכניסה, בשינוי סטטוס, בבדיקה של כל דקה ובפתיחת מודול', async () => {
   const b = await bootEcon();
-  const ALL = ['econ', 'shamai', 'trainer', 'tools'];
+  const ALL = ['econ', 'shamai', 'tools'];
   const t = startAndroid(b, { license: { mode: 'licensed', status: 'active', features: ALL } });
-  // לפני כניסה — חסום, כמו secureWriteBlock ב-main.js (ממצא 24)
-  assert.deepEqual(t.blocks, [['shamai', NO_SESSION], ['trainer', NO_SESSION]], 'מצב התחלתי');
+  // לפני כניסה — חסום, כמו secureWriteBlock ב-main.js (ממצא 24). רק השמאות — מודול האימונים עבר למוצר נפרד
+  assert.deepEqual(t.blocks, [['shamai', NO_SESSION]], 'מצב התחלתי');
   t.frames.ensure('econ');
   await t.call(2, 'auth:setup', 'admin', PASS);
-  assert.deepEqual(t.blocks.slice(2), [['shamai', null], ['trainer', null]], 'כניסת מנהל משחררת מיד');
+  assert.deepEqual(t.blocks.slice(1), [['shamai', null]], 'כניסת מנהל משחררת מיד');
   // סוף תקופת הניסיון — המודולים נשארים פתוחים, הכתיבה נחסמת
   const ended = { mode: 'licensed', status: 'trial_ended', features: ALL, reasons: [] };
   t.setLicense(ended);
   const msg = 'השינוי לא נשמר: ' + LG.statusMessage(ended);
-  assert.deepEqual(t.blocks.slice(4), [['shamai', msg], ['trainer', msg]]);
+  assert.deepEqual(t.blocks.slice(2), [['shamai', msg]]);
   assert.equal(t.emitted.filter(e => e[0] === 'shell:license').at(-1)[1].level, 'limited');
   // בלי שינוי — לא נשלח שוב
   t.timers[60000]();
-  assert.equal(t.blocks.length, 6);
-  // רישיון חודש, אבל האימונים הוצאו מהתחומים בלי שינוי סטטוס — נקלט בבדיקה של כל דקה
-  t.setLicenseQuiet({ mode: 'licensed', status: 'active', features: ['econ', 'shamai'] });
-  t.timers[60000]();
-  assert.deepEqual(t.blocks.slice(6), [['shamai', null], ['trainer', 'השינוי לא נשמר: המודול אינו כלול ברישיון']]);
-  // ובפתיחת מודול (לפני יצירת ה-iframe — כך הכתובת שלו כבר נושאת את המצב העדכני)
+  assert.equal(t.blocks.length, 3);
+  // רישיון חודש בלי הודעה למאזינים — נקלט בבדיקה של כל דקה
   t.setLicenseQuiet({ mode: 'licensed', status: 'active', features: ALL });
+  t.timers[60000]();
+  assert.deepEqual(t.blocks.slice(3), [['shamai', null]]);
+  // ובפתיחת מודול (לפני יצירת ה-iframe — כך הכתובת שלו כבר נושאת את המצב העדכני): השמאות הוצאה מהתחומים בלי שינוי סטטוס
+  t.setLicenseQuiet({ mode: 'licensed', status: 'active', features: ['econ', 'tools'] });
   await t.call(1, 'shell:switch', 'tools');
-  assert.deepEqual(t.blocks.slice(8), [['trainer', null]]);
+  assert.deepEqual(t.blocks.slice(4), [['shamai', 'השינוי לא נשמר: המודול אינו כלול ברישיון']]);
 });
 
-/* ---------- ממצא 24 באנדרואיד: כניסה פעילה והרשאת עריכה בשמאות ובאימונים ---------- */
-test('ממצא 24 (אנדרואיד): צופה ורואה חשבון — כתיבה חסומה בשמאות ובאימונים; יציאה חוסמת; כניסה עם הרשאת עריכה משחררת', async () => {
+/* ---------- ממצא 24 באנדרואיד: כניסה פעילה והרשאת עריכה בשמאות ---------- */
+test('ממצא 24 (אנדרואיד): צופה ורואה חשבון — כתיבה חסומה בשמאות; יציאה חוסמת; כניסה עם הרשאת עריכה משחררת', async () => {
   const b = await bootEcon();
   const t = startAndroid(b); // בלי רישוי — רק הכניסה והתפקיד קובעים
   t.frames.ensure('econ');
-  const last = () => t.blocks.slice(-2);
+  const last = () => t.blocks.slice(-1);
   await t.call(2, 'auth:setup', 'admin', PASS);
-  assert.deepEqual(last(), [['shamai', null], ['trainer', null]]);
+  assert.deepEqual(last(), [['shamai', null]]);
   for (const [username, role] of [['yosef', 'viewer'], ['reuven', 'accountant'], ['shimon', 'editor']]) {
     await t.call(2, 'users:create', { username, password: PASS, role });
   }
   // יציאה — חסום מיד (לא רק בבדיקה של כל דקה)
   await t.call(2, 'auth:logout');
-  assert.deepEqual(last(), [['shamai', NO_SESSION], ['trainer', NO_SESSION]]);
+  assert.deepEqual(last(), [['shamai', NO_SESSION]]);
   for (const username of ['yosef', 'reuven']) {
     await t.call(2, 'auth:login', username, PASS);
-    assert.deepEqual(last(), [['shamai', VIEW_ONLY], ['trainer', VIEW_ONLY]], username);
+    assert.deepEqual(last(), [['shamai', VIEW_ONLY]], username);
     // גם הבדיקה של כל דקה לא משחררת
     t.timers[60000]();
-    assert.deepEqual(last(), [['shamai', VIEW_ONLY], ['trainer', VIEW_ONLY]], username);
+    assert.deepEqual(last(), [['shamai', VIEW_ONLY]], username);
     await t.call(2, 'auth:logout');
   }
   // עורך — מותר; ואז רישיון שמגביל — הודעת הרישיון אחרי שהכניסה וההרשאה תקינות (כמו main.js)
   await t.call(2, 'auth:login', 'shimon', PASS);
-  assert.deepEqual(last(), [['shamai', null], ['trainer', null]]);
-  const ended = { mode: 'licensed', status: 'trial_ended', features: ['econ', 'shamai', 'trainer', 'tools'], reasons: [] };
+  assert.deepEqual(last(), [['shamai', null]]);
+  const ended = { mode: 'licensed', status: 'trial_ended', features: ['econ', 'shamai', 'tools'], reasons: [] };
   t.setLicense(ended);
-  assert.deepEqual(last(), [['shamai', 'השינוי לא נשמר: ' + LG.statusMessage(ended)], ['trainer', 'השינוי לא נשמר: ' + LG.statusMessage(ended)]]);
+  assert.deepEqual(last(), [['shamai', 'השינוי לא נשמר: ' + LG.statusMessage(ended)]]);
   // צופה ברישיון מוגבל — הודעת התפקיד (כמו הסדר ב-secureWriteBlock)
   await t.call(2, 'auth:login', 'yosef', PASS);
-  assert.deepEqual(last(), [['shamai', VIEW_ONLY], ['trainer', VIEW_ONLY]]);
+  assert.deepEqual(last(), [['shamai', VIEW_ONLY]]);
 });
 
 test('ממצא 24 (אנדרואיד): עבודה בשמאות מאריכה את הכניסה; אחרי זמן הניתוק בלי פעולה — חסימה ומסך הכניסה, ואחרי הכניסה חזרה למודול', async () => {
@@ -567,7 +568,7 @@ test('ממצא 24 (אנדרואיד): עבודה בשמאות מאריכה את 
   t.activity('econ');
   now += 2 * MIN; // 16 דקות מהפעולה האחרונה בשמאות — מעבר ל-15 של ברירת המחדל
   t.timers[60000]();
-  assert.deepEqual(t.blocks.slice(-2), [['shamai', NO_SESSION], ['trainer', NO_SESSION]]);
+  assert.deepEqual(t.blocks.slice(-1), [['shamai', NO_SESSION]]);
   assert.equal(t.api.active, 'econ', 'חזרה למסך הכניסה');
   await new Promise(r => setImmediate(r));
   assert.deepEqual(t.sent.at(-1), ['econ', 'econ:auth-check']);
@@ -576,7 +577,7 @@ test('ממצא 24 (אנדרואיד): עבודה בשמאות מאריכה את 
   assert.equal(b.econ.hasSession(2), false);
   // כניסה — הכתיבה משתחררת וחוזרים לשמאות (ה-iframe לא נטען מחדש)
   await t.call(2, 'auth:login', 'admin', PASS);
-  assert.deepEqual(t.blocks.slice(-2), [['shamai', null], ['trainer', null]]);
+  assert.deepEqual(t.blocks.slice(-1), [['shamai', null]]);
   assert.equal(t.api.active, 'shamai');
 });
 
@@ -615,19 +616,19 @@ test('כל ערוץ בממשק המעטפת (shell/preload.js) רשום באנד
   await assert.rejects(() => t.call(1, 'shell:get-recovery-code'), /נדרשת כניסה/);
 });
 
-test('moduleMayInvoke: שמאות וארגז הכלים — בלי ערוצים; אימונים — רק של ה-preload שלו; הכלכלי — בלי ערוצי מעטפת', () => {
+test('moduleMayInvoke: שמאות וארגז הכלים — בלי ערוצים; הכלכלי — בלי ערוצי מעטפת; מודול האימונים (מוצר נפרד) — כלום', () => {
   for (const ch of ['auth:login', 'contacts:get', 'shell:switch', 'shell:backup-all']) {
     assert.equal(MA.moduleMayInvoke('shamai', ch), false, ch);
     assert.equal(MA.moduleMayInvoke('tools', ch), false, ch);
     assert.equal(MA.moduleMayInvoke('trainer', ch), false, ch);
   }
-  assert.equal(MA.moduleMayInvoke('trainer', 'shell:trainer-view'), true);
-  assert.equal(MA.moduleMayInvoke('trainer', 'trainer:save-pdf'), true);
+  assert.equal(MA.moduleMayInvoke('trainer', 'shell:trainer-view'), false);
+  assert.equal(MA.moduleMayInvoke('trainer', 'trainer:save-pdf'), false);
   assert.equal(MA.moduleMayInvoke('econ', 'auth:login'), true);
   assert.equal(MA.moduleMayInvoke('econ', 'npo:createMasavFile'), true);
   assert.equal(MA.moduleMayInvoke('econ', 'shell:econ-view'), true);
   assert.equal(MA.moduleMayInvoke('econ', 'shell:open-module'), true);
-  for (const ch of ['shell:backup-all', 'shell:restore-all', 'shell:switch', 'sync:status', 'shell:trainer-view', 'trainer:save-pdf']) {
+  for (const ch of ['shell:backup-all', 'shell:restore-all', 'shell:switch', 'sync:status', 'shell:trainer-view', 'display:changed']) {
     assert.equal(MA.moduleMayInvoke('econ', ch), false, ch);
   }
   assert.equal(MA.moduleMayInvoke('nope', 'auth:login'), false);
@@ -764,14 +765,14 @@ test('סקירה: frame.js — קריאה בלבד לפי הרישיון בשמ�
 test('סקירה: frame.js — טעינה מחדש לוקחת את המצב מ-sessionStorage (עדכני יותר מכתובת ה-iframe); ארגז הכלים והכלכלי — בלי חסימה', () => {
   const MSG = 'השינוי לא נשמר: ממתין לתשלום';
   // נחסם אחרי היצירה (הכתובת בלי ss-ro) ואז נטען מחדש
-  const reloaded = loadFrame({ mod: 'trainer', search: '', session: { 'ss-write-block': MSG } });
-  assert.throws(() => reloaded.sandbox.localStorage.setItem('clients:index', '[]'), e => e.name === 'SecurityError' && e.message === MSG);
+  const reloaded = loadFrame({ mod: 'shamai', search: '', session: { 'ss-write-block': MSG } });
+  assert.throws(() => reloaded.sandbox.localStorage.setItem('shamai_v2_props', '[]'), e => e.name === 'SecurityError' && e.message === MSG);
   // נפתח אחרי היצירה (הכתובת עם ss-ro) ואז נטען מחדש
-  const reopened = loadFrame({ mod: 'trainer', search: '?ss-ro=' + encodeURIComponent(MSG), session: { 'ss-write-block': '' } });
-  reopened.sandbox.localStorage.setItem('clients:index', '[]');
-  assert.equal(reopened.ls.getItem('clients:index'), '[]');
-  // מודולים שאין להם קריאה בלבד בשולחן העבודה (ארגז הכלים) או שנאכפים בשרת (הכלכלי)
-  for (const mod of ['tools', 'econ']) {
+  const reopened = loadFrame({ mod: 'shamai', search: '?ss-ro=' + encodeURIComponent(MSG), session: { 'ss-write-block': '' } });
+  reopened.sandbox.localStorage.setItem('shamai_v2_props', '[]');
+  assert.equal(reopened.ls.getItem('shamai_v2_props'), '[]');
+  // מודולים שאין להם קריאה בלבד בשולחן העבודה (ארגז הכלים) או שנאכפים בשרת (הכלכלי); trainer — מסגרת ממוצר ישן לא נחסמת כאן
+  for (const mod of ['tools', 'econ', 'trainer']) {
     const f = loadFrame({ mod, search: '?ss-ro=' + encodeURIComponent(MSG) });
     f.fromShell({ ss: 'write-block', message: MSG });
     f.sandbox.localStorage.setItem('k', 'v');
@@ -805,13 +806,13 @@ test('host.js: תשובת גיבוי מתקבלת רק מהמסגרת שנשאל
     h.post(id, { ss: 'ls', id: req.msg.id, data });
   };
   await answer('shamai', { item: 'שמאי אמיתי' });
-  await answer('trainer', {});
   await answer('tools', { t: '1' });
   await backup;
   const saved = h.asyncCalls.find(c => c[0] === 'saveText');
   const data = JSON.parse(BK.decryptBackup(saved[2], 'backup-pass-123'));
   assert.deepEqual(data.localStorage.shamai, { item: 'שמאי אמיתי' });
   assert.deepEqual(data.localStorage.tools, { t: '1' });
+  assert.equal(data.localStorage.trainer, undefined, 'מודול האימונים (מוצר נפרד) אינו בגיבוי');
 });
 
 test('host.js: ערוצים לכל מודול — שמאות לא מנסה כניסה בשם המנהל, הכלכלי לא מפעיל ערוצי מעטפת, ערוץ לא מוכר בעברית', async () => {
@@ -825,8 +826,8 @@ test('host.js: ערוצים לכל מודול — שמאות לא מנסה כנ�
     assert.equal(r.ok, false);
     assert.match(r.error, /אינה מותרת מתוך המודול/);
   }
-  // גם ערוץ מעטפת ו-preload של מודול אחר — לא מהשמאות
-  for (const ch of ['shell:switch', 'shell:trainer-view', 'contacts:get']) {
+  // גם ערוץ מעטפת וערוץ של המודול הכלכלי — לא מהשמאות
+  for (const ch of ['shell:switch', 'shell:econ-view', 'contacts:get']) {
     const r = await h.frameInvoke('shamai', ch, 'econ');
     assert.equal(r.ok, false, ch);
     assert.match(r.error, /אינה מותרת מתוך המודול/, ch);
@@ -925,9 +926,9 @@ test('host.js: activity מהשמאות מאריך את הפגישה; מארגז 
   assert.equal(blocks.at(-1).msg.message, NO_SESSION);
 });
 
-/* ---------- frame.js: אות פעילות בשמאות ובאימונים ---------- */
-test('frame.js: לחיצה / מקש / מגע בשמאות ובאימונים שולחים activity למעטפת (לכל היותר פעם ב-2 שניות); ארגז הכלים והכלכלי — לא', async () => {
-  for (const mod of ['shamai', 'trainer']) {
+/* ---------- frame.js: אות פעילות בשמאות ---------- */
+test('frame.js: לחיצה / מקש / מגע בשמאות שולחים activity למעטפת (לכל היותר פעם ב-2 שניות); ארגז הכלים והכלכלי — לא', async () => {
+  for (const mod of ['shamai']) {
     const f = loadFrame({ mod });
     const acts = () => f.posted.filter(p => p.msg.ss === 'activity');
     for (const type of ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll']) assert.equal(typeof f.listeners[type], 'function', mod + ' ' + type);
@@ -937,7 +938,7 @@ test('frame.js: לחיצה / מקש / מגע בשמאות ובאימונים ש�
     // ההודעה נוצרה בתוך ה-vm (אב-טיפוס אחר) — השוואה לפי JSON
     assert.equal(JSON.stringify(acts()[0]), JSON.stringify({ msg: { ss: 'activity' }, o: f.SHELL }), 'רק "הייתה פעילות", ורק למעטפת');
   }
-  for (const mod of ['tools', 'econ']) {
+  for (const mod of ['tools', 'econ', 'trainer']) {
     const f = loadFrame({ mod });
     assert.equal(f.listeners.pointerdown, undefined, mod);
   }

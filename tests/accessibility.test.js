@@ -104,7 +104,7 @@ test('קורא מסך: לכל דיאלוג יש כותרת, וההודעות מ�
   const econ = read('modules/econ/views/index.html');
   assert.match(econ, /id="modal"[^>]*role="dialog"[^>]*aria-labelledby="modalTitle"/);
   assert.match(econ, /id="toastContainer" role="status" aria-live="polite"/);
-  for (const f of ['shell/shell.html', 'modules/econ/views/index.html', 'modules/tools/index.html', 'modules/shamai/index.html', 'modules/trainer/index.html']) {
+  for (const f of ['shell/shell.html', 'modules/econ/views/index.html', 'modules/tools/index.html', 'modules/shamai/index.html']) {
     assert.match(read(f), /<html lang="he" dir="rtl"[ >]/, f);
   }
 });

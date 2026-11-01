@@ -3,7 +3,7 @@
 // ההודעות לא נערמות: כל עוד דיאלוג פתוח, אירוע נוסף נרשם ביומן בלבד.
 'use strict';
 
-const MODULE_NAMES = { shell: 'המסך הראשי', econ: 'המערכת הכלכלית', shamai: 'השמאות', trainer: 'האימונים', tools: 'ארגז הכלים' };
+const MODULE_NAMES = { shell: 'המסך הראשי', econ: 'המערכת הכלכלית', shamai: 'השמאות', tools: 'ארגז הכלים' };
 const pad = (n) => String(n).padStart(2, '0');
 const localDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
@@ -48,7 +48,7 @@ function createCrashGuard({ logger, dialog, getWin, app, version = '', fs = requ
         { label: 'המשך לעבוד' },
         { label: 'שמירת דוח תקלה', run: saveReport },
         { label: 'הפעלה מחדש', run: () => {
-          // app.exit מדלג על will-quit: בלי זה כתיבות מה-300ms האחרונים בשמאי ובאימונים אבדו
+          // app.exit מדלג על will-quit: בלי זה כתיבות מה-300ms האחרונים בשמאי אבדו
           try { beforeExit(); } catch (e) { logger.error('crash-exit', e); }
           app.relaunch(); app.exit(0);
         } },

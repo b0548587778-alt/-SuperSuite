@@ -20,9 +20,9 @@ const OUT = path.join(AND, 'build');
 const WWW = path.join(OUT, 'assets', 'www');
 const KEYDIR = path.join(AND, 'keystore');
 const DIST = path.join(ROOT, 'dist');
-const MODS = ['econ', 'shamai', 'trainer', 'tools'];
-const ENTRY_HTML = { econ: 'views/index.html', shamai: 'index.html', trainer: 'index.html', tools: 'index.html' };
-const PRELOADS = { econ: 'modules/econ/preload.js', trainer: 'modules/trainer/preload.js' };
+const MODS = ['econ', 'shamai', 'tools'];
+const ENTRY_HTML = { econ: 'views/index.html', shamai: 'index.html', tools: 'index.html' };
+const PRELOADS = { econ: 'modules/econ/preload.js' };
 const DOMAIN = 'supersuite.androidplatform.net';
 // אנדרואיד 9 ומעלה (בדיקת קוד 23.10.2026, ממצא 57): כל אוסף של המודול הכלכלי נשמר כשורה אחת ב-SQLite,
 // והחלון הגדול (64MB) לקריאתה — new CursorWindow(name, size) — קיים רק מ-API 28. ב-8.0/8.1 התקרה 2MB:
@@ -118,7 +118,7 @@ function buildWeb() {
     const src = path.join(ROOT, 'modules', mod);
     const dst = path.join(WWW, mod);
     // בצד הכלכלי רק הממשק נכנס ל-iframe; הלוגיקה (ipc/core/services) נארזת לחלון המעטפת
-    const skip = mod === 'econ' ? new Set(['core', 'services', 'utils', 'ipc.js', 'preload.js']) : new Set(mod === 'trainer' ? ['preload.js'] : []);
+    const skip = mod === 'econ' ? new Set(['core', 'services', 'utils', 'ipc.js', 'preload.js']) : new Set();
     copyDir(src, dst, (s) => !(path.dirname(s) === src && skip.has(path.basename(s))));
     const ssDir = path.join(dst, 'ss-android');
     fs.mkdirSync(ssDir, { recursive: true });

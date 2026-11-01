@@ -93,9 +93,6 @@ jobs:
           node-version: 20
       - name: npm audit (ראשי)
         run: npm audit --omit=dev --audit-level=high
-      - name: npm audit (מודול האימונים)
-        working-directory: modules-src/trainer
-        run: npm audit --omit=dev --audit-level=high
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'

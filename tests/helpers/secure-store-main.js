@@ -144,8 +144,8 @@ function createMainHarness({ encryption = true } = {}) {
         await handlers['users:create'](econ(), { username, password: username + '-pass-long-1', role });
       }
       await handlers['shell:switch'](shellSender(), 'shamai');
-      await handlers['shell:switch'](shellSender(), 'trainer');
-      assert.ok(modView('shamai') && modView('trainer'), 'שתי התצוגות נוצרו');
+      await handlers['shell:switch'](shellSender(), 'tools');
+      assert.ok(modView('shamai') && modView('tools'), 'שתי התצוגות נוצרו');
     })();
     return ready;
   }

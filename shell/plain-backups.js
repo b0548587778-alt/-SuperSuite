@@ -1,25 +1,23 @@
 // גיבויים ישנים לא מוצפנים בתיקיית הגיבוי (PLAN.md 3.6).
 // הגיבוי האוטומטי תמיד היה מוצפן, אבל בתיקייה יכולים להיות קבצים גלויים: גיבוי ידני ישן של המודול הכלכלי
-// (JSON גלוי לפני התיקון), גיבוי ישן של מודול האימונים (trainer-pro-backup-*.json), או auto-*.json.
+// (JSON גלוי לפני התיקון), או auto-*.json.
 // סורקים רק את תיקיית הגיבוי (לא את כל המחשב), מציגים אזהרה, ו"הצפנה" כותבת .ssbk, מאמתת, ורק אז מוחקת.
 // לעולם לא נמחק קובץ אוטומטית.
 const fs = require('fs');
 const path = require('path');
 const BK = require('../modules/econ/core/backupCrypto');
-const TrainerCheck = require('./trainer-backup-check');
 
 // שמות שהתוכנה נתנה לגיבויים, וכל קובץ .json אחר בתיקייה — אם תוכנו גיבוי (המשתמש בחר שם בחלון השמירה)
 const NAME = /^[^\\/:*?"<>|]{1,200}\.json$/;
 const MAX_BYTES = 200 * 1024 * 1024; // מעל זה לא קוראים (וגם לא מציעים הצפנה) — גיבוי לא סביר
 
-// האם הטקסט הוא גיבוי גלוי של SuperSuite (או של מודול האימונים)
+// האם הטקסט הוא גיבוי גלוי של SuperSuite
 function isPlainBackupText(text) {
   if (typeof text !== 'string' || BK.isEncryptedBackup(text)) return false;
   let data;
   try { data = JSON.parse(text); } catch { return false; }
   if (data && data.suite === 'SuperSuite') return true;
-  if (isLegacyEconBackup(data)) return true;
-  return !!TrainerCheck.legacyTrainerBackup(data);
+  return isLegacyEconBackup(data);
 }
 
 // גיבוי ידני ישן של המודול הכלכלי (לפני ההצפנה): אובייקט המסד עצמו — version, organization, settings ואוספים
@@ -37,8 +35,8 @@ function looksPlain(file, fsx = fs) {
     const n = fsx.readSync(fd, buf, 0, buf.length, 0);
     const head = buf.subarray(0, n).toString('utf8').replace(/^﻿/, '').trimStart();
     if (!head.startsWith('{')) return false;
-    // גיבוי של SuperSuite מתחיל ב-"suite"; גיבוי אימונים — במפתח של המודול; גיבוי כלכלי ישן — "version" ו-"organization"
-    if (/^\{\s*"(suite|trainer:profile|clients:index|client:|program:|sessions:|measurements:|assessments:)"?/.test(head)) return true;
+    // גיבוי של SuperSuite מתחיל ב-"suite"; גיבוי כלכלי ישן — "version" ו-"organization"
+    if (/^\{\s*"suite"/.test(head)) return true;
     return /^\{\s*"version"\s*:/.test(head) && /"(organization|settings)"\s*:/.test(head);
   } catch { return false; }
   finally { if (fd !== undefined) try { fsx.closeSync(fd); } catch { /* נסגר */ } }

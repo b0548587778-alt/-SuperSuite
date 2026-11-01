@@ -105,7 +105,7 @@ function donorYear(question, today) {
 }
 
 // התשובה הקבועה לשאלה כללית שאין לה מקור בנתונים (ממצא 48): טקסט חופשי של המודל לא מגיע למשתמש
-const OFF_TOPIC = 'אני עונה רק על שאלות על הנתונים שבתוכנה — חשבונות וחשבוניות, גבייה, עמותה ותרומות, שמאות ואימונים — ועל השימוש בתוכנה. '
+const OFF_TOPIC = 'אני עונה רק על שאלות על הנתונים שבתוכנה — חשבונות וחשבוניות, גבייה, עמותה ותרומות ושמאות — ועל השימוש בתוכנה. '
   + 'לדוגמה: „כמה גבייתי החודש?”, „מי לא שילם?” או „איך מוציאים חשבונית?”.';
 
 // ---------- בוני תשובה ----------
@@ -247,29 +247,8 @@ function answerShamai(ctx) {
   return answer(lines.join('\n'), { kind: 'shamai', valueAg: s.valueAg, confidence: s.confidence });
 }
 
-// ---------- אימונים: מתאמנים שדורשים תשומת לב ----------
-// ctx.trainer — { alerts: [{ title, detail, tone }], clients: n } או null. מחושב מנתוני מודול האימונים (trainerContext ב-module-context.js)
-// התחום כבר נבדק כפתוח (runRules); בלי נתונים — המחסן של המודול לא נפתח, או שאין מקור במכשיר הזה (אנדרואיד)
-function answerTrainer(ctx) {
-  const t = ctx.trainer;
-  if (!t || !Array.isArray(t.alerts)) return answer('נתוני האימונים אינם זמינים כרגע במכשיר הזה. פתחו את מודול האימונים ובדקו שם את התזכורות.');
-  if (!t.alerts.length) {
-    if (t.clients === 0) return answer('אין עדיין מתאמנים רשומים במודול האימונים.');
-    // מתאמן אחד — בלשון יחיד (פעם „כל 1 המתאמנים במצב תקין”)
-    if (t.clients === 1) return answer('המתאמן היחיד במצב תקין — אין מנוי שמסתיים, אין יתרה לתשלום והוא לא נעדר.');
-    return answer(`כל ${t.clients ? t.clients + ' המתאמנים' : 'המתאמנים'} במצב תקין — אין מנוי שמסתיים, אין יתרה לתשלום ואין מתאמן שנעדר.`);
-  }
-  const urgent = t.alerts.filter(a => a.tone === 'red');
-  const count = urgent.length || t.alerts.length;
-  const head = count === 1 ? `מתאמן אחד דורש ${urgent.length ? 'טיפול דחוף' : 'תשומת לב'}:`
-    : `${count} מתאמנים דורשים ${urgent.length ? 'טיפול דחוף' : 'תשומת לב'}:`;
-  const lines = t.alerts.slice(0, 8).map(a => `• ${a.title} — ${a.detail}`);
-  return answer(`${head}\n${lines.join('\n')}`, { kind: 'trainer', count: t.alerts.length, urgent: urgent.length });
-}
-
 // סדר תחומים: שאלה „איך…” — מדריך; אחרת התחום שהשאלה מכוונת אליו; ואם אין סימן — החשבונות
 const DOMAINS = [
-  { id: 'trainer', words: ['מתאמן', 'מתאמנים', 'אימון', 'אימונים', 'מנוי', 'כרטיסייה', 'סטודיו', 'נוכחות'] },
   { id: 'shamai', words: ['הערכת שווי', 'שווי', 'הערכת', 'שמאות', 'שמאי', 'שומה'] },
   { id: 'npo', words: ['תורם', 'תורמים', 'תרומה', 'תרומות', 'עמותה', 'קבלות לתורם'] },
 ];
@@ -286,14 +265,10 @@ function runRules(question, context = {}) {
   const ctx = context || {};
   const today = ctx.today || '';
   const q = String(question || '').trim();
-  if (!q) return answer('כתבו שאלה, למשל: „כמה גבייתי החודש?”, „אילו תורמים תרמו השנה?” או „איזה מתאמנים דורשים תשומת לב?”');
+  if (!q) return answer('כתבו שאלה, למשל: „כמה גבייתי החודש?”, או „אילו תורמים תרמו השנה?”');
   const intent = detectIntent(q);
   if (intent === 'howto') return answerHowTo(q);
   const domain = detectDomain(q);
-  if (domain === 'trainer') {
-    if (domainClosed(ctx, 'trainer')) return answer('על האימונים אני עונה רק כשמודול האימונים פתוח ברישיון ובהרשאה של המשתמש הזה.');
-    return answerTrainer(ctx);
-  }
   if (domain === 'shamai') {
     if (domainClosed(ctx, 'shamai')) return answer('על השמאות אני עונה רק כשמודול השמאות פתוח ברישיון ובהרשאה של המשתמש הזה.');
     return answerShamai(ctx);

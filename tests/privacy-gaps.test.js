@@ -33,7 +33,8 @@ test('המיפוי כולל את המאגרים שחסרו, עם מספר הרש
   assert.equal(row(/שואלים/).count, 3);
   assert.equal(row(/לקוחות בחשבוניות/).count, 1);
   assert.equal(row(/ספקים ביומן/).count, 2, 'רק רשומות עם פרטי ספק');
-  assert.equal(row(/שמאות ואימונים/).count, null);
+  assert.equal(row(/^שמאות \(במחסן/).count, null);
+  assert.ok(!rows.some(r => /אימונים/.test(r.area + r.fields)), 'מודול האימונים עבר למוצר נפרד');
   assert.ok(rows.every(r => r.sensitivityLabel), 'לכל שורה תווית רגישות');
 });
 

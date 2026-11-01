@@ -1,7 +1,7 @@
 {
   "name": "super-suite",
   "version": "3.11.1",
-  "description": "חבילת העבודה המאוחדת — כלכלה, שמאות, כושר וכלים",
+  "description": "חבילת העבודה המאוחדת — כלכלה, שמאות וכלים",
   "main": "main.js",
   "author": "Bunim Seller",
   "license": "UNLICENSED",
@@ -13,9 +13,7 @@
     "test": "node tools/run-tests.js",
     "test:serial": "node tools/run-tests.js --serial",
     "dist:android": "node android/build-apk.js",
-    "dist:android:check": "node android/build-apk.js --check",
-    "build:trainer": "node tools/build-trainer.js",
-    "build:trainer:check": "node tools/build-trainer.js --check"
+    "dist:android:check": "node android/build-apk.js --check"
   },
   "optionalDependencies": {
     "node-llama-cpp": "3.22.2"

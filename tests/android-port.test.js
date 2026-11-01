@@ -152,14 +152,14 @@ test('main-android: ניווט, הרשאת מעטפת וגיבוי מוצפן ב
     send: (id, ch, ...a) => sent.push([id, ch, ...a]),
     request: async (id, type) => (type === 'ls-dump' ? { k: 'v-' + id } : true),
     reloadAll() {},
-    moduleSenderIds: () => [...frames._f].map(id => ({ econ: 2, shamai: 3, trainer: 4, tools: 5 })[id])
+    moduleSenderIds: () => [...frames._f].map(id => ({ econ: 2, shamai: 3, tools: 5 })[id])
   };
   let savedText = null;
   host.require('main-android', ext).start({
     ipcMain: ext.electron.ipcMain, econ, frames, SHELL_ID: 1,
     emitShell: (...a) => emitted.push(a),
     bridgeAsync: async (m, name, mime, text) => { savedText = { m, name, text }; return { ok: true, name }; },
-    senderOf: id => ({ econ: 2, shamai: 3, trainer: 4, tools: 5 })[id],
+    senderOf: id => ({ econ: 2, shamai: 3, tools: 5 })[id],
     ui: (() => { let o = {}; return { load: () => o, save: v => { o = v; } }; })(),
     alert() {}, confirm: () => true, exit() {}
   });
@@ -201,7 +201,9 @@ test('בניית קבצי ה-web לאנדרואיד: הזרקה למודולים
   assert.match(shell, /frame-src https:\/\/econ\.supersuite\.androidplatform\.net/);
   assert.doesNotMatch(shell, /unsafe-eval/);
   assert.ok(shell.indexOf('host.js') < shell.indexOf('shell.js'));
-  for (const [mod, entry] of [['econ', 'views/index.html'], ['shamai', 'index.html'], ['trainer', 'index.html'], ['tools', 'index.html']]) {
+  assert.ok(!fs.existsSync(path.join(B.WWW, 'trainer')), 'מודול האימונים (מוצר נפרד) לא נארז');
+  assert.doesNotMatch(shell, /trainer\.supersuite/);
+  for (const [mod, entry] of [['econ', 'views/index.html'], ['shamai', 'index.html'], ['tools', 'index.html']]) {
     const html = fs.readFileSync(path.join(B.WWW, mod, entry), 'utf8');
     const i = html.indexOf('/ss-android/frame.js');
     assert.ok(i > 0, mod + ': frame.js מוזרק');
@@ -229,14 +231,14 @@ test('main-android: שחזור שנכשל באמצע מוחזר למצב שלפ�
       restores.push([id, data]);
       return restores.length === 2 ? { error: 'אין מקום' } : true; // המודול השני נכשל בפעם הראשונה
     },
-    moduleSenderIds: () => [...frames._f].map(id => ({ econ: 2, shamai: 3, trainer: 4, tools: 5 })[id])
+    moduleSenderIds: () => [...frames._f].map(id => ({ econ: 2, shamai: 3, tools: 5 })[id])
   };
   const alerts = [];
   let openText = null;
   host.require('main-android', ext).start({
     ipcMain: ext.electron.ipcMain, econ, frames, SHELL_ID: 1, emitShell() {},
     bridgeAsync: async (m) => (m === 'openText' ? { text: openText } : { ok: true }),
-    senderOf: id => ({ econ: 2, shamai: 3, trainer: 4, tools: 5 })[id],
+    senderOf: id => ({ econ: 2, shamai: 3, tools: 5 })[id],
     ui: (() => { let o = {}; return { load: () => o, save: v => { o = v; } }; })(),
     alert: (m) => alerts.push(m), confirm: () => true, exit() {}
   });

@@ -6,7 +6,7 @@ const path = require('path');
 const vm = require('vm');
 const { canShellNavigate, canModuleOpen, EDITING_CHECK_JS } = require('../shell/nav-guard');
 
-const MODS = ['econ', 'shamai', 'trainer', 'tools'];
+const MODS = ['econ', 'shamai', 'tools'];
 const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 
 test('shell:switch: רק המעטפת (מזהה החלון) רשאית לנווט', () => {
@@ -25,6 +25,7 @@ test('shell:open-module: שולח שאינו תצוגת מודול נחסם (ל�
 
 test('shell:open-module: מזהה יעד לא מוכר נחסם', () => {
   assert.equal(canModuleOpen(7, [7], 'evil', MODS), false);
+  assert.equal(canModuleOpen(7, [7], 'trainer', MODS), false, 'מודול האימונים עבר למוצר נפרד');
   assert.equal(canModuleOpen(7, [7], undefined, MODS), false);
 });
 
@@ -55,8 +56,8 @@ test('econ מפעיל מודולים רק דרך הערוץ החדש (בדיקת
   // החדש, ואינו חושף כל נתיב לניווט ישיר (shell:switch) שעוקף את האימות.
   const { exposed, calls } = loadPreload('modules/econ/preload.js');
   assert.equal(typeof exposed.systemAPI.openModule, 'function', 'openModule חשוף');
-  await exposed.systemAPI.openModule('trainer');
-  assert.deepEqual(calls.at(-1), ['shell:open-module', 'trainer'], 'הניווט עובר בערוץ המאומת');
+  await exposed.systemAPI.openModule('tools');
+  assert.deepEqual(calls.at(-1), ['shell:open-module', 'tools'], 'הניווט עובר בערוץ המאומת');
   assert.ok(!calls.some(c => c[0] === 'shell:switch'), 'אין נתיב עוקף ל-shell:switch');
   assert.equal('switchTo' in exposed.systemAPI, false, 'אין API לניווט ישיר מהמודול');
 });

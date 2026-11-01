@@ -258,40 +258,7 @@ test('2 (main.js): שחזור למודול שהנתונים הישנים שלו 
   } finally { replug(); }
 });
 
-test('1+2 (main.js): המחסן לא נכתב לדיסק בשחזור (לפני העברה) — הודעת שגיאה, החזרה למצב שלפני, והישן לא נמחק לפני שהמחסן נכתב', async () => {
-  await H.boot();
-  await H.loginAs(H.ADMIN[0]);
-  const LEGACY = { 'trainer:profile': '{"name":"ישן"}', 'clients:index': '["c_1"]' };
-  const replug = unplugBackupDrive();
-  let restoreDisk = () => {};
-  try {
-    const p = H.runPreload('trainer', LEGACY);
-    assert.equal(loadStore('trainer').migrated, false);
-    // הכתיבה הראשונה (של השחזור) נכשלת; ההחזרה למצב שלפני — מצליחה
-    let legacyAtFailure = null;
-    const real = fs.renameSync;
-    let failed = false;
-    fs.renameSync = (a, b) => {
-      if (!failed && /secure-trainer\.bin\.tmp$/.test(String(a))) { failed = true; legacyAtFailure = p.legacyMem.size; throw fsErr('ENOSPC'); }
-      return real(a, b);
-    };
-    restoreDisk = () => { fs.renameSync = real; };
-    assert.deepEqual(await restoreFrom({ scope: 'trainer', localStorage: { trainer: { 'trainer:profile': '{"name":"חדש"}' } } }), { ok: false });
-    restoreDisk();
-    assert.equal(legacyAtFailure, 2, 'כשהכתיבה נכשלה — הישן עוד לא נמחק');
-    assert.ok(!H.dialogPlan.log.includes('השחזור הושלם'), H.dialogPlan.log.join(' | '));
-    const msg = H.dialogPlan.log.find((m) => /לא ניתן היה לשמור בדיסק את נתוני האימונים/.test(m));
-    assert.ok(msg, H.dialogPlan.log.join(' | '));
-    assert.match(msg, /הנתונים הוחזרו למצב שלפני השחזור/);
-    // ההחזרה: מה שהיה (הישן) — עכשיו במחסן, בקובץ, והעמוד ייטען ממנו
-    const st = loadStore('trainer');
-    assert.equal(st.migrated, true);
-    assert.deepEqual(st.data, LEGACY);
-    assert.deepEqual(onDisk('trainer').snapshot(), LEGACY);
-    assert.equal(p.legacyMem.size, 0, 'אחרי שהמחסן נכתב — הישן נמחק');
-    assert.equal(H.runPreload('trainer').run(`localStorage.getItem('trainer:profile')`), '{"name":"ישן"}');
-  } finally { restoreDisk(); replug(); }
-});
+// 1+2 (המחסן לא נכתב בשחזור לפני העברה) — ב-tests/audit-integrity-r2-legacy.test.js: צריך מחסן שעוד לא הועבר, בתהליך משלו
 
 test('1 (main.js): המחסן לא נכתב לדיסק בשחזור — לא "השחזור הושלם", והמחסן (בזיכרון ובקובץ) חוזר למצב שלפני', async () => {
   await H.boot();

@@ -15,7 +15,7 @@ const crypto = require('crypto');
 
 const WWW = path.join(__dirname, '..', 'build', 'assets', 'www');
 const DOMAIN = 'supersuite.androidplatform.net';
-const MODS = ['shell', 'econ', 'shamai', 'trainer', 'tools'];
+const MODS = ['shell', 'econ', 'shamai', 'tools'];
 const MIME = { html: 'text/html', js: 'text/javascript', css: 'text/css', json: 'application/json', webmanifest: 'application/manifest+json', png: 'image/png', svg: 'image/svg+xml', ico: 'image/x-icon', woff2: 'font/woff2' };
 const autoIdx = process.argv.indexOf('--auto');
 const AUTO = autoIdx > 0 ? path.resolve(process.argv[autoIdx + 1] || 'sim-out') : null;
@@ -143,7 +143,7 @@ app.whenReady().then(async () => {
     await wait(1500);
     await shot('05-econ-invoices');
 
-    for (const [i, mod] of [['06', 'shamai'], ['07', 'trainer'], ['08', 'tools']]) {
+    for (const [i, mod] of [['06', 'shamai'], ['07', 'tools']]) {
       await js(`window.shellAPI.open(${JSON.stringify(mod)}, null)`);
       await wait(2500);
       step(mod + ' frame', !!frameOf(mod));

@@ -4,7 +4,7 @@
 // 3  „3 החודשים האחרונים” — שלושה חודשים, לא רק הנוכחי
 // 4  תאריך ישראלי („24.10.2026”) נבדק כתאריך שלם, לא כ„24.10” מומצא
 // 5/7 ברירות מחדל של "היום" — מקומיות, לא toISOString
-// 6  מתאמן יחיד — בלשון יחיד
+// 6  (מתאמן יחיד — הוסר עם מודול האימונים, שעבר למוצר נפרד)
 // 8  2026-02-31 נדחה בכל הבדיקות שנשארו עם regex בלבד
 // 9  תיבות ההודעות במיפוי המאגרים
 process.env.TZ = 'Asia/Jerusalem'; // לפני כל שימוש בתאריך — כך „בין חצות ל-03:00” נבדק באמת
@@ -100,17 +100,6 @@ test('4: „נכון ל-24.10.2026” — היום מהמקור מותר; תאר
 });
 
 // ================= 6: מתאמן יחיד =================
-test('6: מתאמן אחד בלי התראות — „המתאמן היחיד במצב תקין”; התראה אחת — בלשון יחיד', () => {
-  const ctx = (alerts, clients) => ({ today: '2026-10-24', opened: { trainer: true }, trainer: { alerts, clients } });
-  const one = R.runRules('איזה מתאמנים דורשים תשומת לב?', ctx([], 1)).text;
-  assert.match(one, /^המתאמן היחיד במצב תקין/);
-  assert.ok(!/כל 1/.test(one));
-  assert.match(R.runRules('איזה מתאמנים דורשים תשומת לב?', ctx([], 5)).text, /^כל 5 המתאמנים במצב תקין/);
-  assert.match(R.runRules('איזה מתאמנים דורשים תשומת לב?', ctx([{ title: 'א', detail: 'ב', tone: 'red' }], 3)).text, /^מתאמן אחד דורש טיפול דחוף:/);
-  assert.match(R.runRules('איזה מתאמנים דורשים תשומת לב?', ctx([{ title: 'א', detail: 'ב', tone: 'amber' }], 3)).text, /^מתאמן אחד דורש תשומת לב:/);
-  assert.match(R.runRules('איזה מתאמנים דורשים תשומת לב?', ctx([{ title: 'א', detail: 'ב', tone: 'red' }, { title: 'ג', detail: 'ד', tone: 'red' }], 3)).text, /^2 מתאמנים דורשים טיפול דחוף:/);
-});
-
 // ================= 5 + 7: "היום" מקומי =================
 // 00:30 בלילה, 24.10.2026 בשעון ישראל — ב-UTC עדיין 23.10
 const LOCAL_0030 = new Date(2026, 9, 24, 0, 30).getTime();
@@ -122,22 +111,12 @@ function atLocal0030(fn) {
   try { return fn(); } finally { Date.now = real; }
 }
 
-test('5/7: ברירת המחדל של "היום" — מקומית (תנועת תזרים, אימון, ארוחה, "הופק:" בסיכום השנתי לתורם)', async () => {
+test('5/7: ברירת המחדל של "היום" — מקומית (תנועת תזרים, "הופק:" בסיכום השנתי לתורם)', async () => {
   assert.notEqual(UTC_DAY, LOCAL_DAY, 'אזור הזמן של הבדיקה הוחל — ב-UTC זה עדיין אתמול');
   assert.equal(atLocal0030(() => DATES.localDay()), LOCAL_DAY);
   const { PersonalFinanceService: pf } = require(path.join(ROOT, 'modules/econ/services/personalFinanceService'));
   assert.equal(atLocal0030(() => pf._validateItem('cashFlowEntries', { type: 'income', amount: 100 })).date, LOCAL_DAY);
   assert.throws(() => pf._validateItem('cashFlowEntries', { type: 'income', amount: 100, date: '2026-02-31' }), /תאריך לא תקין/);
-
-  const { FitnessService: shared } = require(path.join(ROOT, 'modules/econ/services/fitnessService'));
-  let store = {};
-  const fit = new shared.constructor({ load: async () => store, save: async (d) => { store = d; } });
-  const real = Date.now;
-  Date.now = () => LOCAL_0030;
-  try {
-    assert.equal((await fit.createWorkout('u1', { type: 'walking', durationMinutes: 30 })).date, LOCAL_DAY);
-    assert.equal((await fit.createNutrition('u1', { mealType: 'lunch', calories: 500 })).date, LOCAL_DAY);
-  } finally { Date.now = real; }
 
   const st = { year: 2026, org: { name: 'עמותת חסדי אבות' }, donor: { name: 'משה כהן' }, receipts: [], total: 0 };
   const html = atLocal0030(() => X.renderDonorStatementHtml(st));

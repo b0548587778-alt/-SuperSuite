@@ -1,10 +1,9 @@
-// רשת ביטחון במסכים (PLAN.md 2.4): תקלה במסך של שמאות / אימונים / ארגז כלים מציגה הודעה עם "טען מחדש"
+// רשת ביטחון במסכים (PLAN.md 2.4): תקלה במסך של שמאות / ארגז כלים מציגה הודעה עם "טען מחדש"
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { install, MESSAGE } = require('../shell/screen-guard');
-const { checkThemeOrder } = require('../tools/build-trainer');
 
 const ROOT = path.join(__dirname, '..');
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
@@ -86,7 +85,7 @@ test('ההודעה בצבעי שפת העיצוב בלבד (בלי hex)', () => 
 });
 
 test('כל מודול טוען את רשת הביטחון, ו-main.js מגיש אותה מהמעטפת', () => {
-  for (const f of ['modules/shamai/index.html', 'modules/tools/index.html', 'modules/trainer/index.html', 'modules-src/trainer/index.html']) {
+  for (const f of ['modules/shamai/index.html', 'modules/tools/index.html']) {
     assert.match(read(f), /<script src="\/screen-guard\.js"><\/script>/, f);
   }
   // בשמאות ובכלים — לפני כל סקריפט אחר, כדי לתפוס גם שגיאה בטעינה
@@ -98,10 +97,3 @@ test('כל מודול טוען את רשת הביטחון, ו-main.js מגיש �
   assert.match(read('android/build-apk.js'), /'screen-guard\.js'/);
 });
 
-test('בניית האימונים נכשלת כשרשת הביטחון או חלון ההודעה חסרים ב-index.html', () => {
-  const head = '<link rel="stylesheet" href="/design-tokens.css"><link rel="stylesheet" href="/ui-kit.css">';
-  const ok = `<head>${head}<script src="/screen-guard.js"></script><script src="/ss-dialog.js"></script><link rel="stylesheet" href="/assets/x.css"></head>`;
-  assert.equal(checkThemeOrder(ok), ok);
-  assert.throws(() => checkThemeOrder(ok.replace('<script src="/screen-guard.js"></script>', '')), /screen-guard/);
-  assert.throws(() => checkThemeOrder(ok.replace('<script src="/ss-dialog.js"></script>', '')), /ss-dialog/);
-});

@@ -1,12 +1,12 @@
 // אפס פניות לאינטרנט במודולים (PLAN.md 5.3, כלל ברזל 6).
-// סורק את כל הקבצים שנארזים בתוכנה ואת קוד המקור של האימונים: כל כתובת חיצונית חייבת להופיע ברשימה המאושרת.
+// סורק את כל הקבצים שנארזים בתוכנה: כל כתובת חיצונית חייבת להופיע ברשימה המאושרת.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const SCAN = ['main.js', 'shell', 'modules', 'modules-src/trainer/src', 'modules-src/trainer/index.html'];
+const SCAN = ['main.js', 'shell', 'modules'];
 const EXT = /\.(js|jsx|html|css|json|webmanifest|svg)$/i;
 
 // מארח ← למה הוא מותר. "קישור" = נפתח רק בלחיצה, בדפדפן של המשתמש (setWindowOpenHandler ב-main.js).
@@ -24,14 +24,11 @@ const ALLOWED = {
 const ALLOWED_IN = {
   'shell/google-signin.js': ['accounts.google.com', 'oauth2.googleapis.com', 'www.googleapis.com'],
   'shell/licensing/default-relay.js': ['supersuite-license.duckdns.org'],
-  'modules/shamai/lib/qrcode.js': ['stackoverflow.com', 'www.d-project.com', 'www.denso-wave.com', 'www.opensource.org'],
-  'modules/trainer/workbox-9c191d2f.js': ['bit.ly'],
-  'modules/trainer/assets/': ['reactjs.org', 'fb.me']
+  'modules/shamai/lib/qrcode.js': ['stackoverflow.com', 'www.d-project.com', 'www.denso-wave.com', 'www.opensource.org']
 };
 // קבצים שמותר להם לפנות לרשת בפועל (fetch וכדומה)
 const FETCH_ALLOWED = [
-  'shell/google-signin.js', 'shell/licensing/', 'modules/shamai/sw.js',
-  'modules/trainer/sw.js', 'modules/trainer/workbox-', 'modules/trainer/assets/'
+  'shell/google-signin.js', 'shell/licensing/', 'modules/shamai/sw.js'
 ];
 
 function files() {

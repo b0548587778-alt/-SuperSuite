@@ -30,8 +30,6 @@
       steps: [{ id: 'madv-first', title: 'תיק לקוח ראשון', detail: 'ואז מעבדת התמהיל להשוואת מסלולים', key: 'econ:mortgage-advisor' }] },
     { id: 'appraiser', icon: '🏢', name: 'שמאות נכסים', desc: 'הערכות שווי ודוחות',
       screens: ['shamai'], steps: [] },
-    { id: 'trainer', icon: '🏋', name: 'מאמן כושר', desc: 'מתאמנים, תכניות ותזונה',
-      screens: ['trainer:dashboard', 'trainer:clients', 'trainer:programs'], steps: [] },
   ];
   const BY_ID = new Map(PROFILES.map(p => [p.id, p]));
 

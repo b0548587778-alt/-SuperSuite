@@ -62,8 +62,8 @@ function dataMap(data, userCounts = {}, opts = {}) {
     { area: 'הנהלת חשבונות — לקוחות בחשבוניות', count: len(data.invoices), fields: 'שם הלקוח, ע.מ / ת.ז (רשות), כתובת, פריטים וסכומים', sensitivity: 'regular', access: all },
     { area: 'הנהלת חשבונות — ספקים ביומן', count: (Array.isArray(data.journal) ? data.journal : []).filter(e => e && (e.vatDoc || e.supplierDoc)).length,
       fields: 'שם הספק, ע.מ (בעוסק שהוא יחיד — מספר ת.ז), מספר החשבונית, תאריך וסכומים', sensitivity: 'regular', access: all },
-    { area: 'שמאות ואימונים (במחסן המוצפן של כל מודול)', count: null,
-      fields: 'שמאות: פרטי לקוחות, פריטים, שטרי קנייה ותמונות. אימונים: פרטי מתאמנים, מדידות, הערות בריאות ותשלומים', sensitivity: 'sensitive', access: 'משתמשים מחוברים עם רישיון למודול' }
+    { area: 'שמאות (במחסן המוצפן של המודול)', count: null,
+      fields: 'פרטי לקוחות, פריטים, שטרי קנייה ותמונות', sensitivity: 'sensitive', access: 'משתמשים מחוברים עם רישיון למודול' }
   ];
   const mail = mailboxRows(opts && opts.mailboxes);
   rows.push(...mail);

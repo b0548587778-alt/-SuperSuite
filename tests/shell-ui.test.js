@@ -144,7 +144,7 @@ test('חיפוש מסנן את הסרגל לפי שם הפריט', () => {
   s.elements.q._l.input();
   const html = s.elements.nav.innerHTML;
   assert.match(html, /data-key="econ:acct-invoices"/);
-  assert.doesNotMatch(html, /data-key="trainer"/);
+  assert.doesNotMatch(html, /data-key="trainer/);
   s.elements.q.value = 'אין-כזה-דבר';
   s.elements.q._l.input();
   assert.match(s.elements.nav.innerHTML, /לא נמצא/);

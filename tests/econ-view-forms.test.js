@@ -1,4 +1,5 @@
-// בדיקת התנהגות לתצוגת הכושר: הטופס, השדות הדינמיים ויצירת הרשומות.
+// בדיקת התנהגות לטפסים ולתצוגות של המודול הכלכלי: כפתור ההוספה, השדות הדינמיים ויצירת הרשומות.
+// (היה tests/fitness-view.test.js; הבדיקות של מסך הכושר הוסרו עם המסך — המוצר הכלכלי)
 // ממשק המודול (modules/econ/ui) רץ ב-vm עם DOM מדומה; נבדקת ההתנהגות בפועל — לא טקסט בקוד.
 const test = require('node:test');
 const EconUI = require('./helpers/econ-ui');
@@ -14,7 +15,7 @@ const VIEWS = [...new Set([...HTML.matchAll(/data-view="([^"]+)"/g)].map(m => m[
 
 // --- DOM מדומה עם רישום אלמנטים לפי id, כדי ששדות הטופס יהיו ניתנים לבדיקה ---
 // מחזיר harness אחרי ש-init() הסתיים במלואו — ראו settle.
-async function makeHarness({ calls, fitnessData, personalFinance, accounting, tasks }) {
+async function makeHarness({ calls, personalFinance, accounting, tasks }) {
   const elements = {};
 
   function fakeElement(id = '', extra = {}) {
@@ -37,14 +38,13 @@ async function makeHarness({ calls, fitnessData, personalFinance, accounting, ta
   const LIST_RETURNS = new Set([
     'getInvoices', 'getProducts', 'getTasks', 'getContacts', 'getVoiceNotes',
     'getCanvasBoards', 'getMortgageScenarios', 'getChart', 'getJournal',
-    'getPersonalEntries', 'getWorkouts', 'getNutrition', 'getMetrics'
+    'getPersonalEntries'
   ]);
   // סיכומים שמכילים רשימת קטגוריות — צורתם ב-features.js: {income,expense,balance,count,categories}
   const SUMMARY_RETURNS = new Set(['getPersonalSummary', 'getPeriodSummary', 'getInvoiceAnalytics']);
   const OPAQUE_OBJECTS = new Set(['getFinanceData', 'getPersonalFinance', 'getBusinessData']);
   const systemAPI = new Proxy({}, {
     get(_t, name) {
-      if (name === 'getFitnessData') return () => Promise.resolve(fitnessData);
       // renderTasks קורא data.tasks — השירות מחזיר עטיפה, לא מערך גולמי
       if (name === 'getTasks') return () => Promise.resolve({ tasks: tasks || [] });
       if (name === 'getPersonalFinance') return () => Promise.resolve(personalFinance || {});
@@ -123,143 +123,43 @@ function syncFieldsFromHtml(elements, html) {
   }
 }
 
-test('מסך הכושר מציג טופס הוספה — הכפתור אינו מושבת', async () => {
-  const harness = await makeHarness({ calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] } });
-  await goToView('fitness', harness);
-  assert.equal(harness.elements.addBtn.disabled, false, 'כפתור ההוספה פעיל במסך הכושר');
-});
-
-test('מסך הכושר מציג את שלושת הסוגים ומציג רשומות קיימות', async () => {
-  const fitnessData = {
-    workouts: [{ id: 'w1', type: 'cardio', durationMinutes: 30, date: '2026-10-01' }],
-    nutrition: [{ id: 'n1', mealType: 'breakfast', calories: 400, date: '2026-10-01' }],
-    metrics: [{ id: 'm1', date: '2026-10-01', weightKg: 70 }]
-  };
-  const harness = await makeHarness({ calls: [], fitnessData });
-  await goToView('fitness', harness);
-  const html = harness.elements.view.innerHTML;
-  assert.match(html, /אימונים \(1\)/, 'מוצגת ספירת האימונים');
-  assert.match(html, /תזונה \(1\)/, 'מוצגת ספירת התזונה');
-  assert.match(html, /מדדים \(1\)/, 'מוצגת ספירת המדדים');
-  assert.match(html, /אירובי/, 'סוג האימון מתורגם לעברית');
-  assert.match(html, /בוקר/, 'סוג הארוחה מתורגם לעברית');
-  assert.match(html, /70 ק"ג/, 'המשקל מוצג');
-});
-
-test('כשהכושר ריק — מוצגת הודעה ידידותית ולא מסך ריק', async () => {
-  const harness = await makeHarness({ calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] } });
-  await goToView('fitness', harness);
-  assert.match(harness.elements.view.innerHTML, /הוספת רשומה/, 'יש הנחיה לכפתור ההוספה');
-});
-
-test('פתיחת הטופס מציגה בחירת סוג וכותרת בעברית', async () => {
-  const harness = await makeHarness({ calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] } });
-  await goToView('fitness', harness);
-  const addHandlers = harness.elements.addBtn._listeners.click || [];
-  assert.ok(addHandlers.length >= 1, 'לכפתור ההוספה יש מאזין');
-  await addHandlers[0]();
-  assert.match(harness.elements.modalTitle.textContent, /[֐-׿]/, 'כותרת הטופס בעברית');
-  assert.match(harness.elements.modalForm.innerHTML, /f_fitnessKind/, 'יש שדה בחירת סוג');
-});
-
-test('יצירת אימון שולחת createWorkout עם השדות הנכונים', async () => {
+// טופס דינמי (שדות לפי סוג): שדה חובה של הסוג שנבחר חסר — לא נשלחת קריאה. שדות של סוג אחר לא נאספים
+// (בעבר נבדק במסך הכושר, שהוסר מהמוצר הכלכלי — כאן במסך התוכנית הפיננסית, שגם הוא טופס דינמי)
+test('טופס דינמי: שדה חובה חסר בסוג הנבחר — לא נשלחת קריאה; סוג אחר — רק השדות שלו', async () => {
   const calls = [];
-  const harness = await makeHarness({ calls, fitnessData: { workouts: [], nutrition: [], metrics: [] } });
-  await goToView('fitness', harness);
+  const harness = await makeHarness({ calls });
+  await goToView('personal-finance', harness);
   await (harness.elements.addBtn._listeners.click[0])();
-
-  // מילוי השדות כפי שהטופס היה ממלא אותם
+  assert.match(harness.elements.modalForm.innerHTML, /f_pfKind/, 'יש שדה בחירת סוג');
   Object.assign(harness.elements, {
-    f_fitnessKind: { id: 'f_fitnessKind', value: 'workout' },
-    f_date: { id: 'f_date', value: '2026-10-11' },
-    f_type: { id: 'f_type', value: 'strength' },
-    f_durationMinutes: { id: 'f_durationMinutes', value: '45' },
-    f_caloriesBurned: { id: 'f_caloriesBurned', value: '300' },
-    f_notes: { id: 'f_notes', value: 'אימון טוב' }
+    f_pfKind: { id: 'f_pfKind', value: 'investments' },
+    f_name: { id: 'f_name', value: 'קרן השתלמות' },
+    f_principal: { id: 'f_principal', value: '' },
+    f_annualRate: { id: 'f_annualRate', value: '4' },
+    f_years: { id: 'f_years', value: '10' }
   });
-  // שדות שאינם שייכים לסוג — נוכחים ב-DOM אך לא נאספים
-  harness.elements.f_mealType = { id: 'f_mealType', value: 'lunch' };
-  harness.elements.f_weightKg = { id: 'f_weightKg', value: '80' };
-
   await harness.elements.submitBtn._listeners.click[0]();
-
-  const call = calls.find(c => c.name === 'createWorkout');
-  assert.ok(call, 'נקראה createWorkout');
-  assert.equal(call.args[0].type, 'strength', 'סוג האימון הועבר');
-  assert.equal(call.args[0].durationMinutes, 45, 'המשך הועבר כמספר');
-  assert.equal(call.args[0].date, '2026-10-11', 'התאריך הועבר');
-  assert.equal(calls.find(c => c.name === 'createNutrition'), undefined, 'לא נוצרה תזונה');
-  assert.equal(calls.find(c => c.name === 'createMetric'), undefined, 'לא נוצר מדד');
-});
-
-test('יצירת תזונה שולחת createNutrition ולא אימון', async () => {
-  const calls = [];
-  const harness = await makeHarness({ calls, fitnessData: { workouts: [], nutrition: [], metrics: [] } });
-  await goToView('fitness', harness);
-  await (harness.elements.addBtn._listeners.click[0])();
+  assert.equal(calls.find(c => c.name === 'addFinanceItem'), undefined, 'לא נשלחה קריאה כשחסר שדה חובה');
 
   Object.assign(harness.elements, {
-    f_fitnessKind: { id: 'f_fitnessKind', value: 'nutrition' },
-    f_date: { id: 'f_date', value: '2026-10-11' },
-    f_mealType: { id: 'f_mealType', value: 'dinner' },
-    f_calories: { id: 'f_calories', value: '650' },
-    f_description: { id: 'f_description', value: 'עוף ואורז' }
+    f_pfKind: { id: 'f_pfKind', value: 'incomes' },
+    f_source: { id: 'f_source', value: 'משכורת' },
+    f_amount: { id: 'f_amount', value: '9000' },
+    f_frequency: { id: 'f_frequency', value: 'monthly' }
   });
-  harness.elements.f_type = { id: 'f_type', value: 'cardio' }; // שדה זר — לא ייאסף
-
   await harness.elements.submitBtn._listeners.click[0]();
-
-  const call = calls.find(c => c.name === 'createNutrition');
-  assert.ok(call, 'נקראה createNutrition');
-  assert.equal(call.args[0].mealType, 'dinner', 'סוג הארוחה הועבר');
-  assert.equal(call.args[0].calories, 650, 'הקלוריות הועברו כמספר');
-  assert.equal(calls.find(c => c.name === 'createWorkout'), undefined, 'לא נוצר אימון');
-});
-
-test('יצירת מדד שולחת createMetric', async () => {
-  const calls = [];
-  const harness = await makeHarness({ calls, fitnessData: { workouts: [], nutrition: [], metrics: [] } });
-  await goToView('fitness', harness);
-  await (harness.elements.addBtn._listeners.click[0])();
-
-  Object.assign(harness.elements, {
-    f_fitnessKind: { id: 'f_fitnessKind', value: 'metric' },
-    f_date: { id: 'f_date', value: '2026-10-11' },
-    f_weightKg: { id: 'f_weightKg', value: '72.5' },
-    f_bodyFatPercent: { id: 'f_bodyFatPercent', value: '18' }
-  });
-
-  await harness.elements.submitBtn._listeners.click[0]();
-
-  const call = calls.find(c => c.name === 'createMetric');
-  assert.ok(call, 'נקראה createMetric');
-  assert.equal(call.args[0].weightKg, 72.5, 'המשקל הועבר');
-  assert.equal(call.args[0].bodyFatPercent, 18, 'אחוז השומן הועבר');
-});
-
-test('שדה חובה חסר בסוג הנבחר — לא נשלחת קריאה ומוצגת שגיאה', async () => {
-  const calls = [];
-  const harness = await makeHarness({ calls, fitnessData: { workouts: [], nutrition: [], metrics: [] } });
-  await goToView('fitness', harness);
-  await (harness.elements.addBtn._listeners.click[0])();
-
-  // אימון ללא משך — שדה חובה
-  Object.assign(harness.elements, {
-    f_fitnessKind: { id: 'f_fitnessKind', value: 'workout' },
-    f_date: { id: 'f_date', value: '2026-10-11' },
-    f_type: { id: 'f_type', value: 'cardio' },
-    f_durationMinutes: { id: 'f_durationMinutes', value: '' }
-  });
-
-  await harness.elements.submitBtn._listeners.click[0]();
-
-  assert.equal(calls.find(c => c.name === 'createWorkout'), undefined, 'לא נשלחה קריאה כשחסר שדה חובה');
+  const call = calls.find(c => c.name === 'addFinanceItem');
+  assert.ok(call, 'נקראה addFinanceItem');
+  assert.equal(call.args[0], 'incomes');
+  assert.equal(call.args[1].source, 'משכורת');
+  assert.equal(call.args[1].amount, 9000, 'הסכום הועבר כמספר');
+  assert.equal(call.args[1].principal, undefined, 'שדה של סוג אחר לא נאסף');
 });
 
 test('תצוגות תצוגה-בלבד נשארות מושבתות — אין להן טופס', async () => {
   // כל תצוגה נבדקת ב-harness נפרד, כדי שמצב disabled לא יישאר מהתצוגה הקודמת
   for (const view of ['dashboard', 'finance', 'acct-reports']) {
-    const harness = await makeHarness({ calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] } });
+    const harness = await makeHarness({ calls: [] });
     await goToView(view, harness);
     assert.equal(harness.elements.addBtn.disabled, true, `כפתור ההוספה מושבת ב-${view}`);
   }
@@ -267,7 +167,7 @@ test('תצוגות תצוגה-בלבד נשארות מושבתות — אין ל
 
 test('כל תצוגה עם כפתור פעיל אכן מייצרת טופס — אין כפתור "מת"', async () => {
   for (const view of VIEWS) {
-    const harness = await makeHarness({ calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] } });
+    const harness = await makeHarness({ calls: [] });
     await goToView(view, harness);
     if (harness.elements.addBtn.disabled) continue;
     const handlers = harness.elements.addBtn._listeners.click || [];
@@ -280,7 +180,7 @@ test('כל תצוגה עם כפתור פעיל אכן מייצרת טופס — 
 
 test('התצוגות ללא טופס — הכפתור מושבת ולא נפתח דבר', async () => {
   for (const view of ['dashboard', 'finance', 'acct-reports']) {
-    const harness = await makeHarness({ calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] } });
+    const harness = await makeHarness({ calls: [] });
     await goToView(view, harness);
     assert.equal(harness.elements.addBtn.disabled, true, `כפתור ההוספה מושבת ב-${view}`);
     harness.elements.modalForm.innerHTML = '';
@@ -292,7 +192,6 @@ test('התצוגות ללא טופס — הכפתור מושבת ולא נפתח
 test('"תכנון פיננסי" ו"התוכנית הפיננסית" אינם אותו מסך — האחד תמונת מצב, השני ניתן לעריכה', async () => {
   const harness = await makeHarness({
     calls: [],
-    fitnessData: { workouts: [], nutrition: [], metrics: [] },
     // אותה תוכנית בדיוק מוגשת לשני המסכים — ההבדל חייב להיות ברינדור, לא בנתונים
     personalFinance: {
       planName: 'תוכנית לדוגמה', currency: 'ILS',
@@ -324,7 +223,7 @@ test('"תכנון פיננסי" ו"התוכנית הפיננסית" אינם א�
 // גרסת נתונים ישנה, תשובה חלקית) היה מפיל את הרינדור ב-TypeError ומשאיר מסך ריק.
 test('דוח חשבונאי חלקי (ללא trialBalance/balanceSheet) לא מפיל את תצוגת הדוחות', async () => {
   const harness = await makeHarness({
-    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    calls: [],
     // דוח "רזה" — חסרים כל המפתחות שהרינדור קורא ישירות
     accounting: { period: { to: '2026-10-12' } }
   });
@@ -338,7 +237,7 @@ test('דוח חשבונאי חלקי (ללא trialBalance/balanceSheet) לא מ�
 
 test('דוח עם מערכים לא-תקינים (מחרוזת במקום מערך) לא מפיל את תצוגת הדוחות', async () => {
   const harness = await makeHarness({
-    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    calls: [],
     accounting: {
       period: { from: '2026-01-01', to: '2026-10-12' },
       vatRate: 0.17,
@@ -359,7 +258,7 @@ test('דוח עם מערכים לא-תקינים (מחרוזת במקום מער
 
 test('מסך הבית עם דוח חשבונאי חלקי מציג את שאר הכרטיסים במקום מסך ריק', async () => {
   const harness = await makeHarness({
-    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    calls: [],
     accounting: { period: { to: '2026-10-12' }, balanceSheet: {}, incomeStatement: {}, vat: {} }
   });
   await goToView('dashboard', harness);
@@ -372,7 +271,7 @@ test('מסך הבית עם דוח חשבונאי חלקי מציג את שאר �
 test('מוצר ללא בלוק תמחור מחושב לא מפיל את המחירון', async () => {
   // מוצר שנשמר בגרסה ישנה בלי p.pricing — הרינדור חייב להציג 0 ולא לקרוס
   const harness = await makeHarness({
-    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] }
+    calls: []
   });
   await goToView('acct-pricing', harness);
   const html = harness.elements.view.innerHTML;
@@ -382,7 +281,7 @@ test('מוצר ללא בלוק תמחור מחושב לא מפיל את המחי
 
 test('שיעור מע"מ חסר בהגדרות מוצג כ"—" ולא כ"NaN%"', async () => {
   const harness = await makeHarness({
-    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] }
+    calls: []
   });
   await goToView('acct-settings', harness);
   const html = harness.elements.view.innerHTML;
@@ -396,7 +295,7 @@ test('שיעור מע"מ חסר בהגדרות מוצג כ"—" ולא כ"NaN%"'
 
 test('טופס הגדרות המע"מ מציג את שדה האחוז (המיפוי vatRate → vatPercent)', async () => {
   const harness = await makeHarness({
-    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] }
+    calls: []
   });
   await goToView('acct-settings', harness);
   await (harness.elements.addBtn._listeners.click[0])();
@@ -412,7 +311,7 @@ test('טופס הגדרות המע"מ מציג את שדה האחוז (המיפ�
 // פותחת "הוספה" ובודקת שהשדה נקי. אומתה כ-falsifiable: בהסרת השחזור היא נכשלת.
 test('עריכת רשומה אינה מזהמת את טופס ההוספה הבא', async () => {
   const harness = await makeHarness({
-    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    calls: [],
     tasks: [{ id: 't1', title: 'לשלם ארנונה', description: 'עד סוף החודש', category: 'finance', priority: 'high', status: 'todo', dueDate: '2026-11-01' }]
   });
   await goToView('tasks', harness);
@@ -439,7 +338,7 @@ test('עריכת רשומה אינה מזהמת את טופס ההוספה הב�
 
 test('סגירת החלון מנקה את הטופס ואת מצב העריכה', async () => {
   const harness = await makeHarness({
-    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] }
+    calls: []
   });
   await goToView('tasks', harness);
   await (harness.elements.addBtn._listeners.click[0])();
@@ -450,7 +349,7 @@ test('סגירת החלון מנקה את הטופס ואת מצב העריכה'
 
 test('תכנון פיננסי עם נתונים ריקים מציג הודעה ידידותית ולא מסך ריק', async () => {
   const harness = await makeHarness({
-    calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] },
+    calls: [],
     personalFinance: { planName: 'ריק', currency: 'ILS', incomes: [], expenses: [], investments: [], cashFlowEntries: [] }
   });
   await goToView('finance', harness);
@@ -494,10 +393,10 @@ function schemaBody(source, view) {
 test('כל תצוגה שהכפתור שלה פעיל — פתיחת הטופס מייצרת שדות בפועל', async () => {
   // כל תצוגה נבדקת ב-harness נפרד לגמרי, כדי שלא יישאר מצב מהתצוגה הקודמת
   const withForm = ['tasks', 'contacts', 'business', 'market-intel', 'mortgage',
-    'voice-notes', 'canvas', 'fitness', 'acct-journal', 'acct-invoices',
+    'voice-notes', 'canvas', 'acct-journal', 'acct-invoices',
     'acct-chart', 'acct-pricing', 'acct-personal', 'acct-settings'];
   for (const view of withForm) {
-    const harness = await makeHarness({ calls: [], fitnessData: { workouts: [], nutrition: [], metrics: [] } });
+    const harness = await makeHarness({ calls: [] });
     await goToView(view, harness);
     assert.equal(harness.elements.addBtn.disabled, false, `כפתור ההוספה פעיל ב-${view}`);
     harness.elements.modalForm.innerHTML = '';

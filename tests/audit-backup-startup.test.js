@@ -14,7 +14,7 @@ const { spawnSync } = require('child_process');
 const { fileURLToPath } = require('url');
 
 const ROOT = path.join(__dirname, '..');
-const TrainerCheck = require('../shell/trainer-backup-check');
+const Legacy = require('../shell/legacy-modules');
 const AutoBk = require('../shell/auto-backup');
 const AB = require('../modules/econ/core/features');
 const BK = require('../modules/econ/core/backupCrypto');
@@ -52,12 +52,11 @@ const newKey = () => crypto.randomBytes(32).toString('base64');
 
 /* ================= יחידות ================= */
 
-test('ממצא 1: trainer = {} בגיבוי מלא הוא "אין נתוני אימונים", לא קובץ פגום', () => {
-  for (const v of [undefined, null, '', {}]) assert.equal(TrainerCheck.hasTrainerItems(v), false, JSON.stringify(v));
-  for (const v of [{ 'clients:index': '[]' }, { other: '1' }, [], 'abc']) assert.equal(TrainerCheck.hasTrainerItems(v), true, JSON.stringify(v));
-  // קובץ JSON ריק עדיין אינו "גיבוי ישן של האימונים", ונתונים פגומים עדיין נפסלים
-  assert.equal(TrainerCheck.legacyTrainerBackup({}), null);
-  assert.equal(TrainerCheck.checkTrainerItems({ 'clients:index': '{"a":1}' }).ok, false);
+test('מודול האימונים עבר למוצר נפרד: נתוניו בגיבוי ישן מזוהים (להודעה), ו-trainer = {} — אין נתונים', () => {
+  for (const v of [undefined, null, '', {}]) assert.equal(Legacy.hasLegacyModuleData({ localStorage: { trainer: v } }), false, JSON.stringify(v));
+  for (const v of [{ 'clients:index': '[]' }, { other: '1' }, [], 'abc']) assert.equal(Legacy.hasLegacyModuleData({ localStorage: { trainer: v } }), true, JSON.stringify(v));
+  for (const d of [null, {}, { localStorage: null }, { localStorage: { shamai: { a: '1' } } }, 'x']) assert.equal(Legacy.hasLegacyModuleData(d), false);
+  assert.match(Legacy.LEGACY_NOTE, /[א-ת]/);
 });
 
 test('ממצא 1 (אנדרואיד): שחזור גיבוי מלא של ארגון בלי נתוני אימונים — הכספים משוחזרים', async () => {
@@ -76,7 +75,7 @@ test('ממצא 1 (אנדרואיד): שחזור גיבוי מלא של ארגו�
   MA.start({
     ipcMain: { handle: (c, fn) => handlers.set(c, fn), on() {} }, econ, frames, SHELL_ID: 1, emitShell() {},
     bridgeAsync: async (m) => (m === 'openText' ? { text: JSON.stringify(backup) } : { ok: true }),
-    senderOf: (id) => ({ econ: 2, shamai: 3, trainer: 4, tools: 5 })[id],
+    senderOf: (id) => ({ econ: 2, shamai: 3, tools: 5 })[id],
     ui: (() => { let o = {}; return { load: () => o, save: (v) => { o = v; } }; })(),
     alert: (m) => alerts.push(m), confirm: () => true, exit() {}
   });
@@ -157,7 +156,7 @@ test('ממצא 1 (אנדרואיד): גיבוי של מודול האימונים
   MA.start({
     ipcMain: { handle: (c, fn) => handlers.set(c, fn), on() {} }, econ, frames, SHELL_ID: 1, emitShell() {},
     bridgeAsync: async (m) => (m === 'openText' ? { text: JSON.stringify(backup) } : { ok: true }),
-    senderOf: (id) => ({ econ: 2, shamai: 3, trainer: 4, tools: 5 })[id],
+    senderOf: (id) => ({ econ: 2, shamai: 3, tools: 5 })[id],
     ui: (() => { let o = {}; return { load: () => o, save: (v) => { o = v; } }; })(),
     alert: (m) => alerts.push(m), confirm: (m) => { confirms.push(m); return true; }, exit() {}
   });
@@ -268,8 +267,7 @@ fs.writeFileSync(path.join(userData, 'autobackup.key'), fakeSS.encryptString(KEY
 }
 // ה-localStorage הגלוי הישן של המודולים (כמו שהוא בדפדפן)
 const LEGACY = {
-  shamai: { shamai_v2_props: '["ישן"]', shamai_v2_purchaseSeq: '4' },
-  trainer: { 'clients:index': '["c_1"]', 'client:c_1': JSON.stringify({ id: 'c_1', name: 'יעקב לוי' }) }
+  shamai: { shamai_v2_props: '["ישן"]', shamai_v2_purchaseSeq: '4' }
 };
 const legacyFail = new Set();
 
@@ -331,7 +329,7 @@ const electronStub = {
   dialog: {
     showSaveDialog: async (_w, o) => { lastSave = o; return dialogPlan.save; },
     showOpenDialog: async () => dialogPlan.open,
-    showMessageBox: async (_w, o) => { const b = o || _w; dialogLog.push(['box', b.message]); return { response: dialogPlan.box }; },
+    showMessageBox: async (_w, o) => { const b = o || _w; dialogLog.push(['box', b.message, b.detail]); return { response: dialogPlan.box }; },
     showErrorBox(t, m) { dialogLog.push(['error', m]); },
   },
   protocol: { registerSchemesAsPrivileged() {}, handle: (_s, fn) => { protocolHandler = fn; } },
@@ -414,10 +412,12 @@ test('app://: אין יציאה מתיקיית המודול (path traversal), ק
   assert.equal((await get('app://shamai/%E0%A4%A')).status, 400);
   assert.equal((await get('app://evil/index.html')).status, 404);
   // קבצי המעטפת המשותפים — רק הנתיב המדויק
-  assert.equal(fileURLToPath((await get('app://trainer/design-tokens.css')).fetched), path.join(ROOT, 'shell', 'design-tokens.css'));
+  assert.equal(fileURLToPath((await get('app://tools/design-tokens.css')).fetched), path.join(ROOT, 'shell', 'design-tokens.css'));
+  // מודול האימונים עבר למוצר נפרד — אין לו תיקייה ואין לו כתובת
+  assert.equal((await get('app://trainer/index.html')).status, 404);
 });
 
-test('ממצא 36: אחרי שדרוג, הגיבוי האוטומטי כולל את נתוני השמאות והאימונים שעוד לא הועברו למחסן', async () => {
+test('ממצא 36: אחרי שדרוג, הגיבוי האוטומטי כולל את נתוני השמאות שעוד לא הועברו למחסן', async () => {
   await boot();
   const status = await atTime(LOCAL_NIGHT, () => autoBackupFn());
   assert.equal(status.ok, true, JSON.stringify(status));
@@ -425,7 +425,7 @@ test('ממצא 36: אחרי שדרוג, הגיבוי האוטומטי כולל �
   const data = JSON.parse(BK.decryptBackup(fs.readFileSync(status.file, 'utf8'), KEY));
   assert.equal(data.localStorage.shamai.shamai_v2_props, '["מהמחסן"]', 'מה שכבר במחסן גובר (כמו בהעברה)');
   assert.equal(data.localStorage.shamai.shamai_v2_purchaseSeq, '4', 'הנתונים הישנים בגיבוי');
-  assert.deepEqual(data.localStorage.trainer, LEGACY.trainer);
+  assert.equal(data.localStorage.trainer, undefined, 'מודול האימונים (עבר למוצר נפרד) אינו בגיבוי');
   assert.deepEqual(data.econ.donors.map(x => x.name), ['אהרן לוי']);
   // נקרא בעולם מבודד משלנו — לא בעולם של העמוד (שם ה-preload מחליף את localStorage) ולא בעולם של ה-preload
   const worlds = viewOf('shamai').isolated;
@@ -435,9 +435,9 @@ test('ממצא 36: אחרי שדרוג, הגיבוי האוטומטי כולל �
 test('ממצא 36: הנתונים הישנים לא נקראו ← הגיבוי לא נשמר, ושום גיבוי קודם לא נמחק', async () => {
   await boot();
   const before = fs.readdirSync(bkDir).sort();
-  legacyFail.add('trainer');
+  legacyFail.add('shamai');
   let status;
-  try { status = await atTime(LOCAL_NIGHT + DAY, () => autoBackupFn()); } finally { legacyFail.delete('trainer'); }
+  try { status = await atTime(LOCAL_NIGHT + DAY, () => autoBackupFn()); } finally { legacyFail.delete('shamai'); }
   assert.equal(status.ok, false);
   assert.equal(status.reason, 'module-read-failed');
   assert.deepEqual(fs.readdirSync(bkDir).sort(), before);
@@ -487,6 +487,79 @@ test('ממצא 1 (main.js): גיבוי של מודול האימונים בלבד
   } finally { dialogPlan.open = { canceled: true, filePaths: [] }; dialogPlan.box = 1; }
   assert.deepEqual(dialogLog, [['error', 'אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו']]);
   assert.deepEqual((await db.load()).donors.map(x => x.name), donorsBefore, 'הכספים לא השתנו');
+});
+
+// גיבוי מלא מגרסה שכללה את מודול האימונים (עבר למוצר החינוכי הנפרד): שאר הנתונים משוחזרים, האימונים — לא,
+// בלי שגיאה ובלי לבדוק את המבנה שלהם (גם נתוני אימונים פגומים לא עוצרים את השחזור)
+const OLD_TRAINER = { 'trainer:profile': JSON.stringify({ name: 'משה כהן' }), 'clients:index': 'לא JSON', 'client:c_1': JSON.stringify({ id: 'c_1', name: 'יעקב לוי' }) };
+
+test('גיבוי ישן עם נתוני אימונים (main.js): הכספים והשמאות משוחזרים, האימונים מדולגים עם הודעה — בלי שגיאה', async () => {
+  await boot();
+  const db = econDb();
+  const incoming = await db.backup();
+  incoming.donors = [{ id: 'd3', name: 'ראובן שטרן' }];
+  const file = path.join(userData, 'full-with-trainer.ssbk');
+  fs.writeFileSync(file, BK.encryptBackup(JSON.stringify({ suite: 'SuperSuite', version: 2, scope: 'all', econ: incoming,
+    localStorage: { shamai: { shamai_v2_from_old: '["מהגיבוי"]' }, trainer: OLD_TRAINER, tools: {} } }), PASS));
+  dialogPlan.open = { canceled: false, filePaths: [file] };
+  dialogPlan.box = 0;
+  dialogLog.length = 0;
+  try {
+    assert.deepEqual(await handlers['shell:restore-all'](shell(), PASS), { ok: true }, JSON.stringify(dialogLog));
+  } finally { dialogPlan.open = { canceled: true, filePaths: [] }; dialogPlan.box = 1; }
+  assert.ok(!dialogLog.some(x => x[0] === 'error'), JSON.stringify(dialogLog));
+  const confirm = dialogLog.find(x => x[0] === 'box' && /השחזור יחליף/.test(x[1]));
+  assert.ok(confirm && confirm[2].includes(Legacy.LEGACY_NOTE), 'חלון האישור אומר שהאימונים לא ישוחזרו');
+  assert.ok(dialogLog.some(x => x[1] === 'השחזור הושלם'));
+  assert.deepEqual((await db.load()).donors.map(x => x.name), ['ראובן שטרן']);
+  assert.equal(SecureStore.MODULES.includes('trainer'), false);
+  assert.ok(!fs.existsSync(path.join(userData, 'secure-trainer.bin')), 'לא נוצר מחסן לאימונים');
+  assert.ok(!created.views.some(v => /^app:\/\/trainer\//.test(v.url || '')), 'לא נפתחה תצוגה למודול האימונים');
+});
+
+test('גיבוי ישן של מודול האימונים בלבד, עם נתונים (main.js): הודעה ברורה, ושום דבר לא משתנה', async () => {
+  await boot();
+  const db = econDb();
+  const donorsBefore = (await db.load()).donors.map(x => x.name);
+  const file = path.join(userData, 'trainer-only.ssbk');
+  fs.writeFileSync(file, BK.encryptBackup(JSON.stringify({ suite: 'SuperSuite', version: 2, scope: 'trainer', econ: null,
+    localStorage: { trainer: OLD_TRAINER } }), PASS));
+  dialogPlan.open = { canceled: false, filePaths: [file] };
+  dialogPlan.box = 0;
+  dialogLog.length = 0;
+  try {
+    assert.deepEqual(await handlers['shell:restore-all'](shell(), PASS), { ok: false }, JSON.stringify(dialogLog));
+  } finally { dialogPlan.open = { canceled: true, filePaths: [] }; dialogPlan.box = 1; }
+  assert.deepEqual(dialogLog, [['error', Legacy.LEGACY_ONLY + 'אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו']]);
+  assert.deepEqual((await db.load()).donors.map(x => x.name), donorsBefore, 'הכספים לא השתנו');
+});
+
+test('גיבוי ישן עם נתוני אימונים (אנדרואיד): הכספים משוחזרים, האימונים מדולגים עם הודעה', async () => {
+  const MA = require('../android/web/main-android.js');
+  const handlers = new Map();
+  const alerts = [], confirms = [], moduleWrites = [];
+  let restored = null;
+  const econ = { getDb: () => ({ backup: async () => ({ donors: [] }), restore: async (d) => { restored = d; } }), assertAccess() {} };
+  const frames = {
+    _f: new Set(['econ']), exists: (id) => frames._f.has(id), ensure: (id) => frames._f.add(id), setVisible() {},
+    whenReady: () => Promise.resolve(), send() {}, reloadAll() {}, moduleSenderIds: () => [],
+    request: async (id, type) => { if (type === 'ls-restore') moduleWrites.push(id); return type === 'ls-dump' ? {} : true; }
+  };
+  const backup = { suite: 'SuperSuite', version: 2, scope: 'all', econ: { donors: [{ id: 'd1', name: 'אהרן לוי' }] },
+    localStorage: { shamai: {}, trainer: OLD_TRAINER, tools: {} } };
+  MA.start({
+    ipcMain: { handle: (c, fn) => handlers.set(c, fn), on() {} }, econ, frames, SHELL_ID: 1, emitShell() {},
+    bridgeAsync: async (m) => (m === 'openText' ? { text: JSON.stringify(backup) } : { ok: true }),
+    senderOf: (id) => ({ econ: 2, shamai: 3, tools: 5 })[id],
+    ui: (() => { let o = {}; return { load: () => o, save: (v) => { o = v; } }; })(),
+    alert: (m) => alerts.push(m), confirm: (m) => { confirms.push(m); return true; }, exit() {}
+  });
+  assert.deepEqual(await handlers.get('shell:restore-all')({ sender: { id: 1 } }, ''), { ok: true }, alerts.join(' | '));
+  assert.deepEqual(restored.donors.map(d => d.name), ['אהרן לוי']);
+  assert.ok(confirms[0].includes(Legacy.LEGACY_NOTE), confirms[0]);
+  assert.deepEqual(moduleWrites, [], 'אין כתיבה למודול האימונים (ולא למודולים ריקים)');
+  assert.ok(!frames.exists('trainer'));
+  assert.deepEqual(alerts, ['השחזור הושלם']);
 });
 
 test('גיבוי ידני: שם הקובץ המוצע לפי התאריך המקומי ולא UTC', async () => {
