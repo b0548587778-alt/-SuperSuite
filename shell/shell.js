@@ -153,15 +153,36 @@ function navItem(it) {
     `<span class="ic">${itemIcon(it)}</span><span class="nm">${esc(it.name)}</span></button>`;
 }
 
+// תחומים מקופלים בסרגל — העדפה של המשתמש בלבד (localStorage), נקראת כקלט לא מהימן.
+// בחיפוש כל התחומים פתוחים, והתחום של המסך הפעיל נפתח תמיד.
+const NAV_FOLD_KEY = 'suite.navFolded';
+function loadFolded() {
+  try {
+    const v = JSON.parse(localStorage.getItem(NAV_FOLD_KEY) || '[]');
+    return new Set(Array.isArray(v) ? v.filter(x => typeof x === 'string' && GROUPS.some(g => g.id === x)) : []);
+  } catch { return new Set(); }
+}
+const folded = loadFolded();
+function saveFolded() { try { localStorage.setItem(NAV_FOLD_KEY, JSON.stringify([...folded])); } catch { /* העדפה בלבד */ } }
+function toggleGroup(id) {
+  if (folded.has(id)) folded.delete(id); else folded.add(id);
+  saveFolded();
+  renderNav();
+}
+
 function renderNav() {
   const q = ui.query.trim();
   let html = q ? '' : `<button class="it home" data-key="home"><span class="ic">${IC ? svg('home') : '⌂'}</span><span class="nm">מסך הבית</span></button>`;
   let found = 0;
+  const activeIt = BY_KEY.get(currentKey());
   for (const g of GROUPS) {
     const items = ITEMS.filter(it => it.group === g.id && matches(it, q));
     if (!items.length) continue;
     found += items.length;
-    html += `<div class="grp"><div class="grp-t">${esc(g.title)}</div>${items.map(navItem).join('')}</div>`;
+    const shut = !q && folded.has(g.id) && !(activeIt && activeIt.group === g.id);
+    html += `<div class="grp${shut ? ' shut' : ''}"><button type="button" class="grp-t" data-grp="${esc(g.id)}" aria-expanded="${shut ? 'false' : 'true'}">` +
+      `<span>${esc(g.title)}</span><span class="cnt">${items.length}</span><span class="chev" aria-hidden="true"></span></button>` +
+      `<div class="grp-b">${shut ? '' : items.map(navItem).join('')}</div></div>`;
   }
   if (q && !found) html = '<div class="none">לא נמצא דבר. נסה מילה אחרת.</div>';
   $('nav').innerHTML = html;
@@ -180,7 +201,7 @@ function open(key) {
   if (!itemOpen(it)) { flashLicense(); return; }
   ui.active = it.mod;
   if (it.view) ui.views[it.mod] = it.view;
-  mark();
+  if (folded.has(it.group)) renderNav(); else mark();
   pushRecent(key);
   const api = window.shellAPI;
   if (api.open) api.open(it.mod, it.view || null); else api.switchTo(it.mod);
@@ -194,6 +215,8 @@ function goHome() {
 }
 
 $('nav').onclick = e => {
+  const t = e.target.closest('.grp-t');
+  if (t && t.dataset && t.dataset.grp) { toggleGroup(t.dataset.grp); return; }
   const b = e.target.closest('.it');
   if (b) open(b.dataset.key);
 };
@@ -690,7 +713,7 @@ $('noticesBtn').onclick = () => showDoc('notices');
 $('userGuideBtn').onclick = () => { if (window.shellAPI.openUserGuide) window.shellAPI.openUserGuide().catch(() => {}); };
 $('userGuidePdfBtn').onclick = () => { if (window.shellAPI.saveUserGuidePdf) window.shellAPI.saveUserGuidePdf().catch(() => {}); };
 if (!window.shellAPI.getAbout) for (const id of ['eulaBtn', 'noticesBtn', 'userGuideBtn', 'userGuidePdfBtn']) $(id).hidden = true;
-aboutData().then(a => { if (a) $('aboutText').textContent = 'SuperSuite גרסה ' + a.version + ' · © 2026 Bunim Seller. כל הזכויות שמורות. הנתונים נשמרים במחשב שלך בלבד.'; });
+aboutData().then(a => { if (a) $('aboutText').textContent = 'SuperSuite כלכלה גרסה ' + a.version + ' · © 2026 Bunim Seller. כל הזכויות שמורות. הנתונים נשמרים במחשב שלך בלבד.'; });
 $('crashReportBtn').onclick = () => { if (window.shellAPI.saveCrashReport) window.shellAPI.saveCrashReport().catch(() => {}); };
 $('hm').onclick = goHome;
 
