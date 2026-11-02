@@ -159,7 +159,17 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     const signers = p.issuer === S.ROOT ? rootKeys : (ctx.keys.has(p.issuer) ? [ctx.keys.get(p.issuer)] : []);
     return signers.some(k => L.verifyObject(p, n.sig, k));
   }
-  const save = (d, opts) => { storage.write(JSON.stringify(d)); cached = null; syncGuard(d, opts); };
+  // השומר נכתב ראשון (סקירת קוד 2.11.2026): license-key.bin לקריאה בלבד ← השמירה נכשלת וההודעה לא נקלטת,
+  // ולא נשארת רק בקובץ הגלוי (שם מחיקה שלה הייתה מחזירה "פעיל"). כשל בכתיבת הקובץ — השומר חוזר לקודם
+  const save = (d, opts) => {
+    const prevSecret = secret.read();
+    syncGuard(d, opts);
+    try { storage.write(JSON.stringify(d)); } catch (e) {
+      if (prevSecret != null) { try { secret.write(prevSecret); } catch { /* נשאר השומר החדש — מחמיר, לא מקל */ } }
+      throw e;
+    }
+    cached = null;
+  };
 
   function nodeKey(create) {
     const sec = readSecret();

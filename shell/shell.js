@@ -569,7 +569,7 @@ function renderLicense() {
   block.hidden = false;
   block.className = 'lic-block' + (blocked ? '' : ' limited');
   block.innerHTML = `<h2>${IC ? svg(blocked ? 'lock' : 'pause') : (blocked ? '🔒' : '⏸')} ${esc(lic.message)}</h2>` +
-    (blocked ? '<p>התוכנה אינה זמינה לעבודה כרגע.</p>' : `<p>אפשר לצפות בנתונים, לייצא ולגבות. יצירה ועריכה חסומות עד ${lic.status === 'trial_ended' ? 'להתקנת רישיון' : 'לחידוש'}.</p>`) +
+    (blocked ? '<p>התוכנה אינה זמינה לעבודה כרגע.</p>' : `<p>אפשר לצפות בנתונים, לייצא ולגבות. ${lic.status === 'terminated' ? 'יצירה ועריכה אינן אפשריות עוד' : 'יצירה ועריכה חסומות עד ' + (lic.status === 'trial_ended' ? 'להתקנת רישיון' : 'לחידוש')}.</p>`) +
     '<p>הנתונים שלך שמורים במחשב ולא נמחקו. לחידוש הפעילות פנו לספק, או קלטו רישיון / עדכון סטטוס.</p>' +
     `<button type="button" class="lic-go" data-key="econ:licensing">${IC ? svg('key') : '🔑'} רישוי ומערכות</button>` +
     `<button type="button" class="lic-go" data-key="econ:messages">${IC ? svg('message') : '💬'} הודעה לספק</button>`;

@@ -171,6 +171,10 @@ function writeEncryptedAutoBackup({ dir, plainText, key, keep = 14, today, tag }
     const oldOwn = ownFiles.length < keep ? files.filter(f => legacy.test(f) && f.slice(5, 15) < since) : [];
     existing = oldOwn.concat(ownFiles).sort(byDay);
   }
+  // קובץ עם תאריך עתידי (נכתב כששעון המחשב הקדים) — לא נספר בסבב, כדי שלא יישאר לתמיד כ"חדש ביותר" וידחוק
+  // גיבויים אמיתיים. נמחק רק כשיש keep גיבויים אחרים (בלי עתידיים) — אז הוא בוודאות שארית (סקירת קוד 2.11.2026)
+  const future = existing.filter(f => f.slice(5, 15) > day);
+  existing = existing.filter(f => f.slice(5, 15) <= day);
   if (existing.includes(name)) return { ok: true, skipped: true, file: path.join(dir, name) };
   const file = path.join(dir, name);
   const tmp = file + '.tmp';
@@ -187,6 +191,7 @@ function writeEncryptedAutoBackup({ dir, plainText, key, keep = 14, today, tag }
   const all = existing.concat(name).sort(byDay);
   const removed = [];
   for (const f of all.slice(0, Math.max(0, all.length - keep))) { fs.unlinkSync(path.join(dir, f)); removed.push(f); }
+  if (all.length >= keep) for (const f of future) { fs.unlinkSync(path.join(dir, f)); removed.push(f); }
   return { ok: true, file, removed };
 }
 

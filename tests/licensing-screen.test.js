@@ -174,7 +174,9 @@ test('licSummary: ארבעת המצבים', () => {
   assert.equal(s({ mode: 'licensed', status: 'active', expiresAt: NOW + 30 * DAY }), 'expiring');
   assert.equal(s({ mode: 'licensed', status: 'active', activation: { dueSoon: true, nextDue: NOW + 3 * DAY } }), 'expiring');
   assert.equal(s({ mode: 'licensed', status: 'locked', reasons: [] }), 'locked');
-  assert.equal(s({ mode: 'licensed', status: 'terminated', reasons: [] }), 'locked');
+  // סיום — צפייה בלבד (סעיף 8 בהסכם, החלטת הבעלים 2.11.2026); עם נעילה — נעול
+  assert.equal(s({ mode: 'licensed', status: 'terminated', reasons: [] }), 'limited');
+  assert.equal(s({ mode: 'licensed', status: 'terminated', reasons: [{ kind: 'terminated' }, { kind: 'locked' }] }), 'locked');
   assert.equal(s({ mode: 'licensed', status: 'suspended', reasons: [] }), 'limited');
   assert.equal(s({ mode: 'unlicensed' }), 'unlicensed');
 });

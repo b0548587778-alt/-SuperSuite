@@ -464,7 +464,13 @@ function shellCall(channel, senderId, ...args) {
   });
 }
 
+// אתחול חוזר (initEcon שני — למשל ניסיון חוזר של שחזור בהתאוששות ממסד פגום): Electron זורק על רישום שני של אותו
+// ערוץ, וכל ניסיון חוזר נכשל עד סוף ההפעלה (סקירת קוד 2.11.2026) — הרישום הקודם מוסר קודם
+function unregister(channel) {
+  if (typeof ipcMain.removeHandler === 'function') { try { ipcMain.removeHandler(channel); } catch { /* לא היה רשום */ } }
+}
 function handle(channel, fn) {
+  unregister(channel);
   ipcMain.handle(channel, (event, ...args) => enqueue(async () => {
     try { return await runGuarded(channel, fn, event, args); }
     catch (e) { throw toUserError(e); }
@@ -545,6 +551,7 @@ async function runLong(channel, { lock, busy, before, work, after }, event, args
   } catch (e) { throw toUserError(e); }
 }
 function handleLong(channel, spec) {
+  unregister(channel);
   ipcMain.handle(channel, (event, ...args) => runLong(channel, spec, event, args));
 }
 
@@ -606,9 +613,17 @@ function writeFileDurable(file, body, encoding) {
     fs.renameSync(tmp, file);
   } catch (e) {
     try { fs.rmSync(tmp, { force: true }); } catch { /* הכונן נותק */ }
-    try { errorLogger('econ-save-file', e); } catch { /* היומן לא מפיל פעולה */ }
+    // ביומן — רק הקוד: ההודעה של fs כוללת את הנתיב, ושם הקובץ יכול להכיל שם של אדם (סקירת קוד 2.11.2026)
+    try { errorLogger('econ-save-file', { code: e.code || 'error', syscall: e.syscall || '' }); } catch { /* היומן לא מפיל פעולה */ }
     throw new Error('שמירת הקובץ נכשלה, והקובץ הקודם באותו שם (אם היה) לא נפגע — ייתכן שהכונן מלא, מוגן מפני כתיבה, נותק, או שהקובץ פתוח בתוכנה אחרת (' + (e.code || 'שגיאה') + ')');
   }
+}
+// קובץ שהגיע מבחוץ (מצורף בהודעה) — סימון "הגיע מהאינטרנט" (Zone.Identifier, ZoneId=3), כדי ש-Windows יזהיר
+// בפתיחת קובץ הרצה ששלח גורם חיצוני (סקירת קוד 2.11.2026). רק ב-Windows; כונן בלי NTFS (FAT32) — בלי סימון
+function markFromInternet(file, { platform = (typeof process !== 'undefined' && process.platform) || '', fsx = fs } = {}) {
+  if (platform !== 'win32') return false;
+  try { fsx.writeFileSync(file + ':Zone.Identifier', '[ZoneTransfer]\r\nZoneId=3\r\n', 'utf8'); return true; }
+  catch (e) { try { errorLogger('econ-zone-identifier', { code: e.code || 'error' }); } catch { /* היומן לא מפיל פעולה */ } return false; }
 }
 // טבלה לקובץ CSV (rows בתוצאה — מספר השורות)
 const csvSpec = ({ headers, rows, name }) => ({ name: `${name}.csv`, filters: CSV_FILTERS, data: X.toCsv(headers, rows), encoding: 'utf8', rows: rows.length, result: { rows: rows.length } });
@@ -2470,6 +2485,9 @@ function registerIpcHandlers() {
       const x = ownerCore.signups().find(y => y.id === sid);
       if (!x) throw new Error('ההרשמה לא נמצאה');
       if (x.status === 'review' && !force) throw new Error(x.problem || 'ההרשמה ממתינה לבדיקה');
+      // אישור התשלום מהשרת אינו חתום — הנפקה בתשלום רק אחרי אישור מפורש של מנהל-העל (סקירת קוד 2.11.2026)
+      const payProblem = OC.signupPaymentProblem(x, { paymentConfirmed: !!(opts && opts.paymentConfirmed === true) });
+      if (payProblem) throw Object.assign(new Error(payProblem), { code: OC.PAYMENT_UNCONFIRMED });
       // חשבונית קודם (אם שולם ועוד אין) — כך שלא יונפק רישיון בתשלום בלי מסמך חשבונאי
       let invoice = x.invoice || null;
       if (!invoice && x.payment && x.payment.amountAgorot > 0) {
@@ -2732,6 +2750,7 @@ function registerIpcHandlers() {
     },
     after: async (event, { a, file }) => {
       fs.writeFileSync(file, Buffer.from(a.data, 'base64'));
+      markFromInternet(file);
       return { saved: true };
     },
   });
@@ -3180,7 +3199,7 @@ function systemChat() {
 const chatBackup = (opts) => systemChat().exportMailbox(opts);
 const chatRestore = (data, opts) => systemChat().restoreMailbox(data, opts);
 
-module.exports = { toUserError, setErrorLogger, initEcon, chatAutoFetch, flushChat, chatBackup, chatRestore, permissionFor, requiresAdmin, licenseState, licenseMarks, mergeLicenseMarks, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
+module.exports = { toUserError, setErrorLogger, markFromInternet, initEcon, chatAutoFetch, flushChat, chatBackup, chatRestore, permissionFor, requiresAdmin, licenseState, licenseMarks, mergeLicenseMarks, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
   // מודולים שדורשים כניסה: בדיקה שקטה, רישום פעילות (עבודה במודול כזה מונעת ניתוק), ואירוע כניסה/יציאה
   hasSession: (senderId) => authService.peekSession(senderId),
   touchSession: (senderId) => { authService.getSession(senderId); },

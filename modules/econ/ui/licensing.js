@@ -77,11 +77,13 @@ function licSummary(st, now = Date.now()) {
     if (act.dueSoon) return { kind: 'expiring', icon: '⏰', title: 'נדרש חיבור לשרת', detail: `יש להתחבר לשרת הרישוי עד ${licDate(act.nextDue)} — אחרת המערכת תינעל.` };
     return { kind: 'active', icon: '✔', title: 'הרישיון פעיל', detail: st.expiresAt ? `בתוקף עד ${licDate(st.expiresAt)}.` : 'המערכת פעילה.' };
   }
-  const readOnly = ['pending_payment', 'suspended', 'trial_ended'].includes(st.status);
+  // סיום — קריאה בלבד (סעיף 8 בהסכם הרישיון), אלא אם יש גם נעילה (כמו isReadOnly ב-gate.js)
+  const readOnly = ['pending_payment', 'suspended', 'trial_ended'].includes(st.status)
+    || (st.status === 'terminated' && !(st.reasons || []).some(x => x && x.kind === 'locked'));
   const r = (st.reasons || [])[0];
   const title = st.status === 'trial_ended' ? 'תקופת הניסיון הסתיימה'
-    : readOnly ? 'צפייה בלבד — ' + (LIC_STATUS[st.status] || st.status)
-      : st.status === 'terminated' ? 'השימוש במערכת הסתיים' : 'המערכת נעולה';
+    : st.status === 'terminated' ? (readOnly ? 'השימוש במערכת הסתיים — צפייה בלבד' : 'השימוש במערכת הסתיים')
+      : readOnly ? 'צפייה בלבד — ' + (LIC_STATUS[st.status] || st.status) : 'המערכת נעולה';
   return { kind: readOnly ? 'limited' : 'locked', icon: readOnly ? '⏸' : '🔒', title,
     detail: (readOnly ? 'אפשר לצפות בנתונים, לייצא ולגבות. יצירה ועריכה חסומות. ' : '') + (r && r.reason ? r.reason : '') };
 }
@@ -103,7 +105,7 @@ function licFixSteps(st, d) {
   }
   if (st.status === 'pending_payment') return r.source === 'billing' ? ['תוקף הרישיון הסתיים. פנו לספק לחידוש.', install] : ['יש להסדיר את התשלום מול הספק.', sync];
   if (st.status === 'suspended') return ['המערכת הושבתה זמנית על ידי הספק או המערכת שמעליה. פנו אליהם לבירור.', sync];
-  if (st.status === 'terminated') return ['לפרטים — פנו לספק.'];
+  if (st.status === 'terminated') return ['השימוש במערכת הסתיים. אפשר לצפות בנתונים, לייצא אותם ולגבות. לפרטים — פנו לספק.'];
   if (/הודעות סטטוס/.test(r.reason || '')) return ['קובץ הרישוי שונה מחוץ לתוכנה.', sync];
   if (/קובץ הרישוי|מפתח המערכת/.test(r.reason || '')) return ['יש להתקין שוב את קובץ הרישיון מהספק. אם הבעיה חוזרת — פנו לספק.', install];
   return ['פנו לספק לבירור.', install];

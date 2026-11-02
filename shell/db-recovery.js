@@ -22,27 +22,35 @@ function autoBackupFiles(dir) {
   try { return fs.readdirSync(dir).filter(f => /^auto-\d{4}-\d{2}-\d{2}(-[0-9a-f]{8})?\.ssbk$/.test(f)).sort(); } catch { return []; }
 }
 const backupInfo = (dir, name) => ({ file: path.join(dir, name), day: name.slice(5, 15) });
+const localToday = () => new Date().toLocaleDateString('en-CA');
+// סדר הניסיון — מהחדש לישן, אבל קובץ עם תאריך עתידי (נכתב כששעון המחשב היה שגוי) אחרון: אחרת הוא נבחר תמיד
+// כ"אחרון" גם כשיש גיבויים חדשים ממנו (סקירת קוד 2.11.2026)
+function newestFirst(files, today) {
+  const t = today || localToday();
+  const desc = files.slice().reverse();
+  return desc.filter(f => f.slice(5, 15) <= t).concat(desc.filter(f => f.slice(5, 15) > t));
+}
 
 // הגיבוי האוטומטי האחרון בתיקייה (auto-YYYY-MM-DD.ssbk), או null
-function latestAutoBackup(dir) {
-  const files = autoBackupFiles(dir);
-  return files.length ? backupInfo(dir, files[files.length - 1]) : null;
+function latestAutoBackup(dir, { today } = {}) {
+  const files = newestFirst(autoBackupFiles(dir), today);
+  return files.length ? backupInfo(dir, files[0]) : null;
 }
 
 // הגיבוי האוטומטי החדש ביותר שמכיל את הנתונים הכספיים. גיבויים שנכתבו לפני התיקון (בדיקת הקוד 20.10.2026,
 // ממצא 1) עשויים להיות בלי הכספים (econ: null) — השחזור מהם היה נכשל. open(file) מפענח ומחזיר את התוכן או זורק.
 // מחזיר { file, day, data, skipped } (skipped — כמה גיבויים חדשים יותר דולגו). אם אף גיבוי לא מתאים —
 // האחרון בלי data (כמו קודם), כדי שהשחזור ינסה אותו ויציג את הסיבה (למשל מפתח של מחשב אחר). אין גיבוי — null
-function latestUsableAutoBackup(dir, open) {
-  const files = autoBackupFiles(dir);
+function latestUsableAutoBackup(dir, open, { today } = {}) {
+  const files = newestFirst(autoBackupFiles(dir), today);
   if (!files.length) return null;
-  for (let i = files.length - 1; i >= 0; i--) {
+  for (let i = 0; i < files.length; i++) {
     const info = backupInfo(dir, files[i]);
     let data = null;
     try { data = open(info.file); } catch { /* לא נפתח — ממשיכים לישן יותר */ }
-    if (data && data.suite === 'SuperSuite' && data.econ) return { ...info, data, skipped: files.length - 1 - i };
+    if (data && data.suite === 'SuperSuite' && data.econ) return { ...info, data, skipped: i };
   }
-  return backupInfo(dir, files[files.length - 1]);
+  return backupInfo(dir, files[0]);
 }
 
 // העברת המסד הפגום הצידה (עם קבצי WAL), כדי שאפשר יהיה לפתוח מסד חדש ולשחזר לתוכו
@@ -52,6 +60,20 @@ function setAsideDamaged(userDataPath, now = Date.now()) {
   if (fs.existsSync(base)) fs.renameSync(base, target);
   for (const ext of ['-wal', '-shm']) { if (fs.existsSync(base + ext)) fs.renameSync(base + ext, target + ext); }
   return target;
+}
+
+// שחזור שנכשל אחרי setAsideDamaged (סקירת קוד 2.11.2026): המסד החלקי/הריק שנוצר מועבר הצידה, והמסד הפגום חוזר
+// למקומו — כך ניסיון חוזר, וגם ההפעלה הבאה, מציעים שוב שחזור (ולא נפתח מסד ריק בשקט). לא נמחק דבר.
+// המסד החדש חייב להיות סגור לפני הקריאה (Windows)
+function undoSetAside(userDataPath, aside, now = Date.now()) {
+  const base = path.join(userDataPath, DB_NAME);
+  if (!aside || !fs.existsSync(aside)) return null;
+  const failed = `${base}.restore-failed-${now}`;
+  if (fs.existsSync(base)) fs.renameSync(base, failed);
+  for (const ext of ['-wal', '-shm']) { if (fs.existsSync(base + ext)) fs.renameSync(base + ext, failed + ext); }
+  fs.renameSync(aside, base);
+  for (const ext of ['-wal', '-shm']) { if (fs.existsSync(aside + ext)) fs.renameSync(aside + ext, base + ext); }
+  return failed;
 }
 
 // הטקסט והכפתורים של ההודעה. backup — מ-latestAutoBackup
@@ -77,4 +99,4 @@ function dialogFor(kind, backup) {
   };
 }
 
-module.exports = { classifyDbError, latestAutoBackup, latestUsableAutoBackup, setAsideDamaged, dialogFor, DB_NAME };
+module.exports = { classifyDbError, latestAutoBackup, latestUsableAutoBackup, setAsideDamaged, undoSetAside, dialogFor, DB_NAME };

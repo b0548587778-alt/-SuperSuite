@@ -22,10 +22,18 @@ const ECON_SUB_FEATURES = {
 // ערוצים שתמיד פתוחים, גם במערכת מושבתת: כניסה/יציאה, כדי שהמשתמש יראה את מסך הסיבה.
 // הגדרות Google — כדי שמנהל יוכל להפעיל מערכת שנעולה עד כניסה עם Google (תנאי ההפעלה; ההרשאה עצמה: users.manage)
 const ALWAYS_OPEN = /^(auth|license|owner|chat|update):|^settings:(getGoogle|saveGoogle)$/;
-// במצב חוב/השבתה זמנית/סוף תקופת ניסיון: קריאה, ייצוא וגיבוי בלבד — הנתונים של הלקוח לא "נלקחים כבני ערובה"
+// במצב חוב/השבתה זמנית/סוף תקופת ניסיון/סיום: קריאה, ייצוא וגיבוי בלבד — הנתונים של הלקוח לא "נלקחים כבני ערובה"
 const READ_ONLY_PERMS = new Set(['data.view', 'data.export', 'data.backup']);
 
 const READ_ONLY_STATUS = new Set(['pending_payment', 'suspended', 'trial_ended']);
+
+// סיום (terminated) — גם הוא קריאה בלבד: סעיף 8 בהסכם הרישיון מבטיח צפייה, ייצוא וגיבוי אחרי סיום (החלטת הבעלים,
+// סקירת קוד 2.11.2026). סיום גובר בחומרה על נעילה (status.js) — ולכן כשיש גם סיבת נעילה (locked), הנעילה קובעת
+function isReadOnly(state) {
+  if (!state) return false;
+  if (READ_ONLY_STATUS.has(state.status)) return true;
+  return state.status === 'terminated' && !(state.reasons || []).some(r => r && r.kind === 'locked');
+}
 
 const STATUS_TEXT = {
   trial_ended: 'תקופת הניסיון הסתיימה — אפשר לצפות, לייצא ולגבות. להמשך עבודה יש להתקין רישיון',
@@ -69,7 +77,7 @@ function checkChannel(state, channel, permission) {
   if (!state || state.mode === 'unlicensed') return null;
   if (ALWAYS_OPEN.test(channel)) return null;
   if (state.status !== 'active') {
-    if (!(READ_ONLY_STATUS.has(state.status) && READ_ONLY_PERMS.has(permission))) return statusMessage(state);
+    if (!(isReadOnly(state) && READ_ONLY_PERMS.has(permission))) return statusMessage(state);
   }
   const have = new Set(state.features || []);
   const missing = featuresForChannel(channel).filter(f => !satisfies(have, f));
@@ -87,7 +95,7 @@ function featureOpen(state, feature) {
 
 function moduleAllowed(state, mod) {
   if (!state || state.mode === 'unlicensed') return true;
-  if (state.status === 'locked' || state.status === 'terminated') return false;
+  if (state.status === 'locked' || (state.status === 'terminated' && !isReadOnly(state))) return false;
   const f = MODULE_FEATURES[mod];
   return !!f && (state.features || []).includes(f);
 }
@@ -104,7 +112,7 @@ function shellState(state) {
   const modules = {};
   for (const m of Object.keys(MODULE_FEATURES)) modules[m] = moduleAllowed(state, m);
   if (!state || state.mode === 'unlicensed') return { mode: 'unlicensed', status: 'active', level: 'ok', message: '', modules };
-  const level = state.status === 'active' ? 'ok' : READ_ONLY_STATUS.has(state.status) ? 'limited' : 'blocked';
+  const level = state.status === 'active' ? 'ok' : isReadOnly(state) ? 'limited' : 'blocked';
   const trial = state.trial ? { daysLeft: state.trial.daysLeft, endsAt: state.trial.endsAt, warn: !!state.trial.warn } : null;
   return { mode: 'licensed', status: state.status, level, message: level === 'ok' ? '' : statusMessage(state), graceUntil: state.graceUntil || null, trial, modules };
 }
@@ -119,4 +127,4 @@ function checkUserLimit(state, activeCount) {
   return null;
 }
 
-module.exports = { MODULE_FEATURES, ECON_SUB_FEATURES, PEOPLE_SOURCES, ALWAYS_VIEWS, peopleSources, featuresForChannel, checkChannel, featureOpen, moduleAllowed, viewAllowed, shellState, checkUserLimit, statusMessage };
+module.exports = { MODULE_FEATURES, ECON_SUB_FEATURES, PEOPLE_SOURCES, ALWAYS_VIEWS, isReadOnly, peopleSources, featuresForChannel, checkChannel, featureOpen, moduleAllowed, viewAllowed, shellState, checkUserLimit, statusMessage };

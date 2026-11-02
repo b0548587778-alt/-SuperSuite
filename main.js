@@ -297,7 +297,8 @@ function goHome() {
   loginGate.clear();
   for (const k of Object.keys(views)) views[k].setVisible(false);
   active = null;
-  overlay = false;
+  // במצב שבת פעיל הכיסוי נשאר — אחרת מודול שנפתח אחר כך מופיע מעל מסך השבת (סקירת קוד 2.11.2026)
+  if (!syncPaused()) overlay = false;
   if (win && !win.isDestroyed()) { win.webContents.focus(); win.webContents.send('shell:active', null); }
   recordNav({ mod: null, view: null });
 }
@@ -454,8 +455,12 @@ function bootFailed(err) {
 function createWindow() {
   const st = loadState();
   zoom = Number(loadJson(uiFile()).zoom) || 1;
+  // מיקום שמור — רק אם הוא עדיין על אחד המסכים המחוברים (סקירת קוד 2.11.2026)
+  let displays = null;
+  try { displays = require('electron').screen.getAllDisplays(); } catch { /* לפני ready / סביבת בדיקה */ }
+  const pos = Layout.restorePosition(st, displays);
   win = new BrowserWindow({
-    width: st.width || 1500, height: st.height || 940, x: st.x, y: st.y, minWidth: 1100, minHeight: 700,
+    width: st.width || 1500, height: st.height || 940, x: pos.x, y: pos.y, minWidth: 1100, minHeight: 700,
     icon: path.join(__dirname, 'build', 'icon.png'),
     backgroundColor: '#0f1a30', title: 'SuperSuite', autoHideMenuBar: true,
     webPreferences: CodeGuard.guardPrefs({ preload: path.join(__dirname, 'shell', 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }, app.isPackaged)
@@ -777,12 +782,13 @@ async function recoverDatabase(firstErr) {
     if (choice === 'quit') return false;
     if (choice === 'folder') { shell.openPath(app.getPath('userData')); continue; }
     if (choice === 'report') { await crash.saveReport(); continue; }
+    let aside = null;
     try {
       if (choice === 'restore') {
         // פענוח לפני שנוגעים במסד: גיבוי שלא נפתח — המסד הפגום נשאר במקומו
         const data = backup.data || openAutoBackup(backup.file);
         if (!data || data.suite !== 'SuperSuite' || !data.econ) throw new Error('קובץ הגיבוי האוטומטי אינו מכיל נתונים כלכליים');
-        const aside = DbRecovery.setAsideDamaged(app.getPath('userData'));
+        aside = DbRecovery.setAsideDamaged(app.getPath('userData'));
         logger.error('db-open', new Error('damaged database set aside: ' + path.basename(aside)));
         await econ.initEcon(app.getPath('userData'), econInitOptions());
         await econ.getDb().restore(data.econ);
@@ -794,6 +800,12 @@ async function recoverDatabase(firstErr) {
       await econ.initEcon(app.getPath('userData'), econInitOptions()); // נסו שוב
       return true;
     } catch (e) {
+      // שחזור שנכשל באמצע: המסד החלקי נסגר ומועבר הצידה, והפגום חוזר למקומו — ניסיון חוזר וההפעלה הבאה מציעים
+      // שוב שחזור, במקום מסד ריק בלי הצעה (סקירת קוד 2.11.2026)
+      if (aside) {
+        try { const cur = econ.getDb(); if (cur && cur.db) cur.db.close(); } catch { /* כבר סגור */ }
+        try { DbRecovery.undoSetAside(app.getPath('userData'), aside); } catch (u) { logger.error('db-restore-undo', u); }
+      }
       if (DbRecovery.classifyDbError(e)) { err = e; continue; }
       logger.error('db-restore', e);
       dialog.showErrorBox('השחזור לא הצליח', String(e.message || e) + '\n\nאפשר לנסות שוב, או לשמור דוח תקלה ולפנות לתמיכה.');
@@ -842,7 +854,12 @@ async function backupAll(passphrase, scope = 'all') {
   if (typeof passphrase !== 'string' || passphrase.length < BK.MIN_PASSPHRASE) throw new Error(`סיסמת הגיבוי חייבת להכיל לפחות ${BK.MIN_PASSPHRASE} תווים`);
   // סוג לא מוכר יצר גיבוי ריק (בלי נתונים כספיים ובלי מודולים) שדווח "נשמר" (בדיקת קוד 23.10.2026)
   if (!BACKUP_SCOPES.includes(scope)) throw new Error('סוג הגיבוי אינו מוכר — הגיבוי לא נשמר');
-  const out = await collectBackup(scope);
+  // גם הגיבוי הידני לא רץ יחד עם שחזור או עם הגיבוי האוטומטי (סקירת קוד 2.11.2026) — רק בזמן איסוף הנתונים,
+  // כדי שחלון השמירה הפתוח לא יחסום את הגיבוי האוטומטי
+  if (backupBusy) throw new Error(backupBusy === 'restore' ? 'שחזור רץ כרגע — נסו לגבות שוב בעוד דקה' : 'גיבוי אוטומטי רץ כרגע — נסו שוב בעוד דקה');
+  backupBusy = 'backup';
+  let out;
+  try { out = await collectBackup(scope); } finally { backupBusy = null; }
   const stamp = AutoBk.localDay(new Date()); // תאריך מקומי — toISOString (UTC) נתן בין חצות ל-03:00 את התאריך של אתמול
   const r = await dialog.showSaveDialog(win, { title: 'שמירת גיבוי מוצפן', defaultPath: `SuperSuite-${scope}-${stamp}.ssbk`, filters: [{ name: 'גיבוי SuperSuite', extensions: ['ssbk'] }] });
   if (r.canceled || !r.filePath) return { ok: false };

@@ -46,9 +46,11 @@ const signupInvalid = (message) => Object.assign(new Error(message), { code: 'si
 // בתשלום — תשלום שנפתח לפני ההחלפה נשמר בשרת עד 30 יום (PAYMENT_KEEP_MS ב-server/license-relay.js)
 const FREE_OFFER_SLACK_MS = 60 * 60 * 1000;
 const PAID_OFFER_SLACK_MS = 31 * 24 * 60 * 60 * 1000;
+const MAX_SIGNUPS = 1000;
 
 // legacyCipher() — הצופן של המסד (core/atRest.js), רק לקריאת קבצים שהוצפנו בו בגרסת ביניים (SSDB1:); הם מומרים במקום
-function createOwnerCore({ storage, clock = Date.now, legacyCipher = null }) {
+// maxSignups — תקרת רשימת ההרשמות (בבדיקות — קטנה)
+function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSignups = MAX_SIGNUPS }) {
   let key = null; // המפתח הפרטי — בזיכרון בלבד, אחרי פתיחה בסיסמה
   let fileCipher = null; // נגזר מהמפתח; מתאפס בנעילה
 
@@ -482,11 +484,18 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null }) {
     const live = offerLiveAt(v.offer.issuedAt, when, paid ? PAID_OFFER_SLACK_MS : FREE_OFFER_SLACK_MS);
     const problem = paid ? 'ההרשמה נעשתה לפי הצעה שכבר הוחלפה — יש לבדוק את התשלום ואת התכנית לפני הנפקה'
       : 'ההרשמה לתכנית החינמית נעשתה לפי הצעה שאינה המפורסמת — יש לבדוק את התכנית לפני הנפקה';
-    writeJson('signups.json', [...list, { id: v.body.id, keyId: v.body.keyId, customer: v.body.customer, planId: v.plan.id, planName: v.plan.name,
+    writeJson('signups.json', trimSignups([...list, { id: v.body.id, keyId: v.body.keyId, customer: v.body.customer, planId: v.plan.id, planName: v.plan.name,
       priceAgorot: v.plan.priceAgorot, months: v.plan.months, terms: v.body.terms, signedAt: v.body.signedAt, payment: d.payment || null,
       receivedAt: clock(), status: live ? 'new' : 'review', ...(live ? {} : { problem }),
-      signup: d.signup }].slice(-1000));
+      signup: d.signup }]));
     return { added: true, id: v.body.id, review: !live };
+  }
+  // תקרת הרשימה — נחתכות רק הרשמות שכבר הונפקו, הוותיקות קודם. הרשמה שלא טופלה (גם בתשלום) לא נמחקת לעולם
+  // (סקירת קוד 2.11.2026: קודם נחתכו בשקט 1,000 האחרונות, כולל הרשמות בתשלום שלא טופלו)
+  function trimSignups(list) {
+    let extra = list.length - maxSignups;
+    if (extra <= 0) return list;
+    return list.filter(x => !(extra > 0 && x.status === 'issued' && extra-- > 0));
   }
   const signups = () => readJson('signups.json', []);
   function signupOf(id) { const x = signups().find(y => y.id === id); if (!x) throw new Error('ההרשמה לא נמצאה'); return x; }
@@ -547,4 +556,14 @@ function prefixedWebStorage(ls, prefix) {
   return { read: (n) => ls.getItem(prefix + n), write: (n, text) => ls.setItem(prefix + n, text) };
 }
 
-module.exports = { createOwnerCore, dirStorage, prefixedWebStorage, MIN_PASS, SEALED_OWNER_FILES, OWNER_SEAL_PREFIX };
+// אישור התשלום בהרשמה מגיע מהשרת בלי חתימה (סקירת קוד 2.11.2026) — שרת שנפרץ יכול "לאשר" תשלום שלא התקבל.
+// חתימה של השרת לא עוזרת (המפתח שלו נמצא עליו), ולכן לפני חשבונית והנפקה בתשלום — מנהל-העל מאשר במפורש
+// שבדק את התשלום אצל חברת הסליקה. null — אין צורך באישור (חינם, כבר אושר, או כבר יש חשבונית)
+const PAYMENT_UNCONFIRMED = 'payment-unconfirmed';
+function signupPaymentProblem(x, { paymentConfirmed = false } = {}) {
+  if (!x || !x.payment || !(x.payment.amountAgorot > 0) || x.invoice || paymentConfirmed === true) return null;
+  const ref = x.payment.providerRef ? ` (אסמכתה ${String(x.payment.providerRef)})` : '';
+  return `נדרש אימות התשלום: יש לוודא במערכת חברת הסליקה שהתקבל תשלום של ₪${(x.payment.amountAgorot / 100).toLocaleString('he-IL')}${ref} לפני הנפקה וחשבונית`;
+}
+
+module.exports = { signupPaymentProblem, PAYMENT_UNCONFIRMED, createOwnerCore, dirStorage, prefixedWebStorage, MIN_PASS, SEALED_OWNER_FILES, OWNER_SEAL_PREFIX };

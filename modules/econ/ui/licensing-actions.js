@@ -365,11 +365,19 @@ function attachLicensingHandlers() {
   each('data-owner-signup-issue', async (b) => {
     const id = b.dataset.ownerSignupIssue;
     let r;
-    try { r = await window.systemAPI.ownerSignupIssue(id); } catch (e) {
-      // הרשמה לפי הצעה שכבר הוחלפה (ממצא 31) — הנפקה רק אחרי אישור מפורש של מנהל-העל
-      if (!/הוחלפה/.test(errMsg(e))) throw e;
-      if (!(await askConfirm(errMsg(e) + '\n\nלהנפיק בכל זאת, לפי התכנית שבהרשמה?'))) return;
-      r = await window.systemAPI.ownerSignupIssue(id, { force: true });
+    const opts = {};
+    // שני אישורים אפשריים: הצעה שהוחלפה (ממצא 31), ואימות התשלום מול חברת הסליקה (סקירת קוד 2.11.2026)
+    for (;;) {
+      try { r = await window.systemAPI.ownerSignupIssue(id, { ...opts }); break; } catch (e) {
+        const m = errMsg(e);
+        if (/הוחלפה/.test(m) && !opts.force) {
+          if (!(await askConfirm(m + '\n\nלהנפיק בכל זאת, לפי התכנית שבהרשמה?'))) return;
+          opts.force = true;
+        } else if (/נדרש אימות התשלום/.test(m) && !opts.paymentConfirmed) {
+          if (!(await askConfirm(m + '\n\nבדקתי — התשלום התקבל. להנפיק ולהפיק חשבונית?'))) return;
+          opts.paymentConfirmed = true;
+        } else throw e;
+      }
     }
     showToast(r.invoice ? `הרישיון של "${r.name}" נשלח, והופקה חשבונית מס/קבלה ${r.invoice.number}` : `הרישיון של "${r.name}" נשלח`);
   });

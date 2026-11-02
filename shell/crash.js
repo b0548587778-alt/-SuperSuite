@@ -10,6 +10,14 @@ const localDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.get
 // beforeExit — לפני app.exit בהפעלה מחדש (שם will-quit לא נורה): כתיבת המחסנים המוצפנים לדיסק
 function createCrashGuard({ logger, dialog, getWin, app, version = '', fs = require('fs'), beforeExit = () => {} }) {
   let busy = false;
+  // מסך שקרס בזמן שדיאלוג אחר פתוח — נטען מחדש כשהדיאלוג נסגר; בלי זה הוא נשאר ריק עד סוף ההפעלה
+  // (סקירת קוד 2.11.2026). לפי שם המסך — קריסה כפולה של אותו מסך נטענת פעם אחת
+  const pendingReloads = new Map();
+  function flushPending() {
+    const list = [...pendingReloads.entries()];
+    pendingReloads.clear();
+    for (const [name, reload] of list) { try { reload(); } catch (e) { logger.error('render:' + name, e); } }
+  }
 
   const parent = () => { const w = getWin(); return w && !w.isDestroyed() ? w : undefined; };
 
@@ -36,7 +44,7 @@ function createCrashGuard({ logger, dialog, getWin, app, version = '', fs = requ
     } catch (e) {
       logger.error('crash-dialog', e);
       return null;
-    } finally { busy = false; }
+    } finally { busy = false; flushPending(); }
   }
 
   function onUncaught(err) {
@@ -64,6 +72,7 @@ function createCrashGuard({ logger, dialog, getWin, app, version = '', fs = requ
     const reason = details && details.reason;
     if (reason === 'clean-exit') return null;
     logger.error('render:' + name, `render-process-gone: ${reason} (exitCode ${details && details.exitCode})`);
+    if (busy) { pendingReloads.set(name, reload); return null; }
     const label = MODULE_NAMES[name] || name;
     return ask({
       message: `${label} נסגר בגלל תקלה`,

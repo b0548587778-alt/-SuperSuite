@@ -81,7 +81,7 @@ issuedAt, expiresAt, graceDays
 - כל ערוץ במערכת הכלכלית דורש את התכונה `econ`; תחומים נפרדים (`ECON_SUB_FEATURES`): `acct`→`econ.accounting`,
   `npo`, `gemach`, `chesed`, `madv`, `mlab`, `mortgage`, `realestate`→`econ.realestate`. **תחילית ערוצים חדשה לתחום נפרד — להוסיף שם.**
 - **רישיון "נדל"ן"** (החלטת הבעלים, 20.10.2026: "שמאות מקרקעין ותיווך ויזמים יימכרו כרישיון נדל"ן אחד"): התכונה `econ.realestate` פותחת גם את שמאות המקרקעין (`realestate:*`) וגם את תיווך ויזמים (`rlty:*`, ענף `work/mortgage-pro`). שם המפתח לא משתנה — רישיונות שכבר הונפקו ממשיכים לעבוד. במיזוג — `rlty` ממופה ל-`econ.realestate` ב-`ECON_SUB_FEATURES`.
-- מצב `pending_payment` / `suspended`: קריאה, ייצוא וגיבוי בלבד, כדי שהלקוח לא יאבד גישה לנתונים שלו. `locked` / `terminated`: הכול חסום.
+- מצב `pending_payment` / `suspended` / `trial_ended` / `terminated`: קריאה, ייצוא וגיבוי בלבד, כדי שהלקוח לא יאבד גישה לנתונים שלו (`isReadOnly` ב-`gate.js`). `terminated` — כך מבטיח סעיף 8 בהסכם הרישיון (החלטת הבעלים, סקירת הקוד 2.11.2026); הסיום עצמו סופי — אין חזרה לעבודה. `locked`: הכול חסום, וגם סיום שיש איתו סיבת נעילה (`locked`) — חסום. מסכי הכניסה, הרישוי וההודעות פתוחים בכל מצב.
 - תמיד פתוחים (אחרי כניסה): `auth:*`, `license:*`. הערוץ `license:getStatus` מחזיר מצב וסיבות למסך.
 - `maxUsers` נאכף ב-`users:create` ובהפעלה מחדש של משתמש חסום ב-`users:update`.
 - **קובץ הרישיון:** `license.json` בתיקיית הנתונים, ומטמון של 60 שניות (`invalidateLicense()` מרענן מיד).
