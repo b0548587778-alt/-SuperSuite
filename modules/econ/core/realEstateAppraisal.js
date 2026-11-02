@@ -3,6 +3,7 @@
 // אין רשת: עסקאות ההשוואה מוקלדות או נקלטות מקובץ CSV שהמשתמש הוריד בעצמו.
 // מבנה הדוח וההגדרות נכתבו בניסוח עצמאי. התאמה לתקני מועצת השמאים — לבירור (לא אומתה מול נוסח התקנים).
 const X = require('./exports');
+const { stampDay } = require('./dates');
 
 const esc = X.esc;
 const MAX_CASES = 5000;
@@ -358,7 +359,7 @@ function registerExport(summaries, today) {
   const rows = [...summaries].sort((a, b) => (a.no - b.no) || ((a.rev || 0) - (b.rev || 0))).map(c => [
     c.reportNo, STATUS_LABELS[c.status] || c.status, c.effectiveDate || '', c.client || '', c.address || '', c.block || '', c.parcel || '',
     c.purpose || '', Number.isSafeInteger(c.valueAg) ? (c.valueAg / 100).toFixed(2) : '', c.comps, c.warnings,
-    String(c.updatedAt || '').slice(0, 10),
+    stampDay(c.updatedAt), // היום המקומי, לא UTC
   ]);
   return { headers: REGISTER_HEADERS, rows, name: `יומן-שומות-${today}` };
 }

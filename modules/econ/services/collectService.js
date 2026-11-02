@@ -115,22 +115,27 @@ class CollectService {
   // והכתיבה האמיתית אחת בסוף. בטוח כי כל פעולה במסד רצה בתור אחד (enqueue) — אין פעולה אחרת באמצע.
   // אובייקט המסד עצמו לא משתנה: גיבוי שרץ מחוץ לתור (db.backup) רואה רק נתונים שנשמרו, לא קבלה שעוד לא נכתבה.
   // קודם: שתי שמירות נפרדות; שגיאה או קריסה ביניהן השאירו דרישה "פתוחה", וניסיון חוזר הפיק קבלה שנייה
+  // fn מקבל ctl: mark() / restore(m) — נקודת חזרה בזיכרון לבידוד כשל של שורה (קליטת דוח).
+  // העותק בזיכרון לעולם לא משתנה במקום (load מחזיר עותק, save מחליף), ולכן נקודת חזרה = הפניה בלבד, בלי העתקה
   async _inOneSave(fn) {
-    if (this._oneSave) return fn();
+    if (this._oneSave) return fn(this._oneSaveCtl);
     const base = this.db;
     let work = null, dirty = false;
     const tx = {
       load: async () => structuredClone(work || (work = await base.load())),
       save: async (value) => { work = structuredClone(value); dirty = true; }
     };
+    const ctl = { mark: () => ({ work, dirty }), restore: (m) => { work = m.work; dirty = m.dirty; } };
     // שירות עם מסד אחר (לא אמור לקרות) נשאר על המסד שלו — לא כותבים את הנתונים שלו למסד הזה
     const swapped = [this, accounting, npo, gemach].filter((s, i, all) => s && s.db === base && all.indexOf(s) === i);
     for (const s of swapped) s.db = tx;
     this._oneSave = true;
+    this._oneSaveCtl = ctl;
     let out;
-    try { out = await fn(); }
+    try { out = await fn(ctl); }
     finally {
       this._oneSave = false;
+      this._oneSaveCtl = null;
       for (const s of swapped) s.db = base;
     }
     if (dirty) await base.save(work);
@@ -193,31 +198,33 @@ class CollectService {
   }
 
   // קליטת הדוח: ההתאמה מחושבת שוב כאן (לא סומכים על מה שהממשק שלח), וכל תשלום נרשם בנפרד —
-  // תשלום שנכשל ברישום (למשל חשבונית שבוטלה בינתיים) לא עוצר את השאר
+  // תשלום שנכשל ברישום (למשל חשבונית שבוטלה בינתיים) לא עוצר את השאר.
+  // סקירת קוד 2.11.2026: קודם — טעינה, פענוח והצפנה של כל המסד לכל שורה (עשרות שניות בתור).
+  // עכשיו — כל הדוח בעותק אחד בזיכרון ושמירה אחת בסוף; שורה שנכשלה חוזרת לנקודה שלפניה (ctl.restore)
   async importReport(csvText, mapping = {}) {
-    let data = await this._load();
-    const { matched, unmatched, errors, skipped } = P.matchReport(csvText, mapping, data.payments.requests);
-    data.payments.settings = { ...data.payments.settings, importMapping: mapping };
-    await this.db.save(data);
-    const recorded = [];
-    const failed = [];
-    for (const m of matched) {
-      try {
-        // כל תשלום — רישום וסימון הדרישה בשמירה אחת (_inOneSave)
-        const done = await this._inOneSave(async () => {
-          data = await this._load();
-          const r = data.payments.requests.find(x => x.ref === m.ref);
-          if (!r || r.status !== 'open') return null;
+    return this._inOneSave(async (ctl) => {
+      const data = await this._load();
+      const { matched, unmatched, errors, skipped } = P.matchReport(csvText, mapping, data.payments.requests);
+      data.payments.settings = { ...data.payments.settings, importMapping: mapping };
+      await this.db.save(data);
+      const recorded = [];
+      const failed = [];
+      for (const m of matched) {
+        const before = ctl.mark();
+        try {
+          const cur = await this._load();
+          const r = cur.payments.requests.find(x => x.ref === m.ref);
+          if (!r || r.status !== 'open') continue;
           const applied = await this._applyPayment(r, { date: m.date, txId: m.txId });
           await this._setPaid(r.id, { date: m.date, txId: m.txId, source: 'report', how: m.how, name: m.name, applied });
-          return r;
-        });
-        if (done) recorded.push({ ref: m.ref, payerName: done.payerName, amount: P.fromAg(done.amountAg), how: m.how });
-      } catch (e) {
-        failed.push({ ref: m.ref, line: m.line, message: e.message });
+          recorded.push({ ref: m.ref, payerName: r.payerName, amount: P.fromAg(r.amountAg), how: m.how });
+        } catch (e) {
+          ctl.restore(before);
+          failed.push({ ref: m.ref, line: m.line, message: e.message });
+        }
       }
-    }
-    return { recorded, failed, unmatched, errors, skipped };
+      return { recorded, failed, unmatched, errors, skipped };
+    });
   }
 }
 

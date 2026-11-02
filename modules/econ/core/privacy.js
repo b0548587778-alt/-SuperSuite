@@ -4,6 +4,8 @@
 // PLAN.md 9.15: הצעת רמת אבטחה, מדיניות שמירה גם לתורמים/לווים/תיקי משכנתאות, ויומן בקשות עיון ותיקון.
 // המקורות: docs/LEGAL-REQUIREMENTS.md, סעיף 4.
 
+const { stampDay } = require('./dates');
+
 const SENSITIVITY = { regular: 'רגיל', sensitive: 'רגיש — מצב כלכלי', high: 'רגיש מאוד — מתן בסתר' };
 const len = (v) => (Array.isArray(v) ? v.length : 0);
 
@@ -85,7 +87,7 @@ function dataMap(data, userCounts = {}, opts = {}) {
 
 // פעילות אחרונה של נזקק: עדכון הרשומה או שיוך לסבב חלוקה
 function lastActivity(b, rounds) {
-  let last = String(b.updatedAt || b.createdAt || '').slice(0, 10);
+  let last = stampDay(b.updatedAt || b.createdAt || '');
   for (const r of rounds || []) {
     if ((r.allocations || []).some(a => a.beneficiaryId === b.id) && String(r.date || '') > last) last = String(r.date);
   }
@@ -160,7 +162,7 @@ function suggestLevel(map) {
 // ---------- מדיניות שמירה לכל סוג רשומה. בכל הסוגים: רק תצוגה מקדימה ואישור מנהל, והשרת בודק מחדש
 const idKey = (raw) => { const d = String(raw ?? '').replace(/\D/g, ''); return d && !/^0+$/.test(d) ? d.padStart(9, '0') : ''; };
 const normName = (v) => String(v ?? '').replace(/["'׳״]/g, '').replace(/\s+/g, ' ').trim();
-const day = (v) => String(v || '').slice(0, 10);
+const day = (v) => stampDay(v || ''); // חותמת זמן ← היום המקומי (לא UTC)
 const maxDay = (...vals) => vals.map(day).filter(Boolean).sort().pop() || '';
 
 const RETENTION_KINDS = {

@@ -252,6 +252,17 @@ function missingDocsMessage(client, officeName) {
 const MAX_APPROVALS = 10;
 const APPROVAL_TRACK_TYPES = new Set(['PRIME', 'FIXED_UNLINKED', 'FIXED_LINKED', 'VARIABLE_UNLINKED', 'VARIABLE_LINKED', 'ELIGIBILITY', 'BRIDGE']);
 const REPAYMENT_KEYS = new Set(['SPITZER', 'EQUAL_PRINCIPAL', 'BULLET']);
+// השדות של כל סוג מסלול (כמו בעורך המסלולים במעבדה). סקירת קוד 2.11.2026: שדה של סוג אחר
+// (ריבית קבועה שנשארה אחרי מעבר למשתנה) נשלח למנוע והשפיע על החישוב — מסננים לפי הסוג
+const FLOATING_TYPES = new Set(['PRIME', 'VARIABLE_UNLINKED', 'VARIABLE_LINKED']);
+const VARIABLE_TYPES = new Set(['VARIABLE_UNLINKED', 'VARIABLE_LINKED']);
+const TRACK_FIELD_FOR = {
+  ratePct: (type) => !FLOATING_TYPES.has(type),
+  spreadPct: (type) => FLOATING_TYPES.has(type),
+  resetMonths: (type) => VARIABLE_TYPES.has(type),
+  anchorKey: (type) => VARIABLE_TYPES.has(type)
+};
+const trackFieldAllowed = (type, field) => !TRACK_FIELD_FOR[field] || TRACK_FIELD_FOR[field](type);
 
 const optNum = (v, label, min, max) => {
   if (v === undefined || v === null || v === '') return undefined;
@@ -272,11 +283,12 @@ function validateApprovalTrack(t, i, lender) {
   const spreadPct = optNum(t.spreadPct, `${where}: המרווח`, -10, 20);
   const resetMonths = optNum(t.resetMonths, `${where}: תדירות השינוי`, 1, 600);
   const graceMonths = optNum(t.graceMonths, `${where}: חודשי הגרייס`, 0, 600);
-  if (ratePct !== undefined) out.ratePct = ratePct;
-  if (spreadPct !== undefined) out.spreadPct = spreadPct;
-  if (resetMonths !== undefined) out.resetMonths = Math.round(resetMonths);
+  const ok = (f) => trackFieldAllowed(t.type, f);
+  if (ratePct !== undefined && ok('ratePct')) out.ratePct = ratePct;
+  if (spreadPct !== undefined && ok('spreadPct')) out.spreadPct = spreadPct;
+  if (resetMonths !== undefined && ok('resetMonths')) out.resetMonths = Math.round(resetMonths);
   if (graceMonths) { out.graceMonths = Math.round(graceMonths); out.graceType = t.graceType === 'FULL' ? 'FULL' : 'PARTIAL'; }
-  if (t.anchorKey) out.anchorKey = str(t.anchorKey, 40, 'העוגן');
+  if (t.anchorKey && ok('anchorKey')) out.anchorKey = str(t.anchorKey, 40, 'העוגן');
   return out;
 }
 
@@ -619,7 +631,7 @@ module.exports = {
   TRACKS, TRACK_KEYS, CLIENT_STATUSES, STAGE_KEYS, CLOSED_STAGES, DEFAULT_STAGE, DOCUMENTS, DEFAULT_SETTINGS,
   normalizeStage, normalizeSettings, canSee, resolveAdvisor, withStage, daysInStage, pipelineBoard,
   EMPLOYMENT, DEALS, normalizeProfile, setDocState, missingDocsMessage,
-  MAX_APPROVALS, validateApproval, approvalView, approvalsForLab, approvalsSummary,
+  MAX_APPROVALS, validateApproval, approvalView, approvalsForLab, approvalsSummary, trackFieldAllowed,
   MAX_FEE_PAYMENTS, FEE_METHODS, FEE_STATES, validateFeePayment, feeStatus, officeIncome, caseVatRate, lockFeeVat,
   validateClient, clientStored, clientView, offerStored, ltv, advisoryFee, docsProgress, toggleDoc,
   validateTrack, tracksFromForm, validateOffer, validateCpi, trackSchedule, offerSchedule, offerSummary,

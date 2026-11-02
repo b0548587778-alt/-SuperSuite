@@ -33,13 +33,16 @@ function list(v, label) {
 // מסלול מהטופס (אחוזים ושנים) → קלט המנוע (שברים וחודשים)
 function uiTrack(t, i) {
   if (!t || typeof t !== 'object') throw new Error(`מסלול ${i + 1} לא תקין`);
+  // סקירת קוד 2.11.2026: "שנים" (מה שעל המסך) גובר על termMonths ששמור בתרחיש — אחרת שינוי התקופה לא השפיע
   const years = Number(t.years);
-  const termMonths = blank(t.termMonths) ? Math.round(years * 12) : Number(t.termMonths);
+  const termMonths = !blank(t.years) && Number.isFinite(years) && years > 0 ? Math.round(years * 12) : Number(t.termMonths);
   const out = { id: str(t.id, 60, 'מזהה מסלול') || `t${i + 1}`, type: t.type, repayment: t.repayment || 'SPITZER', principal: blank(t.amount) ? t.principal : t.amount, termMonths };
-  if (!blank(t.ratePct)) out.annualRate = pct(t.ratePct);
-  if (!blank(t.spreadPct)) out.spread = pct(t.spreadPct);
-  if (!blank(t.resetMonths)) out.resetEveryMonths = Number(t.resetMonths);
-  if (!blank(t.anchorKey)) out.anchorKey = String(t.anchorKey);
+  // רק השדות של סוג המסלול — ריבית קבועה שנשארה אחרי מעבר למשתנה לא נכנסת לחישוב
+  const has = (f) => !blank(t[f]) && MA.trackFieldAllowed(t.type, f);
+  if (has('ratePct')) out.annualRate = pct(t.ratePct);
+  if (has('spreadPct')) out.spread = pct(t.spreadPct);
+  if (has('resetMonths')) out.resetEveryMonths = Number(t.resetMonths);
+  if (has('anchorKey')) out.anchorKey = String(t.anchorKey);
   if (!blank(t.graceMonths) && Number(t.graceMonths) > 0) out.grace = { type: t.graceType === 'FULL' ? 'FULL' : 'PARTIAL', months: Number(t.graceMonths) };
   if (!blank(t.share)) out.share = pct(t.share);
   return out;
