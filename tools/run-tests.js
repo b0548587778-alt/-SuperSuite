@@ -11,6 +11,14 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
+// זמן קצוב (סקירת קוד 2.11.2026): בדיקה תקועה נכשלת אחרי TEST_TIMEOUT_MS, וההרצה כולה נעצרת אחרי RUN_TIMEOUT_MS —
+// במקום לחסום את npm test ואת ה-CI עד הזמן הקצוב של GitHub (6 שעות)
+const TEST_TIMEOUT_MS = 5 * 60 * 1000;
+const RUN_TIMEOUT_MS = 30 * 60 * 1000;
+
+function testArgs({ serial = false, files = testFiles() } = {}) {
+  return ['--test', '--test-concurrency=' + (serial ? 1 : 6), '--test-timeout=' + TEST_TIMEOUT_MS, ...files];
+}
 
 function testFiles() {
   return fs.readdirSync(path.join(root, 'tests')).filter(f => f.endsWith('.test.js')).sort().map(f => path.join('tests', f));
@@ -27,7 +35,8 @@ function run({ serial = false, files = testFiles(), baseTmp = os.tmpdir(), spawn
   const env = { ...process.env, TEMP: dir, TMP: dir, TMPDIR: dir };
   let status = 1;
   try {
-    const r = spawn(process.execPath, ['--test', '--test-concurrency=' + (serial ? 1 : 6), ...files], { cwd: root, env, stdio: 'inherit' });
+    const r = spawn(process.execPath, testArgs({ serial, files }), { cwd: root, env, stdio: 'inherit', timeout: RUN_TIMEOUT_MS, killSignal: 'SIGKILL' });
+    if (r.error && r.error.code === 'ETIMEDOUT') console.error(`⚠ הבדיקות נעצרו אחרי ${RUN_TIMEOUT_MS / 60000} דקות`);
     status = r.status == null ? 1 : r.status;
   } finally {
     if (!removeDir(dir)) console.warn('⚠ התיקייה הזמנית של הבדיקות לא נמחקה: ' + dir);
@@ -37,4 +46,4 @@ function run({ serial = false, files = testFiles(), baseTmp = os.tmpdir(), spawn
 
 if (require.main === module) process.exit(run({ serial: process.argv.includes('--serial') }));
 
-module.exports = { run, testFiles };
+module.exports = { run, testFiles, testArgs, TEST_TIMEOUT_MS, RUN_TIMEOUT_MS };

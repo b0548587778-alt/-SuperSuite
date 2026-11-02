@@ -6,6 +6,8 @@
 	# רק הנתיבים שהשרת מגיש; כל השאר — 404 כבר כאן
 	@relay path /v1 /health /pay/*
 	handle @relay {
+		# הגבלת קצב (deploy/relay/ratelimit, רק בתמונה של Dockerfile.caddy; בלי קבצים — אין שינוי)
+		import /etc/caddy/ratelimit/*.caddy
 		reverse_proxy {$RELAY_HOST:relay}:8443
 	}
 	handle {

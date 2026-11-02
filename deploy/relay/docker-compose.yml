@@ -1,21 +1,34 @@
 # שרת הרישוי + Caddy (תעודת HTTPS אוטומטית מ-Let's Encrypt).
 # לפני ההפעלה: להעתיק את .env.example ל-.env ולמלא את RELAY_DOMAIN.
 #   docker compose -f deploy/relay/docker-compose.yml up -d --build
+# יומנים: json-file עם סבב (max-size / max-file) — בלי זה היומן של Docker גדל בלי גבול עד שהכונן מתמלא
+# (סקירת קוד 2.11.2026)
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   relay:
     build:
       context: ../..
       dockerfile: deploy/relay/Dockerfile
     restart: unless-stopped
+    logging: *logging
     volumes:
       - relay-data:/data
     # לא חשוף לאינטרנט — רק Caddy מדבר איתו
     expose:
       - "8443"
 
+  # Caddy עם תוסף הגבלת הקצב (Dockerfile.caddy); ההגדרה ב-ratelimit/relay.caddy
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
     restart: unless-stopped
+    logging: *logging
     depends_on:
       - relay
     ports:
@@ -24,6 +37,7 @@ services:
     env_file: .env
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./ratelimit:/etc/caddy/ratelimit:ro
       - caddy-data:/data
       - caddy-config:/config
 

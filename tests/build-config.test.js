@@ -61,7 +61,9 @@ test('CI: קוד של צד שלישי רץ בלי טוקן כתיבה — רק �
   assert.doesNotMatch(build, /contents: write|GITHUB_TOKEN|SS_DOWNLOADS_TOKEN|git push/);
   assert.match(build, /actions\/checkout@(?:v4|[0-9a-f]{40} # v4)\s*\n\s*with:\s*\{[^}]*persist-credentials: false/, 'הטוקן לא נשאר ב-.git/config');
   // ci-status נדרס בכל ריצה — שתי ריצות חופפות היו מוחקות זו לזו את היומנים
-  assert.match(yml, /\nconcurrency:\n\s+group: ci-status\n\s+cancel-in-progress: false/);
+  // ריצה רגילה בקבוצה ci-status; ריצת פרסום בקבוצה משלה, והדחיפה עצמה בתור במשימת report (tests/audit-r3-ci.test.js)
+  assert.match(yml, /\nconcurrency:\n\s+group: \$\{\{ .* \|\| 'ci-status' \}\}\n\s+cancel-in-progress: false/);
+  assert.match(yml, /\n {4}concurrency:\n\s+group: ci-status-push\n\s+cancel-in-progress: false/);
 });
 
 test('המודל המקומי: node-llama-cpp תלות אופציונלית, הקבצים הטבעיים מחוץ ל-asar, בלי CUDA, והרישיון ב-NOTICES', () => {

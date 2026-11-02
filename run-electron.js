@@ -19,14 +19,27 @@ function resolveElectronExe(root, platform = process.platform) {
   return fs.existsSync(exe) ? exe : null;
 }
 
+// מ-Electron 42 החבילה לא מורידה את עצמה ב-postinstall (גם npm install --ignore-scripts עובד) — הקובץ נפרס
+// בהפעלה הראשונה דרך install.js של החבילה, מהמטמון המקומי (%LOCALAPPDATA%\electron\Cache) אם הארכיון שם
+// (שדרוג ל-Electron 45, סקירת קוד 2.11.2026)
+function ensureElectronExe(root, { spawnSync = require('child_process').spawnSync, platform = process.platform } = {}) {
+  const found = resolveElectronExe(root, platform);
+  if (found) return found;
+  const installer = path.join(root, 'node_modules', 'electron', 'install.js');
+  if (!fs.existsSync(installer)) return null;
+  spawnSync(process.execPath, [installer], { cwd: root, stdio: 'inherit' });
+  return resolveElectronExe(root, platform);
+}
+
 if (require.main === module) {
-  const exe = resolveElectronExe(__dirname);
+  const exe = ensureElectronExe(__dirname);
   if (!exe) {
-    console.error('electron.exe לא נמצא ב-node_modules/electron/dist. יש להריץ npm install במחשב עם גישה לחבילות.');
+    console.error('electron.exe לא נמצא ב-node_modules/electron/dist, והפריסה מהמטמון נכשלה. יש להריץ npm install ואז ' +
+      'node node_modules/electron/install.js במחשב עם גישה לחבילות (או עם ארכיון Electron במטמון).');
     process.exit(1);
   }
   const child = spawn(exe, ['.', ...process.argv.slice(2)], { cwd: __dirname, stdio: 'inherit', windowsHide: false });
   child.on('exit', code => process.exit(code == null ? 1 : code));
 }
 
-module.exports = { resolveElectronExe };
+module.exports = { resolveElectronExe, ensureElectronExe };

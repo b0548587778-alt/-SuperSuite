@@ -1,0 +1,8 @@
+# Caddy עם תוסף הגבלת הקצב (סקירת קוד 2.11.2026) — התמונה הרגילה caddy:2-alpine לא כוללת rate_limit.
+# התוסף בגרסה נעוצה. ההגדרה עצמה ב-ratelimit/relay.caddy, שנטען רק בתמונה הזו (docker-compose.yml);
+# התקנה בלי Docker (apt install caddy) לא טוענת אותו — שם ההגבלה היא של השרת עצמו (60 לדקה לכתובת).
+FROM caddy:2-builder-alpine AS builder
+RUN xcaddy build --with github.com/mholt/caddy-ratelimit@v0.1.0
+
+FROM caddy:2-alpine
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

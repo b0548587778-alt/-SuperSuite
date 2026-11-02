@@ -12,11 +12,16 @@ test.after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: 
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-llmrt-')); dirs.push(d); return d; };
 const writePkg = (dir, version) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ version })); };
 
-// פרויקט שבו node-llama-cpp הותקן (כמו ב-CI אחרי npm install)
-function makeProject(version = '3.1.0') {
+// פרויקט שבו node-llama-cpp הותקן (כמו ב-CI אחרי npm install), עם קובץ הנעילה הייעודי (tools/llm-runtime-deps)
+function makeProject(version = '3.1.0', { overrides } = {}) {
   const dir = tmp();
-  fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify({ packages: { 'node_modules/node-llama-cpp': { version } } }));
+  const lock = JSON.stringify({ packages: { 'node_modules/node-llama-cpp': { version } } });
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), lock);
   writePkg(path.join(dir, 'node_modules/node-llama-cpp'), version);
+  const deps = path.join(dir, 'tools/llm-runtime-deps');
+  fs.mkdirSync(deps, { recursive: true });
+  fs.writeFileSync(path.join(deps, 'package.json'), JSON.stringify({ name: 'd', dependencies: { 'node-llama-cpp': version }, ...(overrides ? { overrides } : {}) }));
+  fs.writeFileSync(path.join(deps, 'package-lock.json'), lock);
   return dir;
 }
 
@@ -38,7 +43,8 @@ function fakeShallow({ version = '3.1.0', extraTop = false, binaries = ['win-x64
 test('pack ואז install: הרכיב מזוהה כזמין, בלי CUDA / Vulkan, ושאר node_modules של המחשב לא נדרס', () => {
   const out = path.join(tmp(), 'llm-runtime');
   const r = R.pack(makeProject(), out, { installer: fakeShallow() });
-  assert.deepStrictEqual(r, { packed: true, version: '3.1.0', binaries: ['win-x64'] });
+  assert.match(r.sha256, /^[0-9a-f]{64}$/);
+  assert.deepStrictEqual({ ...r, sha256: undefined }, { packed: true, version: '3.1.0', binaries: ['win-x64'], sha256: undefined });
 
   const local = tmp();
   writePkg(path.join(local, 'node_modules/ansi-regex'), '4.0.0');
@@ -80,7 +86,7 @@ test('CI: הרכיב נארז בצעד נפרד שלא עוצר את הבניי�
 });
 
 test('pack: ה-overrides של הפרויקט (גרסה מתוקנת של תלות) עוברים גם להתקנה הנפרדת', () => {
-  const project = makeProject();
+  const project = makeProject('3.1.0', { overrides: { 'simple-git': '4.0.2' } });
   fs.writeFileSync(path.join(project, 'package.json'), JSON.stringify({ name: 'x', overrides: { 'simple-git': '4.0.2' } }));
   let seen = null;
   const inner = fakeShallow();
