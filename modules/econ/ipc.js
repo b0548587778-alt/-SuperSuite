@@ -1644,7 +1644,7 @@ function registerIpcHandlers() {
     return o;
   });
   // מזעור לפי סוג — רק בתחום שפתוח ברישיון (אחרת: רשימת שמות ושינוי נתונים של תחום סגור)
-  const RETENTION_DOMAIN = { beneficiaries: 'chesed:x', donors: 'npo:x', borrowers: 'gemach:x', itemBorrowers: 'gemach:x', mortgageClients: 'madv:x', realtyClients: 'rlty:x' };
+  const RETENTION_DOMAIN = { beneficiaries: 'chesed:x', donors: 'npo:x', borrowers: 'gemach:x', applications: 'gemach:x', itemBorrowers: 'gemach:x', mortgageClients: 'madv:x', realtyClients: 'rlty:x' };
   // תיבות ההודעות במיפוי (ממצא 26) — רק תיבה שקיימת במחשב הזה: של המערכת — כששרת ההודעות מוגדר או שיש בה שיחות;
   // של מנהל-העל — כשהמצב הוגדר כאן (מספר השיחות — רק כשהוא פתוח בסיסמה). הודעות אינן תחום ברישוי (chat: תמיד פתוח ב-gate.js)
   const mailboxPeers = (box) => {
@@ -1659,8 +1659,14 @@ function registerIpcHandlers() {
     if (ownerCore && ownerCore.isInitialized()) out.owner = { count: ownerCore.isUnlocked() && ownerChatStore ? mailboxPeers(ownerChatStore) : null };
     return out;
   };
-  handle('privacy:getMap', async () => {
-    const m = await privacyService.getMap(await db.listUsers(), { mailboxes: privacyMailboxes() });
+  // יש נתונים במחסן השמאות? (רק ברישיון למודול; קריאה שנכשלה ← לא ידוע). להצעת רמת האבטחה (סקירת קוד 2.11.2026)
+  const shamaiPresent = (event) => {
+    if (!shamaiSource || !event || !event.sender || !LG.moduleAllowed(licenseState(), 'shamai')) return false;
+    try { const items = shamaiSource(event.sender.id); return !!items && typeof items === 'object' && Object.keys(items).length > 0; } catch { return false; }
+  };
+  const privacyOpts = (event) => ({ mailboxes: privacyMailboxes(), shamai: shamaiPresent(event) });
+  handle('privacy:getMap', async (event) => {
+    const m = await privacyService.getMap(await db.listUsers(), privacyOpts(event));
     const open = Object.entries(m.retentionKinds || {}).filter(([k]) => !LG.checkChannel(licenseState(), RETENTION_DOMAIN[k] || 'econ:x', 'data.view'));
     return { ...m, retentionKinds: Object.fromEntries(open) };
   });
@@ -1679,9 +1685,9 @@ function registerIpcHandlers() {
     return r;
   });
   // מסמכים לתיקון 13 (PLAN.md 9.15) — PDF במקום שהמנהל בוחר
-  handleSave('privacy:exportDefinitionPdf', async () => ({ html: await privacyService.definitionHtml(await db.listUsers(), { mailboxes: privacyMailboxes() }), name: 'מסמך-הגדרות-מאגר.pdf' }),
+  handleSave('privacy:exportDefinitionPdf', async (event) => ({ html: await privacyService.definitionHtml(await db.listUsers(), privacyOpts(event)), name: 'מסמך-הגדרות-מאגר.pdf' }),
     (event) => auditEvent(event, 'privacy.doc.export', { doc: 'definition' }));
-  handleSave('privacy:exportProcedurePdf', async () => ({ html: await privacyService.procedureHtml(await db.listUsers(), { mailboxes: privacyMailboxes() }), name: 'נוהל-אבטחת-מידע.pdf' }),
+  handleSave('privacy:exportProcedurePdf', async (event) => ({ html: await privacyService.procedureHtml(await db.listUsers(), privacyOpts(event)), name: 'נוהל-אבטחת-מידע.pdf' }),
     (event) => auditEvent(event, 'privacy.doc.export', { doc: 'procedure' }));
   handleSave('privacy:exportNoticePdf', async (event, kind) => ({ html: await privacyService.noticeHtml(kind), name: `הודעת-יידוע-${String(kind).replace(/[^a-z]/gi, '')}.pdf` }),
     (event, spec, kind) => auditEvent(event, 'privacy.doc.export', { doc: 'notice', kind }));

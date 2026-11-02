@@ -55,6 +55,7 @@ const npoSettingsSchema = {
     { name: 'address', label: 'כתובת', type: 'text' },
     { name: 'phone', label: 'טלפון', type: 'tel' },
     { name: 'sec46Number', label: 'מספר אישור סעיף 46', type: 'text' },
+    { name: 'sec46ValidFrom', label: 'אישור סעיף 46 בתוקף מתאריך (לא חובה)', type: 'date' },
     { name: 'sec46ValidUntil', label: 'תוקף אישור סעיף 46', type: 'date' },
     { name: 'vatStatus', label: 'מעמד מע"מ', type: 'select', options: [
       { value: 'exempt', label: 'עמותה פטורה ממע"מ (ברירת מחדל)' },

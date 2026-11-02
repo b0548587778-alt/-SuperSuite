@@ -59,7 +59,7 @@ function renderPrivacyCard(pv) {
     </div>
     ${renderPrivacyRequests(pv.requests)}
     <h4>מזעור לפי תקופת שמירה</h4>
-    <p class="muted">רשומות שלא הייתה בהן פעילות בתקופה שנבחרה: הפרטים שאינם נחוצים עוד נמחקים, והשאר נשמר. לפני הביצוע מוצגת הרשימה ומה יימחק. הפעולה אינה הפיכה — כדאי לבצע גיבוי לפני.</p>
+    <p class="muted">רשומות שלא הייתה בהן פעילות בתקופה שנבחרה: הפרטים שאינם נחוצים עוד נמחקים, והשאר נשמר. בלווים — גם בקשת ההלוואה שממנה נוצרה ההלוואה; בתורמים — התקופה נספרת מסוף שנת המס. לפני הביצוע מוצגת הרשימה ומה יימחק. הפעולה אינה הפיכה — כדאי לבצע גיבוי לפני.</p>
     <div class="acct-actions">
       <select id="privacyRetentionKind" aria-label="סוג הרשומות">${Object.entries(pv.retentionKinds || { beneficiaries: { label: 'נזקקים לא פעילים (חסד)' } }).map(([k, v]) => `<option value="${esc(k)}">${esc(v.label)}</option>`).join('')}</select>
       <button class="secondary" id="privacyRetentionBtn">בדיקת רשומות למזעור…</button>

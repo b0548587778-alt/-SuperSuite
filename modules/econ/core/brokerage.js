@@ -149,7 +149,8 @@ function validateOrder(input, prev = {}, { clients = [], properties = [] } = {})
     transaction: TRANSACTIONS[x.transaction] ? x.transaction : '',
     clientAddress: clip(x.clientAddress, 200),
     propertyDescription: clip(x.propertyDescription, 300),
-    priceAg: input.price !== undefined && input.price !== '' ? orderPriceAg(input.price) : (isAg(prev.priceAg) ? prev.priceAg : 0),
+    // '' מטופס עריכה = ניקוי; מפתח חסר = שמירת הקודם (סקירת קוד 2.11.2026)
+    priceAg: input.price === '' ? 0 : input.price !== undefined ? orderPriceAg(input.price) : (isAg(prev.priceAg) ? prev.priceAg : 0),
     fee: input.feeValue !== undefined ? validateFee({ type: input.feeType, value: input.feeValue }) : (prev.fee || null),
     exclusive: x.exclusive === true || x.exclusive === 'yes',
     exclusiveUntil: '',

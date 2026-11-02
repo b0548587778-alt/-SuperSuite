@@ -235,14 +235,19 @@ function renderField(f) {
   </label>`;
 }
 
-// איסוף ערכי הטופס — בטופס דינמי נאספים רק השדות הפעילים לסוג הנבחר
+// איסוף ערכי הטופס — בטופס דינמי נאספים רק השדות הפעילים לסוג הנבחר.
+// בעריכה (state.editingId) שדה ריק נשלח כ-'' = "נקה". בלי זה השירותים (שממזגים עם הרשומה השמורה)
+// השאירו את הערך הישן בשקט: בלעדיות "לא", ייעוד או ת"ז שנמחקו (סקירת קוד 2.11.2026)
 function collectFormData(fields) {
   const schema = currentSchema();
   const relevant = (schema && schema.dynamic) ? activeFields(schema) : fields;
+  const editing = !!state.editingId;
   const data = {};
   for (const f of relevant) {
     const el = document.getElementById('f_' + f.name);
     if (!el) continue;
+    // רשימה שהערך השמור אינו באפשרויות שלה (למשל יועץ אחר) — לא נשלחת, והשרת שומר את הקיים
+    if (editing && el.tagName === 'SELECT' && el.selectedIndex < 0) continue;
     let value = el.value.trim();
     if (f.required && !value) {
       throw new Error(`השדה "${f.label}" הוא שדה חובה`);
@@ -253,7 +258,7 @@ function collectFormData(fields) {
         throw new Error(`השדה "${f.label}" חייב להיות מספר`);
       }
     }
-    if (value !== '') data[f.name] = value;
+    if (value !== '' || editing) data[f.name] = value;
   }
   return data;
 }

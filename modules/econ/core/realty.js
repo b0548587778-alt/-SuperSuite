@@ -206,7 +206,9 @@ function validateDeal(input, prev = {}, { properties = [], clients = [] } = {}) 
   if (sellerClientId && !ids.has(sellerClientId)) throw new Error('המוכר שנבחר אינו ברשימת הלקוחות');
   if (sellerClientId && sellerClientId === buyerClientId) throw new Error('הקונה והמוכר הם אותו לקוח');
   const stage = pick(DEAL_STAGES, x.stage, 'viewing');
-  const priceAg = input.price !== undefined && input.price !== '' ? money(input.price, 'מחיר העסקה') : (isAg(prev.priceAg) ? prev.priceAg : property.askingAg);
+  // '' מטופס עריכה = "ריק — המחיר המבוקש"; מפתח חסר = שמירת הקודם (סקירת קוד 2.11.2026)
+  const priceAg = input.price === '' ? property.askingAg
+    : input.price !== undefined ? money(input.price, 'מחיר העסקה') : (isAg(prev.priceAg) ? prev.priceAg : property.askingAg);
   const out = {
     propertyId, buyerClientId, sellerClientId, stage, priceAg,
     lostReason: stage === 'lost' ? str(x.lostReason, 200, 'הסיבה') : '',

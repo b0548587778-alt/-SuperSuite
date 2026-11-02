@@ -226,6 +226,11 @@ function buildRecords(csvText, options, existing, settings) {
       records.push(rec);
       if (note) errors.push({ line, message: note, warning: true });
       if (ambNote) errors.push({ line, message: ambNote, warning: true });
+      // קבלה מקומית מחוץ לתקופת אישור סעיף 46 — תצא בלי זיכוי (סקירת קוד 2.11.2026)
+      const s46 = N.normalizeSettings(settings);
+      if (receipts === 'issue' && s46.sec46Number && !N.sec46Eligible(s46, date)) {
+        errors.push({ line, message: `התרומה מ-${date} מחוץ לתקופת אישור סעיף 46 — הקבלה תצא בלי זיכוי לפי סעיף 46`, warning: true });
+      }
     } catch (e) {
       errors.push({ line, message: e.message });
     }
