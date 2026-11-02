@@ -3,43 +3,56 @@ const store={get(k,d){try{const v=localStorage.getItem('tb_'+k);return v==null?d
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),1400)}
 async function copy(t){try{await navigator.clipboard.writeText(t);toast('הועתק')}catch{toast('ההעתקה נכשלה')}}
 const fmt=n=>Number.isFinite(n)?(+n.toFixed(6)).toLocaleString('en-US',{maximumFractionDigits:6}):'—';
+// הודעת שגיאה למשתמש — רק עברית; שגיאת JavaScript באנגלית ← הודעה קבועה (סקירת קוד 2.11.2026)
+const heMsg=(e,fb='קלט לא תקין')=>{const m=String((e&&e.message)||e||'');return /[א-ת]/.test(m)?m:fb};
+// כל כלי בנפרד: כלי שנכשל בטעינה (למשל נתונים שמורים פגומים) לא מפיל את הכלים שאחריו.
+// השגיאה נזרקת שוב מחוץ לזרם — screen-guard מציג אותה בפס
+function tool(fn){try{fn()}catch(e){setTimeout(()=>{throw e})}}
 
 /* מחשבון */
-(function(){
+tool(function(){
 const keys=['C','⌫','%','÷','7','8','9','×','4','5','6','−','1','2','3','+','±','0','.','='];
 let expr='',hist=store.get('calcHist',[]);if(!Array.isArray(hist))hist=[];
 const disp=$('cDisp');
 // ההיסטוריה נשמרת ב-localStorage ומשוחזרת מגיבוי — טקסט בלבד (textContent), לא HTML
 function show(){disp.textContent=expr||'0';$('cHist').replaceChildren(...hist.slice(-5).reverse().map(h=>{const d=document.createElement('div');d.textContent=String(h);return d}))}
+// אחוזים כמו במחשבון כיס: ‎A+B% = A + A×B/100, ‏A−B% = A − A×B/100; בכפל/חילוק ולבד — B/100 (סקירת קוד 2.11.2026)
 function evalExpr(e){
-  const s=e.replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-').replace(/(\d+(?:\.\d+)?)%/g,'($1/100)');
-  if(!/^[0-9+\-*/().\s]*$/.test(s))throw 0;
+  const s=e.replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-');
+  if(!/^[0-9+\-*/().%\s]*$/.test(s))throw 0;
   // מנתח רקורסיבי קטן במקום eval
-  let i=0;const t=s.replace(/\s/g,'');
-  function num(){let neg=1;while(t[i]=='-'||t[i]=='+'){if(t[i]=='-')neg*=-1;i++}
-    if(t[i]=='('){i++;const v=add();if(t[i]!=')')throw 0;i++;return neg*v}
-    const m=/^\d*\.?\d+/.exec(t.slice(i));if(!m)throw 0;i+=m[0].length;return neg*parseFloat(m[0])}
-  function mul(){let v=num();while(t[i]=='*'||t[i]=='/'){const o=t[i++];const r=num();v=o=='*'?v*r:v/r}return v}
-  function add(){let v=mul();while(t[i]=='+'||t[i]=='-'){const o=t[i++];const r=mul();v=o=='+'?v+r:v-r}return v}
+  let i=0,pct=false,termPct=false;const t=s.replace(/\s/g,'');
+  function num(){pct=false;let neg=1;while(t[i]=='-'||t[i]=='+'){if(t[i]=='-')neg*=-1;i++}
+    if(t[i]=='('){i++;const v=add();if(t[i]!=')')throw 0;i++;pct=false;return neg*v}
+    const m=/^\d*\.?\d+/.exec(t.slice(i));if(!m)throw 0;i+=m[0].length;
+    if(t[i]=='%'){i++;pct=true;return neg*parseFloat(m[0])/100}
+    return neg*parseFloat(m[0])}
+  function mul(){let v=num(),only=pct;while(t[i]=='*'||t[i]=='/'){const o=t[i++];const r=num();v=o=='*'?v*r:v/r;only=false}termPct=only;return v}
+  function add(){let v=mul();while(t[i]=='+'||t[i]=='-'){const o=t[i++];let r=mul();if(termPct)r=v*r;v=o=='+'?v+r:v-r}return v}
   const v=add();if(i!=t.length)throw 0;return v}
+// תוצאה בלי כתיב מעריכי (‎1e-7 ← 0.0000001), כדי שאפשר יהיה להמשיך לחשב ממנה
+function plain(n){const s=String(n);const m=/^(-?)(\d)(?:\.(\d+))?e([+-]\d+)$/.exec(s);if(!m)return s;
+  const [,sg,a,b='',ex]=m,e=+ex;return e<0?sg+'0.'+'0'.repeat(-e-1)+a+b:sg+a+b+'0'.repeat(Math.max(0,e-b.length))}
 function press(k){
   if(k=='C')expr='';
   else if(k=='⌫')expr=expr.slice(0,-1);
   else if(k=='±'){expr=expr.startsWith('−')?expr.slice(1):(expr?'−'+expr:expr)}
-  else if(k=='='){if(!expr)return;try{const v=evalExpr(expr);if(!Number.isFinite(v))throw 0;const r=+v.toPrecision(12);hist.push(expr+' = '+r);hist=hist.slice(-30);store.set('calcHist',hist);expr=String(r)}catch{expr='שגיאה';show();expr='';return}}
+  else if(k=='='){if(!expr)return;try{const v=evalExpr(expr);if(!Number.isFinite(v))throw 0;const r=plain(+v.toPrecision(12));hist.push(expr+' = '+r);hist=hist.slice(-30);store.set('calcHist',hist);expr=r}catch{expr='שגיאה';show();expr='';return}}
   else expr+=k;
   show()}
 $('cKeys').innerHTML=keys.map(k=>`<button data-k="${k}" class="${k=='='?'p':''}">${k}</button>`).join('');
 $('cKeys').onclick=e=>{const k=e.target.dataset.k;if(k)press(k)};
 document.addEventListener('keydown',e=>{
-  if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;
+  // רק כשהמיקוד במחשבון או בשום מקום — לא Enter על כפתור אחר בעמוד (גם „אישור” בחלון הודעה) (סקירת קוד 2.11.2026)
+  const a=document.activeElement;
+  if(a&&a!==document.body&&a.tagName!=='BODY'&&!(a.closest&&a.closest('.calc')))return;
   const m={'*':'×','/':'÷','-':'−','Enter':'=','Backspace':'⌫','Escape':'C'};
   const k=m[e.key]||e.key;
   if(/^[0-9.+%()=]$/.test(k)||['×','÷','−','⌫','C'].includes(k)){e.preventDefault();press(k)}});
-show()})();
+show()});
 
 /* ממיר יחידות */
-(function(){
+tool(function(){
 const U={
  'אורך':{base:'מטר',u:{'מילימטר':.001,'סנטימטר':.01,'מטר':1,'קילומטר':1000,'אינץ׳':.0254,'רגל':.3048,'יארד':.9144,'מייל':1609.344}},
  'משקל':{base:'ק״ג',u:{'גרם':.001,'ק״ג':1,'טון':1000,'אונקיה':.028349523,'ליברה':.45359237}},
@@ -53,10 +66,10 @@ function calc(){const d=U[t.value],v=parseFloat($('uVal').value),f=$('uFrom').va
  let r;if(d.temp){let c=f=='צלזיוס'?v:f=='פרנהייט'?(v-32)*5/9:v-273.15;r=to=='צלזיוס'?c:to=='פרנהייט'?c*9/5+32:c+273.15}
  else r=v*d.u[f]/d.u[to];
  $('uOut').textContent=`${fmt(v)} ${f} = ${fmt(r)} ${to}`}
-t.onchange=fill;['uVal','uFrom','uTo'].forEach(i=>$(i).oninput=calc);fill()})();
+t.onchange=fill;['uVal','uFrom','uTo'].forEach(i=>$(i).oninput=calc);fill()});
 
 /* סיסמאות */
-(function(){
+tool(function(){
 const sets={pLo:'abcdefghijklmnopqrstuvwxyz',pUp:'ABCDEFGHIJKLMNOPQRSTUVWXYZ',pNu:'0123456789',pSy:'!@#$%^&*()-_=+[]{};:,.?'};
 function rnd(n){const a=new Uint32Array(1),lim=Math.floor(2**32/n)*n;let x;do{crypto.getRandomValues(a);x=a[0]}while(x>=lim);return x%n}
 function gen(){const act=Object.keys(sets).filter(k=>$(k).checked);if(!act.length){$('pOut').textContent='בחר לפחות סוג תווים אחד';return}
@@ -65,21 +78,23 @@ function gen(){const act=Object.keys(sets).filter(k=>$(k).checked);if(!act.lengt
  for(let i=chars.length-1;i>0;i--){const j=rnd(i+1);[chars[i],chars[j]]=[chars[j],chars[i]]}
  $('pOut').textContent=chars.slice(0,L).join('')}
 $('pLen').oninput=()=>{$('pLenV').textContent=$('pLen').value;gen()};
-Object.keys(sets).forEach(k=>$(k).onchange=gen);$('pGen').onclick=gen;$('pCopy').onclick=()=>copy($('pOut').textContent);gen()})();
+Object.keys(sets).forEach(k=>$(k).onchange=gen);$('pGen').onclick=gen;$('pCopy').onclick=()=>copy($('pOut').textContent);gen()});
 
 /* פתקים */
-$('notes').value=store.get('notes','');$('notes').oninput=()=>store.set('notes',$('notes').value);
+tool(function(){const n=store.get('notes','');$('notes').value=typeof n==='string'?n:'';$('notes').oninput=()=>store.set('notes',$('notes').value)});
 
 /* משימות */
-(function(){let L=store.get('todos',[]);
+// נתונים שמורים שאינם רשימה (קובץ פגום / שחזור) — רשימה ריקה; פריט פגום מדולג (סקירת קוד 2.11.2026)
+tool(function(){let L=store.get('todos',[]);
+L=(Array.isArray(L)?L:[]).filter(t=>t&&typeof t==='object').map(t=>({t:String(t.t??''),d:t.d===true}));
 function draw(){$('tList').innerHTML=L.map((t,i)=>`<div class="todo ${t.d?'done':''}"><input type="checkbox" data-i="${i}" ${t.d?'checked':''}><span></span><button data-x="${i}">✕</button></div>`).join('')||'<p class="lbl">אין משימות</p>';
  [...$('tList').querySelectorAll('.todo span')].forEach((s,i)=>s.textContent=L[i].t)}
 function add(){const v=$('tIn').value.trim();if(!v)return;L.push({t:v,d:false});$('tIn').value='';store.set('todos',L);draw()}
 $('tAdd').onclick=add;$('tIn').onkeydown=e=>{if(e.key=='Enter')add()};
-$('tList').onclick=e=>{const i=e.target.dataset.i,x=e.target.dataset.x;if(i!=null){L[i].d=e.target.checked}else if(x!=null){L.splice(x,1)}else return;store.set('todos',L);draw()};draw()})();
+$('tList').onclick=e=>{const i=e.target.dataset.i,x=e.target.dataset.x;if(i!=null){L[i].d=e.target.checked}else if(x!=null){L.splice(x,1)}else return;store.set('todos',L);draw()};draw()});
 
 /* סטופר וטיימר */
-(function(){
+tool(function(){
 let t0=0,el=0,run=false,iv,laps=[];
 const f=ms=>{const m=Math.floor(ms/60000),s=Math.floor(ms/1000)%60,d=Math.floor(ms/100)%10;return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+'.'+d};
 function tick(){$('swD').textContent=f(el+(run?Date.now()-t0:0))}
@@ -96,19 +111,19 @@ $('tmGo').onclick=()=>{try{ctx=ctx||new AudioContext();ctx.resume()}catch{}
  if(!left)left=g();if(!left)return;going=true;$('tmGo').textContent='עצור';
  tiv=setInterval(()=>{left--;$('tmD').textContent=tf(left);if(left<=0){clearInterval(tiv);going=false;$('tmGo').textContent='התחלה';beep();toast('הטיימר הסתיים')}},1000)};
 $('tmRst').onclick=()=>{going=false;clearInterval(tiv);left=g();$('tmD').textContent=tf(left);$('tmGo').textContent='התחלה'};
-tick()})();
+tick()});
 
 /* טקסט */
-(function(){const x=$('txt');
+tool(function(){const x=$('txt');
 function st(){const v=x.value;$('sW').textContent=(v.trim().match(/\S+/g)||[]).length;$('sC').textContent=[...v].length;$('sN').textContent=[...v.replace(/\s/g,'')].length;$('sL').textContent=v?v.split('\n').length:0}
 x.oninput=st;
 $('txU').onclick=()=>{x.value=x.value.toUpperCase();st()};$('txLo').onclick=()=>{x.value=x.value.toLowerCase();st()};
 $('txSp').onclick=()=>{x.value=x.value.replace(/[ \t]+/g,' ').replace(/\n{3,}/g,'\n\n').trim();st()};
 $('txSo').onclick=()=>{x.value=x.value.split('\n').sort((a,b)=>a.localeCompare(b,'he')).join('\n');st()};
-$('txDu').onclick=()=>{x.value=[...new Set(x.value.split('\n'))].join('\n');st()};st()})();
+$('txDu').onclick=()=>{x.value=[...new Set(x.value.split('\n'))].join('\n');st()};st()});
 
 /* צבעים */
-(function(){
+tool(function(){
 function upd(h){if(!/^#?[0-9a-f]{6}$/i.test(h))return;h=h.replace('#','');const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
  const mx=Math.max(r,g,b)/255,mn=Math.min(r,g,b)/255,l=(mx+mn)/2,d=mx-mn;let hh=0,s=0;
  if(d){s=d/(1-Math.abs(2*l-1));const R=r/255,G=g/255,B=b/255;hh=mx==R?((G-B)/d)%6:mx==G?(B-R)/d+2:(R-G)/d+4;hh=Math.round(hh*60);if(hh<0)hh+=360}
@@ -117,47 +132,49 @@ function upd(h){if(!/^#?[0-9a-f]{6}$/i.test(h))return;h=h.replace('#','');const 
  $('colO').onclick=()=>copy('#'+h.toUpperCase())}
 $('colP').oninput=()=>{$('colH').value=$('colP').value;upd($('colP').value)};
 $('colH').oninput=()=>{upd($('colH').value);if(/^#[0-9a-f]{6}$/i.test($('colH').value))$('colP').value=$('colH').value};
-upd('#2b5fd9')})();
+upd('#2b5fd9')});
 
 /* מע״מ */
 // באגורות שלמות (calc.js → vatCalc), המע"מ מעוגל לאגורה ומוצג בשתי ספרות
-(function(){const ils=ag=>'₪'+(ag/100).toLocaleString('he-IL',{minimumFractionDigits:2,maximumFractionDigits:2});
+tool(function(){const ils=ag=>'₪'+(ag/100).toLocaleString('he-IL',{minimumFractionDigits:2,maximumFractionDigits:2});
  const line=t=>{const d=document.createElement('div');d.textContent=t;return d};
  function c(){const v=window.ToolsCalc.vatCalc($('vA').value,$('vR').value);
  if(!v){$('vO').replaceChildren(line('סכום או שיעור לא תקינים (עד 2 ספרות אחרי הנקודה)'));return}
  $('vO').replaceChildren(line(`הוספת מע״מ: ${ils(v.addTotalAg)} (מע״מ ${ils(v.addVatAg)})`),line(`הסרת מע״מ: ${ils(v.removeNetAg)} (מע״מ ${ils(v.removeVatAg)})`))}
-['vA','vR'].forEach(i=>$(i).oninput=c);c()})();
+['vA','vR'].forEach(i=>$(i).oninput=c);c()});
 
 /* תאריך עברי */
-(function(){$('hD').value=window.ToolsCalc.localDay();
+tool(function(){$('hD').value=window.ToolsCalc.localDay();
 function c(){const v=$('hD').value;if(!v)return;const dt=new Date(v+'T12:00:00');
  const h=new Intl.DateTimeFormat('he-u-ca-hebrew',{day:'numeric',month:'long',year:'numeric'}).format(dt);
  const w=new Intl.DateTimeFormat('he',{weekday:'long'}).format(dt);$('hO').textContent=`${w}, ${h}`}
-$('hD').oninput=c;c()})();
+$('hD').oninput=c;c()});
 
 /* הלוואה */
-(function(){function c(){const P=+$('lA').value,r=+$('lR').value/1200,n=+$('lY').value*12;if(!(P>0&&n>0)){$('lO').textContent='—';return}
+tool(function(){function c(){const P=+$('lA').value,r=+$('lR').value/1200,n=+$('lY').value*12;if(!(P>0&&n>0)){$('lO').textContent='—';return}
  const m=r?P*r/(1-Math.pow(1+r,-n)):P/n;$('lO').innerHTML=`החזר חודשי: <b>${fmt(Math.round(m*100)/100)}</b><br>סך הכול: ${fmt(Math.round(m*n))}<br>ריבית כוללת: ${fmt(Math.round(m*n-P))}`}
-['lA','lR','lY'].forEach(i=>$(i).oninput=c);c()})();
+['lA','lR','lY'].forEach(i=>$(i).oninput=c);c()});
 
 /* JSON / Base64 */
-(function(){const o=$('jOut'),i=$('jIn');
-const u8=s=>btoa(String.fromCharCode(...new TextEncoder().encode(s)));
-const un=s=>new TextDecoder().decode(Uint8Array.from(atob(s),c=>c.charCodeAt(0)));
-const t=f=>()=>{try{o.textContent=f(i.value)}catch(e){o.textContent='שגיאה: '+(e.message||'קלט לא תקין')}};
-$('jFmt').onclick=t(s=>JSON.stringify(JSON.parse(s),null,2));$('jMin').onclick=t(s=>JSON.stringify(JSON.parse(s)));
-$('b64e').onclick=t(u8);$('b64d').onclick=t(un);o.onclick=()=>copy(o.textContent)})();
+// קידוד במקטעים: fromCharCode(...bytes) על טקסט גדול (~120KB) חרג ממחסנית הקריאות. שגיאות — בעברית (סקירת קוד 2.11.2026)
+tool(function(){const o=$('jOut'),i=$('jIn');
+const u8=s=>{const b=new TextEncoder().encode(s);let r='';for(let k=0;k<b.length;k+=0x8000)r+=String.fromCharCode.apply(null,b.subarray(k,k+0x8000));return btoa(r)};
+const un=s=>{let a;try{a=atob(s.replace(/\s/g,''))}catch{throw new Error('הטקסט אינו Base64 תקין')}return new TextDecoder().decode(Uint8Array.from(a,c=>c.charCodeAt(0)))};
+const js=s=>{try{return JSON.parse(s)}catch{throw new Error('הטקסט אינו JSON תקין')}};
+const t=f=>()=>{try{o.textContent=f(i.value)}catch(e){o.textContent='שגיאה: '+heMsg(e)}};
+$('jFmt').onclick=t(s=>JSON.stringify(js(s),null,2));$('jMin').onclick=t(s=>JSON.stringify(js(s)));
+$('b64e').onclick=t(u8);$('b64d').onclick=t(un);o.onclick=()=>copy(o.textContent)});
 
 /* אחוזים */
-(function(){function c(){const a=+$('p1a').value,b=+$('p1b').value;$('p1o').textContent=fmt(a*b/100);
+tool(function(){function c(){const a=+$('p1a').value,b=+$('p1b').value;$('p1o').textContent=fmt(a*b/100);
  $('p2o').textContent=fmt(+$('p2a').value/+$('p2b').value*100)+'%';
  const x=+$('p3a').value,y=+$('p3b').value;$('p3o').textContent=x?fmt((y-x)/Math.abs(x)*100)+'%':'—'}
-['p1a','p1b','p2a','p2b','p3a','p3b'].forEach(i=>$(i).oninput=c);c()})();
+['p1a','p1b','p2a','p2b','p3a','p3b'].forEach(i=>$(i).oninput=c);c()});
 
 /* ---------- כלים נוספים ---------- */
-(function(){
+tool(function(){
   const C=window.ToolsCalc, money=n=>'₪'+Number(n).toLocaleString('he-IL',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const err=(el,e)=>{el.textContent='שגיאה: '+(e.message||e)};
+  const err=(el,e)=>{el.textContent='שגיאה: '+heMsg(e)};
   $('slBtn').onclick=()=>{const g=C.groupShoppingList($('sl').value);$('slOut').textContent=g.length?C.shoppingListText(g):'הרשימה ריקה'};
   $('slCopy').onclick=async()=>{try{await navigator.clipboard.writeText($('slOut').textContent);$('slCopy').textContent='הועתק ✓';setTimeout(()=>$('slCopy').textContent='העתק',1200)}catch{}};
   const pw=()=>{try{const r=C.powerCost({watts:$('pw').value,hoursPerDay:$('ph').value,pricePerKwh:$('pk').value,days:$('pd').value});
@@ -169,13 +186,13 @@ $('b64e').onclick=t(u8);$('b64d').onclick=t(un);o.onclick=()=>copy(o.textContent
   ['pw','ph','pk','pd'].forEach(i=>$(i).oninput=pw); ['dA','dB'].forEach(i=>$(i).onchange=dd);
   ['dN','dX'].forEach(i=>$(i).onchange=da); ['ciP','ciM','ciR','ciY'].forEach(i=>$(i).oninput=ci);
   pw(); ci(); (()=>{const t=C.localDay();$('dA').value=t;$('dX').value=t;$('dB').value=C.addDays(t,30);dd();da()})();
-})();
+});
 
 /* ---------- כלים לקהל היעד (PLAN.md 9.12) ---------- */
-(function(){
+tool(function(){
   const C=window.ToolsCalc;
   const ils=ag=>'₪'+(ag/100).toLocaleString('he-IL',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const err=(el,e)=>{el.textContent='שגיאה: '+(e.message||e)};
+  const err=(el,e)=>{el.textContent='שגיאה: '+heMsg(e)};
   const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
 
@@ -190,22 +207,26 @@ $('b64e').onclick=t(u8);$('b64d').onclick=t(un);o.onclick=()=>copy(o.textContent
   ['sgG','sgC','sgP'].forEach(i=>$(i).oninput=sg);
   $('sgFile').onclick=()=>$('sgIn').click();
   $('sgIn').onchange=async e=>{const f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;
-    try{if(f.size>32768)throw new Error('הקובץ גדול מדי');const t=C.parseSalaryTable(await f.text());table=t;store.set('salaryTable',t);toast('הטבלה נטענה');sg()}catch(x){toast('הטבלה לא נטענה: '+x.message)}};
+    try{if(f.size>32768)throw new Error('הקובץ גדול מדי');const t=C.parseSalaryTable(await f.text());table=t;store.set('salaryTable',t);toast('הטבלה נטענה');sg()}catch(x){toast('הטבלה לא נטענה: '+heMsg(x))}};
   $('sgReset').onclick=()=>{table=C.SALARY_TABLE_DEFAULT;store.set('salaryTable',null);sg()};
   sg();
 
   // מעשרות
   let M=store.get('maaser',[]);if(!Array.isArray(M))M=[];
+  // הרשימה מוצגת ב-100 בכל פעם; „הצג עוד” — כדי שאפשר יהיה לראות ולמחוק גם רשומות ישנות (סקירת קוד 2.11.2026)
+  let mLimit=100;
   const rate=()=>Number((document.querySelector('input[name="mR"]:checked')||{}).value||store.get('maaserRate',10));
   const mDraw=()=>{try{const r=C.maaserSummary(M,rate());
       $('mO').innerHTML=`הכנסות ${ils(r.incomeAg)} · ${r.rate}% = ${ils(r.dueAg)} · ניתן ${ils(r.givenAg)}<br><b>${r.balanceAg>0?'נותר לתת: '+ils(r.balanceAg):r.balanceAg<0?'ניתן מעבר לחשבון: '+ils(-r.balanceAg):'מאוזן'}</b>`+
         (r.years.length>1?'<br>'+r.years.map(y=>`${esc(y.year)}: הכנסות ${ils(y.incomeAg)}, ניתן ${ils(y.givenAg)}`).join('<br>'):'');
     }catch(e){err($('mO'),e)}
-    $('mList').innerHTML=C.maaserRecent(M).map(e=>`<div>${e.kind==='income'?'➕ הכנסה':'➖ נתינה'} ${ils(e.amountAg)} · ${esc(e.date)}${e.note?' · '+esc(e.note):''} <button data-mx="${esc(e.id)}" aria-label="מחיקת רשומה">✕</button></div>`).join('')};
+    const all=C.maaserRecent(M,Infinity),more=all.length-mLimit;
+    $('mList').innerHTML=all.slice(0,mLimit).map(e=>`<div>${e.kind==='income'?'➕ הכנסה':'➖ נתינה'} ${ils(e.amountAg)} · ${esc(e.date)}${e.note?' · '+esc(e.note):''} <button data-mx="${esc(e.id)}" aria-label="מחיקת רשומה">✕</button></div>`).join('')+
+      (more>0?`<div><button data-mmore="1">הצג עוד (${more} רשומות ישנות יותר)</button></div>`:'')};
   document.querySelectorAll('input[name="mR"]').forEach(r=>{if(Number(r.value)===store.get('maaserRate',10))r.checked=true;r.onchange=()=>{store.set('maaserRate',rate());mDraw()}});
   $('mD').value=today();
-  $('mAdd').onclick=()=>{try{M.push(C.newMaaserEntry({kind:$('mK').value,amount:$('mA').value,date:$('mD').value,note:$('mN').value}));store.set('maaser',M);$('mA').value='';$('mN').value='';mDraw()}catch(e){toast(e.message)}};
-  $('mList').onclick=async e=>{const id=e.target.dataset.mx;if(!id||!(await ssDialog.confirm('למחוק את הרשומה?',{danger:true})))return;M=M.filter(x=>x.id!==id);store.set('maaser',M);mDraw()};
+  $('mAdd').onclick=()=>{try{M.push(C.newMaaserEntry({kind:$('mK').value,amount:$('mA').value,date:$('mD').value,note:$('mN').value}));store.set('maaser',M);$('mA').value='';$('mN').value='';mDraw()}catch(e){toast(heMsg(e))}};
+  $('mList').onclick=async e=>{if(e.target.dataset.mmore){mLimit+=100;mDraw();return}const id=e.target.dataset.mx;if(!id||!(await ssDialog.confirm('למחוק את הרשומה?',{danger:true})))return;M=M.filter(x=>x.id!==id);store.set('maaser',M);mDraw()};
   mDraw();
 
   // הצמדה למדד
@@ -226,4 +247,4 @@ $('b64e').onclick=t(u8);$('b64d').onclick=t(un);o.onclick=()=>copy(o.textContent
     $('svO').innerHTML=`ותק ${r.years} שנים · פיצויים: <b>${ils(r.amountAg)}</b>`+(r.eligible?'':'<br>בדרך כלל הזכאות לפיצויים מתחילה אחרי שנת עבודה')}catch(e){err($('svO'),e)}};
   ['hvY','hvP','hvR'].forEach(i=>$(i).oninput=hv);['svS','svA','svB'].forEach(i=>$(i).oninput=sv);
   $('svB').value=today();hv();sv();
-})();
+});

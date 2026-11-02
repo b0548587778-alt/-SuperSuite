@@ -43,8 +43,10 @@
   function addDays(date, n) {
     const d = parseDay(date);
     const k = Number(n);
-    if (!Number.isInteger(k)) throw new Error('מספר ימים לא תקין');
+    // מספר ענק — RangeError באנגלית מ-toISOString (סקירת קוד 2.11.2026)
+    if (!Number.isInteger(k) || Math.abs(k) > 1000000) throw new Error('מספר ימים לא תקין');
     d.setUTCDate(d.getUTCDate() + k);
+    if (isNaN(d) || d.getUTCFullYear() < 1 || d.getUTCFullYear() > 9999) throw new Error('התאריך יוצא מהטווח');
     return d.toISOString().slice(0, 10);
   }
 
@@ -69,8 +71,13 @@
   // ─── כלים לקהל היעד (PLAN.md 9.12). כסף באגורות שלמות ───
 
   // שקלים מהקלדה ← אגורות שלמות (עד 2 ספרות אחרי הנקודה), או null
+  // פסיק — רק כמפריד אלפים בקבוצות של 3 („1,234.50”). „10,50” / „12,5” ← null, לא ₪1,050 (סקירת קוד 2.11.2026)
   function toAg(raw) {
-    const s = String(raw ?? '').trim().replace(/[,\s₪]/g, '');
+    let s = String(raw ?? '').trim().replace(/[\s₪]/g, '');
+    if (s.includes(',')) {
+      if (!/^\d{1,3}(,\d{3})+(\.\d*)?$/.test(s)) return null;
+      s = s.replace(/,/g, '');
+    }
     if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
     const [a, b = ''] = s.split('.');
     return Number(a) * 100 + Number((b + '00').slice(0, 2));
@@ -114,6 +121,8 @@
     if (!num(t.creditPoint, 100, 1000)) throw new Error('שווי נקודת זיכוי אינו תקין');
     const b = t.brackets;
     if (!Array.isArray(b) || b.length < 2 || b.length > 12) throw new Error('מדרגות המס אינן תקינות');
+    // שורה שאינה [תקרה, שיעור] — שגיאה בעברית, לא TypeError באנגלית (סקירת קוד 2.11.2026)
+    if (!b.every(r => Array.isArray(r) && r.length === 2)) throw new Error('מדרגות המס אינן תקינות');
     let prev = 0;
     b.forEach(([top, rate], i) => {
       const last = i === b.length - 1;
@@ -122,7 +131,7 @@
       if (!last) prev = top;
     });
     const s = t.social;
-    if (!s || !num(s.threshold, 1, 1e6) || !num(s.ceiling, s.threshold, 1e7) || ![...(s.reduced || []), ...(s.full || [])].every(v => num(v, 0, 30)) || s.reduced.length !== 2 || s.full.length !== 2) throw new Error('נתוני ביטוח לאומי ובריאות אינם תקינים');
+    if (!s || typeof s !== 'object' || !Array.isArray(s.reduced) || !Array.isArray(s.full) || !num(s.threshold, 1, 1e6) || !num(s.ceiling, s.threshold, 1e7) || ![...s.reduced, ...s.full].every(v => num(v, 0, 30)) || s.reduced.length !== 2 || s.full.length !== 2) throw new Error('נתוני ביטוח לאומי ובריאות אינם תקינים');
     return { year: t.year, note: String(t.note || '').slice(0, 200), verified: t.verified === true, creditPoint: t.creditPoint, brackets: b.map(([top, rate]) => [top, rate]), social: { threshold: s.threshold, ceiling: s.ceiling, reduced: [...s.reduced], full: [...s.full] } };
   }
 
@@ -260,17 +269,19 @@
     return { days, amountAg: Math.round(days * rateAg * pct / 100), eligible: true };
   }
 
-  // פיצויי פיטורים: שכר אחרון × שנות ותק — חודשים מלאים / 12, ועוד שארית הימים / 365
+  // פיצויי פיטורים: שכר אחרון × שנות ותק — חודשים מלאים / 12, ועוד שארית הימים / 365.
+  // תאריך הסיום = יום העבודה האחרון (כולל): 1.1–31.12 היא שנה מלאה. הזכאות והסכום — מאותו ותק (סקירת קוד 2.11.2026)
   function severance({ salary, from, to }) {
     const s = toAg(salary);
     if (!s) throw new Error('יש להזין שכר חודשי אחרון');
-    const { days, months } = dateDiff(from, to);
-    if (days <= 0) throw new Error('תאריך הסיום צריך להיות אחרי תאריך ההתחלה');
+    const end = addDays(to, 1);
+    const { days, months } = dateDiff(from, end);
+    if (days <= 1) throw new Error('תאריך הסיום צריך להיות אחרי תאריך ההתחלה');
     const anchor = parseDay(from);
     anchor.setUTCMonth(anchor.getUTCMonth() + months);
-    const rest = Math.max(0, Math.round((parseDay(to) - anchor) / 86400000));
+    const rest = Math.max(0, Math.round((parseDay(end) - anchor) / 86400000));
     const years = months / 12 + rest / 365;
-    return { days, years: Math.round(years * 100) / 100, amountAg: Math.round(s * years), eligible: days >= 365 };
+    return { days, years: Math.round(years * 100) / 100, amountAg: Math.round(s * years), eligible: months >= 12 };
   }
 
   const api = { groupShoppingList, shoppingListText, powerCost, dateDiff, addDays, compoundInterest,
