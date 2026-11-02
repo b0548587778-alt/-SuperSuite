@@ -24,17 +24,20 @@ const FIELDS = {
 };
 
 // סכום עם סימן באגורות: "1,234.50", "-1,234.50", "1,234.50-" (מינוס בסוף, נפוץ בדפי בנק), "(1,234.50)", ₪ / ש"ח.
-// תא ריק = null (נבדק לפי ההקשר), טקסט שאינו מספר = NaN
+// תא ריק = null (נבדק לפי ההקשר), טקסט שאינו מספר = NaN.
+// סקירת קוד 2.11.2026: המפריד העשרוני — אותה לוגיקה כמו בייבוא התרומות (DI.parseAmount). קודם כל פסיק נמחק,
+// ו-"12,5" או "1.234,56" נקראו פי 100
 function parseSignedAg(v) {
-  let s = String(v ?? '').replace(/[₪$\s‎‏]|ש"ח|ש״ח|NIS|ILS/gi, '').replace(/,/g, '');
+  let s = String(v ?? '').replace(/[₪$\s\u200e\u200f]|ש"ח|ש״ח|NIS|ILS/gi, '');
   if (!s) return null;
   let neg = false;
   if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
   if (s.endsWith('-')) { neg = !neg; s = s.slice(0, -1); }
   if (s.startsWith('-')) { neg = !neg; s = s.slice(1); } else if (s.startsWith('+')) s = s.slice(1);
-  if (!/^\d+(\.\d{1,2})?$/.test(s)) return NaN;
-  const [whole, frac = ''] = s.split('.');
-  const ag = Number(whole) * 100 + Number((frac + '00').slice(0, 2));
+  if (/^0+([.,]0*)?$/.test(s)) return 0; // "0", "0.00", "0,00"
+  const n = DI.parseAmount(s);
+  if (n === null) return NaN;
+  const ag = Math.round(n * 100);
   return neg ? -ag : ag;
 }
 
@@ -97,7 +100,7 @@ function buildLines(csvText, mapping = {}, existing = []) {
   const lines = [], errors = [];
   let skipped = 0;
   rows.forEach((r, i) => {
-    const lineNo = i + 2;
+    const lineNo = r.line || i + 2;
     const get = (f) => (col[f] === undefined ? '' : String(r[col[f]] ?? '').trim());
     try {
       const date = DI.parseDate(get('date'));
@@ -105,12 +108,12 @@ function buildLines(csvText, mapping = {}, existing = []) {
       let amountAg;
       if (col.amount !== undefined) {
         amountAg = parseSignedAg(get('amount'));
-        if (amountAg === null || Number.isNaN(amountAg)) throw new Error(`סכום לא תקין: "${get('amount')}"`);
+        if (amountAg === null || Number.isNaN(amountAg)) throw new Error(DI.amountIssue(get('amount')));
       } else {
         const d = parseSignedAg(get('debit'));
         const c = parseSignedAg(get('credit'));
-        if (Number.isNaN(d)) throw new Error(`סכום חובה לא תקין: "${get('debit')}"`);
-        if (Number.isNaN(c)) throw new Error(`סכום זכות לא תקין: "${get('credit')}"`);
+        if (Number.isNaN(d)) throw new Error(`חובה: ${DI.amountIssue(get('debit'))}`);
+        if (Number.isNaN(c)) throw new Error(`זכות: ${DI.amountIssue(get('credit'))}`);
         // עמודות חובה/זכות מכילות ערכים חיוביים; ערך עם סימן מינוס בעמודה נלקח בערכו המוחלט
         amountAg = Math.abs(c || 0) - Math.abs(d || 0);
       }
@@ -155,18 +158,34 @@ function nameHits(name, text) {
   return normText(name).split(' ').filter(w => w.length >= 2 && t.includes(w)).length;
 }
 
+/* אינדקס לפי סכום (אגורות): חשבוניות פתוחות לפי היתרה, ורשומות יומן (לא מבוטלות) לפי התנועה נטו בחשבון הבנק.
+   סקירת קוד 2.11.2026: קודם כל תנועה בדף סרקה את כל החשבוניות ואת כל היומן (וחישבה את התנועה נטו מחדש) —
+   O(תנועות × רשומות) בכל רינדור. עכשיו האינדקס נבנה פעם אחת לתצוגה, וכל תנועה רואה רק את מה שבאותו סכום */
+function suggestIndex({ invoices = [], journal = [] } = {}) {
+  const invByAg = new Map(), entByAg = new Map();
+  const add = (map, k, v) => { const list = map.get(k); if (list) list.push(v); else map.set(k, [v]); };
+  for (const inv of invoices) {
+    if (inv.status !== 'open') continue;
+    add(invByAg, Math.round(Number(inv.balance) * 100), inv);
+  }
+  for (const e of journal) {
+    if (e.reversedBy || e.reversalOf) continue;
+    add(entByAg, bankNetAg(e), e);
+  }
+  return { invByAg, entByAg };
+}
+
 /* הצעות התאמה לתנועה אחת. ctx:
    invoices — חשבוניות בתצוגה (עם balance אחרי זיכויים); journal — רשומות היומן;
-   usedEntries — מזהי רשומות שכבר הותאמו לתנועה אחרת.
+   usedEntries — מזהי רשומות שכבר הותאמו לתנועה אחרת; index — מ-suggestIndex (אחרת נבנה כאן).
    מחזיר עד 5 הצעות, הטובה ביותר ראשונה: { type: 'invoice'|'entry', id, label, date, score } */
-function suggest(line, { invoices = [], journal = [], usedEntries = new Set() } = {}) {
+function suggest(line, { invoices = [], journal = [], usedEntries = new Set(), index } = {}) {
+  const idx = index || suggestIndex({ invoices, journal });
   const out = [];
   const d = dayNum(line.date);
   const text = `${line.description} ${line.reference}`;
   if (line.amountAg > 0) {
-    for (const inv of invoices) {
-      if (inv.status !== 'open') continue;
-      if (Math.round(Number(inv.balance) * 100) !== line.amountAg) continue;
+    for (const inv of idx.invByAg.get(line.amountAg) || []) {
       const gap = d - dayNum(inv.date);
       if (gap > INVOICE_DAYS_BEFORE || gap < -INVOICE_DAYS_AFTER) continue;
       let score = 50 - Math.min(40, Math.floor(Math.abs(gap) / 5));
@@ -176,9 +195,8 @@ function suggest(line, { invoices = [], journal = [], usedEntries = new Set() } 
         label: `חשבונית ${inv.number} — ${inv.customer}` });
     }
   }
-  for (const e of journal) {
-    if (e.reversedBy || e.reversalOf || usedEntries.has(e.id)) continue;
-    if (bankNetAg(e) !== line.amountAg) continue;
+  for (const e of idx.entByAg.get(line.amountAg) || []) {
+    if (usedEntries.has(e.id)) continue;
     const gap = Math.abs(d - dayNum(e.date));
     if (gap > ENTRY_DAYS) continue;
     // רשומה קיימת באותו סכום ובסמוך — סביר יותר מחשבונית פתוחה (התשלום כבר נרשם)
@@ -205,13 +223,14 @@ function view(data, invoiceViews) {
   const usedEntries = new Set();
   for (const l of lines) if (lineStatus(l, byId) === 'matched') usedEntries.add(l.match.entryId);
   const summary = { total: lines.length, open: 0, matched: 0, ignored: 0, inAg: 0, outAg: 0 };
+  const index = suggestIndex({ invoices: invoiceViews, journal });
   const rows = lines.map(l => {
     const status = lineStatus(l, byId);
     summary[status]++;
     if (l.amountAg > 0) summary.inAg += l.amountAg; else summary.outAg -= l.amountAg;
-    return { ...l, status, suggestions: status === 'open' ? suggest(l, { invoices: invoiceViews, journal, usedEntries }) : [] };
+    return { ...l, status, suggestions: status === 'open' ? suggest(l, { usedEntries, index }) : [] };
   });
   return { lines: rows, summary };
 }
 
-module.exports = { BANK, FIELDS, MAX_ROWS, parseSignedAg, readFile, guessMapping, preview, buildLines, baseKey, bankNetAg, suggest, lineStatus, view };
+module.exports = { BANK, FIELDS, MAX_ROWS, parseSignedAg, readFile, guessMapping, preview, buildLines, baseKey, bankNetAg, suggestIndex, suggest, lineStatus, view };

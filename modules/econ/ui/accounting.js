@@ -523,7 +523,8 @@ async function handleImportCsv() {
   try {
     const r = await window.systemAPI.importProducts(text);
     const failed = r.errors.length ? ` · ${r.errors.length} שורות נדחו (שורה ${r.errors.slice(0, 5).map(e => e.line).join(', ')})` : '';
-    showToast(`יובאו ${r.added} מוצרים${failed}`);
+    const dup = r.skipped ? ` · ${r.skipped} כבר קיימים במחירון ודולגו` : '';
+    showToast(`יובאו ${r.added} מוצרים${dup}${failed}`);
     await switchView(state.currentView);
   } catch (error) {
     showError('שגיאה בייבוא: ' + errMsg(error));

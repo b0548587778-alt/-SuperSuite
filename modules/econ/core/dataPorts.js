@@ -3,7 +3,6 @@
 // הכתיבה למסד נעשית ב-ipc.js בשמירה אחת (בתוך enqueue) — ייבוא הוא "הכל או כלום" לרשומות התקינות.
 const crypto = require('crypto');
 const F = require('./features');
-const X = require('./exports');
 const PR = require('./pricing');
 const N = require('./npo');
 const M = require('./mortgageAdvisor');
@@ -215,8 +214,8 @@ function exportTable(kind, data, opts = {}) {
 // קובץ שהתוכנה ייצאה: toCsv הוסיף גרש לפני ערך שנראה כנוסחה ("+972-50-..." ← "'+972-50-...") — מסירים אותו
 // רק כשמה שאחריו באמת היה מנוטרל, כדי שייבוא חוזר יחזיר את הערך המקורי
 function parseImport(kind, csvText, data) {
-  const unguard = (c) => (typeof c === 'string' && c[0] === "'" && X.csvFormulaRisk(c.slice(1)) ? c.slice(1) : c);
-  return parseRows(kind, F.parseCsv(csvText).map(r => r.map(unguard)), data);
+  const unguard = F.unguardCell;
+  return parseRows(kind, F.parseCsv(csvText).map(r => Object.assign(r.map(unguard), { line: r.line })), data);
 }
 
 // rows — מערך שורות (הראשונה כותרות). משותף ל-CSV ול-vCard, בלי לעבור דרך toCsv (שמוסיף גרש לטלפון "+972...")
@@ -238,7 +237,7 @@ function parseRows(kind, rows, data) {
   const records = [], errors = [];
   let skipped = 0;
   rows.slice(1).forEach((r, idx) => {
-    const line = idx + 2;
+    const line = r.line || idx + 2;
     const raw = {};
     for (const [key, i] of Object.entries(colIndex)) raw[key] = r[i] ?? '';
     try {

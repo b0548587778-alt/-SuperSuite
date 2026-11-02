@@ -142,7 +142,8 @@ const rltyTaxTableSchema = {
     { name: 'source', label: 'מקור (מאיפה הועתקו המדרגות)', type: 'text' }
   ],
   create: (d) => window.systemAPI.saveRealtyTaxTable(d),
-  update: (id, d) => window.systemAPI.saveRealtyTaxTable(d)
+  // המזהה נשלח — עריכה משנה את הטבלה הזו, לא טבלה אחרת עם אותה שנה וסוג
+  update: (id, d) => window.systemAPI.saveRealtyTaxTable({ ...d, id })
 };
 
 // ---------- תזרים פרויקט ליזם ----------

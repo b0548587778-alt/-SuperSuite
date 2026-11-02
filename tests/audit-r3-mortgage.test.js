@@ -65,7 +65,7 @@ function fakeElement(extra = {}) {
   }, extra);
 }
 
-async function labUi() {
+async function labUi(responses = {}, calls = []) {
   const sel = {};
   const elements = {};
   const document = {
@@ -74,7 +74,8 @@ async function labUi() {
     querySelectorAll(s) { return sel[s] || []; }, addEventListener() {}, createElement() { return fakeElement(); }, body: fakeElement()
   };
   const systemAPI = new Proxy({}, { get: (_t, name) => (name === 'authStatus'
-    ? () => Promise.resolve({ user: { id: 'u1' }, configured: true }) : () => Promise.resolve({})) });
+    ? () => Promise.resolve({ user: { id: 'u1' }, configured: true })
+    : (...args) => { calls.push({ name, args }); return Promise.resolve(name in responses ? responses[name] : {}); }) });
   const context = { document, console, setTimeout, clearTimeout, Date, Intl };
   context.window = context;
   context.window.systemAPI = systemAPI;
@@ -82,7 +83,7 @@ async function labUi() {
   EconUI.run(context);
   for (let i = 0; i < 14; i++) await new Promise(r => setImmediate(r));
   vm.runInContext('renderView = () => {};', context);
-  return { context, sel, el: fakeElement, lab: context.labState() };
+  return { context, sel, el: fakeElement, elements, calls, lab: context.labState() };
 }
 
 test('ממשק המעבדה: מעבר מקבועה למשתנה מוחק את הריבית הקבועה', async () => {
@@ -139,4 +140,54 @@ test('חותמות זמן UTC מוצגות לפי היום המקומי', async 
   assert.equal(reg.rows[0][11], '2026-10-15');
   const { context } = await labUi();
   assert.equal(context.labStampDay(late), '2026-10-15');
+});
+
+// ---------- שמאות מקרקעין ומס רכישה ----------
+const RE_CASE = {
+  client: { name: 'אברהם כהן' }, purpose: 'mortgage', visitDate: '2026-10-15', effectiveDate: '2026-10-15', property: {},
+  comparables: [{ id: 'c1', date: '2026-05-10', priceAg: 210000000, area: 100, adjustments: [{ factor: 'time', bp: 0, note: 'נבדק' }, { factor: 'size', bp: 150 }] }],
+  income: { enabled: false, vacancyBp: 0, capRateBp: 0 }, cost: { enabled: false, profitBp: 0, depreciationBp: 0 },
+  reconcile: { weights: {}, roundToIls: 1000 }
+};
+
+test('שמאות מקרקעין: התאמה של 0% נשמרת כהתאמה מפורשת ולא נמחקת בשמירה הבאה', async () => {
+  const { context } = await labUi();
+  const form = context.reToForm(RE_CASE);
+  assert.equal(form.comparables[0].adj.time.pct, '0');
+  const back = context.reFromForm(form);
+  assert.equal(JSON.stringify(back.comparables[0].adjustments.map(a => [a.factor, String(a.pct)])), JSON.stringify([['time', '0'], ['size', '1.5']]));
+});
+
+test('שמאות מקרקעין: "הוספת N עסקאות" שומר קודם את מה שהוקלד בזמן שהתצוגה המקדימה פתוחה', async () => {
+  const calls = [];
+  const { context, elements } = await labUi({ updateRealEstateCase: { case: RE_CASE, problems: [] }, importRealEstateComparables: { added: 1 }, getRealEstateCase: { case: RE_CASE } }, calls);
+  vm.runInContext('reState().caseId = "case1"; reState().importText = "x"; reState().importPreview = { rows: [] };', context);
+  context.reState().form = context.reToForm(RE_CASE);
+  context.reState().form.client.name = 'שם שהוקלד עכשיו';
+  context.attachRealEstateHandlers();
+  await elements.reImportApply._l.click();
+  const names = calls.map(c => c.name);
+  const save = names.indexOf('updateRealEstateCase');
+  assert.ok(save >= 0, 'התיק נשמר');
+  assert.ok(save < names.indexOf('importRealEstateComparables'), 'לפני הייבוא');
+  assert.equal(calls[save].args[1].client.name, 'שם שהוקלד עכשיו');
+});
+
+test('מס רכישה: עריכת טבלה משנה אותה בלבד, ולא דורסת טבלה אחרת עם אותה שנה וסוג', async () => {
+  const { RealtyService } = require('../modules/econ/services/realtyService');
+  let data = {};
+  const svc = new RealtyService.constructor({ load: async () => structuredClone(data), save: async (d) => { data = structuredClone(d); } });
+  const a = await svc.saveTaxTable({ year: 2026, kind: 'single', bracketsText: '1000000, 0\nמעל, 3.5' });
+  const b = await svc.saveTaxTable({ year: 2025, kind: 'single', bracketsText: '900000, 0\nמעל, 3.5' });
+  await svc.verifyTaxTable(a.id, 'נבדק מול אתר רשות המסים');
+  // עריכה של ב' לשנת 2026 — התנגשות עם א' (מאומתת): סירוב, ושתיהן נשארות כמו שהן
+  await assert.rejects(svc.saveTaxTable({ id: b.id, year: 2026, kind: 'single', bracketsText: '1, 0\nמעל, 9' }), /כבר קיימת טבלה/);
+  const after = data.realty.taxTables;
+  assert.equal(after.length, 2);
+  assert.ok(after.find(t => t.id === a.id).verifiedAt, 'הטבלה המאומתת לא נדרסה');
+  assert.equal(after.find(t => t.id === b.id).year, 2025);
+  // עריכה רגילה של ב' (שינוי השנה) — משנה את ב' ולא יוצרת טבלה חדשה
+  const edited = await svc.saveTaxTable({ id: b.id, year: 2024, kind: 'single', bracketsText: '900000, 0\nמעל, 3.5' });
+  assert.equal(edited.id, b.id);
+  assert.deepEqual(data.realty.taxTables.map(t => t.year).sort(), [2024, 2026]);
 });

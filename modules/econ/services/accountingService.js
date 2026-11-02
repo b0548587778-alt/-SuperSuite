@@ -368,10 +368,21 @@ class AccountingService {
     const data = await this._load();
     const { products, errors } = F.parseProductsCsv(csvText);
     const now = new Date().toISOString();
-    const added = products.map(p => ({ id: crypto.randomUUID(), ...p, createdAt: now }));
+    // סקירת קוד 2.11.2026: ייבוא חוזר של אותו מחירון הכפיל כל מוצר. כפילות לפי שם (כמו dupKey של products
+    // ב-dataPorts.js) — מול המחירון הקיים ובתוך הקובץ; מוצר קיים לא נדרס
+    const nameKey = (n) => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    const seen = new Set((data.products || []).map(p => nameKey(p.name)));
+    let skipped = 0;
+    const added = [];
+    for (const p of products) {
+      const k = nameKey(p.name);
+      if (seen.has(k)) { skipped++; continue; }
+      seen.add(k);
+      added.push({ id: crypto.randomUUID(), ...p, createdAt: now });
+    }
     data.products = [...(data.products || []), ...added];
     if (added.length) await this.db.save(data);
-    return { added: added.length, errors };
+    return { added: added.length, skipped, errors };
   }
 
   // ---------- דוחות ----------

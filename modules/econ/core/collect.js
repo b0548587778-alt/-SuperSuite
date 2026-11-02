@@ -191,7 +191,7 @@ function matchReport(csvText, mapping, requests) {
   const matched = [], unmatched = [], errors = [];
   let skipped = 0;
   rows.forEach((r, i) => {
-    const line = i + 2;
+    const line = r.line || i + 2;
     const get = (f) => (col[f] === undefined ? '' : String(r[col[f]] ?? '').trim());
     if (!r.some(c => String(c).trim())) return;
     if (get('status') && FAILED.test(get('status'))) { skipped++; return; }

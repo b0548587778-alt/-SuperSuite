@@ -409,8 +409,21 @@ class RealtyService {
     const data = await this._load();
     const t = I.validateTaxTable(input);
     const list = data.realty.taxTables;
-    const i = list.findIndex(x => x.year === t.year && x.kind === t.kind);
     const now = new Date().toISOString();
+    // עריכה (עם מזהה): הטבלה הזו בלבד. סקירת קוד 2.11.2026: קודם המזהה לא נשלח — שינוי השנה או סוג הרוכש
+    // דרס טבלה אחרת (גם מאומתת) והמקורית נשארה. שנה וסוג של טבלה אחרת ← סירוב
+    const editId = input && input.id ? String(input.id) : '';
+    if (editId) {
+      const k = list.findIndex(x => x.id === editId);
+      if (k < 0) throw new Error('הטבלה לא נמצאה');
+      if (list.some(x => x.id !== editId && x.year === t.year && x.kind === t.kind)) {
+        throw new Error('כבר קיימת טבלה לשנה ולסוג הרוכש האלה — יש לערוך אותה או למחוק אותה קודם');
+      }
+      list[k] = { id: list[k].id, ...t, createdAt: list[k].createdAt, updatedAt: now };
+      await this.db.save(data);
+      return I.taxTableView(list[k]);
+    }
+    const i = list.findIndex(x => x.year === t.year && x.kind === t.kind);
     if (i < 0) {
       if (list.length >= I.MAX_TABLES) throw new Error('הגעת למספר המקסימלי של טבלאות');
       list.push({ id: crypto.randomUUID(), ...t, createdAt: now, updatedAt: now });
