@@ -3133,9 +3133,17 @@ function registerIpcHandlers() {
       // קשר השמאות נשרף בכל שאלה — גם כשהוא לא נוצל (בלי כשירות לאימות/canRead) — והוא לא נשמר.
       // כאן ולא אחרי התשובה: הקשר חדש שנשלח בזמן שהמודל עונה שייך לשאלה הבאה
       aiContextBySender.delete(event.sender.id);
-      return { q, ctx };
+      return { q, ctx, senderId: event.sender.id, session: authService.sessions.get(event.sender.id) || null };
     },
-    work: async ({ q, ctx }) => longDone(await aiAssistant.run(q, ctx)),
+    // תשובה איטית (המודל המקומי — עד כמה דקות) לא נמסרת אחרי שהפגישה הסתיימה או הוחלפה בזמן ההמתנה:
+    // היא נבנתה מנתוני המשתמש הקודם (סקירת קוד 2.11.2026)
+    work: async ({ q, ctx, senderId, session }) => {
+      const res = await aiAssistant.run(q, ctx);
+      if (!session || !authService.peekSession(senderId) || authService.sessions.get(senderId) !== session) {
+        throw new Error('נדרשת כניסה למערכת (או שהפגישה פגה לאחר חוסר פעילות) — התשובה לא הוצגה');
+      }
+      return longDone(res);
+    },
   };
   handleLong('ai:run', aiRunFn);
   handle('ai:explain', async (event, payload) => aiAssistant.explain(payload || {}));

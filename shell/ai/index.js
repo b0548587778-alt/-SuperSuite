@@ -33,9 +33,12 @@ const TASK_PROMPT = {
   answer: (q) => q,
   summary: (q) => `${q}\n\nסכם בשלוש עד חמש שורות, מתוך הכלים בלבד (period_summary, unpaid_invoices, donors_summary לפי הצורך).`,
   letter: (q) => `${q}\n\nנסח טקסט מכובד ונקי, בסגנון המקובל בציבור החרדי (למשל פתיחה ב„בס״ד”, סיום ב„בברכה ובתודה”). `
-    + 'אם מוזכר תורם — קרא קודם ל-donor_record והשתמש רק בסכומים שהחזיר. בלי מספרי זהות ובלי פרטים שלא הופיעו בכלי. '
-    + 'בנוסח קבלה לתרומה מותר לציין „סעיף 46”.',
+    + 'אם מוזכר תורם — קרא קודם ל-donor_record והשתמש רק בסכומים שהחזיר. בלי מספרי זהות ובלי פרטים שלא הופיעו בכלי.',
 };
+
+// זיכוי ממס על תרומה: אין לכלים נתוני זכאות (תושב ישראל, אישור בתוקף, sec46Total) — ולכן תשובת המודל שמזכירה אותו
+// נדחית, כמו שמחולל המכתבים הרגיל לא כותב אותו בלי הנתונים (סקירת קוד 2.11.2026)
+const TAX_CREDIT_RE = /סעיף\s*46|ס(?:['׳]|עיף)?\s*46\b|זיכוי\s+(?:ממס|במס|מס)|מוכר(?:ת)?\s+(?:לצורכי|לצרכי|ל)מס/;
 
 const clip = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n);
 
@@ -59,13 +62,16 @@ function createAI({ userDataPath, getBackupKey, onError = () => {}, clock = () =
   Promise.resolve().then(() => local.refresh()).catch(e => onError('ai-local-refresh', e));
 
   const licensed = () => { try { return localLicensed(licenseState()); } catch { return false; } };
+  // התקנה או הסרה של מודל: בזמן הזה אין שאלות למודל המקומי — שאלה הייתה טוענת את המודל הישן,
+  // שהיה ממשיך לענות בשם החדש, ונועל את הקובץ הישן (נשאר יתום בדיסק). עונים מהכללים (סקירת קוד 2.11.2026)
+  let modelBusy = false;
 
   // מצב המנועים בפועל. בלי רישיון 'ai.local' — „נעול”, והבורר לא יבחר במודל גם אם הוא מותקן
   function buildStatus(p) {
     const ls = local.status();
     const lic = licensed();
     return {
-      local: { mode: lic ? ls.mode : 'locked', licensed: lic, present: ls.present, running: ls.running, model: ls.model, error: ls.error, downloading: false },
+      local: { mode: !lic ? 'locked' : modelBusy ? 'installing' : ls.mode, licensed: lic, present: ls.present, changed: !!ls.changed, running: ls.running, model: ls.model, error: ls.error, downloading: false },
       // licensed/eligible — מהרישיון (shell/licensing). בלי רישיון 'ai.cloud' אין זכאות, גם לא בהסכמה
       cloud: { ready: NO_CLOUD.ready, eligible: NO_CLOUD.eligible, licensed: false, consented: p.consent.cloud === true, quotaLeft: null },
       engine: p.engine,
@@ -124,6 +130,10 @@ function createAI({ userDataPath, getBackupKey, onError = () => {}, clock = () =
       // מקורות מותרים למספרים: תוצאות הכלים, השאלה, התאריך, וההנחיה שלנו (למשל „סעיף 46”) — לא שום דבר אחר.
       // evidence: התשובה חייבת לצטט ערך מתוצאה מוצלחת — גם תשובה בלי ספרות בכלל
       const grounded = checkGrounded(text, [prompt, ctx.today || '', ...calls.map(c => c.result)], { evidence: used.map(c => c.result) });
+      if (text && TAX_CREDIT_RE.test(text)) {
+        onError('ai-local-ungrounded', new Error('tax credit claim without eligibility data'));
+        return rulesAnswer(p, q, ctx, requested, { fallback: 'ungrounded' });
+      }
       if (!text || !grounded.ok) {
         const why = grounded.invented.length ? 'ungrounded' : 'no-tools';
         if (why === 'ungrounded') onError('ai-local-ungrounded', new Error(`numbers not from tools: ${grounded.invented.length}`));
@@ -214,11 +224,14 @@ function createAI({ userDataPath, getBackupKey, onError = () => {}, clock = () =
     async install(manifestText, filePath) {
       if (!licensed()) throw new Error('המודל המקומי אינו כלול ברישיון של המערכת');
       if (!modelStore) throw new Error('אין תיקיית נתונים להתקנת המודל');
+      modelBusy = true;
       local.stop();
       // גם אחרי התקנה שנכשלה — המצב מתעדכן (המודל הקודם נעצר)
       try {
         return await modelStore.install(manifestText, filePath);
-      } finally { await local.refresh(); }
+      } finally {
+        try { await local.refresh(); } finally { modelBusy = false; }
+      }
     },
     async verify() {
       if (!modelStore) return { present: false };
@@ -227,10 +240,13 @@ function createAI({ userDataPath, getBackupKey, onError = () => {}, clock = () =
       return { present: r.present, error: r.error || null };
     },
     async remove() {
+      modelBusy = true;
       local.stop();
       try {
         return modelStore ? await modelStore.remove() : { present: false };
-      } finally { await local.refresh(); }
+      } finally {
+        try { await local.refresh(); } finally { modelBusy = false; }
+      }
     },
   };
 

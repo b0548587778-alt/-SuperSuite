@@ -161,6 +161,53 @@ function evidenceOf(results) {
   return { nums, strs, dates };
 }
 
+// תאריכים בטקסט של מקור: התאריך השלם מותר, והשנה שלו — כמספר; היום והחודש אינם מספרים מותרים.
+// פעם „יש 14 חשבוניות פתוחות” עבר כי 14 הופיע בתאריך 2026-10-14 (סקירת קוד 2.11.2026)
+function splitDates(text, dates, years) {
+  const blank = (m) => ' '.repeat(m.length);
+  return String(text).replace(ISO_DAY_RE, (m, y, mo, d) => {
+    const iso = isoDay(y, mo, d);
+    if (!iso) return m;
+    dates.add(iso); years.add(canon(y));
+    return blank(m);
+  }).replace(DMY_RE, (m, d, sep, mo, y) => {
+    const iso = isoDay(y, mo, d);
+    if (!iso) return m;
+    dates.add(iso); years.add(canon(y));
+    return blank(m);
+  });
+}
+
+// מספרי מסמכים (חשבונית) — מותרים רק כשמיד לפניהם „חשבונית” / „מס׳” / „מספר” / „#”, לא כסכום או ככמות
+const REF_KEYS = new Set(['invoice', 'number', 'receipt']);
+const REF_BEFORE = /(?:חשבונית|קבלה|מס['׳"]?|מספר|#)\s*$/;
+// רשומה של ישות (תורם / לקוח) בתוצאת כלי — הסכומים שלה קשורים לשם שלה
+const ENTITY_KEYS = ['name', 'customer'];
+
+// מקור (תוצאת כלי) ← מספרים מותרים, מספרי מסמכים, תאריכים, ורשומות ישות עם המספרים שלהן
+function walkSource(v, out, key = '', depth = 0, entity = null) {
+  if (v == null || depth > 8) return;
+  if (typeof v === 'number' || typeof v === 'string') {
+    const nums = numbersIn(splitDates(String(v), out.dates, out.years));
+    const target = REF_KEYS.has(key) ? out.refs : out.nums;
+    for (const n of nums) {
+      target.add(n);
+      if (entity && !REF_KEYS.has(key)) entity.nums.add(n);
+    }
+    return;
+  }
+  if (Array.isArray(v)) { for (const x of v) walkSource(x, out, key, depth + 1, entity); return; }
+  if (typeof v === 'object') {
+    const nameKey = ENTITY_KEYS.find(k => typeof v[k] === 'string' && v[k].trim());
+    const own = nameKey ? { name: v[nameKey].trim(), nums: new Set() } : null;
+    if (own) out.entities.push(own);
+    for (const [k, x] of Object.entries(v)) {
+      if (own && k === nameKey) continue;
+      walkSource(x, out, k, depth + 1, own || entity);
+    }
+  }
+}
+
 // answer — טקסט המודל; sources — מערך של תוצאות כלים (אובייקטים) וטקסטים (השאלה, התאריך)
 // opts.evidence — תוצאות הכלים שהצליחו; כשהוא ניתן, התשובה חייבת לצטט מהן מספר (שאינו מהשאלה ואינו מספר קטן) או שם
 function checkGrounded(answer, sources = [], opts = {}) {
@@ -168,33 +215,61 @@ function checkGrounded(answer, sources = [], opts = {}) {
   const given = new Set(); // מספרים מהשאלה ומהתאריך — מותרים, אבל אינם ציטוט של נתון
   const allowedDates = new Set();
   const givenDates = new Set();
+  const refs = new Set();
+  const entities = [];
+  // מספרים שאינם של רשומת ישות מסוימת (סיכומים, השאלה) — מותרים ליד כל שם
+  const shared = new Set();
   for (const s of sources) {
-    const src = typeof s === 'string' ? s : JSON.stringify(s);
-    for (const n of numbersIn(src)) {
-      allowed.add(n);
-      if (typeof s === 'string') given.add(n);
+    if (typeof s === 'string') {
+      const years = new Set();
+      const rest = splitDates(s, givenDates, years);
+      for (const n of [...numbersIn(rest), ...years]) { allowed.add(n); given.add(n); shared.add(n); }
+      continue;
     }
-    for (const d of datesIn(src)) {
-      allowedDates.add(d);
-      if (typeof s === 'string') givenDates.add(d);
-    }
+    if (!s || typeof s !== 'object') continue;
+    const out = { nums: new Set(), refs, dates: allowedDates, years: new Set(), entities: [] };
+    walkSource(s, out);
+    for (const n of [...out.nums, ...out.years]) allowed.add(n);
+    const inEntity = new Set(out.entities.flatMap(e => [...e.nums]));
+    for (const n of [...out.nums, ...out.years]) if (!inEntity.has(n)) shared.add(n);
+    entities.push(...out.entities);
   }
+  for (const d of givenDates) allowedDates.add(d);
   const raw = String(answer || '');
   const invented = [];
   const used = [];
   const usedDates = [];
   // תאריך שלם קודם — ובמקומו רווחים (אותם מיקומים), כדי שהיום והחודש לא ייבדקו שוב כמספרים
-  const text = raw.replace(DMY_RE, (m, d, sep, mo, y) => {
-    const iso = isoDay(y, mo, d);
+  const dateOk = (m, iso) => {
     if (iso && allowedDates.has(iso)) usedDates.push(iso); else invented.push(m);
     return ' '.repeat(m.length);
-  });
+  };
+  const text = raw.replace(DMY_RE, (m, d, sep, mo, y) => dateOk(m, isoDay(y, mo, d)))
+    .replace(ISO_DAY_RE, (m, y, mo, d) => dateOk(m, isoDay(y, mo, d)));
+  const numHits = [];
   for (const m of text.matchAll(NUM_RE)) {
     const c = canon(m[0]);
     if (!c) continue;
-    if (allowed.has(c)) { used.push(c); continue; }
+    if (allowed.has(c)) { used.push(c); numHits.push({ c, raw: m[0], i: m.index }); continue; }
+    if (refs.has(c) && REF_BEFORE.test(text.slice(Math.max(0, m.index - 12), m.index))) continue;
     if (isListNumber(m[0], text, m.index)) continue;
     invented.push(m[0]);
+  }
+  // סכום של תורם/לקוח אחר: במשפט (או בשורה) שמוזכרת בו ישות אחת בלבד, מספר שמופיע רק ברשומה של ישות אחרת — מומצא
+  const named = entities.filter(e => citable(e.name));
+  if (named.length > 1) {
+    const seps = [...text.matchAll(/\n|[!?;•]|\.(?!\d)|,(?!\d)/g)].map(m => m.index);
+    const segOf = (i) => { let a = 0; for (const x of seps) { if (x < i) a = x; else return [a, x]; } return [a, text.length]; };
+    for (const h of numHits) {
+      if (shared.has(h.c)) continue;
+      const [a, b] = segOf(h.i);
+      const seg = raw.slice(a, b);
+      const here = named.filter(e => wordRe(e.name).test(seg));
+      const names = new Set(here.map(e => e.name));
+      if (names.size !== 1) continue;
+      if (here.some(e => e.nums.has(h.c))) continue;
+      if (named.some(e => !names.has(e.name) && e.nums.has(h.c))) invented.push(h.raw);
+    }
   }
   // שם בן כמה מילים שהגיע מכלי ויש בו מילת מספר („ישיבת מאה שערים”, „משה אלפי”) — לא נבדק כמספר
   const names = [...evidenceOf(sources.filter(s => s && typeof s === 'object')).strs]

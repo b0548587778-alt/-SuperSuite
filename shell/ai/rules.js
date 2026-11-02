@@ -173,11 +173,14 @@ function answerRange(ctx, kind) {
 function answerCustomers(ctx) {
   const a = ctx.analytics;
   if (!a) return answer('נתוני הניתוח של החשבוניות אינם זמינים בהרשאה של המשתמש הזה.');
-  const repeat = Array.isArray(a.repeatCustomers) ? a.repeatCustomers.slice(0, 5) : [];
+  // כל הלקוחות החוזרים נספרים; מוצגים 5 הראשונים ו„ועוד N” — פעם הספירה נעצרה ב-5 (סקירת קוד 2.11.2026)
+  const all = Array.isArray(a.repeatCustomers) ? a.repeatCustomers : [];
+  const repeat = all.slice(0, 5);
   if (!repeat.length) return answer(`אין עדיין לקוחות חוזרים — מתוך ${a.customers || 0} לקוחות, לכל אחד חשבונית אחת.`);
   const lines = repeat.map(c => `• ${c.customer} — ${c.count} חשבוניות, ${nis(Math.round(Number(c.total) * 100))}`);
-  return answer(`יש ${repeat.length} לקוחות חוזרים מתוך ${a.customers} (${pct(Math.round(Number(a.repeatShare || 0) * 100))}):\n${lines.join('\n')}`,
-    { kind: 'customers', repeat });
+  if (all.length > repeat.length) lines.push(`• ועוד ${all.length - repeat.length} לקוחות חוזרים`);
+  return answer(`יש ${all.length} לקוחות חוזרים מתוך ${a.customers} (${pct(Math.round(Number(a.repeatShare || 0) * 100))}):\n${lines.join('\n')}`,
+    { kind: 'customers', repeat, repeatCount: all.length });
 }
 
 // „איך/היכן” — הוראות קצרות מתוך המדריך, בלי נתונים

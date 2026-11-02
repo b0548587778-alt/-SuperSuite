@@ -247,7 +247,7 @@ test('renderAi + attachAiHandlers — הכפתור „שאל” קורא ל-aiRu
     aiRun: (q, extra) => { calls.push({ q, extra }); return Promise.resolve({ text: 'הכנסות', engine: 'rules', data: { kind: 'income' } }); },
   };
   // esc הוא עזר מהממשק (core.js) — כאן צדוד קטן שמסמן את מה שצריך להבריח
-  const ctx = vm.createContext({ console, Date, String, Object, Promise, esc: (v) => String(v ?? '') });
+  const ctx = vm.createContext({ console, Date, String, Object, Promise, state: { viewSeq: 1, currentView: 'ai' }, esc: (v) => String(v ?? '') });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'modules/econ/ui/ai.js'), 'utf8') +
     '\n;globalThis.__ai = { renderAi, attachAiHandlers, aiUi };', ctx, { filename: 'modules/econ/ui/ai.js' });
   const ai = ctx.__ai;
@@ -298,6 +298,7 @@ test('attachViewHandlers — תצוגת ai מחברת את attachAiHandlers (ג�
   root.box = fakeEl({ value: 'מי לא שילם?' });
   const ctx = vm.createContext({
     console, Date, String, Object, Promise,
+    state: { viewSeq: 1, currentView: 'ai' },
     esc: (v) => String(v ?? ''),
     showError: (m) => { throw new Error('לא אמור להופיע: ' + m); },
     showToast: () => {},
@@ -318,7 +319,7 @@ test('attachViewHandlers — תצוגת ai מחברת את attachAiHandlers (ג�
 });
 
 test('כרטיס המודל המקומי — לפי הרישיון והמצב; התקנה, בדיקה והסרה מגיעות לערוצים', async () => {
-  const ctx = vm.createContext({ console, Date, String, Object, Promise, Number, esc: (v) => String(v ?? '') });
+  const ctx = vm.createContext({ console, Date, String, Object, Promise, Number, state: { viewSeq: 1, currentView: 'ai' }, esc: (v) => String(v ?? '') });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'modules/econ/ui/ai.js'), 'utf8') +
     '\n;globalThis.__ai = { renderAiModelCard, aiModelSize };', ctx, { filename: 'modules/econ/ui/ai.js' });
   const ai = ctx.__ai;

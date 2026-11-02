@@ -250,6 +250,8 @@ function reloadLockedViewsOnSessionChange() {
   if (lockedViewsSession === now) return;
   const first = lockedViewsSession === null;
   lockedViewsSession = now;
+  // המעטפת מנקה את תשובת העוזר ואת נתוני מסך הבית בסוף פגישה (סקירת קוד 2.11.2026)
+  if (win && !win.isDestroyed()) win.webContents.send('shell:session', now);
   if (first && !now) return;
   // ניתוק שקט אחרי חוסר פעילות: גם המסך הכלכלי עובר מיד למסך הכניסה, ולא ממשיך להציג נתונים עד הלחיצה הבאה
   if (!now && views.econ && !views.econ.webContents.isDestroyed()) views.econ.webContents.send('econ:auth-check');

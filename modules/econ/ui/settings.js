@@ -340,9 +340,11 @@ function askGoogleSettings(cfg) {
 
 async function googleLinkFlow() {
   showToast('המשיכו את הכניסה בדפדפן שנפתח…');
+  const seq = state.viewSeq;
   try { const r = await window.systemAPI.googleLink(); showToast('החשבון קושר: ' + (r && r.email || 'Google')); }
   catch (error) { showError('שגיאה בקישור: ' + errMsg(error)); }
-  await switchView('settings');
+  // הקישור נמשך עד 3 דקות בדפדפן: מי שעבר בינתיים למסך אחר (ואולי פתח שם טופס) — נשאר שם (סקירת קוד 2.11.2026)
+  if (state.viewSeq === seq && state.currentView === 'settings') await switchView('settings');
 }
 
 function attachSettingsHandlers() {

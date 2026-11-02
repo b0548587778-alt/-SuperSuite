@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('shellAPI', {
   onCmd: cb => ipcRenderer.on('shell:cmd', (_e, cmd) => cb(cmd)),
   getLicenseState: () => ipcRenderer.invoke('shell:license-state'),
   onLicense: cb => ipcRenderer.on('shell:license', (_e, st) => cb(st)),
+  // כניסה / יציאה במערכת הכספים (כולל ניתוק שקט) — true / false
+  onSession: cb => ipcRenderer.on('shell:session', (_e, on) => cb(on === true)),
   // מכשירים מחוברים — כל הערוצים דורשים כניסת מנהל במערכת הכלכלית
   sync: {
     status: () => ipcRenderer.invoke('sync:status'),

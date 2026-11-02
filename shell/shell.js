@@ -479,6 +479,8 @@ function askOut(html) {
   const x = out.querySelector('[data-ask-close]');
   if (x) x.onclick = () => { askOut(''); $('askQ').focus(); };
 }
+// מונה שאלות: תשובה שהגיעה אחרי סוף הפגישה (או אחרי שאלה חדשה) לא מוצגת (סקירת קוד 2.11.2026)
+let askSeq = 0;
 async function ask(raw) {
   const q = String(raw || '').trim().slice(0, 500);
   if (!q) { $('askQ').focus(); return; }
@@ -489,16 +491,31 @@ async function ask(raw) {
     open('econ:ai');
     return;
   }
+  const seq = ++askSeq;
   $('askGo').disabled = true;
   askOut(head('חושב…') + '<span class="ss-skeleton"></span><span class="ss-skeleton short"></span>');
   try {
     const r = await window.shellAPI.aiAsk(q);
+    if (seq !== askSeq) return;
     askOut(head(r && r.engineLabel ? 'ענה: ' + r.engineLabel : 'תשובה') + `<p class="a-text ss-pre">${esc((r && r.text) || 'אין תשובה')}</p>`);
   } catch (e) {
+    if (seq !== askSeq) return;
     // Electron מוסיף לשגיאת IPC קידומת אנגלית — מציגים רק את העברית (כמו ב-devices.js)
     const msg = String((e && e.message) || '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
     askOut(head('לא נענה') + `<p class="a-text">${esc(msg || 'העוזר אינו זמין כרגע')}</p>`);
-  } finally { $('askGo').disabled = false; }
+  } finally { if (seq === askSeq) $('askGo').disabled = false; }
+}
+// סוף פגישה (יציאה או ניתוק שקט): התשובה ונתוני מסך הבית של המשתמש הקודם לא נשארים גלויים
+if (window.shellAPI.onSession) {
+  window.shellAPI.onSession((on) => {
+    if (on) { loadHome(); return; }
+    askSeq++;
+    askOut('');
+    $('askQ').value = '';
+    $('askGo').disabled = false;
+    homeData = null;
+    if (!ui.active) { renderKpis(); renderToday(new Date()); }
+  });
 }
 
 /* ---------- סיור קצר: 3 שלבים אחרי אשף ההתחלה ----------

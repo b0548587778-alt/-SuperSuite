@@ -50,8 +50,10 @@ function unpaid(ctx, args) {
 function repeatCustomers(ctx) {
   const a = ctx.analytics;
   if (!a) return { error: 'נתוני הניתוח אינם זמינים' };
-  const list = Array.isArray(a.repeatCustomers) ? a.repeatCustomers.slice(0, 5) : [];
-  return { customers: Number(a.customers) || 0, repeat: list.map(c => ({ customer: c.customer, invoices: Number(c.count) || 0, total: nis(ag(c.total)) })) };
+  const all = Array.isArray(a.repeatCustomers) ? a.repeatCustomers : [];
+  const list = all.slice(0, 5);
+  // repeatCount — כל הלקוחות החוזרים, לא רק החמישה שברשימה (סקירת קוד 2.11.2026)
+  return { customers: Number(a.customers) || 0, repeatCount: all.length, repeat: list.map(c => ({ customer: c.customer, invoices: Number(c.count) || 0, total: nis(ag(c.total)) })) };
 }
 
 // ctx.npo.donors — התרומות של שנה אחת בלבד (ctx.npo.year), לא של כל השנים: מכתב תודה „על תרומותיך השנה”

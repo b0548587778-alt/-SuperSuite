@@ -126,6 +126,8 @@ function aiModelSize(bytes) {
 function renderAiModelCard(local) {
   const m = local.model;
   const modeText = !local.licensed ? 'לא כלול ברישיון — שדרוג „עוזר חכם — מודל במחשב”'
+    : local.mode === 'installing' ? 'התקנה או הסרה מתבצעת — השאלות נענות בינתיים ממנוע החישוב'
+    : local.changed ? 'קובץ המודל השתנה מאז ההתקנה — יש לבדוק את תקינותו'
     : !local.present ? 'לא מותקן'
     : local.mode === 'ready' ? (local.running ? 'פעיל' : 'מוכן — נטען בשאלה הראשונה')
     : local.mode === 'degraded' ? 'הטעינה האחרונה נכשלה — ננסה שוב בשאלה הבאה'
@@ -139,7 +141,7 @@ function renderAiModelCard(local) {
     <p class="ss-muted">המודל רץ על המחשב הזה בלבד ומותקן מקובץ (למשל מדיסק און קי): תעודה חתומה (‎.ssmodel) וקובץ המודל (‎.gguf). התוכנה בודקת את החתימה ואת תקינות הקובץ לפני השימוש.</p>
     ${local.licensed ? `<div class="ss-toolbar">
       <button type="button" class="ss-btn-secondary ss-btn-sm" id="aiModelInstall">${local.present ? 'החלפת מודל' : 'התקנת מודל מקובץ'}</button>
-      ${local.present ? `<button type="button" class="ss-btn-ghost ss-btn-sm" id="aiModelVerify">בדיקת תקינות</button>
+      ${local.present || local.changed ? `<button type="button" class="ss-btn-ghost ss-btn-sm" id="aiModelVerify">בדיקת תקינות</button>
       <button type="button" class="ss-btn-danger ss-btn-sm" id="aiModelRemove">הסרת המודל</button>` : ''}
     </div>` : ''}
   </div>`;
@@ -153,11 +155,13 @@ function attachAiModelHandlers(root) {
       // התווית הזמנית („מתקין…”) חוזרת גם אחרי שגיאה — אחרת הכפתור נראה כאילו הפעולה עוד רצה.
       // הכרטיס מתרענן תמיד: גם התקנה שנכשלה עוצרת את המודל הקודם, והמצב במסך כבר לא נכון
       const label = b.textContent;
+      const seq = state.viewSeq;
       b.disabled = true;
       let changed = false;
       try { changed = (await fn(b)) !== false; } catch (e) { changed = true; showError(errMsg(e)); }
       finally { b.disabled = false; b.textContent = label; }
-      if (changed) switchView('ai');
+      // המשתמש עבר מסך בינתיים — לא מחזירים אותו לעוזר (סקירת קוד 2.11.2026)
+      if (changed && aiStillHere(seq)) switchView('ai');
     });
   };
   bind('aiModelInstall', async (b) => {
@@ -178,6 +182,11 @@ function attachAiModelHandlers(root) {
   });
 }
 
+// עדיין באותו מסך עוזר שממנו נשאלה השאלה — אין מעבר מסך מאז (switchView מקדם את state.viewSeq)
+function aiStillHere(seq) {
+  return state.viewSeq === seq && state.currentView === 'ai';
+}
+
 function attachAiHandlers(root) {
   const askBtn = root.querySelector('#aiAsk');
   const box = root.querySelector('#aiQuestion');
@@ -191,6 +200,7 @@ function attachAiHandlers(root) {
     aiUi.busy = true;
     aiUi.error = '';
     if (askBtn) { askBtn.disabled = true; askBtn.textContent = 'בודק…'; }
+    const seq = state.viewSeq;
     try {
       const range = aiUiRange(question);
       aiUi.answer = await window.systemAPI.aiRun(question, range ? { range } : {});
@@ -198,7 +208,9 @@ function attachAiHandlers(root) {
       aiUi.error = 'לא הצלחתי לענות: ' + errMsg(e);
     } finally {
       aiUi.busy = false;
-      switchView('ai');
+      // תשובה איטית לא מחזירה למסך העוזר מי שעבר בינתיים למסך אחר (וטופס שפתח שם לא נזרק).
+      // התשובה נשמרת ב-aiUi ומוצגת כשחוזרים לעוזר (סקירת קוד 2.11.2026)
+      if (aiStillHere(seq)) switchView('ai');
     }
   };
   attachAiModelHandlers(root);
