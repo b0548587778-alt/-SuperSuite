@@ -589,6 +589,11 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     const d = load();
     return d && Array.isArray(d.chain) && d.chain.length ? d.chain[d.chain.length - 1].payload : null;
   }
+  // כל ה-payloads בשרשרת (מהשורש לעלה) — לתנאי "רישיון שנתי" של מערכת בת (activation.js)
+  function chainPayloads() {
+    const d = load();
+    return d && Array.isArray(d.chain) ? d.chain.map(l => l && l.payload) : [];
+  }
   // הזמן נשמר רק קדימה — אי אפשר לחדש כניסה ישנה בהחזרת שעון
   function markGoogleSignIn(at = clock()) {
     try {
@@ -602,7 +607,7 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
   // סימון מגיבוי ששוחזר — רק מחמיר: תחילת ניסיון מוקדמת יותר, "הותקן רישיון". גיבוי ישן לא מאריך דבר
   const importMark = (m) => noteMark(m);
 
-  return { current, invalidate() { cached = null; }, leafPayload, lastSyncTime, syncProof: () => syncProof(), markGoogleSignIn, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
+  return { current, invalidate() { cached = null; }, leafPayload, chainPayloads, lastSyncTime, syncProof: () => syncProof(), markGoogleSignIn, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
     syncKey, syncInfo, noticesForChild, getRemoteSettings, setRemoteSettings, setMark, importMark, mark: () => ({ ...mark }) };
 }
 

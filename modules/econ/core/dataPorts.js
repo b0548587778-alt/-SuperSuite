@@ -142,7 +142,13 @@ const KINDS = {
       // opts.actor — בייצוא: רק התיקים שהיועץ רואה במסך (ownOnly, M.canSee). בלי actor (ייבוא, בדיקת כפילויות) — כל התיקים
       get: (data, opts = {}) => listIn('mortgageAdvisor', 'clients').get(data)
         .filter(c => M.canSee(c, opts.actor, data.mortgageAdvisor && data.mortgageAdvisor.settings)).map(M.clientView),
-      set: (data, list) => listIn('mortgageAdvisor', 'clients').set(data, list.map(M.clientStored))
+      set: (data, list) => listIn('mortgageAdvisor', 'clients').set(data, list.map(M.clientStored)),
+      // ייבוא: משרשרים לרשימה הגולמית. מעבר של התיקים הקיימים דרך clientView מחק את האישורים,
+      // תשלומי העמלה והפיקדון של כל הלקוחות (סקירת קוד 2.11.2026, ממצא 2)
+      append: (data, records) => {
+        const raw = listIn('mortgageAdvisor', 'clients').get(data);
+        listIn('mortgageAdvisor', 'clients').set(data, [...raw, ...records.map(M.clientStored)]);
+      }
     },
     columns: [
       ['name', 'שם'], ['phone', 'טלפון'], ['bank', 'בנק'], ['requestedAmount', 'סכום מבוקש'], ['propertyValue', 'שווי נכס'],
@@ -258,7 +264,9 @@ function parseRows(kind, rows, data) {
 
 function applyImport(kind, data, records) {
   const k = kindDef(kind);
-  k.store.set(data, [...k.store.get(data), ...records]);
+  // סוג שה-get שלו מחזיר תצוגה (ולא את הרשומה השמורה) חייב append משלו — אחרת הקיימים נדרסים בתצוגה
+  if (typeof k.store.append === 'function') k.store.append(data, records);
+  else k.store.set(data, [...k.store.get(data), ...records]);
   return data;
 }
 

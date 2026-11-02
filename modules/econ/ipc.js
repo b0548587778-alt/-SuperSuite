@@ -92,7 +92,9 @@ function activationState(base) {
   if (!licenseStore || s.mode !== 'licensed') return ACT.evaluate({ state: s });
   const now = Math.max(clockNow(), Number(s.seenAt) || 0);
   // מהשומר המוצפן — לא מהקובץ הגלוי (lastSyncTime ב-store.js)
-  return ACT.evaluate({ state: s, leaf: licenseStore.leafPayload(), lastSync: licenseStore.lastSyncTime(), now });
+  const chain = typeof licenseStore.chainPayloads === 'function' ? licenseStore.chainPayloads() : null;
+  const leaf = chain && chain.length ? chain[chain.length - 1] : licenseStore.leafPayload();
+  return ACT.evaluate({ state: s, leaf, chain, lastSync: licenseStore.lastSyncTime(), now });
 }
 // מערכת שלא הופעלה = נעולה (רק רישוי, כניסה והודעות פתוחים). רישיון לא פעיל — נשאר הסטטוס שלו (חוב: קריאה בלבד)
 function withActivation(s) {
