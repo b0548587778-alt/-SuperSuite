@@ -37,6 +37,13 @@ final class SqlBridge {
         db = SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath(file), null);
     }
 
+    /** סגירת המסד ביציאה (onDestroy) — אחרת חיבור פתוח נשאר כשהמסך נוצר מחדש (סקירת קוד 2.11.2026) */
+    synchronized void close() {
+        if (db == null) return;
+        try { db.close(); } catch (Exception ignored) { }
+        db = null;
+    }
+
     private SQLiteDatabase db() {
         if (db == null) throw new IllegalStateException("database is not open");
         return db;

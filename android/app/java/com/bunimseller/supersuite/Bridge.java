@@ -32,6 +32,9 @@ final class Bridge {
         this.sql = new SqlBridge(activity);
     }
 
+    /** לא נחשף ל-JS (אין @JavascriptInterface): נקרא מ-MainActivity.onDestroy */
+    void close() { sql.close(); }
+
     private interface Body { Object run() throws Exception; }
 
     private String guard(String t, Body body) {

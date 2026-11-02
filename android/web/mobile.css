@@ -1,21 +1,29 @@
 /* פריסה לאנדרואיד: המודולים (iframes) מעל הבמה; בטלפון הסרגל הוא מגירה, בטאבלט הוא קבוע */
 :root{--ss-top:52px}
-.ss-frames{position:fixed;inset:var(--ss-top) 0 0 0;z-index:5;pointer-events:none}
+/* אנדרואיד 15 (targetSdk 35) מצייר מקצה לקצה: ריפוד לפסי המערכת (סקירת קוד 2.11.2026).
+   כש-MainActivity כבר מרפד את ה-WebView (insets נצרכו) הערכים כאן 0 — אין ריפוד כפול */
+:root{--ss-inset-t:env(safe-area-inset-top,0px);--ss-inset-r:env(safe-area-inset-right,0px);
+  --ss-inset-b:env(safe-area-inset-bottom,0px);--ss-inset-l:env(safe-area-inset-left,0px);
+  --ss-top-h:calc(var(--ss-top) + var(--ss-inset-t))}
+.ss-frames{position:fixed;inset:var(--ss-top-h) var(--ss-inset-r) var(--ss-inset-b) var(--ss-inset-l);z-index:5;pointer-events:none}
 .ss-frame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;pointer-events:auto}
 .ss-frame[hidden]{display:none}
 /* כפתור שמוסתר באנדרואיד (mobile.js) — .tools button קובע display:grid, שגובר על המאפיין hidden */
 .tools button[hidden]{display:none}
-.ss-top{position:fixed;top:0;left:0;right:0;height:var(--ss-top);z-index:30;display:flex;align-items:center;gap:10px;padding:0 10px;
+.ss-top{position:fixed;top:0;left:0;right:0;height:var(--ss-top-h);z-index:30;display:flex;align-items:center;gap:10px;
+  padding:var(--ss-inset-t) calc(10px + var(--ss-inset-r)) 0 calc(10px + var(--ss-inset-l));
   background:linear-gradient(90deg,var(--navy-1),var(--navy-2));color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.25)}
 .ss-top button{width:42px;height:38px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.08);color:#fff;font-size:20px;line-height:1}
 .ss-top b{flex:1;min-width:0;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ss-scrim{display:none;position:fixed;inset:0;z-index:39;background:rgba(5,10,25,.45)}
 body.ss-drawer .ss-scrim{display:block}
-body{padding-top:var(--ss-top)}
-.stage{height:100%}
+body{padding-top:var(--ss-top-h)}
+/* הסרגל (וכפתורי הגיבוי והשחזור בתחתיתו) לא מתחת לפס הסטטוס ולפס הניווט */
+.side{padding-top:var(--ss-inset-t);padding-bottom:var(--ss-inset-b)}
+.stage{height:100%;padding:0 var(--ss-inset-r) var(--ss-inset-b) var(--ss-inset-l)}
 /* טלפון: הסרגל נשלף מימין */
 @media (max-width:899px){
-  .side{position:fixed;top:0;bottom:0;right:0;z-index:40;width:min(300px,86vw);flex:none;transform:translateX(105%);transition:transform .2s ease;
+  .side{position:fixed;top:0;bottom:0;right:0;padding-right:var(--ss-inset-r);z-index:40;width:min(300px,86vw);flex:none;transform:translateX(105%);transition:transform .2s ease;
     box-shadow:-6px 0 24px rgba(0,0,0,.35)}
   body.ss-drawer .side{transform:none}
   .search kbd,.cta kbd{display:none}
@@ -26,6 +34,9 @@ body{padding-top:var(--ss-top)}
 @media (min-width:900px){
   .ss-top{display:none}
   :root{--ss-top:0px}
-  .ss-frames{inset:0 264px 0 0}
+  body{padding-top:0}
+  .stage{padding:var(--ss-inset-t) 0 var(--ss-inset-b) var(--ss-inset-l)}
+  .side{padding-right:var(--ss-inset-r)}
+  .ss-frames{inset:var(--ss-inset-t) calc(264px + var(--ss-inset-r)) var(--ss-inset-b) var(--ss-inset-l)}
   #ssMenu{display:none}
 }
