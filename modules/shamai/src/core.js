@@ -272,14 +272,15 @@ const RUG_REGIONS = [
   { k: 'other',   name: 'אחר',     mult: 0.60 },
 ];
 
-// Scrap / industrial metals (approximate $/lb prices)
+// Scrap / industrial metals (approximate $/lb prices).
+// base — המחיר בלוח המחירים שממנו נגזר הסוג (המחיר כאן ביחס לברירת המחדל של הלוח, DEFAULT_PRICES); בלי base — ערך ייחוס קבוע
 const SCRAP_TYPES = [
-  { k: 'copper-bare',   name: 'נחושת חשופה',    pricePerLb: 4.20, dealerMargin: 0.75 },
-  { k: 'copper-1',      name: 'נחושת #1',       pricePerLb: 4.00, dealerMargin: 0.72 },
-  { k: 'copper-2',      name: 'נחושת #2',       pricePerLb: 3.70, dealerMargin: 0.70 },
-  { k: 'brass',         name: 'פליז',           pricePerLb: 2.80, dealerMargin: 0.70 },
-  { k: 'aluminum-clean',name: 'אלומיניום נקי',  pricePerLb: 1.10, dealerMargin: 0.65 },
-  { k: 'aluminum-cans', name: 'פחיות אלומ.',    pricePerLb: 0.55, dealerMargin: 0.60 },
+  { k: 'copper-bare',   name: 'נחושת חשופה',    pricePerLb: 4.20, dealerMargin: 0.75, base: 'copper' },
+  { k: 'copper-1',      name: 'נחושת #1',       pricePerLb: 4.00, dealerMargin: 0.72, base: 'copper' },
+  { k: 'copper-2',      name: 'נחושת #2',       pricePerLb: 3.70, dealerMargin: 0.70, base: 'copper' },
+  { k: 'brass',         name: 'פליז',           pricePerLb: 2.80, dealerMargin: 0.70, base: 'copper' },
+  { k: 'aluminum-clean',name: 'אלומיניום נקי',  pricePerLb: 1.10, dealerMargin: 0.65, base: 'aluminum' },
+  { k: 'aluminum-cans', name: 'פחיות אלומ.',    pricePerLb: 0.55, dealerMargin: 0.60, base: 'aluminum' },
   { k: 'lead',          name: 'עופרת',          pricePerLb: 0.90, dealerMargin: 0.65 },
   { k: 'stainless',     name: 'נירוסטה',        pricePerLb: 0.80, dealerMargin: 0.60 },
   { k: 'iron',          name: 'ברזל',           pricePerLb: 0.20, dealerMargin: 0.55 },
@@ -326,7 +327,7 @@ const state = {
   watch:   { brand: 'rolex', model: '', year: null, condition: 'excellent', papers: 'full', service: 'medium', retail: null, asking: null },
   antique: { cat: 'judaica', name: '', market: null, condition: 'excellent', hallmark: 'general', prov: false, signed: false, rare: false, asking: null },
   book:    { type: 'shas', name: '', edition: '', year: null, condition: 'excellent', complete: 'full', rabbi: false, glosses: false, binding: false, first: false, market: null, asking: null },
-  coin:    { era: 'israel', name: '', year: null, metal: 'silver', weight: null, purity: 900, grade: 'XF', premium: 1.5, asking: null },
+  coin:    { era: 'israel', name: '', year: null, metal: 'silver', weight: null, purity: 900, grade: 'XF', premium: 1.5, market: null, asking: null },
   phone:   { brand: 'iphone', model: '', storage: 128, warranty: 'none', condition: 'excellent', battery: null, retail: null, asking: null },
   art:     { artist: '', technique: 'oil', length: null, width: null, year: null, condition: 'excellent', signed: false, prov: false, frame: false, exhibited: false, market: null, asking: null },
   rug:     { region: 'isfahan', length: null, width: null, material: 'wool', kpsi: null, age: 'semi', condition: 'excellent', asking: null },

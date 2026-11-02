@@ -321,10 +321,15 @@ async function restoreFromCode(code) {
     const { items, skipped } = sanitizeOpportunities(data.opps);
     if (!items.length) throw new Error('אין בקוד פריטים תקינים');
     if (!(await ssDialog.confirm(`לטעון ${items.length} פריטים?${skipped ? ` (${skipped} פגומים או כפולים ידולגו)` : ''} פעולה זו תחליף את הנתונים הנוכחיים.`, { danger: true }))) return;
+    const before = state.opportunities;
     state.opportunities = items;
+    // שמירה שנדחתה — הפנקס חוזר למה שהיה (ההודעה — מ-Storage.save)
+    if (!Storage.save('opportunities', state.opportunities)) { state.opportunities = before; return; }
+    // מספור הדוחות ממשיך מעל המספרים המיובאים, ותמונות הפריטים שהוחלפו נמחקות (סקירת קוד 2.11.2026)
+    bumpReportSeqFrom(state.opportunities);
+    dropReplacedPhotos(before, state.opportunities);
     // מחירים — רק דרך prices.js (בדיקת טווח ותאריך), לא כתיבה ישירה מהגיבוי
     if (data.prices && typeof data.prices === 'object') state.prices = restorePrices(state.prices, data.prices).prices;
-    Storage.save('opportunities', state.opportunities);
     Storage.save('prices', state.prices);
     renderHeader();
     renderDashboard();

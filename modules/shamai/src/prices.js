@@ -36,11 +36,13 @@ function localToday(now = new Date()) {
 }
 const dayDiff = (from, to) => Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
 
-// תאריך המחיר: מהרשומה לכל מחיר, ואם אין — מעדכון המחירים הכללי (נתונים מגרסה קודמת)
+// תאריך המחיר: מהרשומה לכל מחיר. נפילה לעדכון הכללי (lastUpdate) — רק בנתונים מגרסה קודמת, שאין בהם meta בכלל:
+// פעם עדכון של שער הדולר בלבד הפך גם את הזהב והכסף של ברירת המחדל ל"עודכנו היום" (סקירת קוד 2.11.2026)
 function priceDateOf(prices, k) {
   const meta = prices && prices.meta && prices.meta[k];
   if (meta && isDay(meta.date)) return meta.date;
-  if (prices && prices.lastUpdate && prices.source !== 'default') {
+  const legacy = !(prices && prices.meta && typeof prices.meta === 'object' && Object.keys(prices.meta).length);
+  if (legacy && prices && prices.lastUpdate && prices.source !== 'default') {
     const d = new Date(prices.lastUpdate);
     if (!Number.isNaN(d.getTime())) return localToday(d);
   }
@@ -85,6 +87,8 @@ function checkPrice(k, raw) {
 
 // מחירים מגיבוי (QR / קובץ) — כל מחיר דרך applyPriceUpdate: בדיקת טווח, ותאריך מהגיבוי רק אם הוא תקין ולא עתידי.
 // פעם המחירים נכתבו כמו שהם, כולל "עודכן היום" מזויף (בדיקת קוד 23.10.2026). מחזיר { prices, changed, skipped }
+// מחיר בלי תאריך בגיבוי (ערך ייחוס שלא עודכן מעולם) או ממקור "ברירת מחדל" — מדולג: פעם קיבל את התאריך של היום
+// ודרס מחיר אמיתי שהוקלד באותו יום. מחיר מאותו יום שכבר שמור כאן — המקומי גובר (סקירת קוד 2.11.2026)
 function restorePrices(prices, incoming, { today = localToday() } = {}) {
   let next = prices;
   const changed = [], skipped = [];
@@ -92,9 +96,15 @@ function restorePrices(prices, incoming, { today = localToday() } = {}) {
   for (const f of PRICE_FIELDS) {
     const raw = incoming && incoming[f.k];
     if (raw === undefined || raw === null || raw === '') continue;
-    const d = meta[f.k] && meta[f.k].date;
+    const raw0 = incoming && typeof incoming === 'object' ? priceDateOf(incoming, f.k) : null;
+    const src = meta[f.k] && meta[f.k].source;
+    if (!raw0 || src === 'default') { skipped.push(f.k); continue; }
+    // תאריך עתידי (שעון שגוי במכשיר המקור) — לא "עודכן ב-2027"
+    const d = raw0 > today ? today : raw0;
+    const prev = next && next.meta && next.meta[f.k];
+    if (prev && isDay(prev.date) && prev.date >= d) { skipped.push(f.k); continue; }
     try {
-      const r = applyPriceUpdate(next, { [f.k]: raw }, { date: isDay(d) && d <= today ? d : today, source: 'file', note: 'שחזור מגיבוי', today });
+      const r = applyPriceUpdate(next, { [f.k]: raw }, { date: d, source: 'file', note: 'שחזור מגיבוי', today });
       next = r.prices;
       changed.push(...r.changed);
     } catch { skipped.push(f.k); }

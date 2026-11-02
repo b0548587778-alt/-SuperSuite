@@ -239,25 +239,8 @@ function recalcVehicleAppraisal() {
     return;
   }
 
-  const brand = VEHICLE_BRANDS.find(b => b.k === v.brand);
-  const cond = VEHICLE_CONDITIONS.find(c => c.k === v.condition);
-  const liquidity = brand?.liquidity ?? 0.7;
-  const condMult = cond?.mult ?? 1;
-  // Hand penalty
-  const handMult = { '1': 1.05, '2': 1.00, '3': 0.92, '4+': 0.80 }[v.hand] ?? 1;
-  // KM adjustment - average ~15,000 km/year. Above that = penalty
-  let kmMult = 1;
-  if (v.km && v.year) {
-    const age = new Date().getFullYear() - v.year;
-    const avgKm = 15000 * age;
-    if (v.km > avgKm * 1.5) kmMult = 0.85;
-    else if (v.km > avgKm * 1.2) kmMult = 0.92;
-    else if (v.km < avgKm * 0.7) kmMult = 1.05;
-  }
-  const featMult = (v.test ? 1.03 : 1) * (v.accident ? 0.75 : 1) * (v.private ? 1.05 : 1) * (v.service ? 1.04 : 1);
-
-  const estValue = v.list * liquidity * condMult * handMult * kmMult * featMult;
-  const maxBuy = estValue * 0.85; // dealers buy at ~85% of resell value
+  // אותו חישוב שנשמר בפנקס (vehicleValue ב-calc.js)
+  const { liquidity, condMult, handMult, kmMult, featMult, estValue, maxBuy } = vehicleValue(v);
 
   let html = `
     <div class="r-row big">

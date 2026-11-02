@@ -329,8 +329,33 @@ function casePriceKeys(c) {
   return [...keys];
 }
 
-// נעילה: עותק של הערכים, המחירים ותאריכיהם — הדפסה חוזרת זהה גם אחרי שהמחירים השתנו
-function finalizeCase(c, prices, today = localToday()) {
+// מחירים שתאריכם רחוק מהמועד הקובע (יותר מ-PRICE_STALE_DAYS ימים, לפני או אחרי). פעם מועד קובע בעבר ננעל
+// עם מחירי היום בלי שום התראה (סקירת קוד 2.11.2026). מחיר בלי תאריך — כבר באזהרת "לא עודכן"
+function casePriceDateWarnings(c, prices) {
+  if (!caseIsDay(c.effectiveDate)) return [];
+  const out = [];
+  for (const k of casePriceKeys(c)) {
+    const d = priceDateOf(prices, k);
+    if (!d) continue;
+    const diff = dayDiff(c.effectiveDate, d);
+    if (Math.abs(diff) <= PRICE_STALE_DAYS) continue;
+    const name = PRICE_FIELDS.find(f => f.k === k)?.name || k;
+    out.push(`${name}: המחיר מ-${shortDay(d)}, ${Math.abs(diff)} ימים ${diff > 0 ? 'אחרי' : 'לפני'} המועד הקובע (${shortDay(c.effectiveDate)})`);
+  }
+  return out;
+}
+
+// פרטי השמאי בזמן ההנפקה — עותק, כדי שהדפסה חוזרת לא תציג פרטים שהשתנו מאז
+const caseAppraiserCopy = (a) => {
+  if (!a || typeof a !== 'object') return null;
+  const out = {};
+  for (const [k, v] of Object.entries(a)) if (typeof v === 'string') out[k] = v.slice(0, 2000);
+  return out;
+};
+
+// נעילה: עותק של הערכים, המחירים ותאריכיהם — הדפסה חוזרת זהה גם אחרי שהמחירים השתנו.
+// appraiser / appraiserEn — פרטי השמאי בזמן ההנפקה (נשמרים ב-frozen; סקירת קוד 2.11.2026)
+function finalizeCase(c, prices, today = localToday(), { appraiser = null, appraiserEn = null } = {}) {
   const problems = caseFinalizeProblems(c, prices, today);
   if (problems.length) throw new Error(problems.join('\n'));
   const t = caseTotals(c, prices);
@@ -341,19 +366,38 @@ function finalizeCase(c, prices, today = localToday()) {
   }
   return {
     ...c, client: caseValidateClient(c.client), status: 'final', reportDate: today, finalizedAt: new Date().toISOString(),
-    frozen: { items: t.items, totalAg: t.totalAg, prices: snap, reportTotal: caseFromIlsAg(t.totalAg, c.currency, prices) },
+    frozen: { items: t.items, totalAg: t.totalAg, prices: snap, reportTotal: caseFromIlsAg(t.totalAg, c.currency, prices),
+      ...(appraiser ? { appraiser: caseAppraiserCopy(appraiser) } : {}), ...(appraiserEn ? { appraiserEn: caseAppraiserCopy(appraiserEn) } : {}) },
   };
 }
 
-// פתיחה מחדש של תיק סופי: גרסה חדשה (מספר הדוח מקבל סיומת), והגרסה הקודמת נשמרת בהיסטוריה
+// פתיחה מחדש של תיק סופי: גרסה חדשה (מספר הדוח מקבל סיומת), והגרסה הקודמת נשמרת בהיסטוריה — עותק עמוק של הדוח
+// שהונפק (snapshot), כדי שאפשר יהיה להדפיס אותו שוב. פעם נשמרו רק התאריך והסכום, והחלון הבטיח "הדוח נשמר"
+// (סקירת קוד 2.11.2026)
 function reopenCase(c) {
   if (c.status !== 'final') return c;
-  const history = [...(c.history || []), { rev: c.rev, reportDate: c.reportDate, finalizedAt: c.finalizedAt, totalAg: c.frozen.totalAg }];
+  const { history: _h, ...issued } = c;
+  const snapshot = JSON.parse(JSON.stringify(issued));
+  const history = [...(c.history || []), { rev: c.rev, reportDate: c.reportDate, finalizedAt: c.finalizedAt, totalAg: c.frozen.totalAg, snapshot }];
   const { frozen, reportDate, finalizedAt, ...rest } = c;
   return { ...rest, status: 'draft', rev: (c.rev || 0) + 1, history };
 }
 
 const caseReportNo = (c) => String(c.no) + (c.rev ? '-' + c.rev : '');
+
+// גרסה קודמת להדפסה חוזרת: התיק כפי שננעל, בלי ההיסטוריה. null — גרסה ישנה שנשמרה בלי עותק
+function caseHistoryVersion(c, rev) {
+  const h = (c.history || []).find(x => x && x.rev === rev);
+  if (!h || !h.snapshot || h.snapshot.status !== 'final' || !h.snapshot.frozen) return null;
+  return { ...JSON.parse(JSON.stringify(h.snapshot)), history: [] };
+}
+
+// תמונות שגרסה שהונפקה מפנה אליהן — לא נמחקות בעריכת הגרסה המתוקנת
+function caseHistoryPhotoIds(c) {
+  const ids = new Set();
+  for (const h of c.history || []) for (const it of (h && h.snapshot && h.snapshot.items) || []) for (const id of it.photos || []) ids.add(id);
+  return ids;
+}
 
 // מחירים שהדוח מציג: אחרי נעילה — העותק; בטיוטה — המחירים הנוכחיים
 function casePricesFor(c, prices) {

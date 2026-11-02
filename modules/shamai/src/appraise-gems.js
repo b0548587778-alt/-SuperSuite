@@ -39,7 +39,11 @@ function recalcDiamond() {
 
   const usdIls = state.prices.usdIls;
   const v = diamondValue(d, carat, usdIls);
-  if (!v) { r.innerHTML = ''; return; }
+  if (!v) {
+    r.innerHTML = '<div class="tip-box"><div class="tip-title">⚠ אין מחיר בסיס</div><div class="tip-body">לא נמצא מחיר בסיס למשקל הזה — הפריט לא יישמר בלי הערכה.</div></div>';
+    $('#d-save').hidden = true;
+    return;
+  }
   const { pricePerCarat, wholesaleUsd, retailIls, wholesaleIls } = v;
 
   const asking = parseFloat($('#d-asking')?.value);

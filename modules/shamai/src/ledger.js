@@ -121,6 +121,24 @@ function sanitizeOpportunities(list) {
   return { items, skipped };
 }
 
+// אחרי ייבוא (JSON / QR): מונה מספרי הדוח לא יורד מתחת למספר הגבוה בפנקס — אחרת דוח חדש היה מקבל מספר
+// שכבר שייך לפריט מיובא (סקירת קוד 2.11.2026). false — המחסן דחה (ההודעה — מ-Storage.save)
+function bumpReportSeqFrom(opps) {
+  let max = 0;
+  for (const o of opps || []) if (o && Number.isInteger(o.reportNo) && o.reportNo > max) max = o.reportNo;
+  const cur = Number(Storage.load('reportSeq', 0)) || 0;
+  return max > cur ? Storage.save('reportSeq', max) : true;
+}
+
+// החלפת הפנקס בייבוא: תמונות של פריטים שיצאו מהפנקס נמחקות (פעם נשארו באחסון בלי פריט). קוראים רק אחרי
+// שהפנקס החדש נשמר
+function dropReplacedPhotos(oldOpps, newOpps) {
+  const keep = new Set((newOpps || []).filter(o => o && o.hasPhoto).map(o => o.id));
+  const gone = (oldOpps || []).filter(o => o && o.hasPhoto && !keep.has(o.id)).map(o => o.id);
+  for (const id of gone) ImageDB.delete(`opp_${id}`).catch(() => {});
+  return gone.length;
+}
+
 function renderLedger() {
   // Stats
   const opps = state.opportunities;
@@ -148,8 +166,12 @@ function renderLedger() {
     </div>
   `;
 
-  // Category select for new opp
-  $('#no-cat').innerHTML = OPP_CATEGORIES.map(c => `<option value="${c.k}">${c.name}</option>`).join('');
+  // Category select for new opp — הבחירה בטופס פתוח נשמרת: פעם כל רינדור של הפנקס (שינוי סינון, מחיר) איפס אותה,
+  // והשמירה כתבה "כללי" (סקירת קוד 2.11.2026)
+  const catSel = $('#no-cat');
+  const catKeep = catSel.value;
+  catSel.innerHTML = OPP_CATEGORIES.map(c => `<option value="${c.k}">${c.name}</option>`).join('');
+  if (catKeep && OPP_CATEGORIES.some(c => c.k === catKeep)) catSel.value = catKeep;
 
   // Cat filter row
   $('#cat-filter-row').innerHTML = `
@@ -237,11 +259,12 @@ function renderLedger() {
   }
 }
 
+// מעוגל לאגורה: הפרש של סכומים עשרוניים משאיר שאריות נקודה צפה (0.1 + 0.2), שהגיעו לייצוא ה-CSV
 function oppProfit(o) {
   if (o.status === 'sold' && o.salePrice) {
-    return o.salePrice - (o.purchasePrice || o.asking || 0);
+    return roundMoney(o.salePrice - (o.purchasePrice || o.asking || 0));
   }
-  return (o.estimate || 0) - (o.asking || 0);
+  return roundMoney((o.estimate || 0) - (o.asking || 0));
 }
 function oppMargin(o) {
   const ref = o.status === 'sold' ? (o.purchasePrice || o.asking || 1) : (o.asking || 1);
@@ -403,6 +426,13 @@ async function oppAction(id, action) {
 }
 
 function openEditOpp(opp) {
+  // מצב התמונה של הפריט הקודם לא עובר לפריט הזה: פעם pendingPhoto / photoRemoved נשארו, ושמירה מחקה או דרסה
+  // תמונה של פריט אחר (סקירת קוד 2.11.2026)
+  pendingPhoto = null;
+  photoRemoved = false;
+  $('#no-photo').value = '';
+  $('#no-photo-preview').innerHTML = '';
+  $('#no-photo-preview').hidden = true;
   // Pre-fill the new opp form with values
   const f = $('#new-opp-form');
   f.hidden = false;
@@ -418,6 +448,8 @@ function openEditOpp(opp) {
   // Load current photo
   if (opp.hasPhoto) {
     ImageDB.load(`opp_${opp.id}`).then(dataUrl => {
+      // בינתיים נפתח פריט אחר, או שנבחרה תמונה חדשה — לא מציגים את התמונה הזו
+      if ($('#no-add').dataset.editId !== opp.id || pendingPhoto || photoRemoved) return;
       if (dataUrl) {
         const preview = $('#no-photo-preview');
         preview.innerHTML = `<img src="${dataUrl}" alt="" />
@@ -598,7 +630,7 @@ function saveCurrentAsOpp(category) {
       opp.name = SCRAP_TYPES.find(t => t.k === s.type)?.name + ` ${s.weight}${s.unit}`;
       opp.asking = s.asking;
       // כמו במסך: מה שהסוחר משלם, לפי המחיר לק"ג שהוקלד (אם הוקלד)
-      opp.estimate = scrapValue(s, state.prices.usdIls)?.dealerPay;
+      opp.estimate = scrapValue(s, state.prices)?.dealerPay;
       break;
     }
     case 'realestate': {
@@ -615,19 +647,8 @@ function saveCurrentAsOpp(category) {
       const brandName = VEHICLE_BRANDS.find(b => b.k === v.brand)?.name || '';
       opp.name = `${brandName} ${v.model || ''} ${v.year || ''}`.trim();
       opp.asking = v.asking;
-      const liquidity = VEHICLE_BRANDS.find(b => b.k === v.brand)?.liquidity ?? 0.7;
-      const condMult = VEHICLE_CONDITIONS.find(c => c.k === v.condition)?.mult ?? 1;
-      const handMult = { '1': 1.05, '2': 1.00, '3': 0.92, '4+': 0.80 }[v.hand] ?? 1;
-      let kmMult = 1;
-      if (v.km && v.year) {
-        const age = new Date().getFullYear() - v.year;
-        const avgKm = 15000 * age;
-        if (v.km > avgKm * 1.5) kmMult = 0.85;
-        else if (v.km > avgKm * 1.2) kmMult = 0.92;
-        else if (v.km < avgKm * 0.7) kmMult = 1.05;
-      }
-      const featMult = (v.test ? 1.03 : 1) * (v.accident ? 0.75 : 1) * (v.private ? 1.05 : 1) * (v.service ? 1.04 : 1);
-      opp.estimate = (v.list || 0) * liquidity * condMult * handMult * kmMult * featMult;
+      // אותה פונקציה של המסך (vehicleValue ב-calc.js)
+      opp.estimate = vehicleValue(v).estValue;
       break;
     }
     case 'nft': {

@@ -246,7 +246,10 @@ function recalcCoin() {
   c.metal = $('#cn-metal')?.value || 'silver';
   c.weight = parseFloat($('#cn-weight')?.value);
   c.purity = parseFloat($('#cn-purity')?.value) || 900;
-  c.premium = parseFloat($('#cn-premium')?.value) || 1.5;
+  // "אין פרמיה" (0) הוא בחירה, לא ערך חסר — פעם `|| 1.5` הפך אותו ל-×1.5 (סקירת קוד 2.11.2026)
+  const prem = parseFloat($('#cn-premium')?.value);
+  c.premium = Number.isFinite(prem) && prem >= 0 ? prem : 1.5;
+  c.market = parseFloat($('#cn-market')?.value);
   c.asking = parseFloat($('#cn-asking')?.value);
 
   const { meltIls, gradeMult, value: finalValue, maxPurchase } = coinValue(c, state.prices);
@@ -261,6 +264,13 @@ function recalcCoin() {
       <span class="r-value gold">₪${fmt0(maxPurchase)}</span>
     </div>
   `;
+
+  if (!coinIsPrecious(c)) {
+    html += c.market > 0
+      ? `<div class="r-row sep"><span class="r-label">מחיר שוק שהוקלד</span><span class="r-value">₪${fmt0(c.market)}</span></div>
+         <div class="r-row"><span class="r-label">מקדם דירוג</span><span class="r-value">×${gradeMult}</span></div>`
+      : `<div class="tip-box"><div class="tip-title">⊞ דרוש מחיר שוק</div><div class="tip-body">מטבע שאינו מזהב או מכסף — אין לו ערך התכה. יש להקליד מחיר שוק למטבע (קטלוג, מכירות פומביות) בשדה "מחיר שוק למטבע".</div></div>`;
+  }
 
   if (meltIls > 0) {
     html += `

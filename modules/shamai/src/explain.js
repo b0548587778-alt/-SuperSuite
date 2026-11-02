@@ -157,10 +157,13 @@ function explainCoin(c, prices, v) {
     steps.push({ label: 'אין משקל מתכת', value: 'לא הוזן משקל — אין שווי התכה' });
   } else {
     steps.push({ label: 'אין משקל מתכת', value: 'המטבע לא ממתכת יקרה — אין שווי התכה' });
+    steps.push({ label: 'מחיר שוק שהוקלד', value: c.market > 0 ? `₪${fmt0(c.market)}` : 'לא הוקלד — אין שווי' });
   }
-  steps.push({ label: 'פרמיה שהוקלדה', value: `× ${fmt(c.premium)}` });
+  if (precious) steps.push({ label: 'פרמיה שהוקלדה', value: `× ${fmt(c.premium)}` });
   steps.push({ label: 'מקדם דירוג', value: `${c.grade} × ${fmt(v.gradeMult)}` });
-  steps.push({ label: 'שווי', value: `₪${fmt0(v.value)} (הגבוה מבין שווי ההתכה לבין שווי ההתכה × פרמיה × דירוג)` });
+  steps.push({ label: 'שווי', value: precious
+    ? `₪${fmt0(v.value)} (הגבוה מבין שווי ההתכה לבין שווי ההתכה × פרמיה × דירוג)`
+    : `₪${fmt0(v.value)} (מחיר השוק × דירוג)` });
   steps.push({ label: 'רכישה מקסימלית', value: `₪${fmt0(v.maxPurchase)} (65% מהשווי)` });
   if (c.asking) steps.push({ label: 'פוטנציאל רווח', value: `השווי פחות המחיר המבוקש (₪${fmt0(c.asking)})` });
   const checks = [];

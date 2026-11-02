@@ -296,7 +296,7 @@ function renderScrapView() {
   $('#scrap-types').innerHTML = SCRAP_TYPES.map(s => `
     <button class="brand-btn ${state.scrap.type === s.k ? 'active' : ''}" data-type="${s.k}">
       <div>${s.name}</div>
-      <div class="brand-sub">$${s.pricePerLb}/lb</div>
+      <div class="brand-sub">$${fmt(scrapPricePerLb(s, state.prices))}/lb</div>
     </button>
   `).join('');
   $$('#scrap-types .brand-btn').forEach(b => b.addEventListener('click', () => { state.scrap.type = b.dataset.type; renderScrapView(); }));
@@ -315,7 +315,7 @@ function recalcScrap() {
   if (!s.weight || s.weight <= 0) { r.innerHTML = ''; $('#sc-save').hidden = true; return; }
 
   // אותו חישוב שנשמר ביומן (scrapValue ב-calc.js), כולל מחיר לק"ג שהוקלד
-  const sv = scrapValue(s, state.prices.usdIls);
+  const sv = scrapValue(s, state.prices);
   if (!sv) return;
   const { type: scrapType, weightKg, pricePerKg, marketValue, dealerPay } = sv;
 
