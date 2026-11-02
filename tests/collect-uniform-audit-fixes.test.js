@@ -326,7 +326,9 @@ test('ממצא 13: ביטול חשבונית, רשומת ההיפוך וסימו
       const local = now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate() + ' ' + now.getHours() + ':' + now.getMinutes();
       const inv = await acc.createInvoice({ customer: 'משה גרין', date: '2026-07-20', items: [{ description: 'ספר', quantity: 1, unitPrice: 100 }] });
       const cancelled = await acc.cancelInvoice(inv.id);
-      const reversal = (await db.load()).journal.find(e => e.reversalOf === inv.entryId);
+      // ביטול = חשבונית זיכוי; רשומת היומן שלה היא ההיפוך (סקירת קוד 2.11.2026)
+      const snap = await db.load();
+      const reversal = snap.journal.find(e => e.id === snap.salesDocs.find(d => d.id === cancelled.cancelCreditId).entryId);
       const undated = await acc.createInvoice({ customer: 'משה גרין', items: [{ description: 'ספר', quantity: 1, unitPrice: 100 }] });
       const paid = await acc.recordPayment(undated.id, { method: 'cash' });
       const req = await col.createRequest({ kind: 'other', amount: 50, payerName: 'אברהם שטרן' });

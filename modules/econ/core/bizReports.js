@@ -2,7 +2,6 @@
 // התזרים הוא תחזית לפי הנתונים שבספרים — לא ידוע לנו מה כבר שולם לרשויות, ולכן כל שורה מסומנת במקורה.
 const A = require('./accounting');
 const RC = require('./recurring');
-const SD = require('./salesDocs');
 
 const PERIODS = { monthly: { label: 'חודשי', months: 1 }, bimonthly: { label: 'דו-חודשי', months: 2 } };
 const DEFAULTS = { paymentTermsDays: 30, period: 'bimonthly', advanceRateBp: 0 };
@@ -68,7 +67,20 @@ const MONTH_NAMES = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מא
 const monthName = (m) => MONTH_NAMES[Number(m.slice(5)) - 1];
 const periodName = (start, end) => (start === end ? `${monthName(start)} ${start.slice(0, 4)}` : `${monthName(start)}–${monthName(end)} ${end.slice(0, 4)}`);
 
-const creditedOf = (data, inv) => SD.creditedAg(data.salesDocs || [], inv.id);
+// זיכויים לפי חשבונית — מעבר אחד על מסמכי המכירה לכל קריאה, לא סריקה לכל חשבונית (סקירת קוד 2.11.2026).
+// המפתח הוא מערך המסמכים של הטעינה הנוכחית (כל טעינה — מערך חדש); שינוי באורך בונה מחדש
+const creditIndex = new WeakMap();
+const creditedOf = (data, inv) => {
+  const docs = data.salesDocs || [];
+  let c = creditIndex.get(docs);
+  if (!c || c.length !== docs.length) {
+    const map = new Map();
+    for (const d of docs) if (d.kind === 'credit' && d.status !== 'cancelled') map.set(d.invoiceId, (map.get(d.invoiceId) || 0) + A.toAg(d.total || 0));
+    c = { length: docs.length, map };
+    creditIndex.set(docs, c);
+  }
+  return c.map.get(inv.id) || 0;
+};
 const openAg = (data, inv) => (inv.status === 'open' ? Math.max(0, A.toAg(inv.total) - creditedOf(data, inv)) : 0);
 
 // ---------- כרטסת לקוח
@@ -80,7 +92,8 @@ function customerLedger(data, customer, { from, to } = {}) {
   for (const inv of data.invoices || []) {
     if (inv.customer !== name) continue;
     rows.push({ date: inv.date, kind: 'invoice', ref: inv.number, label: inv.vatExempt ? 'חשבונית עסקה' : inv.kind === 'tax-invoice-receipt' ? 'חשבונית מס/קבלה' : 'חשבונית מס', debitAg: A.toAg(inv.total), creditAg: 0 });
-    if (inv.status === 'cancelled') rows.push({ date: inv.cancelledAt || inv.date, kind: 'cancel', ref: inv.number, label: 'ביטול חשבונית', debitAg: 0, creditAg: A.toAg(inv.total) });
+    // ביטול בחשבונית זיכוי (cancelCreditId) מופיע כשורת הזיכוי — לא גם כשורת ביטול
+    if (inv.status === 'cancelled' && !inv.cancelCreditId) rows.push({ date: inv.cancelledAt || inv.date, kind: 'cancel', ref: inv.number, label: 'ביטול חשבונית', debitAg: 0, creditAg: A.toAg(inv.total) });
     if (inv.status === 'paid' && inv.paidAt) {
       const paid = A.toAg(inv.total) - creditedOf(data, inv);
       if (paid > 0) rows.push({ date: inv.paidAt, kind: 'payment', ref: inv.number, label: `גבייה${inv.paymentRef ? ' · ' + inv.paymentRef : ''}`, debitAg: 0, creditAg: paid });
@@ -129,7 +142,7 @@ function turnoverAg(data, from, to) {
   let t = 0;
   for (const inv of data.invoices || []) {
     if (inR(inv.date)) t += A.toAg(inv.net);
-    if (inv.status === 'cancelled' && inR(inv.cancelledAt || inv.date)) t -= A.toAg(inv.net);
+    if (inv.status === 'cancelled' && !inv.cancelCreditId && inR(inv.cancelledAt || inv.date)) t -= A.toAg(inv.net);
   }
   for (const d of data.salesDocs || []) if (d.kind === 'credit' && d.status !== 'cancelled' && inR(d.date)) t -= A.toAg(d.net);
   return t;

@@ -26,6 +26,7 @@ const { SampleService: sampleService } = require('./services/sampleService');
 const { PrivacyService: privacyService } = require('./services/privacyService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
 const { RealtyService: realtyService } = require('./services/realtyService');
+const { inOneSave } = require('./services/oneSave');
 const MR = require('./core/mortgageReport');
 const BR = require('./core/brokerage');
 const RI = require('./core/realtyInvest');
@@ -665,11 +666,24 @@ async function auditEvent(event, action, details) {
   try { await db.audit(user && user.id, action, JSON.stringify(details || {})); } catch (e) { console.error('audit failed', e); }
 }
 
+// CSP למסמך שמודפס ל-PDF: אין סקריפט, אין רשת — רק סגנון בתוך המסמך ותמונות/גופנים מוטמעים (data:)
+const PDF_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+function withPdfCsp(html) {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${PDF_CSP}">`;
+  const s = String(html);
+  // ראשון ב-<head>, לפני כל משאב; מסמך בלי <head> — בראש המסמך
+  return /<head[^>]*>/i.test(s) ? s.replace(/<head[^>]*>/i, (m) => m + meta) : meta + s;
+}
+
 // הפקת PDF מ-HTML: רינדור בחלון נסתר בלי JavaScript (מחוץ לתור — handleSave)
 async function renderPdf(html, opts = { preferCSSPageSize: true }) {
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false, devTools: !(require('electron').app && require('electron').app.isPackaged) } });
+  // שכבת הגנה (סקירת קוד 2.11.2026): בלי ניווט ובלי חלונות, ו-CSP שמתיר רק סגנון ותמונות מוטמעים — אין פנייה החוצה
+  const wc = win.webContents;
+  if (wc && typeof wc.on === 'function') wc.on('will-navigate', (e) => e.preventDefault());
+  if (wc && typeof wc.setWindowOpenHandler === 'function') wc.setWindowOpenHandler(() => ({ action: 'deny' }));
   try {
-    await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64'));
+    await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(withPdfCsp(html), 'utf8').toString('base64'));
     return await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, ...opts });
   } finally {
     win.destroy();
@@ -957,7 +971,8 @@ function registerIpcHandlers() {
     await auditEvent(event, 'acct.entry.reverse', { id: result && (result.id || result.number) });
     return result;
   });
-  handle('acct:getInvoices', async () => accountingService.getInvoices());
+  // limit — לוח הבקרה מציג 5 בלבד (סקירת קוד 2.11.2026)
+  handle('acct:getInvoices', async (event, opts) => accountingService.getInvoices(opts && typeof opts === 'object' ? { limit: opts.limit } : {}));
   handle('acct:createInvoice', async (event, invoice) => {
     const result = await accountingService.createInvoice(invoice);
     await auditEvent(event, 'acct.invoice.create', { id: result && (result.id || result.number) });
@@ -1050,9 +1065,15 @@ function registerIpcHandlers() {
   handleSave('acct:exportSalesDocPdf', async (event, docId) => {
     const d = await accountingService.getSalesDoc(docId);
     const { business } = await accountingService.getSettings();
-    const html = d.kind === 'receipt' ? X.renderReceiptHtml(d, business) : X.renderInvoiceHtml(d, business);
+    // זיכוי וקבלה — "מקור" בהדפסה הראשונה, "העתק" אחריה; מסמך מגרסה קודמת (בלי issuer) — תמיד העתק (סקירת קוד 2.11.2026)
+    const official = d.kind === 'receipt' || d.kind === 'credit';
+    const opts = official ? { copy: !!d.printedAt || !d.issuer } : {};
+    const html = d.kind === 'receipt' ? X.renderReceiptHtml(d, business, opts) : X.renderInvoiceHtml(d, business, opts);
     return { html, name: `${d.kindLabel}-${d.number}.pdf`.replace(/[\\/:*?"<>|]/g, ''), d };
-  }, (event, { d }) => auditEvent(event, 'acct.doc.pdf', { kind: d.kind, number: d.number }));
+  }, async (event, { d }) => {
+    if (d.kind === 'receipt' || d.kind === 'credit') await accountingService.markPrinted('doc', d.id);
+    await auditEvent(event, 'acct.doc.pdf', { kind: d.kind, number: d.number });
+  });
   // לוגו (מסמכים / דוח ללקוח): חלון הבחירה וקריאת הקובץ (PNG / JPEG עד 200KB) — מחוץ לתור; השמירה — בתור,
   // אחרי בדיקה חוזרת (ממצא 39). remove — הסרת הלוגו, בלי חלון
   const pickLogo = async (title) => {
@@ -1156,9 +1177,11 @@ function registerIpcHandlers() {
     await auditEvent(event, 'acct.invoice.allocation-waived', { number: result.number, reason: result.allocationWaived.reason });
     return result;
   });
-  handle('acct:cancelInvoice', async (event, invoiceId) => {
-    const result = await accountingService.cancelInvoice(invoiceId);
-    await auditEvent(event, 'acct.invoice.cancel', { number: result.number });
+  // הביטול מפיק חשבונית זיכוי מלאה (330) — "היום" נקבע כאן לפי השעון המקומי
+  handle('acct:cancelInvoice', async (event, invoiceId, opts) => {
+    const reason = opts && typeof opts === 'object' && typeof opts.reason === 'string' ? opts.reason : '';
+    const result = await accountingService.cancelInvoice(invoiceId, { reason });
+    await auditEvent(event, 'acct.invoice.cancel', { number: result.number, credit: result.cancelCreditNumber || null });
     return result;
   });
   handle('acct:saveSettings', async (event, input) => {
@@ -1170,8 +1193,13 @@ function registerIpcHandlers() {
   handleSave('acct:exportInvoicePdf', async (event, invoiceId) => {
     const inv = await accountingService.getInvoice(invoiceId);
     const { business } = await accountingService.getSettings();
-    return { html: X.renderInvoiceHtml(inv, business), name: `חשבונית-${inv.number}.pdf`, number: inv.number };
-  }, (event, spec) => auditEvent(event, 'acct.invoice.pdf', { number: spec.number }));
+    // "מקור" בהדפסה הראשונה, "העתק" אחריה; חשבונית מגרסה קודמת (בלי issuer) — תמיד העתק (סקירת קוד 2.11.2026)
+    const copy = !!inv.printedAt || !inv.issuer;
+    return { html: X.renderInvoiceHtml(inv, business, { copy }), name: `חשבונית-${inv.number}.pdf`, number: inv.number, id: inv.id };
+  }, async (event, spec) => {
+    await accountingService.markPrinted('invoice', spec.id);
+    await auditEvent(event, 'acct.invoice.pdf', { number: spec.number });
+  });
   // קבצים במבנה אחיד (PLAN.md 9.1): בחירת תיקייה, כתיבת OPENFRMT\<עוסק>.<שנה>\<MMDDhhmm>\ עם INI.TXT, BKMVDATA.zip
   // ודוח ההפקה (PDF). הקבצים עצמם אינם מוצפנים — הם מיועדים להעברה לרשות המסים או לרואה החשבון.
   // הנתונים בתור; חלון הבחירה ודוח ההפקה — מחוץ לתור; הכתיבה — בתור, אחרי בדיקה חוזרת (ממצא 39)
@@ -1807,10 +1835,16 @@ function registerIpcHandlers() {
     const denied = LG.checkChannel(licenseState(), 'acct:x', 'data.edit');
     if (denied) throw new Error(denied);
     if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
-    const p = await mortgageAdvisorService.feePaymentForInvoice(id, paymentId, madvActor(event));
     // עוסק פטור (הגדרות המשרד או בחירה מפורשת) — חשבונית עסקה בלי מע"מ + קבלה
-    const inv = await accountingService.createAdvisoryReceipt({ ...p, exempt: opts.exempt === true || p.exempt === true });
-    await mortgageAdvisorService.linkFeeInvoice(id, paymentId, inv);
+    // ע.מ / ת"ז של הלקוח — מהחלון (בתיק הייעוץ אין שדה כזה); נבדק בספרת ביקורת בשירות
+    const customerTaxId = typeof opts.customerTaxId === 'string' ? opts.customerTaxId.trim().slice(0, 12) : '';
+    // החשבונית והקישור לתשלום בשמירה אחת — כשל באמצע לא משאיר חשבונית ממוספרת שלא מקושרת (סקירת קוד 2.11.2026)
+    const { p, inv } = await inOneSave([accountingService, mortgageAdvisorService], async () => {
+      const p = await mortgageAdvisorService.feePaymentForInvoice(id, paymentId, madvActor(event));
+      const inv = await accountingService.createAdvisoryReceipt({ ...p, customerTaxId, exempt: opts.exempt === true || p.exempt === true });
+      await mortgageAdvisorService.linkFeeInvoice(id, paymentId, inv);
+      return { p, inv };
+    });
     await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'madv', amountAg: p.grossAgorot });
     return { id: inv.id, number: inv.number, total: inv.total };
   });
@@ -1890,9 +1924,14 @@ function registerIpcHandlers() {
     const denied = LG.checkChannel(licenseState(), 'acct:x', 'data.edit');
     if (denied) throw new Error(denied);
     if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
-    const p = await realtyService.commissionPaymentForInvoice(String(dealId || ''), String(paymentId || ''));
-    const inv = await accountingService.createAdvisoryReceipt(p);
-    await realtyService.linkCommissionInvoice(dealId, paymentId, inv);
+    const typed = typeof opts.customerTaxId === 'string' ? opts.customerTaxId.trim().slice(0, 12) : '';
+    // החשבונית והקישור לתשלום בשמירה אחת (סקירת קוד 2.11.2026)
+    const { p, inv } = await inOneSave([accountingService, realtyService], async () => {
+      const p = await realtyService.commissionPaymentForInvoice(String(dealId || ''), String(paymentId || ''));
+      const inv = await accountingService.createAdvisoryReceipt(typed ? { ...p, customerTaxId: typed } : p);
+      await realtyService.linkCommissionInvoice(dealId, paymentId, inv);
+      return { p, inv };
+    });
     await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'rlty', amountAg: p.grossAgorot });
     return { id: inv.id, number: inv.number, total: inv.total };
   });
@@ -1963,9 +2002,13 @@ function registerIpcHandlers() {
   // "פתח תיק משכנתא": תיק ייעוץ חדש לקונה (משויך למי שפתח) וקישור בשני הצדדים
   handle('rlty:openMortgageCase', async (event, dealId, input) => {
     if (!rltyMortgage()) throw new Error('ייעוץ המשכנתאות אינו פתוח ברישיון');
-    const caseInput = await realtyService.mortgageCaseInput(String(dealId || ''), input || {});
-    const c = await mortgageAdvisorService.createClient(caseInput, madvActor(event));
-    await realtyService.linkMortgageCase(String(dealId), c.id);
+    // התיק והקישור בעסקה בשמירה אחת — כשל באמצע לא משאיר תיק יתום (סקירת קוד 2.11.2026)
+    const c = await inOneSave([realtyService, mortgageAdvisorService], async () => {
+      const caseInput = await realtyService.mortgageCaseInput(String(dealId || ''), input || {});
+      const c = await mortgageAdvisorService.createClient(caseInput, madvActor(event));
+      await realtyService.linkMortgageCase(String(dealId), c.id);
+      return c;
+    });
     await auditEvent(event, 'madv.client.create', { id: c.id, advisorId: c.advisorId || null, source: 'rlty' });
     await auditEvent(event, 'realty.deal.mortgageLink', { id: dealId, caseId: c.id });
     return c;

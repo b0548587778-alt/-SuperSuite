@@ -7,6 +7,7 @@ const P = require('../core/collect');
 const { AccountingService: accounting, localDay } = require('./accountingService');
 const { NpoService: npo } = require('./npoService');
 const { GemachService: gemach } = require('./gemachService');
+const { inOneSave } = require('./oneSave');
 
 class CollectService {
   constructor(db) { this.db = db; }
@@ -114,32 +115,10 @@ class CollectService {
   // ולכן בזמן fn השירותים המשתתפים (אותו מסד מ-initialize(db) ב-ipc.js) מקבלים עטיפה שעובדת על עותק בזיכרון,
   // והכתיבה האמיתית אחת בסוף. בטוח כי כל פעולה במסד רצה בתור אחד (enqueue) — אין פעולה אחרת באמצע.
   // אובייקט המסד עצמו לא משתנה: גיבוי שרץ מחוץ לתור (db.backup) רואה רק נתונים שנשמרו, לא קבלה שעוד לא נכתבה.
-  // קודם: שתי שמירות נפרדות; שגיאה או קריסה ביניהן השאירו דרישה "פתוחה", וניסיון חוזר הפיק קבלה שנייה
-  // fn מקבל ctl: mark() / restore(m) — נקודת חזרה בזיכרון לבידוד כשל של שורה (קליטת דוח).
-  // העותק בזיכרון לעולם לא משתנה במקום (load מחזיר עותק, save מחליף), ולכן נקודת חזרה = הפניה בלבד, בלי העתקה
+  // קודם: שתי שמירות נפרדות; שגיאה או קריסה ביניהן השאירו דרישה "פתוחה", וניסיון חוזר הפיק קבלה שנייה.
+  // המנגנון עצמו — services/oneSave.js; fn מקבל ctl (mark/restore) לבידוד כשל של שורה (משותף גם להפקת חשבונית מעמלה ולתיק משכנתא מעסקה)
   async _inOneSave(fn) {
-    if (this._oneSave) return fn(this._oneSaveCtl);
-    const base = this.db;
-    let work = null, dirty = false;
-    const tx = {
-      load: async () => structuredClone(work || (work = await base.load())),
-      save: async (value) => { work = structuredClone(value); dirty = true; }
-    };
-    const ctl = { mark: () => ({ work, dirty }), restore: (m) => { work = m.work; dirty = m.dirty; } };
-    // שירות עם מסד אחר (לא אמור לקרות) נשאר על המסד שלו — לא כותבים את הנתונים שלו למסד הזה
-    const swapped = [this, accounting, npo, gemach].filter((s, i, all) => s && s.db === base && all.indexOf(s) === i);
-    for (const s of swapped) s.db = tx;
-    this._oneSave = true;
-    this._oneSaveCtl = ctl;
-    let out;
-    try { out = await fn(ctl); }
-    finally {
-      this._oneSave = false;
-      this._oneSaveCtl = null;
-      for (const s of swapped) s.db = base;
-    }
-    if (dirty) await base.save(work);
-    return out;
+    return inOneSave([this, accounting, npo, gemach], fn);
   }
 
   // סימון ידני כ"שולם" (למשל: הלקוח שילם וראיתם את זה באתר חברת הסליקה)

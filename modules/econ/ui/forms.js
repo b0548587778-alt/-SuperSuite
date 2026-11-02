@@ -342,6 +342,8 @@ async function handleRestore() {
 
 // Handle form submission — יוצר או מעדכן רשומה בפועל
 async function handleSubmit() {
+  // שליחה אחת בכל פעם: הכפתור המושבת לא חוסם את Ctrl+Enter, ושליחה כפולה הפיקה שתי חשבוניות מס (סקירת קוד 2.11.2026)
+  if (state.submitting) return;
   const schema = currentSchema();
   if (!schema) {
     closeModal();
@@ -357,6 +359,7 @@ async function handleSubmit() {
   }
 
   try {
+    state.submitting = true;
     elements.submitBtn.disabled = true;
     if (state.editingId && schema.update) {
       await schema.update(state.editingId, data);
@@ -371,6 +374,7 @@ async function handleSubmit() {
   } catch (error) {
     showError('שגיאה בשמירה: ' + errMsg(error));
   } finally {
+    state.submitting = false;
     elements.submitBtn.disabled = false;
   }
 }

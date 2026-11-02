@@ -273,13 +273,14 @@ function renderAcctJournal(d) {
       <button class="secondary" id="acctCaptureBtn">🧾 קליטת חשבונית ספק</button>
       <button class="secondary" id="acctCsvJournal">ייצוא יומן ל-Excel</button></div></div>
     ${entries.length === 0 ? renderEmpty('אין רשומות יומן עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל') : ''}
-    ${entries.map(e => `
+    ${acctPage('journal', entries).map(e => `
       <div class="card ${e.reversedBy || e.reversalOf ? 'muted-card' : ''}">
         <h4>${esc(e.description || 'ללא תיאור')}</h4>
         <small>${esc(e.date)}${e.reversalOf ? ' · רשומת ביטול' : ''}${e.reversedBy ? ' · בוטלה' : ''}</small>
         <div class="acct-lines">${(Array.isArray(e.lines) ? e.lines : []).map(l => `<div class="acct-row"><span>${esc(l.account)} ${esc(names[l.account] || '')}</span><span>${l.debit ? 'חובה ' + money(l.debit) : 'זכות ' + money(l.credit)}</span></div>`).join('')}</div>
         ${!e.reversedBy && !e.reversalOf ? renderCardActions(e.id) : ''}
-      </div>`).join('')}`;
+      </div>`).join('')}
+    ${acctMoreButton('journal', entries.length)}`;
 }
 
 // מסמכי מכירה (PLAN.md 9.3): הצעת מחיר → הזמנה → תעודת משלוח → חשבונית, בלחיצה. זיכויים וקבלות — מתוך החשבונית
@@ -307,8 +308,34 @@ function renderSalesDocs(docs) {
       <button class="secondary" data-doc-new="order">＋ הזמנה</button>
       <button class="secondary" data-doc-new="delivery">＋ תעודת משלוח</button>
     </div>
-    ${drafts.length ? `<h3>הצעות, הזמנות ותעודות משלוח (${drafts.length})</h3>${drafts.map(card).join('')}` : ''}
-    ${others.length ? `<h3>זיכויים וקבלות (${others.length})</h3>${others.map(card).join('')}` : ''}`;
+    ${drafts.length ? `<h3>הצעות, הזמנות ותעודות משלוח (${drafts.length})</h3>${acctPage('drafts', drafts).map(card).join('')}${acctMoreButton('drafts', drafts.length)}` : ''}
+    ${others.length ? `<h3>זיכויים וקבלות (${others.length})</h3>${acctPage('docs', others).map(card).join('')}${acctMoreButton('docs', others.length)}` : ''}`;
+}
+
+// דפדוף ברשימות הארוכות של הנהלת החשבונות (חשבוניות, מסמכים, יומן): 100 בכל פעם במקום כל הרשומות,
+// ו"הצגת עוד" במאזין אחד לכל המסמך (סקירת קוד 2.11.2026). החיפוש במסמכים עדיין עובר על הכול (בשרת)
+const ACCT_PAGE = 100;
+function acctShown(key) {
+  return (state.acctShow && state.acctShow[key]) || ACCT_PAGE;
+}
+function acctPage(key, list) {
+  return list.slice(0, acctShown(key));
+}
+function acctMoreButton(key, total) {
+  const shown = Math.min(acctShown(key), total);
+  if (shown >= total) return '';
+  bindAcctMore();
+  return `<div class="card-actions"><button class="secondary" data-acct-more="${esc(key)}">הצגת עוד (מוצגות ${shown} מתוך ${total})</button></div>`;
+}
+function bindAcctMore() {
+  if (state.acctMoreBound) return;
+  state.acctMoreBound = true;
+  document.addEventListener('click', (e) => {
+    const b = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-acct-more]') : null;
+    if (!b) return;
+    state.acctShow = { ...(state.acctShow || {}), [b.dataset.acctMore]: acctShown(b.dataset.acctMore) + ACCT_PAGE };
+    renderView(state.currentView);
+  });
 }
 
 // חשבוניות חוזרות (PLAN.md 9.6): טיוטות לאישור בראש, והתבניות מתחת
@@ -340,6 +367,11 @@ function isTaxInvoiceReceipt(i) {
   return i.kind === 'tax-invoice-receipt' && !i.vatExempt;
 }
 
+// חשבונית פתוחה שזוכתה במלואה — סגורה: אין יתרה לגבייה (סקירת קוד 2.11.2026)
+function fullyCredited(i) {
+  return i.status === 'open' && Number(i.credited) > 0 && !(Number(i.balance) > 0);
+}
+
 function renderAcctInvoices(d) {
   const invoices = Array.isArray(d?.invoices) ? d.invoices : [];
   const docs = Array.isArray(d?.docs) ? d.docs : [];
@@ -353,13 +385,13 @@ function renderAcctInvoices(d) {
     ${renderSalesDocs(docs)}
     <h3>חשבוניות מס (${invoices.length})</h3>
     ${invoices.length === 0 ? renderEmpty('אין חשבוניות עדיין — לחץ "＋ הוספת רשומה" כדי להתחיל') : ''}
-    ${invoices.map(i => `
+    ${acctPage('invoices', invoices).map(i => `
       <div class="card ${i.status === 'paid' ? 'done' : ''} ${i.status === 'cancelled' ? 'muted-card' : ''}">
         <h4>חשבונית ${esc(i.number)} · ${esc(i.customer)}</h4>
         <p>${(Array.isArray(i.items) ? i.items : []).map(it => esc(it.description)).join(', ')}</p>
         <small>${esc(i.date)} · נטו ${money(i.net)} · מע"מ ${money(i.vat)}${i.vatExempt ? ' (פטור)' : ''}</small>
-        <div class="acct-row acct-big"><span>${ACCT_STATUS[i.status] || i.status}</span><span>${money(i.total)}</span></div>
-        ${i.credited > 0 ? `<div class="acct-row"><span>זוכה · יתרה</span><span>${money(i.credited)} · ${money(i.balance)}</span></div>` : ''}
+        <div class="acct-row acct-big"><span>${fullyCredited(i) ? 'זוכתה במלואה' : ACCT_STATUS[i.status] || i.status}</span><span>${money(i.total)}</span></div>
+        ${i.cancelCreditNumber ? `<small>בוטלה בחשבונית זיכוי ${esc(i.cancelCreditNumber)} (${esc(i.cancelledAt || '')})</small>` : i.credited > 0 ? `<div class="acct-row"><span>זוכה · יתרה</span><span>${money(i.credited)} · ${money(i.balance)}</span></div>` : ''}
         ${i.sourceDoc ? `<small>על פי ${esc(({ quote: 'הצעת מחיר', order: 'הזמנה', delivery: 'תעודת משלוח' })[i.sourceDoc.kind] || '')} ${esc(i.sourceDoc.number)}</small>` : ''}
         ${renderAllocLine(i)}
         <div class="card-actions">
@@ -367,14 +399,15 @@ function renderAcctInvoices(d) {
           <button class="secondary" data-dup-kind="invoice" data-dup-id="${esc(i.id)}">שכפול</button>
           ${['pending', 'waived'].includes(invoiceAllocState(i)) ? `<button class="secondary" data-action="alloc" data-id="${esc(i.id)}">הזנת מספר הקצאה</button>` : ''}
           ${invoiceAllocState(i) === 'pending' ? `<button class="secondary" data-action="alloc-waive" data-id="${esc(i.id)}">לא נדרש</button>` : ''}
-          ${i.status === 'open' ? `<button class="secondary" data-action="pay" data-id="${esc(i.id)}">סמן כשולמה</button>` : ''}
+          ${i.status === 'open' && !fullyCredited(i) ? `<button class="secondary" data-action="pay" data-id="${esc(i.id)}">סמן כשולמה</button>` : ''}
           ${i.status === 'paid' && !isTaxInvoiceReceipt(i) ? `<button class="danger-outline" data-action="unpay" data-id="${esc(i.id)}">בטל תשלום</button>` : ''}
           ${i.status === 'paid' && isTaxInvoiceReceipt(i) ? '<small class="muted">חשבונית מס/קבלה — ביטול התשלום דרך חשבונית זיכוי</small>' : ''}
           ${i.receiptId ? `<button class="secondary" data-doc-pdf="${esc(i.receiptId)}">קבלה ${esc(i.receiptNumber)} (PDF)</button>` : ''}
           ${i.status !== 'cancelled' && Number(i.balance ?? i.total) > 0 ? `<button class="secondary" data-action="credit" data-id="${esc(i.id)}">חשבונית זיכוי</button>` : ''}
           ${i.status === 'open' && !(i.credited > 0) ? `<button class="danger-outline" data-action="cancel" data-id="${esc(i.id)}">בטל (חשבונית זיכוי)</button>` : ''}
         </div>
-      </div>`).join('')}`;
+      </div>`).join('')}
+    ${acctMoreButton('invoices', invoices.length)}`;
 }
 
 function renderAcctChart(chart) {
@@ -754,10 +787,10 @@ const isoOk = (s) => {
 };
 
 async function handleCancelInvoice(id) {
-  if (!(await askConfirm('לבטל את החשבונית? תירשם חשבונית זיכוי שמבטלת את ההכנסה והמע"מ. החשבונית תישאר ברשימה כמבוטלת.'))) return;
+  if (!(await askConfirm('לבטל את החשבונית? תופק חשבונית זיכוי מלאה עם מספר משלה, שמבטלת את ההכנסה והמע"מ — יש למסור אותה ללקוח. החשבונית תישאר ברשימה כמבוטלת, וחשבונית הזיכוי תופיע ב"זיכויים וקבלות" להדפסה.'))) return;
   try {
-    await window.systemAPI.cancelInvoice(id);
-    showToast('החשבונית בוטלה וירשמה חשבונית זיכוי');
+    const r = await window.systemAPI.cancelInvoice(id);
+    showToast(r && r.cancelCreditNumber ? `החשבונית בוטלה — הופקה חשבונית זיכוי ${r.cancelCreditNumber}` : 'החשבונית בוטלה');
     await switchView('acct-invoices');
   } catch (error) {
     showError('שגיאה בביטול: ' + errMsg(error));
@@ -1049,7 +1082,7 @@ async function handleDuplicate(kind, id) {
     const src = await window.systemAPI.getDuplicateInput(kind, id);
     const it = src.items[0] || {};
     const values = { customer: src.customer, customerTaxId: src.customerTaxId, date: today(), description: it.description, quantity: it.quantity,
-      unitPrice: it.unitPrice, vatExempt: src.vatExempt ? 'yes' : 'no' };
+      unitPrice: it.unitPrice, kind: it.kind === 'service' ? 'service' : 'goods', vatExempt: src.vatExempt ? 'yes' : 'no' };
     const schema = src.kind === 'invoice' ? formSchemas['acct-invoices'] : salesDocSchema(src.kind);
     await openSubForm(schema, values);
     if (src.items.length > 1) showToast('שוכפלה השורה הראשונה בלבד — הטופס תומך בשורה אחת');
@@ -1092,7 +1125,8 @@ function attachDocSearch() {
 function acctInvoiceKeys(e) {
   if (state.currentView !== 'acct-invoices') return;
   const modalOpen = elements.modal && !elements.modal.classList.contains('hidden');
-  if (modalOpen && e.ctrlKey && e.key === 'Enter') { e.preventDefault(); handleSubmit(); return; }
+  // חזרה אוטומטית של מקש מוחזק — לא שליחה נוספת (סקירת קוד 2.11.2026)
+  if (modalOpen && e.ctrlKey && e.key === 'Enter') { e.preventDefault(); if (!e.repeat) handleSubmit(); return; }
   if (modalOpen || document.querySelector('.modal:not(.hidden):not(#modal)')) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '');
   if (e.altKey && (e.key === 'n' || e.key === 'N' || e.code === 'KeyN')) { e.preventDefault(); handleAdd(); return; }

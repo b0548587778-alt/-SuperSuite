@@ -103,7 +103,7 @@ test('השלמת לקוחות: שם ו-ע.מ, לפי שכיחות; חיפוש ב
   assert.deepEqual(await svc.searchDocuments('  '), []);
   const dup = await svc.getDuplicateInput('invoice', a.id);
   assert.deepEqual(dup, { kind: 'invoice', customer: 'ישיבת אור התורה', customerTaxId: '515555555', vatExempt: false,
-    items: [{ description: 'סט משנה ברורה', quantity: 2, unitPrice: 300, account: '4000' }] });
+    items: [{ description: 'סט משנה ברורה', quantity: 2, unitPrice: 300, account: '4000', kind: 'goods' }] });
   assert.equal((await svc.getDuplicateInput('quote', q.id)).kind, 'quote');
   await assert.rejects(svc.getDuplicateInput('invoice', 'nope'), /לא נמצא/);
 });

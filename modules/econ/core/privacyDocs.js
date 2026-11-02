@@ -159,10 +159,10 @@ const LABELS = {
   role: 'סוג לקוח', email: 'דוא"ל', areas: 'אזורים מבוקשים', types: 'סוגי נכס מבוקשים', minRooms: 'חדרים — מינימום', maxRooms: 'חדרים — מקסימום',
   budgetMinAg: 'תקציב מינימלי (אגורות)', budgetMaxAg: 'תקציב מקסימלי (אגורות)', needsMortgage: 'צריך משכנתא',
   propertyAddress: 'כתובת הנכס', effectiveDate: 'מועד קובע', caseStatus: 'מצב התיק',
-  supplierName: 'שם הספק', supplierTaxId: 'מספר עוסק'
+  supplierName: 'שם הספק', supplierTaxId: 'מספר עוסק', cancelCreditNumber: 'בוטלה בחשבונית זיכוי', printedAt: 'הודפס'
 };
 // מזהים פנימיים בלבד — לא מידע על האדם
-const SKIP = new Set(['id', 'entryId', 'paymentEntryId', 'reversalEntryId', 'loanId', 'itemId', 'applicationId', 'ambassadorId', 'standingOrderId', 'chequeGroupId', 'replacesId', 'replacedBy', 'realtyDealId', 'mortgageCaseId', 'advisorId', 'buyerClientId', 'sellerClientId', 'propertyId']);
+const SKIP = new Set(['id', 'entryId', 'paymentEntryId', 'reversalEntryId', 'loanId', 'itemId', 'applicationId', 'ambassadorId', 'standingOrderId', 'chequeGroupId', 'replacesId', 'replacedBy', 'realtyDealId', 'mortgageCaseId', 'advisorId', 'buyerClientId', 'sellerClientId', 'propertyId', 'cancelCreditId', 'issuer']);
 
 function show(key, v) {
   if (v === null || v === undefined || v === '') return '';

@@ -418,8 +418,11 @@ function attachRealtyCommissionHandlers() {
     catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
   }));
   document.querySelectorAll('[data-rlty-invoice]').forEach(b => b.addEventListener('click', async () => {
-    if (!(await askConfirm('להפיק חשבונית מס/קבלה על התשלום הזה? החשבונית תירשם בהנהלת החשבונות ותקבל מספר.'))) return;
-    try { const r = await window.systemAPI.issueRealtyCommissionInvoice(deal.id, b.dataset.rltyInvoice, { confirmed: true }); showToast(`הופקה חשבונית מספר ${r.number}`); await switchView('realty'); }
+    // ע.מ של הלקוח — רק כשהוא עוסק (ת"ז של לקוח פרטי אינה מספר עוסק, ולכן לא נלקחת מהכרטיס); סקירת קוד 2.11.2026
+    const v = await askDocFields('להפיק חשבונית על התשלום? היא תירשם בהנהלת החשבונות ותקבל מספר', [
+      { name: 'customerTaxId', label: 'ע.מ / ח.פ של הלקוח — רק אם הוא עוסק (לא חובה)' }], 'הפקת החשבונית');
+    if (!v) return;
+    try { const r = await window.systemAPI.issueRealtyCommissionInvoice(deal.id, b.dataset.rltyInvoice, { confirmed: true, customerTaxId: v.customerTaxId || '' }); showToast(`הופקה חשבונית מספר ${r.number}`); await switchView('realty'); }
     catch (error) { showError('שגיאה בהפקת החשבונית: ' + errMsg(error)); }
   }));
   document.querySelectorAll('[data-rlty-order-pdf]').forEach(b => b.addEventListener('click', async () => {

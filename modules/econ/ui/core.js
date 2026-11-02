@@ -383,7 +383,7 @@ async function loadDashboardData() {
     window.systemAPI.getTasks().catch(() => null),
     window.systemAPI.getMarketIntel().catch(() => null),
     window.systemAPI.getAccountingReports({ from: yearStart(), to: today() }).catch(() => null),
-    window.systemAPI.getInvoices().catch(() => []),
+    window.systemAPI.getInvoices({ limit: 5 }).catch(() => []),
     window.systemAPI.getProducts().catch(() => []),
     // לוח הבוקר (עמותה, גמ"ח, חסד) — תחום סגור ברישיון או תקלה לא מפילים את מסך הבית
     typeof window.systemAPI.getMorningBrief === 'function' ? window.systemAPI.getMorningBrief().catch(() => null) : null,

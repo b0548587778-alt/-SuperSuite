@@ -506,9 +506,12 @@ function attachMadvFeeHandlers() {
   document.querySelectorAll('[data-madv-invoice]').forEach(btn => btn.addEventListener('click', async () => {
     // מעמד המע"מ שננעל בתיק בתשלום הראשון (לא ההגדרה הנוכחית של המשרד)
     const exempt = !!(madvClient(btn.dataset.madvInvoice) || {}).feeExempt;
-    if (!(await askConfirm(`להפיק ${exempt ? 'חשבונית עסקה וקבלה' : 'חשבונית מס/קבלה'} על התשלום הזה? החשבונית תירשם בהנהלת החשבונות ותקבל מספר.`))) return;
+    // ע.מ של הלקוח — רק כשהוא עוסק (לא חובה); בלעדיו חשבונית מעל הסף מודפסת "אין לנכות" (סקירת קוד 2.11.2026)
+    const v = await askDocFields(`להפיק ${exempt ? 'חשבונית עסקה וקבלה' : 'חשבונית מס/קבלה'} על התשלום? היא תירשם בהנהלת החשבונות ותקבל מספר`, [
+      { name: 'customerTaxId', label: 'ע.מ / ח.פ של הלקוח — רק אם הוא עוסק (לא חובה)' }], 'הפקת החשבונית');
+    if (!v) return;
     try {
-      const r = await window.systemAPI.issueMortgageFeeInvoice(btn.dataset.madvInvoice, btn.dataset.pay, { confirmed: true });
+      const r = await window.systemAPI.issueMortgageFeeInvoice(btn.dataset.madvInvoice, btn.dataset.pay, { confirmed: true, customerTaxId: v.customerTaxId || '' });
       showToast(`הופקה חשבונית מספר ${r.number}`);
       await switchView('mortgage-advisor');
     } catch (error) { showError('שגיאה בהפקת החשבונית: ' + errMsg(error)); }

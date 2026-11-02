@@ -14,6 +14,15 @@ const IC = require('../core/invoiceCapture');
 const { assertIsraeliId, isValidIsraeliId } = require('../core/israeliId');
 
 const toAgSafe = (n) => Math.round(Number(n) * 100);
+// פרטי העסק שנשמרים במסמך בעת ההפקה — הדפסה חוזרת מהם, לא מההגדרות של היום (סקירת קוד 2.11.2026).
+// הלוגו לא נשמר בכל מסמך (עד 200KB) — נלקח מההגדרות
+const ISSUER_FIELDS = ['name', 'taxId', 'address', 'phone', 'email', 'signature', 'brandColor'];
+const issuerOf = (data) => {
+  const b = (data.settings && data.settings.business) || {};
+  const out = {};
+  for (const k of ISSUER_FIELDS) if (b[k]) out[k] = String(b[k]);
+  return out;
+};
 // היום לפי השעון המקומי — לא toISOString (UTC), שמזיז את התאריך בין חצות ל-03:00
 const localDay = (ms = Date.now()) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const fromAgSafe = (a) => Math.round(a) / 100;
@@ -154,18 +163,43 @@ class AccountingService {
   }
 
   // ---------- חשבוניות מס ----------
-  async getInvoices() {
+  async getInvoices({ limit } = {}) {
     const data = await this._load();
+    const max = Number.isSafeInteger(limit) && limit > 0 ? limit : Infinity;
     // allocation: מצב מספר ההקצאה לתצוגה — מחושב ולא נשמר (הסף תלוי בתאריך)
-    return [...data.invoices].sort((a, b) => b.number - a.number).map(i => this._invoiceView(data, i));
+    // מעבר אחד על מסמכי המכירה לכל הרשימה — לא סריקה לכל חשבונית (O(חשבוניות × מסמכים); סקירת קוד 2.11.2026)
+    const idx = this._docIndex(data);
+    return [...data.invoices].sort((a, b) => b.number - a.number).slice(0, max).map(i => this._invoiceView(data, i, idx));
   }
 
-  _invoiceView(data, i) {
-    const credited = SD.creditedAg(data.salesDocs, i.id);
-    const receipt = data.salesDocs.find(d => d.kind === 'receipt' && d.invoiceId === i.id && d.status !== 'cancelled');
+  // זיכויים פעילים (אגורות, סה"כ ונטו) והקבלה הפעילה לכל חשבונית
+  _docIndex(data) {
+    const credits = new Map();
+    const receipts = new Map();
+    for (const d of data.salesDocs || []) {
+      if (d.status === 'cancelled' || !d.invoiceId) continue;
+      if (d.kind === 'credit') {
+        const c = credits.get(d.invoiceId) || { total: 0, net: 0 };
+        c.total += A.toAg(d.total || 0);
+        c.net += A.toAg(d.net || 0);
+        credits.set(d.invoiceId, c);
+      } else if (d.kind === 'receipt' && !receipts.has(d.invoiceId)) receipts.set(d.invoiceId, d);
+    }
+    return { credits, receipts };
+  }
+
+  // יתרה לגבייה אחרי זיכויים (אגורות) — רק חשבונית פתוחה
+  _openBalanceAg(inv, idx) {
+    if (inv.status !== 'open') return 0;
+    return Math.max(0, A.toAg(inv.total) - ((idx.credits.get(inv.id) || {}).total || 0));
+  }
+
+  _invoiceView(data, i, idx = this._docIndex(data)) {
+    const c = idx.credits.get(i.id) || { total: 0, net: 0 };
+    const receipt = idx.receipts.get(i.id);
     // netBalance — יתרת הנטו לזיכוי: הסכום שמקלידים בזיכוי חלקי כדי לסגור את החשבונית עד האגורה
-    return { ...i, allocation: AL.allocationState(i), credited: A.fromAg(credited), balance: A.fromAg(A.toAg(i.total) - credited),
-      netBalance: A.fromAg(A.toAg(i.net) - SD.creditedAg(data.salesDocs, i.id, 'net')),
+    return { ...i, allocation: AL.allocationState(i), credited: A.fromAg(c.total), balance: A.fromAg(A.toAg(i.total) - c.total),
+      netBalance: A.fromAg(A.toAg(i.net) - c.net),
       ...(receipt ? { receiptNumber: receipt.number, receiptId: receipt.id } : {}) };
   }
 
@@ -205,7 +239,7 @@ class AccountingService {
     const invoice = {
       id: crypto.randomUUID(), number, date, customer: inv.customer,
       items: computed.items, net: computed.net, vat: computed.vat, total: computed.total,
-      vatExempt: computed.vatExempt, status: 'open', entryId: entry.id, createdAt: new Date().toISOString()
+      vatExempt: computed.vatExempt, status: 'open', entryId: entry.id, issuer: issuerOf(data), createdAt: new Date().toISOString()
     };
     // שיעור המע"מ בזמן ההפקה (שדה 1268 במבנה אחיד) — היחס מע"מ/נטו אינו מדויק בחשבונית קטנה, וההגדרה יכולה להשתנות
     if (!invoice.vatExempt) invoice.vatRate = rate;
@@ -237,7 +271,8 @@ class AccountingService {
   // תשלום עמלת ייעוץ משכנתא (madv) ← חשבונית מס/קבלה, פעם אחת לכל תשלום.
   // source.key ייחודי לתשלום; הבדיקה לכפילות באותה טעינה של המסד שבה נשמרת החדשה
   // גם לדמי תיווך (rlty) — אותו מבנה, מפתח שונה
-  async createAdvisoryReceipt({ customer, date, grossAgorot, description, method, reference, key, exempt = false }) {
+  // customerTaxId — ע.מ / ת"ז של הלקוח (מכרטיס הלקוח או מהחלון), כמו בחשבונית רגילה (סקירת קוד 2.11.2026)
+  async createAdvisoryReceipt({ customer, customerTaxId, date, grossAgorot, description, method, reference, key, exempt = false }) {
     if (!Number.isSafeInteger(grossAgorot) || grossAgorot <= 0) throw new Error('סכום החשבונית אינו תקין');
     const k = String(key || '');
     if (!/^(madv|rlty):[\w-]{1,80}:[\w-]{1,80}$/.test(k)) throw new Error('חסר שיוך לתשלום בתיק');
@@ -245,7 +280,8 @@ class AccountingService {
     const prev = data.invoices.find(i => i.advisoryPayment && i.advisoryPayment.key === k && i.status !== 'cancelled');
     if (prev) throw new Error(`כבר הופקה חשבונית לתשלום הזה (מספר ${prev.number})`);
     const items = [{ description, quantity: 1, unitPrice: exempt ? A.fromAg(grossAgorot) : A.netFromGross(grossAgorot, this._vatRate(data)), kind: 'service' }];
-    const stored = this._createInvoiceIn(data, exempt ? { customer, date, items, vatExempt: true } : { customer, date, grossAgorot, items });
+    const taxId = String(customerTaxId || '').replace(/\D/g, '');
+    const stored = this._createInvoiceIn(data, exempt ? { customer, customerTaxId: taxId, date, items, vatExempt: true } : { customer, customerTaxId: taxId, date, grossAgorot, items });
     if (Math.round(stored.total * 100) !== grossAgorot) throw new Error('סכום החשבונית אינו תואם לסכום ששולם');
     this._payIn(data, stored, { date: stored.date, ...SD.validatePayment({ method, reference }), issueReceipt: exempt });
     if (!exempt) stored.kind = 'tax-invoice-receipt';
@@ -296,7 +332,7 @@ class AccountingService {
       const number = SD.nextNumber(data.salesDocs, 'receipt', seqs);
       data.salesDocs.push({ id: crypto.randomUUID(), kind: 'receipt', number, date, customer: inv.customer,
         ...(inv.customerTaxId ? { customerTaxId: inv.customerTaxId } : {}), invoiceId: inv.id, invoiceNumber: inv.number,
-        total: amount, method, ...(reference ? { reference } : {}), status: 'open', entryId: payment.id, createdAt: new Date().toISOString() });
+        total: amount, method, ...(reference ? { reference } : {}), status: 'open', entryId: payment.id, issuer: issuerOf(data), createdAt: new Date().toISOString() });
       data.settings.docSeq = { ...seqs, receipt: number };
     }
   }
@@ -390,6 +426,7 @@ class AccountingService {
     const data = await this._load();
     const period = { from: from || undefined, to: to || undefined };
     const asOf = to || localDay();
+    const idx = this._docIndex(data);
     return {
       period: { from: from || null, to: asOf },
       vatRate: this._vatRate(data),
@@ -398,13 +435,14 @@ class AccountingService {
       incomeStatement: A.incomeStatement(data.journal, data.accounts, period),
       balanceSheet: A.balanceSheet(data.journal, data.accounts, { asOf }),
       vat: A.vatReport(data.journal, period),
-      openInvoices: data.invoices.filter(i => i.status === 'open').reduce((t, i) => t + Math.round(i.total * 100), 0) / 100,
-      aged: this._aged(data, asOf)
+      // היתרה אחרי זיכויים (כמו customerBalances) — חשבונית שזוכתה במלואה אינה חוב פתוח (סקירת קוד 2.11.2026)
+      openInvoices: A.fromAg(data.invoices.reduce((t, i) => t + this._openBalanceAg(i, idx), 0)),
+      aged: this._aged(data, asOf, idx)
     };
   }
 
-  // גיול חייבים: חשבוניות פתוחות לפי מספר ימים מתאריך החשבונית
-  _aged(data, asOf) {
+  // גיול חייבים: יתרת החשבוניות הפתוחות (אחרי זיכויים) לפי מספר ימים מתאריך החשבונית
+  _aged(data, asOf, idx = this._docIndex(data)) {
     const buckets = [
       { label: 'עד 30 יום', min: 0, max: 30, total: 0, count: 0 },
       { label: '31–60 יום', min: 31, max: 60, total: 0, count: 0 },
@@ -413,30 +451,40 @@ class AccountingService {
     ];
     const ref = Date.parse(asOf + 'T00:00:00Z');
     const items = [];
-    for (const inv of data.invoices.filter(i => i.status === 'open')) {
+    for (const inv of data.invoices) {
+      // זוכתה במלואה — אינה בגיול
+      const openAg = this._openBalanceAg(inv, idx);
+      if (!openAg) continue;
       const days = Math.max(0, Math.floor((ref - Date.parse(inv.date + 'T00:00:00Z')) / 86400000));
       const b = buckets.find(x => days >= x.min && days <= x.max) || buckets[buckets.length - 1];
-      b.total = fromAgSafe(toAgSafe(b.total) + toAgSafe(inv.total));
+      b.total = fromAgSafe(toAgSafe(b.total) + openAg);
       b.count += 1;
-      items.push({ number: inv.number, customer: inv.customer, date: inv.date, total: inv.total, days });
+      items.push({ number: inv.number, customer: inv.customer, date: inv.date, total: A.fromAg(openAg), days });
     }
     items.sort((a, b) => b.days - a.days);
     return { buckets, items };
   }
 
-  // ביטול חשבונית: רושמים חשבונית זיכוי (היפוך של הרשומה המקורית), החשבונית נשארת ברשימה כמבוטלת
-  async cancelInvoice(invoiceId) {
+  // ביטול חשבונית = חשבונית זיכוי מלאה אמיתית (330): מספר, הפניה לחשבונית, הדפסה, מבנה אחיד ו-PCN874.
+  // רשומת היומן של הזיכוי היא ההיפוך — אין היפוך נפרד (אחרת המע"מ מתבטל פעמיים). תאריך הביטול = תאריך הזיכוי,
+  // כך שהיומן, PCN874 והכרטסת באותו חודש; חשבונית עתידית — בתאריך שלה (סקירת קוד 2.11.2026).
+  // חשבונית שבוטלה לפני השינוי (reversalEntryId, בלי cancelCreditId) נשארת כמו שהיא
+  async cancelInvoice(invoiceId, { date, reason } = {}) {
     const data = await this._load();
     const inv = data.invoices.find(i => i.id === invoiceId);
     if (!inv) throw new Error('חשבונית לא נמצאה');
     if (inv.status === 'cancelled') throw new Error('החשבונית כבר בוטלה');
     if (inv.status === 'paid') throw new Error('לא ניתן לבטל חשבונית ששולמה — יש לבטל קודם את הגבייה');
     if (SD.creditedAg(data.salesDocs, inv.id)) throw new Error('לחשבונית יש חשבונית זיכוי — המשך הטיפול בחשבונית זיכוי נוספת');
-    // שמירה אחת: או שהכול נשמר (היפוך + סטטוס) או כלום
-    const reversal = this._reverseIn(data, inv.entryId, { allowInvoiceEntry: true });
+    const today = localDay();
+    const day = date || (today < inv.date ? inv.date : today);
+    const why = String(reason || '').trim().slice(0, 300) || `ביטול חשבונית ${inv.number}`;
+    // שמירה אחת: הזיכוי, רשומת היומן והסטטוס — או כלום
+    const doc = this._creditIn(data, inv, { date: day, reason: why }, { cancels: true });
     inv.status = 'cancelled';
-    inv.cancelledAt = localDay();
-    inv.reversalEntryId = reversal.id;
+    inv.cancelledAt = doc.date;
+    inv.cancelCreditId = doc.id;
+    inv.cancelCreditNumber = doc.number;
     await this.db.save(data);
     return inv;
   }
@@ -538,7 +586,9 @@ class AccountingService {
     const src = kind === 'invoice' ? data.invoices.find(i => i.id === id) : data.salesDocs.find(d => d.id === id && SD.DRAFT_KINDS.includes(d.kind));
     if (!src) throw new Error('המסמך לא נמצא');
     return { kind: kind === 'invoice' ? 'invoice' : src.kind, customer: src.customer, customerTaxId: src.customerTaxId || '', vatExempt: !!src.vatExempt,
-      items: src.items.map(it => ({ description: it.description, quantity: it.quantity, unitPrice: it.unitPrice, account: it.account })) };
+      // kind — סוג הפריט לטופס (שירות / מוצר) לפי חשבון ההכנסה; בלעדיו חשבונית שירות שוכפלה כמכירת סחורות (סקירת קוד 2.11.2026)
+      items: src.items.map(it => ({ description: it.description, quantity: it.quantity, unitPrice: it.unitPrice, account: it.account,
+        kind: String(it.account) === A.SYS.SERVICES ? 'service' : 'goods' })) };
   }
 
   // ---------- מסמכי מכירה (PLAN.md 9.3): הצעת מחיר, הזמנה, תעודת משלוח, זיכוי, קבלה ----------
@@ -551,14 +601,27 @@ class AccountingService {
     const data = await this._load();
     const d = data.salesDocs.find(x => x.id === docId);
     if (!d) throw new Error('המסמך לא נמצא');
-    return SD.docView(d);
+    // זיכוי וקבלה: סוג החשבונית שהם מפנים אליה — בעוסק פטור "חשבונית עסקה", לא "חשבונית מס" (סקירת קוד 2.11.2026)
+    const base = d.invoiceId && data.invoices.find(i => i.id === d.invoiceId);
+    return { ...SD.docView(d), ...(base ? { baseLabel: SD.invoiceLabel(base) } : {}) };
+  }
+
+  // הדפסה של מסמך רשמי (חשבונית, זיכוי, קבלה): ההדפסה הראשונה — "מקור", כל הדפסה אחריה — "העתק".
+  // נקרא אחרי שהקובץ נשמר (handleSave). kind: 'invoice' או 'doc'
+  async markPrinted(kind, id) {
+    const data = await this._load();
+    const rec = kind === 'invoice' ? data.invoices.find(i => i.id === id) : data.salesDocs.find(d => d.id === id);
+    if (!rec || rec.printedAt) return false;
+    rec.printedAt = new Date().toISOString();
+    await this.db.save(data);
+    return true;
   }
 
   _pushDoc(data, doc) {
     data.settings = data.settings || {};
     const seqs = data.settings.docSeq || {};
     const number = SD.nextNumber(data.salesDocs, doc.kind, seqs);
-    const stored = { id: crypto.randomUUID(), ...doc, number, status: 'open', createdAt: new Date().toISOString() };
+    const stored = { id: crypto.randomUUID(), ...doc, number, status: 'open', issuer: issuerOf(data), createdAt: new Date().toISOString() };
     data.salesDocs.push(stored);
     data.settings.docSeq = { ...seqs, [doc.kind]: number };
     return stored;
@@ -611,15 +674,20 @@ class AccountingService {
   async createCreditNote(invoiceId, input = {}) {
     const data = await this._load();
     const inv = data.invoices.find(i => i.id === invoiceId);
+    const doc = this._creditIn(data, inv, input);
+    await this.db.save(data);
+    return SD.docView(doc);
+  }
+
+  // זיכוי בתוך טעינה אחת של המסד: המסמך ורשומת היומן שלו (משותף לזיכוי ולביטול חשבונית)
+  _creditIn(data, inv, input, extra = {}) {
     const credit = SD.validateCredit(inv, input, data.salesDocs);
     this._assertOpen(data, credit.date);
     data.settings = data.settings || {};
     const number = SD.nextNumber(data.salesDocs, 'credit', data.settings.docSeq || {});
     const entry = { id: crypto.randomUUID(), ...A.validateEntry(SD.creditToEntry(credit, number), data.accounts), createdAt: new Date().toISOString() };
     data.journal.push(entry);
-    const doc = this._pushDoc(data, { ...credit, entryId: entry.id });
-    await this.db.save(data);
-    return SD.docView(doc);
+    return this._pushDoc(data, { ...credit, ...extra, entryId: entry.id });
   }
 
   // ---------- מספר הקצאה (חשבוניות ישראל, נתיב ידני — PLAN.md 9.2א) ----------
