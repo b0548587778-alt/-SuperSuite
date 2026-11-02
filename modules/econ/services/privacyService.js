@@ -21,7 +21,8 @@ class PrivacyService {
     const data = await this.db.load();
     const counts = {};
     for (const u of users || []) if (u.active !== false) counts[u.role] = (counts[u.role] || 0) + 1;
-    const map = PR.dataMap(data, counts, { mailboxes: opts && opts.mailboxes });
+    // מצב ההצפנה בפועל — המסמכים לא טוענים "מסד מוצפן" כשאין הצפנה (סקירת קוד 2.11.2026)
+    const map = PR.dataMap(data, counts, { mailboxes: opts && opts.mailboxes, encrypted: !!this.db && this.db.atRestStatus === 'encrypted' });
     const today = localDay();
     const requests = ((data.privacy && data.privacy.requests) || []).map(r => PR.requestView(r, today))
       .sort((a, b) => (b.status === 'open') - (a.status === 'open') || b.receivedDate.localeCompare(a.receivedDate));

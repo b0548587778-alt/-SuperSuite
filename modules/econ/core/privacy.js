@@ -35,13 +35,14 @@ function mailboxRows(mb) {
 }
 
 // opts.mailboxes — תיבות ההודעות (mailboxRows למעלה); בלעדיו — רק המאגרים שבמסד
+// opts.encrypted — האם המסד במחשב הזה מוצפן בפועל (atRestStatus). בלי DPAPI ובאנדרואיד — לא (סקירת קוד 2.11.2026)
 function dataMap(data, userCounts = {}, opts = {}) {
   const npo = data.npo || {};
   const gm = data.gemach || {};
   const ch = data.chesed || {};
   const bens = Array.isArray(ch.beneficiaries) ? ch.beneficiaries : [];
   const conf = bens.filter(b => b.tier === 'confidential').length;
-  const all = 'כל המשתמשים המחוברים (צופה, עורך, מנהל)';
+  const all = 'כל המשתמשים המחוברים (צופה, עורך, מנהל, רואה חשבון)';
   const rows = [
     { area: 'עמותה — תורמים וקבלות', count: len(npo.donations), fields: 'שם, ת.ז, טלפון, כתובת, סכום', sensitivity: 'regular', access: all },
     { area: 'עמותה — הוראות קבע', count: len(npo.standingOrders), fields: 'שם, ת.ז, טלפון, כתובת, סכום חודשי; בהוראה בנקאית במס"ב — בנק, סניף וחשבון (בלי פרטי אשראי)', sensitivity: 'regular', access: all },
@@ -67,11 +68,13 @@ function dataMap(data, userCounts = {}, opts = {}) {
   ];
   const mail = mailboxRows(opts && opts.mailboxes);
   rows.push(...mail);
+  const encrypted = !!(opts && opts.encrypted);
   return {
+    encrypted,
     rows: rows.map(r => ({ ...r, sensitivityLabel: SENSITIVITY[r.sensitivity] })),
     users: { admin: userCounts.admin || 0, editor: userCounts.editor || 0, viewer: userCounts.viewer || 0, accountant: userCounts.accountant || 0 },
     storage: [
-      'מסד נתונים מקומי במחשב (תיקיית נתוני המשתמש של התוכנה) — לא נשלח לאינטרנט',
+      `מסד נתונים מקומי במחשב (תיקיית נתוני המשתמש של התוכנה), ${encrypted ? 'מוצפן' : 'לא מוצפן במכשיר הזה'} — לא נשלח לאינטרנט`,
       'גיבוי ידני ואוטומטי — מוצפן בסיסמה (קובץ ‎.ssbk)',
       'קובצי ייצוא (CSV / PDF) — נשמרים במקום שהמשתמש בוחר, ללא הצפנה. יש לשמור ולמחוק אותם בהתאם',
       ...mail.map(r => `${r.area}: ${r.storedAt}; ${r.encryption}. ${r.retention}. גיבוי: ${r.backup}`)
