@@ -9,7 +9,9 @@
 // node_modules/electron/dist. אם ה-zip כבר קיים במטמון של Electron בדיסק,
 // מעבירים אותו ל-electron-builder דרך הגדרת electronDist — וכך אין הורדה כלל.
 //
-// הרצה:  node build-local.js
+// הרצה:  node build-local.js                     (המהדורה המלאה, כמו קודם)
+//        node build-local.js --product=all       (ארבע המהדורות: מלאה, עמותות, נדל"ן ועסקים, חשבונאות)
+//        node build-local.js --product=npo       (מהדורה אחת: npo / realty / acct / full)
 // או:    node build-local.js --check     (רק לבדוק מה קיים, בלי לבנות)
 
 'use strict';
@@ -21,6 +23,21 @@ const { spawnSync } = require('child_process');
 
 const ROOT = __dirname;
 const CHECK_ONLY = process.argv.includes('--check');
+// --product=<id> / --product <id> / --product=all (shell/edition.js). בלי — המלאה בלבד, כמו קודם
+function parseProducts(argv) {
+  const ids = require('./shell/edition').IDS;
+  const i = argv.findIndex(a => a === '--product' || a.startsWith('--product='));
+  if (i < 0) return ['full'];
+  const v = argv[i].includes('=') ? argv[i].split('=')[1] : argv[i + 1];
+  if (v === 'all') return require('./tools/edition-build').ORDER;
+  const list = String(v || '').split(',').filter(Boolean);
+  const bad = list.filter(x => !ids.includes(x));
+  if (!list.length || bad.length) throw new Error('מהדורה לא מוכרת: ' + (bad.join(', ') || '(ריק)') + ' — אחת מ: ' + ids.join(', ') + ' או all');
+  return list;
+}
+let PRODUCTS;
+try { PRODUCTS = parseProducts(process.argv); }
+catch (e) { console.error(e.message); process.exit(2); }
 
 // --- פלט ברור: כותרת, וסימון הצלחה/כישלון ---
 const ok = (msg) => console.log('  ✔ ' + msg);
@@ -232,41 +249,51 @@ async function main() {
   console.log('  חתימת קוד: ' + require('./tools/code-signing').MODE_TEXT[signing.mode]);
   if (signing.mode !== 'none') info('החתימה פונה לשרת חותמת הזמן של ספק התעודה — אם הוא חסום בסינון, הבנייה תיכשל בשלב החתימה.');
 
-  console.log('  מריץ: electron-builder --win nsis portable');
-  console.log('  (ייתכן שייקח מספר דקות)\n');
-
-  const res = spawnSync(process.execPath, [builderJs, ...builderArgs], {
-    cwd: ROOT, env, stdio: 'inherit',
-  });
-
-  if (res.error) {
-    console.log('\nשגיאה בהרצת הבנייה: ' + res.error.message);
-    process.exitCode = 1;
-    return;
-  }
-  if (res.status !== 0) {
-    console.log('\nהבנייה נכשלה (קוד ' + res.status + ').');
-    console.log('אם השגיאה מזכירה הורדה/רשת — כנראה פריט חסר במטמון; ראו שלב 2 לעיל.');
-    process.exitCode = res.status || 1;
-    return;
+  // המהדורות (shell/edition.js): כל אחת בתורה. edition-id.js חוזר ל-full בסוף — גם אחרי כישלון
+  const EB = require('./tools/edition-build');
+  const built = [];
+  try {
+    for (const id of PRODUCTS) {
+      const ed = require('./shell/edition').get(id);
+      step(`4. בנייה — ${ed.name} (electron-builder מקומי)`);
+      EB.setEdition(id);
+      const args = [...builderArgs, ...EB.builderArgs(id)];
+      console.log('  מריץ: electron-builder --win nsis portable' + (id === 'full' ? '' : ' (' + id + ')'));
+      console.log('  (ייתכן שייקח מספר דקות)\n');
+      const res = spawnSync(process.execPath, [builderJs, ...args], { cwd: ROOT, env, stdio: 'inherit' });
+      if (res.error) {
+        console.log('\nשגיאה בהרצת הבנייה: ' + res.error.message);
+        process.exitCode = 1;
+        return;
+      }
+      if (res.status !== 0) {
+        console.log('\nהבנייה נכשלה (קוד ' + res.status + ').');
+        console.log('אם השגיאה מזכירה הורדה/רשת — כנראה פריט חסר במטמון; ראו שלב 2 לעיל.');
+        process.exitCode = res.status || 1;
+        return;
+      }
+      built.push(id);
+    }
+  } finally {
+    EB.setEdition('full');
   }
 
   // --- 5. סיכום ---
   step('5. סיום');
-  const distDir = path.join(ROOT, 'dist');
-  const wanted = ['SuperSuite-Setup.exe', 'SuperSuite-Portable.exe'];
-  let found = 0;
-  for (const f of wanted) {
-    if (exists(path.join(distDir, f))) { ok(f); found++; }
+  let notFound = 0;
+  for (const id of built) {
+    for (const f of EB.files(id)) {
+      if (exists(path.join(ROOT, f))) ok(f.replace(/\//g, '\\'));
+      else { bad('חסר: ' + f); notFound++; }
+    }
   }
-  if (found === 0) {
-    bad('הבנייה דיווחה הצלחה אך הקבצים לא נמצאו ב-dist\\');
-    info('בדקו את תוכן ' + distDir);
+  if (notFound) {
+    bad('הבנייה דיווחה הצלחה אך חלק מהקבצים לא נמצאו ב-dist\\');
     process.exitCode = 1;
     return;
   }
-  console.log('\nהקבצים נמצאים ב: ' + distDir);
-  console.log('חשוב: יש להריץ את ה-EXE פעם אחת ולבדוק עלייה, התחברות וגיבוי —');
+  console.log('\nהקבצים נמצאים ב: ' + path.join(ROOT, 'dist'));
+  console.log('חשוב: יש להריץ כל EXE פעם אחת ולבדוק עלייה, התחברות וגיבוי —');
   console.log('הבדיקות אינן מכסות את המתקין עצמו.');
 }
 

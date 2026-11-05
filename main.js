@@ -28,6 +28,9 @@ const LoginGate = require('./shell/login-gate');
 const Tasks = require('./shell/tasks');
 const { createLogger } = require('./shell/logger');
 const { createCrashGuard, MODULE_NAMES } = require('./shell/crash');
+// המהדורה (shell/edition.js): תיקיית נתונים משלה — לפני כל שימוש ב-userData (היומן, המסד, נעילת המופע היחיד)
+const Edition = require('./shell/edition');
+{ const dir = Edition.userDataDir(app.getPath('appData'), process.argv, path.join); if (dir) app.setPath('userData', dir); }
 // יומן תקלות ורשת ביטחון לקריסות (PLAN.md 2.1–2.2) — מותקנים לפני כל דבר אחר, כדי לתפוס גם תקלה בעלייה
 const logger = createLogger({ dir: app.getPath('userData') });
 const crash = createCrashGuard({ logger, dialog, app, getWin: () => win, version: app.getVersion ? String(app.getVersion()) : '',
@@ -57,6 +60,9 @@ const history = NavHistory.create();
 let replaying = false;
 // מודול האימונים (trainer) עבר למוצר החינוכי הנפרד — גיבוי ישן שכולל אותו משוחזר בלי החלק הזה (restoreAllRun)
 const MODS = ['econ', 'shamai', 'tools'];
+// המודולים של המהדורה (shell/edition.js): רק הם מוגשים ונטענים. הגיבוי והשחזור — לפי MODS (כל המודולים),
+// כדי שנתונים של מודול מחוץ למהדורה יישמרו ולא יאבדו במעבר בין מהדורות
+const ACTIVE_MODS = MODS.filter(m => Edition.modAllowed(m));
 const LS_MODS = ['shamai', 'tools'];
 const BACKUP_SCOPES = ['all', ...MODS];
 const ENTRY = {
@@ -88,7 +94,7 @@ function registerProtocol() {
   protocol.handle('app', req => {
     const url = new URL(req.url);
     const mod = url.hostname;
-    if (!MODS.includes(mod)) return new Response('Not found', { status: 404 });
+    if (!ACTIVE_MODS.includes(mod)) return new Response('Not found', { status: 404 });
     const root = path.join(modulesRoot(), mod);
     let rel;
     try { rel = decodeURIComponent(url.pathname); }
@@ -1477,7 +1483,7 @@ app.whenReady().then(async () => {
       await new Promise(r => setTimeout(r, 1200));
       return views[id].webContents.capturePage();
     };
-    smoke.run((id) => (id === 'shell' ? win.webContents : ensureView(id).webContents), ['shell', ...MODS], waitLoaded, capture);
+    smoke.run((id) => (id === 'shell' ? win.webContents : ensureView(id).webContents), ['shell', ...ACTIVE_MODS], waitLoaded, capture);
     return;
   }
   setTimeout(autoBackup, 15000);

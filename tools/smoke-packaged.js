@@ -9,8 +9,11 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const APP = path.join(ROOT, 'dist', 'win-unpacked');
-const EXE = path.join(APP, 'SuperSuite.exe');
+// --edition <id> (shell/edition.js) — התיקייה ושם ה-EXE של המהדורה (tools/edition-build.js). בלי — המלאה, כמו קודם
+const EDITION = (() => { const i = process.argv.indexOf('--edition'); return i > 0 ? process.argv[i + 1] : 'full'; })();
+const EB = require('./edition-build');
+const APP = path.join(ROOT, EB.app(EDITION).dir);
+const EXE = path.join(APP, EB.app(EDITION).exe);
 const LOG = process.env.SMOKE_LOG || path.join(ROOT, 'ci-logs', 'smoke.log');
 
 const lines = [];
@@ -55,11 +58,12 @@ function checkTamper() {
   asar.extractAll(archive, ex);
   // שינוי קטן בקובץ אחד, ואריזה מחדש
   fs.appendFileSync(path.join(ex, 'main.js'), '\n// tampered\n');
-  return asar.createPackage(ex, archive).then(() => refuses('tamper', path.join(copy, 'SuperSuite.exe'), []));
+  return asar.createPackage(ex, archive).then(() => refuses('tamper', path.join(copy, path.basename(EXE)), []));
 }
 
 async function main() {
   if (!fs.existsSync(EXE)) throw new Error('לא נמצא ' + EXE);
+  log(`== מהדורה: ${EDITION}`);
   const results = {
     smoke: checkSmoke(),
     debugPort: refuses('debug-port', EXE, ['--remote-debugging-port=9222']),
@@ -69,10 +73,11 @@ async function main() {
   const ok = Object.values(results).every(Boolean);
   log(`סיכום: ${ok ? 'עבר' : 'נכשל'} ${JSON.stringify(results)}`);
   fs.mkdirSync(path.dirname(LOG), { recursive: true });
-  fs.writeFileSync(LOG, lines.join('\n') + '\n');
+  // הוספה ולא דריסה: בדיקת העלייה רצה לכל מהדורה בתורה (build.yml)
+  fs.appendFileSync(LOG, lines.join('\n') + '\n');
   process.exit(ok ? 0 : 1);
 }
 
-if (require.main === module) main().catch((e) => { log('שגיאה: ' + e.message); fs.mkdirSync(path.dirname(LOG), { recursive: true }); fs.writeFileSync(LOG, lines.join('\n') + '\n'); process.exit(1); });
+if (require.main === module) main().catch((e) => { log('שגיאה: ' + e.message); fs.mkdirSync(path.dirname(LOG), { recursive: true }); fs.appendFileSync(LOG, lines.join('\n') + '\n'); process.exit(1); });
 
 module.exports = { refuses, launch };

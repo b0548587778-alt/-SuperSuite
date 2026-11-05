@@ -102,13 +102,28 @@ jobs:
           node tools/code-signing.js --args > "$RUNNER_TEMP/sign-args.txt"
           mapfile -t ARGS < "$RUNNER_TEMP/sign-args.txt"
           { echo "== code-signing"; node tools/code-signing.js 2>&1; } | tee -a "$LOG"
-          { echo "== electron-builder"; node node_modules/electron-builder/out/cli/cli.js --win nsis portable --publish never "${ARGS[@]}" 2>&1; } | tee -a "$LOG"
+          # ארבע המהדורות (shell/edition.js) במשימה הזו, בלולאה — לא matrix (מכסת האחסון, ראו למעלה).
+          # המלאה ראשונה, בשמות ובתיקייה של היום; כל מהדורה אחרת — dist/<id>/ (tools/edition-build.js)
+          trap 'node tools/edition-build.js set full' EXIT
+          for ED in $(node tools/edition-build.js list); do
+            node tools/edition-build.js set "$ED" | tee -a "$LOG"
+            node tools/edition-build.js --args "$ED" > "$RUNNER_TEMP/edition-args.txt"
+            mapfile -t EDARGS < "$RUNNER_TEMP/edition-args.txt"
+            { echo "== electron-builder ($ED)"; node node_modules/electron-builder/out/cli/cli.js --win nsis portable --publish never "${ARGS[@]}" "${EDARGS[@]}" 2>&1; } | tee -a "$LOG"
+          done
       # הגרסה הארוזה והמכווצת: עולה בלי שגיאות, ומסרבת לעלות עם פרמטר דיבוג או עם app.asar שהשתנה.
       # נכשל ← אין פרסום (הצעדים הבאים מדולגים)
       - name: Smoke test (packaged)
         env:
           SMOKE_LOG: ${{ github.workspace }}/ci-logs/smoke.log
-        run: set -o pipefail; { echo "== smoke"; node tools/smoke-packaged.js 2>&1; } | tee -a "$LOG"
+        # כל מהדורה בתורה; מהדורה שנכשלה לא עוצרת את הבדיקה של האחרות, אבל הצעד נכשל
+        run: |
+          set -o pipefail
+          FAIL=0
+          for ED in $(node tools/edition-build.js list); do
+            { echo "== smoke ($ED)"; node tools/smoke-packaged.js --edition "$ED" 2>&1; } | tee -a "$LOG" || FAIL=1
+          done
+          exit $FAIL
       # המתקין למשימת publish — רק כשמפרסמים, ורק אחרי בנייה ובדיקת עלייה שעברו (צעד בלי always())
       - name: installer for publish
         if: ${{ inputs.publish || startsWith(github.ref, 'refs/tags/v') }}
@@ -117,6 +132,12 @@ jobs:
           path: |
             dist/SuperSuite-Setup.exe
             dist/SuperSuite-Portable.exe
+            dist/npo/SuperSuite-Amutot-Setup.exe
+            dist/npo/SuperSuite-Amutot-Portable.exe
+            dist/realty/SuperSuite-Nadlan-Setup.exe
+            dist/realty/SuperSuite-Nadlan-Portable.exe
+            dist/acct/SuperSuite-Heshbonaut-Setup.exe
+            dist/acct/SuperSuite-Heshbonaut-Portable.exe
           key: installer-${{ github.run_id }}-${{ github.run_attempt }}
           enableCrossOsArchive: true
       # רכיב ההרצה של המודל המקומי — למחשב, דרך ci-status: node tools/llm-runtime.js fetch.
@@ -155,6 +176,12 @@ jobs:
           path: |
             dist/SuperSuite-Setup.exe
             dist/SuperSuite-Portable.exe
+            dist/npo/SuperSuite-Amutot-Setup.exe
+            dist/npo/SuperSuite-Amutot-Portable.exe
+            dist/realty/SuperSuite-Nadlan-Setup.exe
+            dist/realty/SuperSuite-Nadlan-Portable.exe
+            dist/acct/SuperSuite-Heshbonaut-Setup.exe
+            dist/acct/SuperSuite-Heshbonaut-Portable.exe
           key: installer-${{ github.run_id }}-${{ github.run_attempt }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
@@ -176,8 +203,16 @@ jobs:
           if gh release view "v$V" --repo "$REPO" >/dev/null 2>&1; then
             echo "הגרסה v$V כבר פורסמה ב-$REPO"; exit 1
           fi
-          gh release create "v$V" --repo "$REPO" --title "SuperSuite $V" --latest --notes "SuperSuite גרסה $V" dist/SuperSuite-Setup.exe dist/SuperSuite-Portable.exe
+          # ארבע המהדורות באותה גרסה; המלאה בשם של היום — הקישור הקבוע הקיים לא משתנה
+          gh release create "v$V" --repo "$REPO" --title "SuperSuite $V" --latest --notes "SuperSuite גרסה $V — עמותות, נדל\"ן ועסקים, חשבונאות והמלאה" \
+            dist/SuperSuite-Setup.exe dist/SuperSuite-Portable.exe \
+            dist/npo/SuperSuite-Amutot-Setup.exe dist/npo/SuperSuite-Amutot-Portable.exe \
+            dist/realty/SuperSuite-Nadlan-Setup.exe dist/realty/SuperSuite-Nadlan-Portable.exe \
+            dist/acct/SuperSuite-Heshbonaut-Setup.exe dist/acct/SuperSuite-Heshbonaut-Portable.exe
           echo "פורסם: https://github.com/$REPO/releases/latest/download/SuperSuite-Setup.exe"
+          echo "עמותות: https://github.com/$REPO/releases/latest/download/SuperSuite-Amutot-Setup.exe"
+          echo "נדל\"ן ועסקים: https://github.com/$REPO/releases/latest/download/SuperSuite-Nadlan-Setup.exe"
+          echo "חשבונאות: https://github.com/$REPO/releases/latest/download/SuperSuite-Heshbonaut-Setup.exe"
   # היומנים והסיכום לענף ci-status (קומיט אחד לריצה, נדרס בכל ריצה). הענף לא מפעיל בנייה.
   # רק כאן יש הרשאת כתיבה, ואין כאן קוד של צד שלישי
   report:

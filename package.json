@@ -10,6 +10,7 @@
     "dist": "electron-builder --win nsis portable",
     "dist:local": "node build-local.js",
     "dist:check": "node build-local.js --check",
+    "dist:all": "node build-local.js --product=all",
     "test": "node tools/run-tests.js",
     "test:serial": "node tools/run-tests.js --serial",
     "dist:android": "node android/build-apk.js",
