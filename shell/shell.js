@@ -417,10 +417,47 @@ function renderSimpleHome() {
   $('groups').classList.toggle('ss-advanced', !ui.simpleAll);
   $('simpleAll').setAttribute('aria-expanded', String(ui.simpleAll));
   $('simpleAll').textContent = ui.simpleAll ? 'הסתרת שאר המסכים' : 'הצגת כל המסכים';
+  renderHomeAgenda();
   if (!ui.simple) { $('simpleTasks').innerHTML = ''; return; }
   $('simpleTasks').innerHTML = simpleTasks().map(t => `<button type="button" class="task" data-task="${esc(t.id)}">` +
     `<span class="t-ic" aria-hidden="true">${IC ? svg(t.icon) : ''}</span><span><b>${esc(t.verb)}</b><small>${esc(t.hint)}</small></span></button>`).join('');
 }
+/* ---------- מצב פשוט: "מה יש לעשות היום" (סבב 5) ----------
+   הפריטים מ-getHomeSummary().agenda (core/dashboard.js → agenda — קריאה בלבד, רק תחומים פתוחים), ועוד גיבוי שנכשל
+   (למנהל). שום דבר לא קורה לבד (כלל השבת): "לטפל" פותח את המסך, או את האשף כשהמעטפת יודעת להפעיל אותו (shellAPI.startTask) */
+let backupWarn = '';
+let agendaShown = [];
+function homeAgenda() {
+  const a = homeData && homeData.agenda && Array.isArray(homeData.agenda.items) ? homeData.agenda : null;
+  const items = a ? a.items.slice() : [];
+  let total = a && Number.isInteger(a.total) ? a.total : items.length;
+  if (backupWarn && shellAdmin) {
+    items.unshift({ kind: 'backup', level: 'urgent', text: 'הגיבוי האחרון לא הצליח', detail: backupWarn.replace(/^⚠\s*/, ''), action: 'backup' });
+    total++;
+  }
+  return { items: items.slice(0, 5), total, known: !!a || !!(backupWarn && shellAdmin) };
+}
+function renderHomeAgenda() {
+  const sec = $('agendaSec');
+  const { items, total, known } = homeAgenda();
+  sec.hidden = !ui.simple || !known;
+  agendaShown = sec.hidden ? [] : items;
+  if (sec.hidden) { $('agendaList').innerHTML = ''; return; }
+  $('agendaHead').textContent = total === 0 ? 'היום אין דברים שמחכים לטיפול ✓' : total === 1 ? 'היום יש דבר אחד לטפל בו' : `היום יש ${total} דברים לטפל בהם`;
+  $('agendaList').innerHTML = items.map((it, i) => `<li class="ag-item ag-${esc(it.level)}"><span class="ag-txt"><b>${esc(it.text)}</b>` +
+    `${it.detail ? `<small>${esc(it.detail)}</small>` : ''}</span><button type="button" class="ag-go" data-ag="${i}" aria-label="לטפל: ${esc(it.text)}">לטפל</button></li>`).join('');
+}
+$('agendaList').onclick = e => {
+  const b = e.target.closest('[data-ag]');
+  const it = b ? agendaShown[Number(b.dataset.ag)] : null;
+  if (!it) return;
+  if (it.action === 'backup') { runBackup(); return; }
+  const key = 'econ:' + String(it.view || 'dashboard');
+  // משימה עם אשף — אותו מסלול של "מה תרצה לעשות?" (runCommandTask ← shell:start-task, המטען נבדק ב-main.js)
+  if (it.task && CMD_TASKS && CMD_TASKS.getTask(it.task) && window.shellAPI.startTask && taskAllowed(it.task)) {
+    runCommandTask({ id: it.task, prefill: it.prefill && typeof it.prefill === 'object' ? it.prefill : {} });
+  } else open(BY_KEY.has(key) ? key : 'econ:dashboard');
+};
 $('simpleTasks').onclick = e => {
   const b = e.target.closest('[data-task]');
   const t = b && SIMPLE ? SIMPLE.TASKS.find(x => x.id === b.dataset.task) : null;
@@ -519,7 +556,15 @@ async function loadHome() {
     const d = await window.shellAPI.getHomeSummary();
     homeData = d && typeof d === 'object' ? d : null;
   } catch { homeData = null; }
-  if (!ui.active) { renderKpis(); renderToday(new Date()); }
+  // גיבוי שנכשל — ל"מה יש לעשות היום" (רק סטטוס הגיבוי האחרון; בלי כניסה — null)
+  try {
+    // הגיבוי הידני — למנהל בלבד; בדיקה שקטה כאן, ולא לפי ברירת המחדל של shellAdmin
+    const admin = window.shellAPI.isAdmin ? (await window.shellAPI.isAdmin()) === true : false;
+    const st = homeData && admin && window.shellAPI.getBackupStatus ? await window.shellAPI.getBackupStatus() : '';
+    const first = String(st || '').split(' · ')[0];
+    backupWarn = first.startsWith('⚠') ? first : '';
+  } catch { backupWarn = ''; }
+  if (!ui.active) { renderKpis(); renderToday(new Date()); renderHomeAgenda(); }
 }
 
 /* ---------- שאל את התוכנה: תיבת השאלה במסך הבית ----------
@@ -699,7 +744,8 @@ if (window.shellAPI.onSession) {
     $('askQ').value = '';
     $('askGo').disabled = false;
     homeData = null;
-    if (!ui.active) { renderKpis(); renderToday(new Date()); }
+    backupWarn = '';
+    if (!ui.active) { renderKpis(); renderToday(new Date()); renderHomeAgenda(); }
   });
 }
 
@@ -1002,6 +1048,10 @@ async function refreshTargetIfLoggedIn() {
     // סטטוס הגיבוי האחרון: כשל שקט (אין הצפנת מערכת / כונן מנותק) חייב להיות גלוי למשתמש
     const st = window.shellAPI.getBackupStatus ? await window.shellAPI.getBackupStatus() : '';
     if (st) $('tgInfo').textContent += ' · ' + st;
+    // גיבוי שנכשל — גם ב"מה יש לעשות היום" של המצב הפשוט (הסטטוס הראשון הוא של הגיבוי האחרון)
+    const first = String(st || '').split(' · ')[0];
+    backupWarn = first.startsWith('⚠') ? first : '';
+    if (!ui.active) renderHomeAgenda();
     refreshPlainBackups();
   } catch { /* נעדכן במעבר הבא */ }
 }

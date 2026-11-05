@@ -485,6 +485,18 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 .task b{display:block;font-size:18px;line-height:1.3}
 .task small{display:block;margin-top:2px;font-size:14px;color:var(--muted)}
 .simple-note{margin:14px 0 0;font-size:15px;color:var(--muted)}
+/* מצב פשוט: "מה יש לעשות היום" (סבב 5) — עד 5 פריטים, לכל אחד "לטפל" */
+.agenda-sec{margin:0 0 22px;position:relative;z-index:2}
+.agenda-sec[hidden]{display:none}
+.agenda-sec h2{margin:0 0 12px;font:800 24px var(--ss-font-title);color:var(--text)}
+.ag-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.ag-item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-radius:var(--ss-radius-lg);background:var(--surface);border:2px solid var(--ss-border-strong)}
+.ag-urgent{border-inline-start:8px solid var(--ss-danger)}
+.ag-soon{border-inline-start:8px solid var(--ss-warning)}
+.ag-txt b{display:block;font-size:18px;line-height:1.3;color:var(--text)}
+.ag-txt small{display:block;margin-top:2px;font-size:15px;color:var(--muted)}
+.ag-go{min-height:52px;min-width:120px;padding:0 20px;border-radius:12px;border:0;cursor:pointer;font:700 17px var(--ss-font);background:var(--ss-primary);color:var(--ss-on-primary)}
+@media (max-width:720px){.ag-item{flex-direction:column;align-items:stretch}}
 .simple-note button.link{font-size:15px;min-height:44px;padding:4px 8px}
 :root[data-ss-simple="on"] .hero{padding-bottom:30px}
 :root[data-ss-simple="on"] .lic-block{margin-top:20px}
@@ -584,6 +596,10 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
   </section>
   <div class="body">
     <section class="lic-block" id="licBlock" role="alert" hidden></section>
+    <section class="agenda-sec ss-simple-only" id="agendaSec" aria-labelledby="agendaHead" hidden>
+      <h2 id="agendaHead">מה יש לעשות היום</h2>
+      <ul class="ag-list" id="agendaList"></ul>
+    </section>
     <section class="simple-tasks ss-simple-only" id="simpleSec" aria-labelledby="simpleTitle">
       <h2 id="simpleTitle">מה רוצים לעשות?</h2>
       <div class="tasks" id="simpleTasks"></div>
