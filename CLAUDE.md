@@ -29,9 +29,12 @@ npm test           # הרצת כל הבדיקות בתיקיית tests — דר�
 npm run dist       # בניית מתקין NSIS + portable ל-Windows
 npm run dist:local # בנייה מהמטמון המקומי בלבד (בלי הורדות) — מומלץ בסביבה מסוננת
 npm run dist:check # בדיקה מה קיים מקומית לבנייה, בלי לבנות
+npm run dist:all   # ארבע המהדורות מהמטמון המקומי (build-local.js --product=all; מהדורה אחת: --product=npo)
 ```
 
-בנייה למשתמש קצה: `build-exe.bat` (מתקין Node אוטומטית אם חסר, ואז בונה דרך `build-local.js`), או GitHub Actions → `Build Windows installer`.
+**בניית מהדורות** — `tools/edition-build.js` (מקור אחד ל-`build-local.js`, ל-`build-exe.bat` ול-CI): `set <id>` כותב את `shell/edition-id.js` (ו-`build-local.js` מחזיר ל-`full` ב-`finally`, ה-CI ב-`trap`), `--args <id>` — הגדרות electron-builder (appId, שם, `dist/<id>/`, שמות קבצים). **המלאה נבנית בדיוק כמו היום** (`dist/SuperSuite-Setup.exe`, appId ותיקיית נתונים של היום); מהדורה אחרת — `%APPDATA%\<product>` (`Edition.userDataDir`, לפני כל שימוש ב-userData ב-`main.js`). ב-CI — לולאה במשימת `build` (לא matrix), בדיקת עלייה לכל מהדורה (`smoke-packaged.js --edition`), והפרסום מעלה את שמונת הקבצים. רק המודולים של המהדורה מוגשים (`ACTIVE_MODS`); הגיבוי והשחזור — כל המודולים. סמל משלה למהדורה — `build/icon-<id>.ico` אם קיים (🔧 עוד לא עוצב).
+
+בנייה למשתמש קצה: `build-exe.bat` (מתקין Node אוטומטית אם חסר, ואז בונה את ארבע המהדורות דרך `build-local.js`; `build-exe.bat npo` — אחת), או GitHub Actions → `Build Windows installer`.
 
 אנדרואיד: `build-apk.bat` — הבעלים מקליד רק את סיסמת הגיבוי (על נייר); המפתח נפתח בזיכרון מהגיבוי המוצפן ב-Documents (`resolveSigningKey` ב-`android/build-apk.js`). **אין ליצור מפתח חתימה חדש אוטומטית** — מפתח חדש = אי אפשר לעדכן את האפליקציה המותקנת; רק `--new-key` במפורש (`tests/android-key-backup.test.js`). ראו `android/README.md`.
 

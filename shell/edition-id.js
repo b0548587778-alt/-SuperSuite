@@ -1,4 +1,4 @@
-// המהדורה של הבנייה הזו — נכתב בזמן הבנייה (tools/set-edition.js / build-local.js --product, SS_PRODUCT ב-CI).
+// המהדורה של הבנייה הזו — נכתב בזמן הבנייה (tools/edition-build.js set <id>; build-local.js --product, CI).
 // במאגר תמיד 'full' (המהדורה המלאה = ההתנהגות של היום). אין לערוך ידנית לפני commit — tests/edition.test.js בודק.
 (function (root) {
   const id = 'full';

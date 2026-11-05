@@ -26,11 +26,11 @@
 
   const EDITIONS = Object.freeze({
     full: {
-      id: 'full', name: 'SuperSuite כלכלה', short: 'כלכלה', tagline: 'כספים, עסק וקהילה — במקום אחד', product: 'SuperSuite', appId: 'com.bunimseller.supersuite',
+      id: 'full', name: 'SuperSuite כלכלה', short: 'כלכלה', tagline: 'כספים, עסק וקהילה — במקום אחד', product: 'SuperSuite', dist: '', appId: 'com.bunimseller.supersuite',
       artifact: 'SuperSuite', color: null, mods: null, views: null, prefixes: null, features: null, profiles: null, backstage: false,
     },
     npo: {
-      id: 'npo', name: 'SuperSuite עמותות', short: 'עמותות', tagline: 'תרומות, גמ"ח וחסד — במקום אחד', product: 'SuperSuite Amutot', appId: 'com.bunimseller.supersuite.npo',
+      id: 'npo', name: 'SuperSuite עמותות', short: 'עמותות', tagline: 'תרומות, גמ"ח וחסד — במקום אחד', product: 'SuperSuite Amutot', dist: 'npo', appId: 'com.bunimseller.supersuite.npo',
       artifact: 'SuperSuite-Amutot', color: '#1f7a4d',
       mods: ['econ', 'tools'],
       views: ['npo', 'gemach', 'chesed', 'people', 'acct-invoices', 'acct-settings'],
@@ -40,7 +40,7 @@
       backstage: true,
     },
     realty: {
-      id: 'realty', name: 'SuperSuite נדל"ן ועסקים', short: 'נדל"ן ועסקים', tagline: 'נדל"ן, שמאות ומשכנתאות — במקום אחד', product: 'SuperSuite Nadlan', appId: 'com.bunimseller.supersuite.realty',
+      id: 'realty', name: 'SuperSuite נדל"ן ועסקים', short: 'נדל"ן ועסקים', tagline: 'נדל"ן, שמאות ומשכנתאות — במקום אחד', product: 'SuperSuite Nadlan', dist: 'realty', appId: 'com.bunimseller.supersuite.realty',
       artifact: 'SuperSuite-Nadlan', color: '#1f5fa8',
       mods: ['econ', 'shamai', 'tools'],
       views: ['realty', 'realestate', 'mortgage', 'mortgage-advisor', 'mortgage-lab', 'business', 'market-intel', 'acct-invoices', 'acct-settings'],
@@ -50,7 +50,7 @@
       backstage: true,
     },
     acct: {
-      id: 'acct', name: 'SuperSuite חשבונאות', short: 'חשבונאות', tagline: 'חשבוניות, מע"מ ודוחות — במקום אחד', product: 'SuperSuite Heshbonaut', appId: 'com.bunimseller.supersuite.acct',
+      id: 'acct', name: 'SuperSuite חשבונאות', short: 'חשבונאות', tagline: 'חשבוניות, מע"מ ודוחות — במקום אחד', product: 'SuperSuite Heshbonaut', dist: 'acct', appId: 'com.bunimseller.supersuite.acct',
       artifact: 'SuperSuite-Heshbonaut', color: '#6b3fa0',
       mods: ['econ', 'tools'],
       views: ['acct-invoices', 'acct-reports', 'biz-reports', 'acct-bank', 'acct-journal', 'acct-chart', 'acct-pricing', 'acct-settings',
@@ -69,6 +69,12 @@
 
   const get = (id) => EDITIONS[id] || null;
   const current = () => EDITIONS[currentId];
+  // תיקיית הנתונים של המהדורה: המלאה — זו של היום (לא נוגעים; לקוחות קיימים); כל מהדורה אחרת — תיקייה משלה
+  // לפי שם המוצר (גם נעילת המופע היחיד נפרדת, וכך אפשר להתקין כמה מהדורות באותו מחשב). --user-data-dir גובר
+  function userDataDir(appDataDir, argv = [], join = (a, b) => a + '/' + b, ed = current()) {
+    if (isFull(ed) || (argv || []).some(a => String(a).startsWith('--user-data-dir='))) return null;
+    return join(appDataDir, ed.product);
+  }
   // לבדיקות בלבד (כל קובץ בדיקה רץ בתהליך נפרד). בתוכנה המהדורה קבועה מהבנייה
   function _setForTests(id) {
     if (!EDITIONS[id]) throw new Error('unknown edition: ' + id);
@@ -123,7 +129,7 @@
 
   const api = {
     EDITIONS, IDS, PARTIAL_IDS, COMMON_PREFIXES, COMMON_VIEWS, ACCT_BACKSTAGE,
-    get, current, isFull, modAllowed, viewAllowed, keyAllowed, channelDenied, isBackstageChannel,
+    get, current, isFull, userDataDir, modAllowed, viewAllowed, keyAllowed, channelDenied, isBackstageChannel,
     featureAllowed, features, taskAllowed, profileAllowed, _setForTests,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

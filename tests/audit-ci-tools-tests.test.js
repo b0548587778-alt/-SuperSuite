@@ -176,18 +176,28 @@ test('ממצא 34: צעד Build כמו שהוא — electron-builder מקובץ 
   const dir = tmp('build-step-').replace(/\\/g, '/');
   // node על cli.js של electron-builder — רושם את הארגומנטים במקום לארוז; כל node אחר — האמיתי. npx — כישלון
   const prelude = [
-    'node() { if [ "$1" = node_modules/electron-builder/out/cli/cli.js ]; then shift; printf "%s\\0" "$@" > "$EB_ARGV"; else "$NODE_BIN" "$@"; fi; }',
+    // כל הרצה של electron-builder בשורה משלה (הצעד בונה את ארבע המהדורות בלולאה — shell/edition.js)
+    'node() { if [ "$1" = node_modules/electron-builder/out/cli/cli.js ]; then shift; { printf "%s\\0" "$@"; printf "\\n"; } >> "$EB_ARGV"; else "$NODE_BIN" "$@"; fi; }',
     'npx() { echo "npx נקרא" >&2; exit 97; }',
   ].join('\n');
+  // SS_EDITION_FILE — הצעד כותב את edition-id.js לכל מהדורה; כאן לקובץ זמני, לא לקובץ שבמאגר (בדיקות אחרות רצות במקביל)
   const env = { ...process.env, ...AZURE, RUNNER_TEMP: dir, LOG: dir + '/build.log', EB_ARGV: dir + '/eb-argv',
-    NODE_BIN: process.execPath.replace(/\\/g, '/') };
+    SS_EDITION_FILE: dir + '/edition-id.js', NODE_BIN: process.execPath.replace(/\\/g, '/') };
   for (const k of SIGN_KEYS) if (!(k in AZURE)) delete env[k];
   const r = spawnSync('bash', ['-c', prelude + '\n' + script], { cwd: ROOT, env, encoding: 'utf8', timeout: 120000 });
   if (r.error) { t.skip('אין bash במחשב הזה'); return; }
   assert.equal(r.status, 0, (r.stdout || '') + (r.stderr || ''));
-  const argv = fs.readFileSync(dir + '/eb-argv', 'utf8').split('\0').slice(0, -1);
-  assert.deepEqual(argv, ['--win', 'nsis', 'portable', '--publish', 'never', ...signingArgs(AZURE).args]);
+  const EB = require('../tools/edition-build');
+  const runs = fs.readFileSync(dir + '/eb-argv', 'utf8').split('\n').filter(Boolean).map(l => l.split('\0').slice(0, -1));
+  assert.equal(runs.length, EB.ORDER.length, 'מהדורה אחת בכל הרצה');
+  EB.ORDER.forEach((id, i) => assert.deepEqual(runs[i], ['--win', 'nsis', 'portable', '--publish', 'never', ...signingArgs(AZURE).args, ...EB.builderArgs(id)], id));
+  const argv = runs[0];
+  assert.deepEqual(argv, ['--win', 'nsis', 'portable', '--publish', 'never', ...signingArgs(AZURE).args], 'המלאה — כמו היום');
   assert.ok(argv.includes('-c.win.azureSignOptions.publisherName=Bunim Seller'));
+  assert.ok(runs[1].includes('-c.productName=SuperSuite Amutot'), 'ערך עם רווח — ארגומנט אחד');
+  // בסוף הצעד המהדורה חוזרת ל-full (trap), ו-edition-id.js שבמאגר לא נגע
+  assert.equal(fs.readFileSync(dir + '/edition-id.js', 'utf8'), EB.editionIdSource('full'));
+  assert.equal(fs.readFileSync(path.join(ROOT, 'shell', 'edition-id.js'), 'utf8').replace(/\r\n/g, '\n'), EB.editionIdSource('full'));
   assert.match(fs.readFileSync(dir + '/build.log', 'utf8'), /== code-signing[\s\S]*== electron-builder/);
 });
 

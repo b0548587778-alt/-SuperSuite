@@ -7,6 +7,16 @@
 https://github.com/b0548587778-alt/SuperSuite-Downloads/releases/latest/download/SuperSuite-Setup.exe
 ```
 
+**המהדורות** (`shell/edition.js`, `docs/SPLIT-3-PRODUCTS-PLAN.md`) — כל גרסה מפרסמת את ארבעתן יחד. הקישור למעלה הוא המהדורה המלאה, כמו היום:
+
+| תוכנה | קישור קבוע |
+|---|---|
+| SuperSuite עמותות | `https://github.com/b0548587778-alt/SuperSuite-Downloads/releases/latest/download/SuperSuite-Amutot-Setup.exe` |
+| SuperSuite נדל"ן ועסקים | `https://github.com/b0548587778-alt/SuperSuite-Downloads/releases/latest/download/SuperSuite-Nadlan-Setup.exe` |
+| SuperSuite חשבונאות | `https://github.com/b0548587778-alt/SuperSuite-Downloads/releases/latest/download/SuperSuite-Heshbonaut-Setup.exe` |
+
+גרסה ניידת (בלי התקנה) — אותו שם עם `-Portable.exe` במקום `-Setup.exe`. בנייה במחשב: `build-exe.bat` (ארבעתן) או `build-exe.bat npo` (אחת).
+
 ## הגדרה — פעם אחת (בכרום, כ-10 דקות)
 
 1. **מאגר ההורדות:** github.com/new
