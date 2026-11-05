@@ -42,7 +42,7 @@
   const getTask = (id) => (typeof id === 'string' && BY_ID.has(id) ? BY_ID.get(id) : null);
 
   // ---------- ערכים ----------
-  const CONTROL = /[\u0000-\u001f\u007f‪-‮⁦-⁩]/;
+  const CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
   const AMOUNT_RE = /^(\d{1,9})(?:\.(\d{1,2}))?$/;
   const MAX_AG = 100000000000; // מיליארד שקל — תקרה סבירה לטופס
 

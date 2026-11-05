@@ -181,7 +181,7 @@ test('tasks.js: אימות המטען — משימה ושדות מוכרים ב�
   assert.equal(T.validateTask('donation', { name: 'א'.repeat(81) }), null);
   assert.equal(T.validateTask('donation', { name: '' }), null);
   assert.equal(T.validateTask('donation', { name: 'משה\u0000' }), null);
-  assert.equal(T.validateTask('donation', { name: 'משה‮' }), null, 'תו כיוון');
+  assert.equal(T.validateTask('donation', { name: 'משה\u202e' }), null, 'תו כיוון');
   assert.equal(T.validateTask('donation', { name: { toString: () => 'x' } }), null);
   assert.equal(T.validateTask('donation', JSON.parse('{"__proto__":{"x":1}}')), null);
   assert.equal(T.validateTask('donation', Object.create({ name: 'x' })), null, 'אובייקט לא רגיל');

@@ -16,7 +16,7 @@
     return String(text == null ? '' : text)
       .replace(/[֑-ׇ]/g, (c) => (c === '־' ? '-' : '')) // ניקוד וטעמים; מקף עברי ← '-'
       .replace(/[״“”„]/g, '"').replace(/[׳‘’`]/g, "'").replace(/[–—]/g, '-')
-      .replace(/[\u0000-\u001f\u007f‎‏‪-‮]/g, ' ')
+      .replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e]/g, ' ')
       .replace(/\s+/g, ' ').trim().slice(0, 300);
   }
   const bare = (w) => String(w || '').replace(/["'.,!?:;()]/g, '');
