@@ -6,6 +6,8 @@ FROM node:22-alpine
 WORKDIR /app
 COPY server/ server/
 COPY shell/licensing/ shell/licensing/
+# המהדורות (shell/edition.js) — offer.js בודק בהן את התכניות
+COPY shell/edition.js shell/edition-id.js shell/
 COPY modules/econ/core/israeliId.js modules/econ/core/israeliId.js
 
 # הנתונים (תיבות הדואר) בכרך נפרד, כדי שלא יימחקו בעדכון הקונטיינר
