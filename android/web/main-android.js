@@ -13,6 +13,7 @@ const LoginGate = require('../../shell/login-gate');
 const Legacy = require('../../shell/legacy-modules');
 const ModCounters = require('../../shell/module-counters');
 const Chat = require('../../shell/licensing/chat');
+const UsersBk = require('../../modules/econ/core/usersBackup'); // משתמשים ויומן הפעולות בגיבוי המלא
 const LG = require('../../shell/licensing/gate');
 const { issuedAfter } = require('../../modules/econ/core/database');
 const { createRelayFetch } = require('./relay-fetch');
@@ -154,7 +155,18 @@ function start(ctx) {
   if (typeof frames.onActivity === 'function') frames.onActivity(id => {
     if (loginGate.isLocked(id) && frames.exists('econ') && econ.touchSession) econ.touchSession(ctx.senderOf('econ'));
   });
+  // הפגישה נגמרה (יציאה, "👤 משתמש", ניתוק אוטומטי) — גם כשהמסך הכלכלי הוא הפעיל: הוא מתרוקן ומציג את מסך
+  // הכניסה, כמו reloadLockedViewsOnSessionChange ב-main.js (סקירת קוד 2.11.2026)
+  let econSessionWas = null;
+  function econAuthCheckOnEnd() {
+    if (!frames.exists('econ')) return;
+    const now = !!(econ.hasSession && econ.hasSession(ctx.senderOf('econ')));
+    const ended = econSessionWas === true && !now;
+    econSessionWas = now;
+    if (ended) frames.whenReady('econ').then(() => frames.send('econ', 'econ:auth-check'));
+  }
   if (econ.onAuthChange) econ.onAuthChange(() => {
+    econAuthCheckOnEnd();
     // כניסה / יציאה / החלפת משתמש — מצב הכתיבה מתעדכן מיד (כניסה עם הרשאת עריכה משחררת את החסימה)
     syncWriteBlocks(licenseNow());
     if (loginGate.mustLeave(active)) { showLoginForLocked(); return; }
@@ -228,7 +240,11 @@ function start(ctx) {
     // סימוני הרישוי בכל גיבוי — שחזור להתקנה נקייה לא מתחיל ניסיון חדש (ipc.js, ממצא 29)
     if (econ.licenseMarks) out.licenseMarks = econ.licenseMarks();
     if (scope === 'all' || scope === 'econ') {
-      try { out.econ = await econ.getDb().backup(); }
+      try {
+        out.econ = await econ.getDb().backup();
+        // משתמשים, תפקידים, קישורי Google ויומן הפעולות — בגיבוי המלא, כמו main.js (סקירת קוד 2.11.2026)
+        if (scope === 'all' && typeof econ.usersBackup === 'function') out.users = await econ.usersBackup();
+      }
       catch (e) {
         const err = new Error('לא ניתן היה לקרוא את הנתונים הכספיים, ולכן הגיבוי לא נשמר. נסו שוב בעוד רגע.');
         err.code = 'econ-read-failed';
@@ -332,6 +348,12 @@ function start(ctx) {
       try { chatData = Chat.mailboxFromBackup(data.chat); }
       catch (e) { ctx.alert('שגיאה: ' + e.message + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
     }
+    // המשתמשים ויומן הפעולות — נבדקים לפני האישור; גיבוי ישן בלי users לא נוגע בהם (כמו main.js)
+    let usersData = null;
+    if (data.users != null && econ.usersFromBackup) {
+      try { usersData = econ.usersFromBackup(data.users); }
+      catch (e) { ctx.alert('שגיאה: ' + e.message + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
+    }
     const scopeText = data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
     // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע מחזיר הכול למצב שלפני (כמו main.js).
     // נקרא לפני האישור — גם לאזהרה על מסמכים שהופקו אחרי הגיבוי (בדיקת קוד 22.10.2026, ממצא 5)
@@ -347,7 +369,8 @@ function start(ctx) {
     for (const id of mods) missingItems.push(...ModCounters.moduleIssuedAfter(id, restoreItems(data, id), before.localStorage[id]));
     const missing = ModCounters.issuedAfterText(missingItems);
     const chatNote = chatData ? '\nתיבת ההודעות תשוחזר מהגיבוי; הודעות שהתקבלו או נשלחו אחרי הגיבוי יישארו בה.' : '';
-    if (!ctx.confirm('השחזור יחליף את הנתונים הקיימים ' + scopeText + (missing ? '\n⚠ ' + missing : '') + chatNote + (legacyData ? '\n' + Legacy.LEGACY_NOTE : '') + '\nמומלץ לבצע גיבוי לפני כן. להמשיך?')) return { ok: false };
+    const usersNote = usersData ? '\n' + UsersBk.restoreNote(usersData) : '';
+    if (!ctx.confirm('השחזור יחליף את הנתונים הקיימים ' + scopeText + (missing ? '\n⚠ ' + missing : '') + chatNote + usersNote + (legacyData ? '\n' + Legacy.LEGACY_NOTE : '') + '\nמומלץ לבצע גיבוי לפני כן. להמשיך?')) return { ok: false };
     let skipped;
     try {
       skipped = await applyRestore(data.econ, mods.map(id => [id, ModCounters.keepModuleCounters(id, restoreItems(data, id), before.localStorage[id])]), before.localStorage,
@@ -363,14 +386,20 @@ function start(ctx) {
     }
     // סימוני הרישוי מהגיבוי — רק מחמירים (ipc.js, ממצא 29)
     try { if (econ.mergeLicenseMarks) econ.mergeLicenseMarks(data.licenseMarks); } catch { /* לא מבטל את השחזור */ }
+    // משתמשים ויומן הפעולות — מיזוג (משתמש קיים לא משתנה); כשל לא מבטל את השחזור, ומדווח
+    let usersMsg = '';
+    if (usersData) {
+      try { usersMsg = '\n' + UsersBk.resultNote(await econ.usersRestore(usersData)); }
+      catch { usersMsg = '\nהמשתמשים ויומן הפעולות מהגיבוי לא שוחזרו — המשתמשים הקיימים נשארו כמו שהיו.'; }
+    }
     frames.reloadAll();
     if (skipped.length) {
       const names = skipped.map(id => MOD_NAMES[id] || id).join(', ');
       ctx.alert(`השחזור הושלם, חוץ מנתוני ${names}: אין להם מספיק מקום באחסון של המכשיר, ולכן הנתונים הקודמים שלהם נשארו כמו שהיו.\n` +
-        'אפשר לפנות מקום (למשל למחוק תמונות ישנות במודול) ולשחזר שוב.');
+        'אפשר לפנות מקום (למשל למחוק תמונות ישנות במודול) ולשחזר שוב.' + usersMsg);
       return { ok: true, skipped };
     }
-    ctx.alert('השחזור הושלם');
+    ctx.alert('השחזור הושלם' + usersMsg);
     return { ok: true };
   }
 
@@ -471,6 +500,7 @@ function start(ctx) {
   const every = typeof ctx.setInterval === 'function' ? ctx.setInterval : setInterval;
   const unref = t => { if (t && typeof t.unref === 'function') t.unref(); };
   unref(every(() => {
+    econAuthCheckOnEnd();
     syncWriteBlocks(licenseNow());
     if (loginGate.mustLeave(active)) showLoginForLocked();
   }, 60 * 1000));

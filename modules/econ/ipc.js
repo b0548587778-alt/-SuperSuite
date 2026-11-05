@@ -6,6 +6,7 @@ const L = require('./core/npoLetters'); // מכתבים לעמותה — טהו�
 const DATES = require('./core/dates'); // תאריך יום: בדיקה מול הלוח (isDay / dayOr)
 const { initializeDatabase, issuedAfter, defaults: DB_DEFAULTS } = require('./core/database');
 const ModCounters = require('../../shell/module-counters');
+const UB = require('./core/usersBackup'); // משתמשים ויומן הפעולות בגיבוי המלא (סקירת קוד 2.11.2026)
 const { AuthService: authService } = require('./services/authService');
 const { FinancialService: financialService } = require('./services/financialService');
 const { MarketIntelService: marketIntelService } = require('./services/marketIntelService');
@@ -73,6 +74,7 @@ let ownerCore = null;
 let licenseSync = null;
 let chatStore = null;
 let restTime = () => false; // מצב שבת (מוזרק מ-main.js)
+let recoveryCodeCheck = null; // initEcon({ recoveryCode: { available(), verify(code) } }) — main.js, מול מפתח הגיבוי האוטומטי
 let ownerChatStore = null;
 let updateManager = null;
 let updatesDir = null;
@@ -211,6 +213,8 @@ async function initEcon(userDataPath, opts = {}) {
   const { rootKeys = ROOT_KEYS, relayUrl = DEFAULT_RELAY_URL, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
   updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, googleClient } = opts;
   restTime = isRestTime;
+  // קוד השחזור (🔑) כהוכחת בעלות — במסד ששוחזר בלי משתמשים (auth:setup). אין במכשיר בלי גיבוי אוטומטי
+  recoveryCodeCheck = opts.recoveryCode && typeof opts.recoveryCode.verify === 'function' && typeof opts.recoveryCode.available === 'function' ? opts.recoveryCode : null;
   shamaiSource = typeof opts.shamaiData === 'function' ? opts.shamaiData : null;
   // שם הפרמטר חופף למשתנה הגלובלי — כאן מעדכנים רק את הגלובלי (הצהרה מחודשת הייתה אסורה)
   aiOptions = typeof opts.aiOptions === 'function' ? opts.aiOptions : null;
@@ -296,6 +300,13 @@ async function initEcon(userDataPath, opts = {}) {
   realEstateService.initialize(db);
   const startSettings = (await db.load()).settings || {};
   authService.setIdleMinutes(startSettings.idleMinutes);
+  // שחזור (מכל מסלול — המסך הכלכלי, המעטפת, התאוששות ממסד פגום, אנדרואיד) מרענן את זמן הניתוק ואת מדיניות Google,
+  // ולא רק בהפעלה הבאה (סקירת קוד 2.11.2026)
+  db.onRestore = async () => {
+    const st = (await db.load()).settings || {};
+    authService.setIdleMinutes(st.idleMinutes);
+    googlePolicy = normalizeGoogle(st.google);
+  };
   // באנדרואיד אין כניסה עם Google (אין http ואין דפדפן חיצוני) — גם לא עם המזהה המובנה
   googleBuiltIn = ad.platform === 'android' ? null : builtInGoogle(googleClient === undefined ? GOOGLE_CLIENT : googleClient);
   googlePolicy = normalizeGoogle(startSettings.google);
@@ -635,16 +646,17 @@ async function pickSavePath(defaultPath, filters) {
 }
 
 // כניסה בדפדפן (עד 3 דקות). כניסה וקישור — לא יחד
-function handleGoogle(channel, { loginHint } = {}, fn) {
+// prepare(ev) — בתור, לפני הדפדפן: { loginHint, ... }; מה שהחזיר מגיע ל-fn(ev, identity, pre) אחרי הדפדפן
+function handleGoogle(channel, { prepare } = {}, fn) {
   handleLong(channel, {
     lock: googleLock, busy: 'כניסה עם Google כבר פתוחה בדפדפן — השלימו אותה או המתינו',
     before: async (ev) => {
       if (!googlePolicy.enabled) throw new Error('כניסה עם Google לא הופעלה במערכת הזו');
-      return loginHint ? await loginHint(ev) : undefined;
+      return prepare ? await prepare(ev) : {};
     },
-    work: (pre) => googleDeps.signIn({ clientId: googlePolicy.clientId, clientSecret: googlePolicy.clientSecret },
-      { openBrowser: googleDeps.openBrowser, fetchImpl: googleDeps.fetchImpl, loginHint: pre || undefined }),
-    after: (ev, identity, ...args) => fn(ev, identity, ...args),
+    work: async (pre) => ({ pre, identity: await googleDeps.signIn({ clientId: googlePolicy.clientId, clientSecret: googlePolicy.clientSecret },
+      { openBrowser: googleDeps.openBrowser, fetchImpl: googleDeps.fetchImpl, loginHint: (pre && pre.loginHint) || undefined }) }),
+    after: (ev, { identity, pre }, ...args) => fn(ev, identity, pre, ...args),
   });
 }
 
@@ -702,19 +714,44 @@ function econFromBackup(data) {
   return data;
 }
 
+// מסד ששוחזר אחרי תקלה מגיבוי בלי משתמשים (מסומן ב-recoverDatabase), במחשב שיש בו קוד שחזור — auth:setup דורש את הקוד
+async function setupNeedsRecoveryCode() {
+  if (!recoveryCodeCheck || !recoveryCodeCheck.available() || await db.hasUsers()) return false;
+  return db.setupNeedsRecoveryCode();
+}
+
+// סיסמה חוזרת לפעולה רגישה של מנהל כשהפגישה נפתחה עם Google: במחשב משותף שבו הדפדפן נשאר מחובר לחשבון של
+// המנהל, כל אחד יכול להיכנס כמוהו (סקירת קוד 2.11.2026). פגישה שנפתחה בסיסמה — הסיסמה כבר הוקלדה
+async function stepUp(event, password) {
+  const me = authService.getSession(event.sender.id);
+  if (!me) throw new Error('נדרשת כניסה');
+  if (me.via !== 'google') return;
+  if (typeof password !== 'string' || !password) throw Object.assign(new Error('נכנסת עם Google — לפעולה הזו יש להקליד שוב את הסיסמה שלך'), { code: 'password-required' });
+  await db.confirmPassword(me.id, password);
+}
+
 function registerIpcHandlers() {
   // Auth handlers
   handle('auth:status', async (event) => {
     const st = await authService.getStatus(event.sender.id);
-    return { ...st, google: { enabled: googlePolicy.enabled } };
+    // מסד ששוחזר אחרי תקלה בלי משתמשים — יצירת המנהל דורשת את קוד השחזור (מסך הכניסה מוסיף את השדה)
+    const recoveryCodeRequired = !st.configured && await setupNeedsRecoveryCode();
+    return { ...st, google: { enabled: googlePolicy.enabled }, ...(recoveryCodeRequired ? { recoveryCodeRequired } : {}) };
   });
   
   // יצירת המנהל הראשון (רק כשאין אף משתמש) — והוא מחובר מיד. בלי זה הממשק נראה מחובר
-  // אבל לשרת אין פגישה, וכל פעולה נכשלת עד כניסה נוספת
-  handle('auth:setup', async (event, username, password) => {
+  // אבל לשרת אין פגישה, וכל פעולה נכשלת עד כניסה נוספת.
+  // מסד ששוחזר מגיבוי ישן (בלי משתמשים) אחרי תקלה — לא מי שהגיע ראשון נעשה מנהל: נדרש קוד השחזור (🔑) של המחשב,
+  // שנבדק בתהליך הראשי (סקירת קוד 2.11.2026). במכשיר בלי קוד שחזור (אנדרואיד, בלי הצפנת Windows) אין התאוששות ממסד פגום
+  handle('auth:setup', async (event, username, password, recoveryCode) => {
+    const viaCode = await setupNeedsRecoveryCode();
+    if (viaCode && !recoveryCodeCheck.verify(typeof recoveryCode === 'string' ? recoveryCode : '')) {
+      throw new Error('במערכת יש נתונים אבל אין משתמשים (שוחזרה אחרי תקלה). כדי ליצור מנהל יש להקליד את קוד השחזור (🔑) של המחשב הזה');
+    }
     const user = await authService.setupAdmin(username, password);
     authService.setSession(event.sender.id, user, 'password');
     emitAuthChange();
+    if (viaCode) await db.audit(user.id, 'auth.setup.recovery', JSON.stringify({ username: user.username }));
     return user;
   });
   
@@ -735,12 +772,17 @@ function registerIpcHandlers() {
     return user;
   });
   // קישור החשבון של המשתמש המחובר. הדפדפן מציע את החשבון המקושר (אם יש) כברירת מחדל
-  handleGoogle('auth:google-link', { loginHint: async (ev) => {
+  // הקישור — למי שהתחיל אותו: אם בזמן ההמתנה לדפדפן המשתמש יצא או התחלף (👤 משתמש), הקישור נדחה
+  // ולא נקשר למי שמחובר כשהדפדפן מסיים (סקירת קוד 2.11.2026)
+  handleGoogle('auth:google-link', { prepare: async (ev) => {
     const me = authService.getSession(ev.sender.id);
     const cur = await db.googleLinkOf(me.id);
-    return cur && cur.email;
-  } }, async (event, g) => {
+    return { loginHint: cur && cur.email, session: authService.sessions.get(ev.sender.id) };
+  } }, async (event, g, pre) => {
     const me = authService.getSession(event.sender.id);
+    if (!pre || !me || authService.sessions.get(event.sender.id) !== pre.session) {
+      throw new Error('המשתמש המחובר התחלף בזמן הכניסה ל-Google — החשבון לא קושר. התחברו שוב ונסו שנית');
+    }
     const r = await db.linkGoogle(me.id, g);
     markGoogleActivation();
     await auditEvent(event, 'auth.google.link', { email: g.email });
@@ -1611,7 +1653,11 @@ function registerIpcHandlers() {
   // רק התחומים הפתוחים ברישיון — כרטיס אדם לא חושף תחום סגור (סקירת אבטחה 10.2026, ממצא 6)
   handle('people:search', async (event, query) => {
     const sources = LG.peopleSources(licenseState());
-    return peopleService.search(query, canSeeConfidential(event), sources);
+    const r = await peopleService.search(query, canSeeConfidential(event), sources);
+    // "כל צפייה בנזקק חסוי נרשמת" — גם בתוצאות החיפוש (סקירת קוד 2.11.2026)
+    const shown = ((r && r.rows) || []).filter(p => p.confidential).length;
+    if (shown) await auditEvent(event, 'chesed.confidential.view', { via: 'people-search', count: shown });
+    return r;
   });
   handle('people:getCard', async (event, key) => {
     const sources = LG.peopleSources(licenseState());
@@ -2244,10 +2290,22 @@ function registerIpcHandlers() {
     await auditEvent(event, 'users.update', { username: u.username, role: u.role, active: u.active });
     return u;
   });
-  handle('users:resetPassword', async (event, id, password) => {
+  // איפוס סיסמה של משתמש אחר מנתק גם את הקישור שלו ל-Google (database.js). אחרי כניסה עם Google — רק עם
+  // הסיסמה של המנהל עצמו (stepUp)
+  handle('users:resetPassword', async (event, id, password, ownPassword) => {
+    await stepUp(event, ownPassword);
     await db.resetPassword(id, String(password || ''));
     authService.dropUser(id);
     await auditEvent(event, 'users.resetPassword', { id });
+    return true;
+  });
+  // ניתוק Google של משתמש אחר בידי המנהל (סקירת קוד 2.11.2026) — למשל חשבון שנשאר מחובר בדפדפן משותף
+  handle('users:unlinkGoogle', async (event, id, ownPassword) => {
+    await stepUp(event, ownPassword);
+    const u = (await db.listUsers()).find(x => x.id === id);
+    if (!u) throw new Error('המשתמש לא נמצא');
+    await db.unlinkGoogle(id);
+    await auditEvent(event, 'users.unlinkGoogle', { username: u.username, email: u.google || '' });
     return true;
   });
   // שמירת קובץ רישוי (בקשה / רישיון / אישור / הודעות) בבוחר שמירה — המשתמש מעביר אותו בעצמו.
@@ -2921,7 +2979,8 @@ function registerIpcHandlers() {
   handle('license:terminateChild', childNotice('terminate'));
   handle('audit:list', async (event, filter = {}) => db.listAudit(filter || {}));
   handleSave('audit:export', async (event, filter = {}) => {
-    const rows = await db.listAudit({ ...(filter || {}), limit: 5000 });
+    // כל היומן — בלי חיתוך שקט (סקירת קוד 2.11.2026)
+    const rows = await db.listAudit({ action: (filter && filter.action) || '', all: true });
     // המועד נשמר ב-UTC — בקובץ ובשמו לפי השעון המקומי (אחרת השעות מוקדמות ב-2–3 שעות)
     const at = (v) => {
       const d = new Date(v);
@@ -3274,10 +3333,27 @@ function systemChat() {
   if (!chatStore) throw new Error('תיבת ההודעות אינה זמינה');
   return chatStore;
 }
+// משתמשים, תפקידים, קישורי Google ויומן הפעולות — השדה users בגיבוי המלא (main.js / main-android.js; סקירת קוד 2.11.2026).
+// usersFromBackup — בדיקת הקובץ לפני חלון האישור (null = גיבוי ישן בלעדיו: לא נוגעים במשתמשים); usersRestore — מיזוג
+// בתור (database.js → importUsers: משתמש קיים לא משתנה), עם מכסת המשתמשים של הרישיון
+const usersBackup = () => enqueue(() => db.exportUsers());
+const usersRestore = (snap) => enqueue(async () => {
+  if (!snap) return null;
+  const st = licenseState();
+  const max = st && st.mode !== 'unlicensed' && st.limits && Number.isSafeInteger(st.limits.maxUsers) ? st.limits.maxUsers : Infinity;
+  return db.importUsers(snap, { maxActive: max });
+});
+// אימות חוזר של הסיסמה של המשתמש המחובר במודול הכלכלי — לפני הצגת קוד השחזור (main.js), בתור
+const confirmPassword = (senderId, password) => enqueue(async () => {
+  const me = authService.getSession(senderId);
+  if (!me) throw new Error('נדרשת כניסה');
+  try { await db.confirmPassword(me.id, password); } catch (e) { throw toUserError(e); }
+  return true;
+});
 const chatBackup = (opts) => systemChat().exportMailbox(opts);
 const chatRestore = (data, opts) => systemChat().restoreMailbox(data, opts);
 
-module.exports = { toUserError, setErrorLogger, markFromInternet, initEcon, chatAutoFetch, flushChat, chatBackup, chatRestore, permissionFor, requiresAdmin, licenseState, licenseMarks, mergeLicenseMarks, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
+module.exports = { toUserError, setErrorLogger, markFromInternet, initEcon, chatAutoFetch, flushChat, chatBackup, chatRestore, usersBackup, usersRestore, usersFromBackup: UB.usersFromBackup, confirmPassword, permissionFor, requiresAdmin, licenseState, licenseMarks, mergeLicenseMarks, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
   // מודולים שדורשים כניסה: בדיקה שקטה, רישום פעילות (עבודה במודול כזה מונעת ניתוק), ואירוע כניסה/יציאה
   hasSession: (senderId) => authService.peekSession(senderId),
   touchSession: (senderId) => { authService.getSession(senderId); },

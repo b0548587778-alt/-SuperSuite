@@ -125,7 +125,8 @@ test('מנהל מחובר: אותם ערוצים עוברים את השומר, �
   assert.equal(await call('shell:is-admin'), true);
   assert.equal(await handlers['shell:is-admin']({ sender: { id: 999 } }), false, 'רק מהמעטפת');
   assert.match(await call('shell:get-backup-status'), /טרם נרשם קוד שחזור/);
-  assert.match(await call('shell:get-recovery-code'), /^([0-9A-Z]{5}-){10}[0-9A-Z]{5}$/);
+  // הקוד מוצג רק עם הסיסמה של המנהל המחובר (סקירת קוד 2.11.2026)
+  assert.match(await call('shell:get-recovery-code', ADMIN[1]), /^([0-9A-Z]{5}-){10}[0-9A-Z]{5}$/);
   ui.open = userData;
   assert.equal(await call('shell:pick-backup-target'), userData);
   ui.open = null;

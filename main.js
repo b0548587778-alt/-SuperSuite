@@ -14,6 +14,7 @@ const SecureStore = require('./shell/secure-store');
 const ModCounters = require('./shell/module-counters');
 const Legacy = require('./shell/legacy-modules');
 const Chat = require('./shell/licensing/chat');
+const UsersBk = require('./modules/econ/core/usersBackup'); // משתמשים ויומן הפעולות בגיבוי המלא
 const { issuedAfter } = require('./modules/econ/core/database');
 const CodeGuard = require('./shell/code-guard');
 const PlainBk = require('./shell/plain-backups');
@@ -179,7 +180,8 @@ function wireView(id, wc) {
   // גם עכבר, גלגלת ומגע (input-event), לא רק מקלדת: עבודה בעכבר בלבד נותקה אחרי 15 דקות והכתיבות נדחו (ממצא 37)
   let lastTouch = 0;
   const touchActivity = () => {
-    if (!loginGate.isLocked(id) || !views.econ || !econ || !econ.touchSession) return;
+    // גם המסך הכלכלי: הקלדה בטופס בלי שמירה היא עבודה, ולא סיבה לנתק באמצע (סקירת קוד 2.11.2026)
+    if ((id !== 'econ' && !loginGate.isLocked(id)) || !views.econ || !econ || !econ.touchSession) return;
     const t = Date.now();
     if (t - lastTouch < ACTIVITY_THROTTLE_MS) return;
     lastTouch = t;
@@ -547,7 +549,12 @@ async function collectBackup(scope = 'all') {
   // סימוני הרישוי (תחילת הניסיון, "הותקן רישיון") בכל גיבוי — שחזור להתקנה נקייה לא מתחיל ניסיון חדש (ipc.js, ממצא 29)
   if (econ.licenseMarks) out.licenseMarks = econ.licenseMarks();
   if (scope === 'all' || scope === 'econ') {
-    try { out.econ = await econ.getDb().backup(); }
+    try {
+      out.econ = await econ.getDb().backup();
+      // משתמשים, תפקידים, קישורי Google ויומן הפעולות — בגיבוי המלא בלבד (סקירת קוד 2.11.2026): התאוששות ממסד פגום
+      // ומעבר מחשב לא מאבדים אותם. השחזור ממזג (ipc.js → usersRestore)
+      if (scope === 'all' && typeof econ.usersBackup === 'function') out.users = await econ.usersBackup();
+    }
     catch (e) {
       logger.error('backup-econ-read', e);
       const err = new Error('לא ניתן היה לקרוא את הנתונים הכספיים, ולכן הגיבוי לא נשמר. נסו שוב בעוד רגע; אם התקלה חוזרת — שמרו דוח תקלה (F1) ופנו לתמיכה.');
@@ -763,6 +770,12 @@ const econInitOptions = () => ({
   moduleLicensed: (mod) => LG.moduleAllowed(licenseNow(), mod),
   // הצפנת תיבות ההודעות בדיסק (messages.bin, ממצא 26) — במפתח שנגזר ממפתח הגיבוי האוטומטי
   getBackupKey: (create) => autoBackupKey(create),
+  // מסד עם נתונים ובלי משתמשים (שוחזר מגיבוי ישן אחרי תקלה): יצירת מנהל רק עם קוד השחזור (🔑) של המחשב
+  // (ipc.js → auth:setup, סקירת קוד 2.11.2026). בלי מפתח גיבוי אין קוד — ואין דרישה
+  recoveryCode: {
+    available: () => { try { return !!autoBackupKey(false); } catch { return false; } },
+    verify: (code) => { try { return AutoBk.keyFromRecoveryCode(code) === autoBackupKey(false); } catch { return false; } },
+  },
   // פניות לרשת (שרת הרישוי, עדכונים, מפתחות Google) — דרך הרשת של Chromium, שסומכת על התעודות של Windows.
   // fetch של Node לא מכיר אותן, ו-NetFree מציג תעודה משלו — כל חיבור נדחה במחשב מסונן (25.10.2026).
   // האבטחה לא תלויה ב-TLS: תשובות השרת חתומות ונבדקות בתוכנה (checkin.js)
@@ -794,6 +807,10 @@ async function recoverDatabase(firstErr) {
         logger.error('db-open', new Error('damaged database set aside: ' + path.basename(aside)));
         await econ.initEcon(app.getPath('userData'), econInitOptions());
         await econ.getDb().restore(data.econ);
+        // המשתמשים, התפקידים ויומן הפעולות מהגיבוי (סקירת קוד 2.11.2026) — אחרת המסד החדש בלי משתמשים, והראשון
+        // שמגיע למסך נעשה מנהל. גיבוי ישן בלעדיהם — יצירת מנהל רק עם קוד השחזור (ipc.js → auth:setup)
+        try { if (econ.usersRestore) await econ.usersRestore(econ.usersFromBackup(data.users)); } catch (e) { logger.error('restore-users', e); }
+        try { if (!(await econ.getDb().hasUsers())) await econ.getDb().markSetupNeedsRecoveryCode(); } catch (e) { logger.error('restore-users', e); }
         // המסד החדש בלי סימוני הרישוי — מהגיבוי (רק מחמיר: ניסיון ממשיך מהתאריך המקורי)
         try { if (econ.mergeLicenseMarks) econ.mergeLicenseMarks(data.licenseMarks); } catch (e) { logger.error('restore-license-marks', e); }
         await bootDialog({ type: 'info', message: 'הנתונים שוחזרו מהגיבוי האוטומטי', detail: `גיבוי מתאריך ${backup.day}. הקובץ הפגום נשמר בצד בתיקיית הנתונים.` });
@@ -1012,6 +1029,12 @@ async function restoreAllRun(passphrase) {
     try { chatData = Chat.mailboxFromBackup(data.chat); }
     catch (e) { dialog.showErrorBox('שגיאה', e.message + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
   }
+  // המשתמשים ויומן הפעולות (גיבוי מלא מגרסה שכוללת אותם) — נבדקים לפני האישור. גיבוי ישן בלי users לא נוגע בהם
+  let usersData = null;
+  if (data.users != null && econ.usersFromBackup) {
+    try { usersData = econ.usersFromBackup(data.users); }
+    catch (e) { dialog.showErrorBox('שגיאה', e.message + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
+  }
   const scopeText = data.scope && data.scope !== 'all' ? `(גיבוי של מודול: ${data.scope})` : '(גיבוי מלא)';
   const mods = LS_MODS.filter(id => restoreItems(data, id));
   // אין מה לשחזר (למשל גיבוי של מודול האימונים בלבד): לא מציגים "השחזור הושלם" כשלא שוחזר דבר
@@ -1029,7 +1052,8 @@ async function restoreAllRun(passphrase) {
     missing = ModCounters.issuedAfterText(items);
   } catch (e) { logger.error('restore-missing-docs', e); }
   const chatNote = chatData ? 'תיבת ההודעות תשוחזר מהגיבוי; הודעות שהתקבלו או נשלחו אחרי הגיבוי יישארו בה.\n\n' : '';
-  const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: (missing ? '⚠ ' + missing + '\n\n' : '') + chatNote + (legacyData ? Legacy.LEGACY_NOTE + '\n\n' : '') + 'מומלץ לבצע גיבוי לפני כן.' });
+  const usersNote = usersData ? UsersBk.restoreNote(usersData) + '\n\n' : '';
+  const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: (missing ? '⚠ ' + missing + '\n\n' : '') + chatNote + usersNote + (legacyData ? Legacy.LEGACY_NOTE + '\n\n' : '') + 'מומלץ לבצע גיבוי לפני כן.' });
   if (c.response !== 0) return { ok: false };
   // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע (למשל הכספים שוחזרו ומודול אחר נכשל) מחזיר הכול למצב שלפני
   let before;
@@ -1051,8 +1075,14 @@ async function restoreAllRun(passphrase) {
   }
   // סימוני הרישוי מהגיבוי — רק מחמירים (ipc.js, ממצא 29)
   try { if (econ.mergeLicenseMarks) econ.mergeLicenseMarks(data.licenseMarks); } catch (e) { logger.error('restore-license-marks', e); }
+  // משתמשים ויומן הפעולות — מיזוג בטרנזקציה אחת אחרי שהשאר נשמר; כשל לא מבטל את השחזור, ומדווח
+  let usersMsg = '';
+  if (usersData) {
+    try { usersMsg = UsersBk.resultNote(await econ.usersRestore(usersData)); }
+    catch (e) { logger.error('restore-users', e); usersMsg = 'המשתמשים ויומן הפעולות מהגיבוי לא שוחזרו — המשתמשים הקיימים נשארו כמו שהיו.'; }
+  }
   for (const id of Object.keys(views)) views[id].webContents.reload();
-  dialog.showMessageBox(win, { type: 'info', message: 'השחזור הושלם' });
+  dialog.showMessageBox(win, { type: 'info', message: 'השחזור הושלם', ...(usersMsg ? { detail: usersMsg } : {}) });
   // שוחזר מקובץ לא מוצפן (PLAN.md 3.6): מציעים להצפין אותו או למחוק — שהמידע לא יישאר גלוי במחשב
   if (!BK.isEncryptedBackup(text)) await offerPlainFile(r.filePaths[0], text);
   return { ok: true };
@@ -1344,8 +1374,11 @@ app.whenReady().then(async () => {
   });
   // קוד השחזור של הגיבוי האוטומטי: נוצר מהמפתח (ויוצר אותו אם אין עדיין). מנהל בלבד (החלטת הבעלים 23.10.2026):
   // הקוד פותח את המסד, את כל הגיבויים האוטומטיים ואת המחסנים המוצפנים
-  ipcMain.handle('shell:get-recovery-code', (e) => {
+  // הסיסמה של המנהל המחובר נבדקת שוב בתהליך הראשי לפני כל הצגה (סקירת קוד 2.11.2026): אחרי כניסה עם Google
+  // במחשב משותף, או מחשב שנשאר פתוח — הקוד לא מוצג בלי הסיסמה
+  ipcMain.handle('shell:get-recovery-code', async (e, password) => {
     shellGuard(e, 'users.manage');
+    await econ.confirmPassword(econSenderId(), password);
     return AutoBk.recoveryCodeFromKey(autoBackupKey(true));
   });
   // מסך הבית: מדדים ומשימות להיום, ושאלה לעוזר — בשם המודול הכלכלי, דרך אותו שומר (כניסה, הרשאה, רישיון).

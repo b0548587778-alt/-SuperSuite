@@ -19,7 +19,8 @@ const masavChannel = (domain, op) => {
 contextBridge.exposeInMainWorld('systemAPI', {
   // Authentication
   authStatus: () => ipcRenderer.invoke('auth:status'),
-  setupAdmin: (username, password) => ipcRenderer.invoke('auth:setup', username, password),
+  // recoveryCode — רק כשהמסד שוחזר בלי משתמשים (auth:status → recoveryCodeRequired)
+  setupAdmin: (username, password, recoveryCode) => ipcRenderer.invoke('auth:setup', username, password, recoveryCode),
   login: (username, password) => ipcRenderer.invoke('auth:login', username, password),
   logout: () => ipcRenderer.invoke('auth:logout'),
   googleLogin: () => ipcRenderer.invoke('auth:google-login'),
@@ -356,7 +357,9 @@ contextBridge.exposeInMainWorld('systemAPI', {
   listUsers: () => ipcRenderer.invoke('users:list'),
   createUser: (input) => ipcRenderer.invoke('users:create', input),
   updateUser: (id, input) => ipcRenderer.invoke('users:update', id, input),
-  resetUserPassword: (id, password) => ipcRenderer.invoke('users:resetPassword', id, password),
+  // ownPassword — הסיסמה של המנהל עצמו, נדרשת אחרי כניסה עם Google
+  resetUserPassword: (id, password, ownPassword) => ipcRenderer.invoke('users:resetPassword', id, password, ownPassword),
+  unlinkUserGoogle: (id, ownPassword) => ipcRenderer.invoke('users:unlinkGoogle', id, ownPassword),
   listAudit: (filter) => ipcRenderer.invoke('audit:list', filter),
   exportAudit: (filter) => ipcRenderer.invoke('audit:export', filter),
   getLicenseStatus: () => ipcRenderer.invoke('license:getStatus'),

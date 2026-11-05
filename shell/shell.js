@@ -772,8 +772,15 @@ $('tg').onclick = async () => {
 async function showRecoveryCode() {
   const dlg = $('rkDlg');
   let code;
-  try { code = await window.shellAPI.getRecoveryCode(); }
-  catch (e) { await ssDialog.alert(e.message || 'קוד השחזור מוצג למנהל בלבד — יש להיכנס כמנהל'); return; }
+  // הקוד פותח את כל הגיבויים והמסד — רק אחרי הקלדה חוזרת של הסיסמה (גם אחרי כניסה עם Google; סקירת קוד 2.11.2026)
+  const password = await ssDialog.prompt('כדי להציג את קוד השחזור, הקלידו שוב את הסיסמה שלכם (של המנהל המחובר):', '', { title: 'קוד שחזור', type: 'password', okText: 'הצג' });
+  if (password == null) return;
+  try { code = await window.shellAPI.getRecoveryCode(password); }
+  catch (e) {
+    // בלי הקידומת האנגלית של Electron — "הסיסמה שגויה" בעברית
+    const msg = String((e && e.message) || '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    await ssDialog.alert(msg || 'קוד השחזור מוצג למנהל בלבד — יש להיכנס כמנהל'); return;
+  }
   $('rkCode').textContent = code;
   $('rkErr').textContent = '';
   const close = () => { dlg.oncancel = null; closeDialog(dlg); };

@@ -216,7 +216,8 @@ function renderSettings(d) {
             <td><select data-user-role="${esc(u.id)}"${st.me && st.me.id === u.id ? ' disabled' : ''}>${Object.keys(ROLE_LABELS).map(r => `<option value="${r}"${u.role === r ? ' selected' : ''}>${esc(ROLE_LABELS[r].split(' — ')[0])}</option>`).join('')}</select></td>
             <td>${u.active ? (u.locked ? 'נעול זמנית' : 'פעיל') : 'חסום'}</td>
             <td>${st.me && st.me.id === u.id ? '' : `<button class="secondary small" data-user-toggle="${esc(u.id)}" data-active="${u.active ? '1' : '0'}">${u.active ? 'חסימה' : 'הפעלה'}</button>`}
-              <button class="secondary small" data-user-reset="${esc(u.id)}">איפוס סיסמה</button></td>
+              <button class="secondary small" data-user-reset="${esc(u.id)}">איפוס סיסמה</button>${u.google && !(st.me && st.me.id === u.id) ? `
+              <button class="secondary small" data-user-unlink-google="${esc(u.id)}" title="ניתוק החשבון של ${esc(u.username)} מ-Google: הכניסה שלו תהיה בסיסמה בלבד">ניתוק Google</button>` : ''}</td>
           </tr>`).join('')}</tbody>
         </table></div>
       </div>
@@ -256,6 +257,7 @@ function renderGoogleCard(st) {
           <div class="acct-row"><span>הכניסה הנוכחית</span><span>${g.via === 'google' ? 'עם Google' : 'בסיסמה'}</span></div>
           ${g.onlineRequiresGoogle ? '<p class="muted">ההודעות זמינות רק אחרי כניסה עם Google.</p>' : ''}
           <p class="muted">הכניסה נעשית בדפדפן של המחשב ודורשת אינטרנט. הכניסה בסיסמה נשארת תמיד.</p>
+          <p class="ss-hint">⚠ מחשב משותף: מי שיושב מול המחשב כשהדפדפן עדיין מחובר לחשבון ה-Google שלכם יכול להיכנס בשמכם, בלי סיסמה. במחשב משותף — התנתקו מ-Google בדפדפן בסוף העבודה, או אל תקשרו חשבון של מנהל. קוד השחזור (🔑), איפוס סיסמה וניתוק Google של משתמש אחר דורשים תמיד את הסיסמה.</p>
           <div class="acct-actions">
             <button class="secondary" id="googleLinkBtn">${link ? 'קישור לחשבון אחר' : 'קישור חשבון Google'}</button>
             ${link ? '<button class="secondary" id="googleUnlinkBtn">ביטול הקישור</button>' : ''}
@@ -392,10 +394,25 @@ function attachSettingsHandlers() {
     try { await window.systemAPI.updateUser(b.dataset.userToggle, { active: activate }); showToast(activate ? 'המשתמש הופעל' : 'המשתמש נחסם'); await switchView('settings'); }
     catch (error) { showError('שגיאה: ' + errMsg(error)); }
   }));
+  // אחרי כניסה עם Google — הסיסמה של המנהל עצמו נדרשת בשרת (stepUp ב-ipc.js); השדה מוצג רק אז
+  const viaGoogle = !!(st.google && st.google.via === 'google');
+  const ownField = viaGoogle ? [{ name: 'own', label: 'הסיסמה שלך (נכנסת עם Google)', type: 'password' }] : [];
   document.querySelectorAll('[data-user-reset]').forEach(b => b.addEventListener('click', async () => {
-    const v = await askFields('איפוס סיסמה', [{ name: 'pass', label: 'סיסמה חדשה (לפחות 12 תווים)', type: 'password' }], 'איפוס');
+    const v = await askFields('איפוס סיסמה', [{ name: 'pass', label: 'סיסמה חדשה (לפחות 12 תווים)', type: 'password' }, ...ownField], 'איפוס');
     if (!v) return;
-    try { await window.systemAPI.resetUserPassword(b.dataset.userReset, v.pass); showToast('הסיסמה אופסה'); }
+    try { await window.systemAPI.resetUserPassword(b.dataset.userReset, v.pass, v.own); showToast('הסיסמה אופסה, והקישור של המשתמש ל-Google (אם היה) נותק'); }
     catch (error) { showError('שגיאה: ' + errMsg(error)); }
+    await switchView('settings');
+  }));
+  document.querySelectorAll('[data-user-unlink-google]').forEach(b => b.addEventListener('click', async () => {
+    let own;
+    if (viaGoogle) {
+      const v = await askFields('ניתוק Google של משתמש', ownField, 'ניתוק');
+      if (!v) return;
+      own = v.own;
+    } else if (!(await askConfirm('לנתק את המשתמש מ-Google? הכניסה שלו תהיה בסיסמה בלבד, עד שיקשר שוב.'))) return;
+    try { await window.systemAPI.unlinkUserGoogle(b.dataset.userUnlinkGoogle, own); showToast('הקישור ל-Google נותק'); }
+    catch (error) { showError('שגיאה: ' + errMsg(error)); }
+    await switchView('settings');
   }));
 }

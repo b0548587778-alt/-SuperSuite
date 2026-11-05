@@ -189,17 +189,23 @@ function askFields(title, fields, submitText, initial = {}, opts = {}) {
 
 // Setup admin
 async function setupAdmin() {
+  // מסד ששוחזר אחרי תקלה בלי משתמשים — המנהל נוצר רק עם קוד השחזור (🔑) של המחשב (סקירת קוד 2.11.2026)
+  const st = window.systemAPI.authStatus ? await window.systemAPI.authStatus().catch(() => null) : null;
+  const needCode = !!(st && st.recoveryCodeRequired);
   const values = await askFields('יצירת מנהל ראשון', [
     { name: 'username', label: 'שם משתמש' },
     { name: 'password', label: 'סיסמה', type: 'password', newPassword: true, hint: 'לפחות 12 תווים. משפט קצר שקל לזכור — למשל שלוש מילים ומספר' },
-    { name: 'password2', label: 'הסיסמה שוב', type: 'password', newPassword: true, same: 'password' }
+    { name: 'password2', label: 'הסיסמה שוב', type: 'password', newPassword: true, same: 'password' },
+    ...(needCode ? [{ name: 'recoveryCode', label: 'קוד השחזור (🔑)', hint: 'במערכת יש נתונים אבל אין משתמשים (שוחזרה אחרי תקלה) — הקלידו את קוד השחזור שנרשם על נייר' }] : [])
   ], 'צור מנהל והתחל', {}, { screen: {
-    intro: 'ברוכים הבאים',
+    intro: needCode ? 'שחזור הגישה למערכת' : 'ברוכים הבאים',
     note: 'זה המנהל של התוכנה: הוא יכול להוסיף משתמשים ולקבוע מה כל אחד רואה. את הסיסמה אי אפשר לשחזר — רשמו אותה ושמרו במקום בטוח.'
   } });
   if (!values) return;
   try {
-    state.user = await window.systemAPI.setupAdmin(values.username, values.password);
+    state.user = needCode
+      ? await window.systemAPI.setupAdmin(values.username, values.password, values.recoveryCode)
+      : await window.systemAPI.setupAdmin(values.username, values.password);
     showToast('מנהל נוצר בהצלחה');
   } catch (error) {
     showError('שגיאה ביצירת מנהל: ' + errMsg(error));
@@ -270,12 +276,35 @@ function showToast(message) {
 // פגישה שפגה (חוסר פעילות): מציגים שוב את מסך הכניסה ואחר כך טוענים מחדש את התצוגה
 let reloginPending = false;
 function maybeRelogin(message) {
-  if (!String(message).includes('נדרשת כניסה') || reloginPending) return;
-  reloginPending = true;
-  state.user = null;
-  loginUser().then(() => {
-    if (state.user) switchView(state.currentView);
-  }).finally(() => { reloginPending = false; });
+  if (!String(message).includes('נדרשת כניסה')) return;
+  relogin();
+}
+// חלון כניסה אחד בכל פעם, והמסך נשאר ריק עד שמישהו נכנס (גם אחרי סיסמה שגויה).
+// אחרי הכניסה — טעינה מחדש של המסך בשם המשתמש החדש (סקירת קוד 2.11.2026)
+function relogin() {
+  if (reloginPending) return reloginPending;
+  resetUiForLogout();
+  reloginPending = (async () => {
+    try {
+      while (!state.user) await loginUser();
+      await switchView(state.currentView);
+    } finally { reloginPending = false; }
+  })();
+  return reloginPending;
+}
+// יציאה / החלפת משתמש / ניתוק: שום דבר מהמשתמש הקודם לא נשאר על המסך או בזיכרון הממשק —
+// המסך, החלון הפתוח, state.data וזיכרוני המסכים (עוזר ה-AI, מעבדת התמהיל, השמאות, טיוטת הודעה, נדל"ן)
+const UI_KEEP_ON_LOGOUT = ['currentView', 'acctKeysBound', 'viewSeq', 'searchSeq'];
+function resetUiForLogout() {
+  if (elements.modal && !elements.modal.classList.contains('hidden')) closeModal();
+  for (const k of Object.keys(state)) if (!UI_KEEP_ON_LOGOUT.includes(k)) delete state[k];
+  Object.assign(state, { user: null, data: {}, loading: false, error: null, editingId: null, fieldValuesBackup: null, subForm: null });
+  // טעינה או חיפוש שעוד בדרך לא יתרנדרו מעל מסך הכניסה
+  state.viewSeq = (state.viewSeq || 0) + 1;
+  state.searchSeq = (state.searchSeq || 0) + 1;
+  Object.assign(aiUi, { busy: false, answer: null, error: '' });
+  Object.assign(rltyUi, { tab: 'properties', matches: null, deal: null, inv: {}, invResult: null, analysisId: '', table: null, proj: null, projResult: null });
+  if (elements.view) elements.view.innerHTML = '';
 }
 
 function showError(message) {

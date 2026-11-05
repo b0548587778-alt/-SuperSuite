@@ -266,14 +266,13 @@ function collectFormData(fields) {
 // Handle user action
 async function handleUser() {
   try {
+    // החלפת משתמש = איפוס מלא של הממשק וחלון כניסה אחד (relogin), ואחרי הכניסה המסך נטען מחדש
+    // בשם המשתמש החדש — לא נשאר המסך של הקודם (סקירת קוד 2.11.2026)
     if (state.user) {
       await window.systemAPI.logout();
-      state.user = null;
       showToast('התנתקת מהמערכת');
-      await loginUser();
-    } else {
-      await loginUser();
     }
+    await relogin();
   } catch (error) {
     showError('שגיאה בניהול משתמש: ' + errMsg(error));
   }

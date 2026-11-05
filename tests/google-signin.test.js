@@ -213,7 +213,8 @@ test('IPC: קישור, כניסה עם Google, מדיניות והרשאות', a
   await handlers['auth:google-link'](ev(4));
   const editorId = (await handlers['users:list'](ev(1))).find(x => x.username === 'editor_1').id;
   await handlers['users:update'](ev(1), editorId, { active: false });
-  await assert.rejects(handlers['auth:google-login'](ev(5)), /חסום/);
+  // חסימה מנתקת גם את הקישור ל-Google (סקירת קוד 2.11.2026) — אין כניסה עם החשבון
+  await assert.rejects(handlers['auth:google-login'](ev(5)), /לא מקושר/);
 
   // ההמתנה לדפדפן לא תוקעת את שאר התוכנה; ובינתיים אין כניסה שנייה במקביל
   identity = { sub: 'g-1', email: 'moshe@example.org' };
