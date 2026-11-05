@@ -6,7 +6,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const BIDI = /[‪-‮⁦-⁩]/;
+const BIDI = /[\u202a-\u202e\u2066-\u2069]/;
 
 test('אין תווי כיוון גולמיים בקובצי קוד במאגר', (t) => {
   let files;
