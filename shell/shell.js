@@ -348,8 +348,17 @@ function card(it) {
   return `<button class="card hue-${it.hue}${itemOpen(it) ? '' : ' off'}" data-key="${esc(it.key)}" type="button">` +
     `<span class="ic" aria-hidden="true">${itemIcon(it)}</span><span><b>${esc(it.name)}</b><small>${esc(it.desc)}</small></span></button>`;
 }
+// מה שמסך הבית מציג ותלוי בשעה: הברכה, התאריך האזרחי והתאריך העברי (מתחלף בשקיעה). שינוי ← renderHome מלא
+// (סקירת קוד 2.11.2026: בשקיעה רק כרטיס הזמנים התעדכן — הברכה, שורת התאריך ותג "היום" נשארו של היום הקודם)
+let homeStamp = '';
+function homeStampAt(ms) {
+  const d = new Date(ms);
+  const h = HC.hebrewToday(ms, cal);
+  return [greeting(d.getHours()), d.getFullYear(), d.getMonth(), d.getDate(), h ? h.text + (h.night ? '*' : '') : ''].join('|');
+}
 function renderHome() {
   const now = new Date();
+  homeStamp = homeStampAt(now.getTime());
   $('greet').textContent = greeting(now.getHours());
   const greg = now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const heb = HC.hebrewToday(now.getTime(), cal);
@@ -1007,4 +1016,13 @@ function openDisplaySettings() {
   showDialog(dlg);
 }
 loadDisplay();
-setInterval(() => { tickShabbat(); if (!ui.active) renderDay(Date.now()); }, 60000);
+setInterval(() => {
+  tickShabbat();
+  if (ui.active) return;
+  const now = Date.now();
+  if (homeStampAt(now) === homeStamp) { renderDay(now); return; }
+  // יום אזרחי חדש — גם הנתונים ("היום", יארצייטים) מהשרת
+  const newDay = homeStamp.split('|').slice(1, 4).join('|') !== homeStampAt(now).split('|').slice(1, 4).join('|');
+  renderHome();
+  if (newDay) loadHome();
+}, 60000);

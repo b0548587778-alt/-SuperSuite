@@ -304,7 +304,7 @@ class NpoService {
     const list = data.npo.memorials;
     const prev = memorialId ? list.find(m => m.id === memorialId) : null;
     if (memorialId && !prev) throw new Error('רשומת ההנצחה לא נמצאה');
-    const clean = MEM.validateMemorial({ ...(prev || {}), ...input }, { count: prev ? 0 : list.length });
+    const clean = MEM.validateMemorial({ ...(prev || {}), ...input }, { count: prev ? 0 : list.length, prev });
     const now = new Date().toISOString();
     const m = prev ? Object.assign(prev, clean, { updatedAt: now }) : { id: crypto.randomUUID(), ...clean, createdAt: now };
     if (!prev) list.push(m);

@@ -378,7 +378,7 @@ function attachMadvHandlers() {
   document.querySelectorAll('[data-madv-status]').forEach(sel => sel.addEventListener('change', async () => {
     const patch = { status: sel.value };
     if (sel.value === 'lost') {
-      const v = await askFields('למה התיק לא התקדם?', [{ name: 'lostReason', label: 'סיבה (לא חובה)' }], 'שמירה');
+      const v = await askFields('למה התיק לא התקדם?', [{ name: 'lostReason', label: 'סיבה (לא חובה)', optional: true }], 'שמירה');
       if (!v) { await switchView('mortgage-advisor'); return; }
       patch.lostReason = v.lostReason || '';
     }

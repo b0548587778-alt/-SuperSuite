@@ -167,7 +167,8 @@ function askFields(title, fields, submitText, initial = {}, opts = {}) {
       for (const f of fields) {
         const raw = inputs[f.name].value;
         const v = f.type === 'password' ? raw : raw.trim();
-        if (!v) {
+        // optional: שדה רשות (מסומן "לא חובה" בתווית) — נשלח ריק (סקירת קוד 2.11.2026)
+        if (!v && !f.optional) {
           err.textContent = 'יש למלא את השדה: ' + f.label;
           inputs[f.name].focus();
           return;

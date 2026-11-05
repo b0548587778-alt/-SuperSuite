@@ -143,7 +143,9 @@ const money = (n) => '₪' + Number(n || 0).toLocaleString('he-IL', { minimumFra
 const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const yearStart = () => isoDate(new Date(new Date().getFullYear(), 0, 1));
 const today = () => isoDate(new Date());
-const acctPeriod = () => state.acctPeriod || (state.acctPeriod = { from: yearStart(), to: today() });
+// ברירת המחדל מחושבת בכל קריאה (לא נשמרת): תוכנה שנשארה פתוחה אחרי חצות או בתחילת שנה מציגה את התקופה הנכונה.
+// רק תקופה שהמשתמש בחר נשמרת ב-state.acctPeriod (סקירת קוד 2.11.2026)
+const acctPeriod = () => state.acctPeriod || { from: yearStart(), to: today() };
 const ACCT_STATUS = { open: 'פתוחה', paid: 'שולמה', cancelled: 'בוטלה' };
 // מספר הקצאה (9.2א): המצב מחושב בשרת (getInvoices → allocation, לפי core/allocation.js) — כאן רק תצוגה
 const invoiceAllocState = (i) => i.allocation || 'not-required';

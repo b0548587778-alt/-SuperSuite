@@ -110,7 +110,7 @@ async function runPrivacySubject() {
 async function runPrivacyRequest() {
   const type = (document.getElementById('privacyRequestType') || {}).value || 'access';
   const f = await askFields('רישום בקשה של נושא מידע', [
-    { name: 'name', label: 'שם המבקש' }, { name: 'idNumber', label: 'מספר זהות (אם נמסר)' },
+    { name: 'name', label: 'שם המבקש' }, { name: 'idNumber', label: 'מספר זהות (אם נמסר)', optional: true },
     { name: 'receivedDate', label: 'תאריך קבלת הבקשה', type: 'date' }, { name: 'notes', label: 'פירוט הבקשה' }
   ], 'רישום', { receivedDate: today() });
   if (!f) return;
@@ -124,7 +124,7 @@ async function runPrivacyRequest() {
 async function runPrivacyClose(id, status) {
   const f = await askFields(status === 'rejected' ? 'דחיית הבקשה' : 'סימון הבקשה כמטופלת', [
     { name: 'handledDate', label: 'תאריך הטיפול', type: 'date' },
-    { name: 'notes', label: status === 'rejected' ? 'סיבת הדחייה (חובה)' : 'מה נעשה' }
+    { name: 'notes', label: status === 'rejected' ? 'סיבת הדחייה (חובה)' : 'מה נעשה (לא חובה)', optional: status !== 'rejected' }
   ], 'שמירה', { handledDate: today() });
   if (!f) return;
   try {

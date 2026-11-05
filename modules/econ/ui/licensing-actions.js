@@ -67,7 +67,11 @@ function licForm(title, fields, submitText, intro) {
         input.type = f.type || 'text';
         if (f.type === 'password') input.autocomplete = 'new-password';
       }
-      input.value = f.value != null ? String(f.value) : '';
+      const val = f.value != null ? String(f.value) : '';
+      // רשימת בחירה בלי ערך תואם — האפשרות הראשונה (לא רשימה ריקה שנשלחת כ-'' ונדחית באנגלית או דורסת הגדרה;
+      // סקירת קוד 2.11.2026)
+      if (f.type === 'select') input.selectedIndex = Math.max(0, f.options.findIndex(([v]) => String(v) === val));
+      else input.value = val;
       label.append(span, input);
       form.appendChild(label);
       get[f.name] = () => (f.type === 'password' ? input.value : input.value.trim());

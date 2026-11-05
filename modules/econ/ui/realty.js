@@ -103,7 +103,8 @@ const rltyOrderSchema = {
     f('propertyId').options = [{ value: '', label: 'ללא נכס מסוים (תיאור בהמשך)' }, ...(o.properties || []).map(p => ({ value: p.id, label: p.title }))];
     f('transaction').options = rltyOpts(o.transactions, 'לבחירה');
     f('feeType').options = rltyOpts(o.feeTypes);
-    f('date').value = f('date').value || madvToday();
+    // בכל פתיחה מחדש — לא התאריך של הפתיחה הראשונה בהפעלה (סקירת קוד 2.11.2026); בעריכה ערך הרשומה גובר
+    f('date').value = madvToday();
   },
   fields: [
     { name: 'clientId', label: 'לקוח', type: 'select', required: true, options: [] },
@@ -132,7 +133,7 @@ const rltyTaxTableSchema = {
   prepare: async (schema) => {
     schema.fields.find(x => x.name === 'kind').options = rltyOpts(rltyData().taxKinds);
     const y = schema.fields.find(x => x.name === 'year');
-    y.value = y.value || new Date().getFullYear();
+    y.value = new Date().getFullYear();
   },
   fields: [
     { name: 'year', label: 'שנת תוקף', type: 'number', required: true },
@@ -157,7 +158,7 @@ const rltyProjectSchema = {
   title: 'פרויקט יזמי חדש',
   prepare: async (schema) => {
     const m = schema.fields.find(x => x.name === 'startMonth');
-    m.value = m.value || madvToday().slice(0, 7);
+    m.value = madvToday().slice(0, 7);
   },
   fields: [
     { name: 'name', label: 'שם הפרויקט', type: 'text', required: true },
