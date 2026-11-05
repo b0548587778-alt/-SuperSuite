@@ -79,6 +79,11 @@
   // עוברת בכתובת ה-iframe ביצירה (ss-ro) — כך היא בתוקף כבר בטעינה — ונשלחת למסגרת בכל שינוי ובכל טעינה
   const writeBlocks = {};
   const withWriteBlock = (id, entry) => (writeBlocks[id] ? entry + (entry.includes('?') ? '&' : '?') + 'ss-ro=' + encodeURIComponent(writeBlocks[id]) : entry);
+  // הגדרות התצוגה והנגישות (data-ss-*): נשלחות לכל מסגרת בכל טעינה ובכל שינוי (frame.js — display)
+  let displayAttrs = null;
+  const postDisplay = id => {
+    if (frames[id] && displayAttrs) frames[id].el.contentWindow.postMessage({ ss: 'display', attrs: displayAttrs }, originOf(id));
+  };
   const postWriteBlock = id => {
     if (frames[id] && Object.prototype.hasOwnProperty.call(writeBlocks, id)) frames[id].el.contentWindow.postMessage({ ss: 'write-block', message: writeBlocks[id] }, originOf(id));
   };
@@ -101,6 +106,10 @@
       return f;
     },
     setVisible(id, on) { if (frames[id]) frames[id].el.hidden = !on; },
+    setDisplay(attrs) {
+      displayAttrs = attrs && typeof attrs === 'object' ? attrs : null;
+      for (const id of Object.keys(frames)) postDisplay(id);
+    },
     // message — הודעה בעברית (כתיבה נחסמת) או null (מותר)
     setWriteBlock(id, message) {
       writeBlocks[id] = typeof message === 'string' && message ? message : null;
@@ -142,7 +151,7 @@
     if (!m || typeof m.ss !== 'string') return;
     const f = frames[id];
     // בכל טעינה (גם טעינה מחדש של המודול עצמו) — מצב הכתיבה העדכני
-    if (m.ss === 'ready') { f.loaded = true; postWriteBlock(id); f.waiters.splice(0).forEach(r => r()); return; }
+    if (m.ss === 'ready') { f.loaded = true; postWriteBlock(id); postDisplay(id); f.waiters.splice(0).forEach(r => r()); return; }
     if (m.ss === 'ls') { const p = lsPending.get(m.id); if (p && p.id === id) { lsPending.delete(m.id); p.done(m.data); } return; }
     // המודול נקבע לפי event.source — מסגרת לא יכולה לדווח פעילות בשם מודול אחר
     if (m.ss === 'activity') { for (const fn of activityListeners) { try { fn(id); } catch (err) { console.error(err); } } return; }
@@ -205,6 +214,15 @@
       version: info.version,
       about: info.about,
       ui,
+      // תצוגה ונגישות על המעטפת עצמה (במחשב — display-preload.js)
+      applyShellDisplay: attrs => {
+        const el = document.documentElement;
+        if (!el || typeof el.setAttribute !== 'function') return;
+        for (const [k, v] of Object.entries(attrs || {})) {
+          if (/^data-ss-[a-z]+$/.test(k) && typeof v === 'string' && /^[a-z]+$/.test(v)) el.setAttribute(k, v);
+        }
+      },
+      systemDark: () => { try { return matchMedia('(prefers-color-scheme: dark)').matches; } catch { return false; } },
       alert: m => window.alert(m),
       confirm: m => window.confirm(m),
       exit: () => raw.exit()

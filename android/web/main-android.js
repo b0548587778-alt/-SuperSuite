@@ -15,6 +15,7 @@ const ModCounters = require('../../shell/module-counters');
 const Chat = require('../../shell/licensing/chat');
 const UsersBk = require('../../modules/econ/core/usersBackup'); // משתמשים ויומן הפעולות בגיבוי המלא
 const LG = require('../../shell/licensing/gate');
+const Display = require('../../shell/display'); // תצוגה ונגישות (data-ss-*), כמו main.js
 const { issuedAfter } = require('../../modules/econ/core/database');
 const { createRelayFetch } = require('./relay-fetch');
 
@@ -41,7 +42,6 @@ const moduleMayInvoke = (id, channel) => !!(MODULE_CHANNELS[id] && MODULE_CHANNE
 
 // ערוצים בממשק המעטפת (shell/preload.js) שאין להם מקבילה באנדרואיד — הודעה ברורה בעברית
 const NOT_ON_ANDROID = {
-  'shell:get-display': 'הגדרות התצוגה', 'shell:save-display': 'הגדרות התצוגה',
   'shell:plain-backup-encrypt': 'הצפנת גיבויים ישנים', 'shell:plain-backup-delete': 'מחיקת גיבויים ישנים',
   'shell:save-crash-report': 'דוח תקלה', 'shell:open-user-guide': 'מדריך המשתמש', 'shell:save-user-guide-pdf': 'מדריך המשתמש',
   ...Object.fromEntries(['status', 'set-enabled', 'rename', 'set-port', 'create-invite', 'cancel-invite', 'join', 'approve',
@@ -431,6 +431,24 @@ function start(ctx) {
     return s;
   });
   ipcMain.handle('shell:overlay', (e, on) => { if (!isShell(e)) return false; overlay = !!on; show(); return true; });
+  // תצוגה ונגישות (סבב 4): כמו main.js — נשמר ב-ui-settings → display, ומגיע לכל מסך כמאפייני data-ss-*
+  // (המעטפת — applyShellDisplay; כל מודול — frames.setDisplay ← frame.js), כולל data-ss-simple של מצב פשוט
+  const displaySettings = () => Display.sanitize((ctx.ui.load() || {}).display);
+  const broadcastDisplay = () => {
+    const attrs = Display.attrsFor(displaySettings(), typeof ctx.systemDark === 'function' && !!ctx.systemDark());
+    if (typeof ctx.applyShellDisplay === 'function') ctx.applyShellDisplay(attrs);
+    if (typeof frames.setDisplay === 'function') frames.setDisplay(attrs);
+    return attrs;
+  };
+  broadcastDisplay();
+  ipcMain.handle('shell:get-display', e => (isShell(e) ? displaySettings() : null));
+  ipcMain.handle('shell:save-display', (e, input) => {
+    if (!isShell(e)) return null;
+    const ui = ctx.ui.load() || {};
+    ctx.ui.save({ ...ui, display: Display.sanitize(input) });
+    broadcastDisplay();
+    return displaySettings();
+  });
   ipcMain.handle('shell:econ-view', (e, view) => {
     if (!frames.exists('econ') || e.sender.id !== ctx.senderOf('econ') || !ECON_VIEWS.includes(view)) return false;
     econView = view;

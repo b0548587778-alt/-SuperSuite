@@ -15,6 +15,9 @@
   background:linear-gradient(90deg,var(--navy-1),var(--navy-2));color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.25)}
 .ss-top button{width:42px;height:38px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.08);color:#fff;font-size:20px;line-height:1}
 .ss-top b{flex:1;min-width:0;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* מצב פשוט: "למסך הבית" בפס העליון (mobile.js) — מוצג רק במצב פשוט וכשמסך פתוח */
+.ss-top #ssHome{width:auto;min-height:44px;padding:0 14px;font-size:16px;font-weight:700;background:var(--ss-gold-bright);color:var(--ss-navy-1);border-color:var(--ss-gold-bright)}
+.ss-top #ssHome[hidden]{display:none}
 .ss-scrim{display:none;position:fixed;inset:0;z-index:39;background:rgba(5,10,25,.45)}
 body.ss-drawer .ss-scrim{display:block}
 body{padding-top:var(--ss-top-h)}
