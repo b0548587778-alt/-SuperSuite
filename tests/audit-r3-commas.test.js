@@ -16,3 +16,11 @@ test('חשבונית ספק: מפריד אלפים תקין עדיין נקרא'
   assert.deepEqual(a.lines, b.lines);
   assert.ok(IC.draftEntry({ ...base, gross: '₪ 1,234,567.5' }));
 });
+
+test('חבילת סוף השנה: סכום מינימלי "10,50" נדחה; "1,000" נקרא כאלף', () => {
+  const N = require('../modules/econ/core/npo');
+  const donations = [{ id: 'd1', donorName: 'משה לוי', donorId: '000000018', amount: 600, date: '2026-03-01', receipt: { number: 1, fundName: 'כללי' } }];
+  assert.throws(() => N.yearEndPack(donations, {}, 2026, { minTotal: '10,50' }), /הסכום המינימלי אינו תקין/);
+  const r = N.yearEndPack(donations, {}, 2026, { minTotal: '1,000' });
+  assert.equal(r.skipped.belowMin, 1);
+});

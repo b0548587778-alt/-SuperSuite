@@ -428,7 +428,10 @@ function donorAnnualStatement(donations, settings, donorKey, year) {
 function yearEndPack(donations, settings, year, opts = {}) {
   const y = Number(year);
   if (!Number.isInteger(y) || y < 2000 || y > 2100) throw new Error('שנה לא תקינה');
-  const minRaw = opts.minTotal === undefined || opts.minTotal === null || opts.minTotal === '' ? 0 : Number(String(opts.minTotal).replace(/[,\s₪]/g, ''));
+  // פסיק — רק מפריד אלפים ("1,000"); "10,50" נדחה ולא נקרא 1,050 (סקירת קוד 2.11.2026)
+  const minText = String(opts.minTotal ?? '').replace(/[\s₪]/g, '');
+  const minRaw = minText === '' ? 0
+    : (minText.includes(',') && !/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(minText)) ? NaN : Number(minText.replace(/,/g, ''));
   if (!Number.isFinite(minRaw) || minRaw < 0) throw new Error('הסכום המינימלי אינו תקין');
   const minAg = toAg(minRaw);
   const onlySec46 = opts.onlySec46 === true;
