@@ -247,6 +247,23 @@ class Database {
     this.atRestStatus = 'plain';
     this._resolveCipher = resolveCipher;
     this._beforeEncrypt = beforeEncrypt;
+    // מטמון האוספים המפוענחים (AUDIT-2026-11-02-PLANS.md ג): collection ← { sealed, json }.
+    // sealed = הערך כפי שהוא במסד; שורה שהשתנתה מבחוץ (שחזור, מופע אחר, כתיבה ישירה) לא תואמת ולכן מפוענחת מחדש.
+    // קשור ל-cipher שבו נבנה — החלפת מפתח מבטלת אותו אוטומטית
+    this._cache = new Map();
+    this._cacheCipher = null;
+    this.stats = { decrypts: 0, encrypts: 0, rowsWritten: 0 };
+  }
+
+  // ביטול המטמון: שחזור, מיגרציה, הצפנת מסד ישן, החלפת מפתח, ROLLBACK
+  invalidateCache() {
+    this._cache = new Map();
+    this._cacheCipher = null;
+  }
+
+  _cacheMap() {
+    if (this._cacheCipher !== this.cipher) { this._cache = new Map(); this._cacheCipher = this.cipher; }
+    return this._cache;
   }
 
   // כל כשל בפתיחה (מסד פגום, נעול, בלי מפתח) סוגר את הקובץ — אחרת ב-Windows אי אפשר להעביר אותו הצידה (PLAN.md 2.3)
@@ -312,6 +329,7 @@ class Database {
     }
     this.cipher = AR.createCipher(r.key);
     this.atRestStatus = 'encrypted';
+    this.invalidateCache();
   }
 
   // המרה חד-פעמית של מסד ישן (גם ערכים גלויים שנשארו): גיבוי ← טרנזקציה אחת ← VACUUM
@@ -330,11 +348,13 @@ class Database {
       catch (e) {
         // בלי גיבוי לא ממירים. הכתיבה בהפעלה הזו נשארת גלויה, ונסיון נוסף בהפעלה הבאה
         this.cipher = AR.createCipher(null);
+        this.invalidateCache();
         this.atRestStatus = 'pending-backup';
         this.atRestError = e;
         return { converted: false, reason: 'backup-failed' };
       }
     }
+    this.invalidateCache();
     await this.exec('BEGIN IMMEDIATE TRANSACTION');
     try {
       for (const row of await this.all("SELECT collection, payload FROM collections WHERE payload NOT LIKE 'SSDB1:%'")) {
@@ -373,6 +393,7 @@ class Database {
     await this.run('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
     const applied = await this.all('SELECT version FROM schema_migrations');
     const appliedVersions = new Set(applied.map(row => row.version));
+    if (migrations.some(m => !appliedVersions.has(m.version))) this.invalidateCache();
 
     await this.exec('BEGIN IMMEDIATE TRANSACTION');
 
@@ -411,10 +432,18 @@ class Database {
     const rows = await this.all('SELECT collection, payload FROM collections');
     // עותק עמוק: אוסף חסר לא יחלוק מערכים עם defaults (push לתוכו היה משנה את ברירת המחדל לכל הקריאות הבאות)
     const data = freshDefaults();
+    const cache = this._cacheMap();
+    const seen = new Map();
 
     for (const row of rows) {
       try {
-        const payload = JSON.parse(this.cipher.open(row.payload));
+        // אותו ערך מוצפן כמו במטמון ← בלי פענוח. JSON.parse תמיד: השירותים מקבלים עותק טרי ולא משנים את המטמון
+        const hit = cache.get(row.collection);
+        let json;
+        if (hit && hit.sealed === row.payload) json = hit.json;
+        else { json = this.cipher.open(row.payload); this.stats.decrypts++; }
+        const payload = JSON.parse(json);
+        seen.set(row.collection, { sealed: row.payload, json });
         if (row.collection === 'meta') {
           Object.assign(data, payload);
         } else {
@@ -422,47 +451,66 @@ class Database {
         }
       } catch (err) {
         if (err && String(err.code || '').startsWith('db-key')) throw err; // מפתח שגוי — לא מציגים נתונים ריקים
-        // אוסף שלא נקרא — שגיאה, ולא רשימה ריקה: save() כותב את כל האוספים מחדש,
-        // ורשימה ריקה כאן הייתה מוחקת אותו לצמיתות בשמירה הבאה (למשל את כל החשבוניות)
+        // אוסף שלא נקרא — שגיאה, ולא רשימה ריקה: רשימה ריקה כאן הייתה נשמרת בשמירה הבאה
+        // ומוחקת אותו לצמיתות (למשל את כל החשבוניות)
         const e = new Error(`חלק מהנתונים במסד פגום (${row.collection}) ולא ניתן לקרוא אותו. כדי לא לדרוס נתונים, הפעולה נעצרה. יש לשחזר מגיבוי או לפנות לתמיכה.`);
         e.code = 'db-collection-corrupt';
         e.collection = row.collection;
         throw e;
       }
     }
+    // המטמון = מה שנמצא עכשיו במסד (שורה שנמחקה מבחוץ יוצאת ממנו)
+    this._cache = seen;
 
     return normalizeData(data);
   }
 
+  // שמירה חלקית: רק אוספים שה-JSON שלהם השתנה, או שהשורה במסד אינה זו שבמטמון (כתיבה מבחוץ), נכתבים.
+  // הכול בטרנזקציה אחת; המטמון מתעדכן רק אחרי COMMIT ומתבטל ב-ROLLBACK. אין שינוי בפורמט על הדיסק.
+  // INSERT OR REPLACE ולא UPSERT: ה-SQLite של אנדרואיד 9 (minSdk 28) הוא 3.22, בלי UPSERT
   async save(value) {
     if (!isValidData(value)) {
       throw new Error('הנתונים אינם תקינים');
     }
 
     const data = normalizeData(value);
+    const meta = { version: data.version, organization: data.organization, settings: data.settings };
+    const next = new Map();
+    for (const collection of collections) next.set(collection, JSON.stringify(data[collection]));
+    next.set('meta', JSON.stringify(meta));
+
+    const cache = this._cacheMap();
+    const written = new Map();
     await this.exec('BEGIN IMMEDIATE TRANSACTION');
 
     try {
-      await this.run('DELETE FROM collections');
-      for (const collection of collections) {
-        await this.run(
-          'INSERT INTO collections VALUES (?, ?, ?)',
-          [collection, this.cipher.seal(JSON.stringify(data[collection])), new Date().toISOString()]
-        );
+      // בתוך הטרנזקציה: מה שבאמת במסד עכשיו
+      const onDisk = new Map((await this.all('SELECT collection, payload FROM collections')).map(r => [r.collection, r.payload]));
+      const now = new Date().toISOString();
+      for (const [collection, json] of next) {
+        const hit = cache.get(collection);
+        if (hit && hit.json === json && onDisk.get(collection) === hit.sealed) {
+          written.set(collection, hit);
+          continue;
+        }
+        const sealed = this.cipher.seal(json);
+        this.stats.encrypts++;
+        this.stats.rowsWritten++;
+        await this.run('INSERT OR REPLACE INTO collections (collection, payload, updated_at) VALUES (?, ?, ?)', [collection, sealed, now]);
+        written.set(collection, { sealed, json });
       }
-      await this.run(
-        'INSERT INTO collections VALUES (?, ?, ?)',
-        ['meta', this.cipher.seal(JSON.stringify({
-          version: data.version,
-          organization: data.organization,
-          settings: data.settings
-        })), new Date().toISOString()]
-      );
+      // אוסף שאינו ברשימה (גרסה אחרת / שריד) — נמחק, כמו ב-DELETE של הכול בעבר
+      for (const name of onDisk.keys()) {
+        if (!next.has(name)) await this.run('DELETE FROM collections WHERE collection = ?', [name]);
+      }
       await this.exec('COMMIT');
     } catch (error) {
-      await this.exec('ROLLBACK');
+      this.invalidateCache();
+      try { await this.exec('ROLLBACK'); } catch { /* הטרנזקציה כבר בוטלה */ }
       throw error;
     }
+    this._cache = written;
+    this._cacheCipher = this.cipher;
 
     return data;
   }
@@ -766,6 +814,7 @@ class Database {
   // הסיסמה, התפקיד והקישור ל-Google מהגיבוי. היומן — מתווסף (לפי מזהה, בלי כפילויות). maxActive — מכסת הרישיון:
   // משתמש פעיל מעבר לה נוסף חסום. הכול בטרנזקציה אחת; פרטי היומן נכתבים דרך cipher.seal
   async importUsers(snap, { maxActive = Infinity } = {}) {
+    this.invalidateCache();
     const out = { added: 0, blocked: 0, existing: 0, audit: 0 };
     if (!snap) return out;
     await this.exec('BEGIN IMMEDIATE TRANSACTION');
@@ -832,6 +881,8 @@ class Database {
     let current = null;
     try { current = await this.load(); } catch { /* מסד שלא נפתח — משחזרים כמו שהוא */ }
     if (current) keepCounters(data, current);
+    // השחזור כותב את כל האוספים מחדש — בלי להסתמך על המטמון
+    this.invalidateCache();
     await this.save(data);
     // ipc.js: זמן הניתוק ומדיניות Google מההגדרות ששוחזרו (סקירת קוד 2.11.2026). כשל כאן לא מבטל שחזור שכבר נשמר
     if (typeof this.onRestore === 'function') { try { await this.onRestore(); } catch { /* ההגדרות ייטענו בהפעלה הבאה */ } }
