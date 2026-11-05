@@ -19,7 +19,8 @@ test.before(async () => {
   await api.saveNpoSettings({ orgName: 'עמותת חסד ואמת' });
   await s.go('dashboard');
 });
-test.after(() => { fs.rmSync(DIR, { recursive: true, force: true }); });
+// ב-Windows קובץ מסד שעוד פתוח לא נמחק (EBUSY); tools/run-tests.js מוחק את כל התיקייה הזמנית בסוף
+test.after(() => { try { fs.rmSync(DIR, { recursive: true, force: true }); } catch { /* EBUSY ב-Windows */ } });
 
 const textOf = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');
 const named = (name) => s.calls.filter(c => c.name === name);

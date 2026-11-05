@@ -13,7 +13,8 @@ const D = require('./helpers/mini-dom');
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'r4-a11y-econ-'));
 let h;
 test.before(async () => { h = await H.boot({ real: DIR }); });
-test.after(() => { fs.rmSync(DIR, { recursive: true, force: true }); });
+// ב-Windows קובץ מסד שעוד פתוח לא נמחק (EBUSY); tools/run-tests.js מוחק את כל התיקייה הזמנית בסוף
+test.after(() => { try { fs.rmSync(DIR, { recursive: true, force: true }); } catch { /* EBUSY ב-Windows */ } });
 
 const STYLES = fs.readFileSync(path.join(__dirname, '../modules/econ/styles.css'), 'utf8');
 const textOf = (e) => e.textContent.replace(/\s+/g, ' ').trim();

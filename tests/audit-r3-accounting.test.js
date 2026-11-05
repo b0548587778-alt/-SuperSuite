@@ -19,7 +19,8 @@ const { inOneSave } = require('../modules/econ/services/oneSave');
 const BUSINESS = { name: 'ישיבת אור החיים', taxId: '123456782', address: 'רחוב הרב קוק 5, בני ברק' };
 const TMP = [];
 const tmpDir = (p) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), p)); TMP.push(d); return d; };
-test.after(() => { for (const d of TMP) fs.rmSync(d, { recursive: true, force: true }); });
+// ב-Windows קובץ מסד שעוד פתוח לא נמחק (EBUSY); tools/run-tests.js מוחק את כל התיקייה הזמנית בסוף
+test.after(() => { for (const d of TMP) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* EBUSY ב-Windows */ } } });
 
 // מסד בזיכרון (load/save של כל הנתונים, כמו Database)
 function memoryDb(initial = {}) {
@@ -49,7 +50,8 @@ function freezeDate(t, iso) {
 // ---------- Ctrl+Enter: שליחה כפולה ----------
 // הפונקציות האמיתיות מתוך קבצי הממשק, ב-vm עם תלויות מדומות
 function extractFn(file, header) {
-  const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+  // ב-Windows הקבצים יוצאים מ-git עם CRLF — מנרמלים לפני חיפוש '\n}\n'
+  const src = fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n');
   const i = src.indexOf(header);
   assert.ok(i >= 0, header);
   const end = src.indexOf('\n}\n', i);

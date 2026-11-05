@@ -12,7 +12,8 @@ const D = require('./helpers/mini-dom');
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'r4-a11y-econ-dlg-'));
 let h;
 test.before(async () => { h = await H.boot({ real: DIR }); await h.go('tasks'); });
-test.after(() => { fs.rmSync(DIR, { recursive: true, force: true }); });
+// ב-Windows קובץ מסד שעוד פתוח לא נמחק (EBUSY); tools/run-tests.js מוחק את כל התיקייה הזמנית בסוף
+test.after(() => { try { fs.rmSync(DIR, { recursive: true, force: true }); } catch { /* EBUSY ב-Windows */ } });
 
 const textOf = (e) => e.textContent.replace(/\s+/g, ' ').trim();
 const overlays = () => h.doc.querySelectorAll('.modal').filter(m => m.id !== 'modal');
