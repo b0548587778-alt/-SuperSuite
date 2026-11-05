@@ -85,6 +85,7 @@ const IC = (function () {
     lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
     pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    access: '<circle cx="12" cy="4.5" r="1.8"/><path d="M5 8.5l7 1.5 7-1.5M12 10v4.5M12 14.5 8.5 21M12 14.5l3.5 6.5"/>',
   };
 
   // פריט בקטלוג ← אייקון. פריט חדש בלי מיפוי מקבל את האייקון של התחום שלו
@@ -126,6 +127,10 @@ if (IC && document.querySelectorAll) IC.hydrate(document);
 
 // views — התצוגה הפעילה בכל מודול שיש לו מסכים בסרגל (הכלכלי)
 const ui = { active: null, views: {}, query: '' };
+// מצב פשוט (נגישות, סבב 4): simple — מההגדרות (display.simple); simpleAll — "הצגת כל המסכים" במסך הבית;
+// navMore — "עוד מסכים" בסרגל. מוגדר כאן (לפני הרינדור הראשון), ומתעדכן ב-applyA11yState
+ui.simple = false; ui.simpleAll = false; ui.navMore = false;
+const SIMPLE = window.SUITE_SIMPLE || null;
 const VIEW_MODS = ['econ'];
 // מצב הרישוי מ-main.js: level ok / limited (קריאה בלבד) / blocked (נעול), ואילו מודולים פתוחים
 let lic = { level: 'ok', message: '', modules: {} };
@@ -170,12 +175,24 @@ function toggleGroup(id) {
   renderNav();
 }
 
+// משימות מצב פשוט שפתוחות למשתמש הזה (רישיון ומנהל)
+function simpleTasks() {
+  if (!SIMPLE) return [];
+  return SIMPLE.tasksFor({ has: k => BY_KEY.has(k), open: k => itemOpen(BY_KEY.get(k)), admin: shellAdmin });
+}
 function renderNav() {
   const q = ui.query.trim();
   let html = q ? '' : `<button class="it home" data-key="home"><span class="ic">${IC ? svg('home') : '⌂'}</span><span class="nm">מסך הבית</span></button>`;
   let found = 0;
   const activeIt = BY_KEY.get(currentKey());
-  for (const g of GROUPS) {
+  // מצב פשוט: רק המסכים של המשימות והאחרונים; כל השאר מאחורי "עוד מסכים"
+  const simpleNav = ui.simple && !q && SIMPLE;
+  if (simpleNav) {
+    const common = SIMPLE.sidebarKeys(simpleTasks(), getRecent()).map(k => BY_KEY.get(k)).filter(Boolean);
+    html += `<div class="grp"><div class="grp-b">${common.map(navItem).join('')}</div></div>` +
+      `<button type="button" class="it more" data-more aria-expanded="${ui.navMore}">${ui.navMore ? 'פחות מסכים' : 'עוד מסכים'}</button>`;
+  }
+  for (const g of (simpleNav && !ui.navMore ? [] : GROUPS)) {
     const items = ITEMS.filter(it => it.group === g.id && matches(it, q));
     if (!items.length) continue;
     found += items.length;
@@ -192,6 +209,8 @@ function renderNav() {
 function mark() {
   const key = currentKey();
   $('nav').querySelectorAll('.it').forEach(b => b.classList.toggle('on', b.dataset.key === key));
+  // "חזרה למסך הבית" בראש הסרגל — כשמסך פתוח (מוצג רק במצב פשוט: .ss-simple-only)
+  $('simpleHome').hidden = !ui.active;
 }
 
 function open(key) {
@@ -215,6 +234,14 @@ function goHome() {
 }
 
 $('nav').onclick = e => {
+  const more = e.target.closest('[data-more]');
+  if (more && more.dataset && more.dataset.more !== undefined) {
+    ui.navMore = !ui.navMore;
+    renderNav();
+    const b = $('nav').querySelector('[data-more]');
+    if (b) b.focus();
+    return;
+  }
   const t = e.target.closest('.grp-t');
   if (t && t.dataset && t.dataset.grp) { toggleGroup(t.dataset.grp); return; }
   const b = e.target.closest('.it');
@@ -348,8 +375,17 @@ function card(it) {
   return `<button class="card hue-${it.hue}${itemOpen(it) ? '' : ' off'}" data-key="${esc(it.key)}" type="button">` +
     `<span class="ic" aria-hidden="true">${itemIcon(it)}</span><span><b>${esc(it.name)}</b><small>${esc(it.desc)}</small></span></button>`;
 }
+// מה שמסך הבית מציג ותלוי בשעה: הברכה, התאריך האזרחי והתאריך העברי (מתחלף בשקיעה). שינוי ← renderHome מלא
+// (סקירת קוד 2.11.2026: בשקיעה רק כרטיס הזמנים התעדכן — הברכה, שורת התאריך ותג "היום" נשארו של היום הקודם)
+let homeStamp = '';
+function homeStampAt(ms) {
+  const d = new Date(ms);
+  const h = HC.hebrewToday(ms, cal);
+  return [greeting(d.getHours()), d.getFullYear(), d.getMonth(), d.getDate(), h ? h.text + (h.night ? '*' : '') : ''].join('|');
+}
 function renderHome() {
   const now = new Date();
+  homeStamp = homeStampAt(now.getTime());
   $('greet').textContent = greeting(now.getHours());
   const greg = now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const heb = HC.hebrewToday(now.getTime(), cal);
@@ -365,6 +401,7 @@ function renderHome() {
   $('recentSec').hidden = !recent.length;
   $('recent').innerHTML = recent.map(card).join('');
 
+  renderSimpleHome();
   $('groups').innerHTML = GROUPS.map(g =>
     `<section class="sec hue-${g.hue}"><h2>${esc(g.title)}</h2><div class="cards">` +
     ITEMS.filter(it => it.group === g.id).map(card).join('') + '</div></section>').join('');
@@ -373,6 +410,67 @@ $('home').onclick = e => {
   const c = e.target.closest('.card, .lic-go, .kpi, .t-item');
   if (c) open(c.dataset.key);
 };
+
+/* ---------- מצב פשוט: משימות גדולות בפעלים (נגישות, סבב 4) ---------- */
+function renderSimpleHome() {
+  // במצב פשוט רשימת כל המסכים מוסתרת (ss-advanced) עד "הצגת כל המסכים"
+  $('groups').classList.toggle('ss-advanced', !ui.simpleAll);
+  $('simpleAll').setAttribute('aria-expanded', String(ui.simpleAll));
+  $('simpleAll').textContent = ui.simpleAll ? 'הסתרת שאר המסכים' : 'הצגת כל המסכים';
+  renderHomeAgenda();
+  if (!ui.simple) { $('simpleTasks').innerHTML = ''; return; }
+  $('simpleTasks').innerHTML = simpleTasks().map(t => `<button type="button" class="task" data-task="${esc(t.id)}">` +
+    `<span class="t-ic" aria-hidden="true">${IC ? svg(t.icon) : ''}</span><span><b>${esc(t.verb)}</b><small>${esc(t.hint)}</small></span></button>`).join('');
+}
+/* ---------- מצב פשוט: "מה יש לעשות היום" (סבב 5) ----------
+   הפריטים מ-getHomeSummary().agenda (core/dashboard.js → agenda — קריאה בלבד, רק תחומים פתוחים), ועוד גיבוי שנכשל
+   (למנהל). שום דבר לא קורה לבד (כלל השבת): "לטפל" פותח את המסך, או את האשף כשהמעטפת יודעת להפעיל אותו (shellAPI.startTask) */
+let backupWarn = '';
+let agendaShown = [];
+function homeAgenda() {
+  const a = homeData && homeData.agenda && Array.isArray(homeData.agenda.items) ? homeData.agenda : null;
+  const items = a ? a.items.slice() : [];
+  let total = a && Number.isInteger(a.total) ? a.total : items.length;
+  if (backupWarn && shellAdmin) {
+    items.unshift({ kind: 'backup', level: 'urgent', text: 'הגיבוי האחרון לא הצליח', detail: backupWarn.replace(/^⚠\s*/, ''), action: 'backup' });
+    total++;
+  }
+  return { items: items.slice(0, 5), total, known: !!a || !!(backupWarn && shellAdmin) };
+}
+function renderHomeAgenda() {
+  const sec = $('agendaSec');
+  const { items, total, known } = homeAgenda();
+  sec.hidden = !ui.simple || !known;
+  agendaShown = sec.hidden ? [] : items;
+  if (sec.hidden) { $('agendaList').innerHTML = ''; return; }
+  $('agendaHead').textContent = total === 0 ? 'היום אין דברים שמחכים לטיפול ✓' : total === 1 ? 'היום יש דבר אחד לטפל בו' : `היום יש ${total} דברים לטפל בהם`;
+  $('agendaList').innerHTML = items.map((it, i) => `<li class="ag-item ag-${esc(it.level)}"><span class="ag-txt"><b>${esc(it.text)}</b>` +
+    `${it.detail ? `<small>${esc(it.detail)}</small>` : ''}</span><button type="button" class="ag-go" data-ag="${i}" aria-label="לטפל: ${esc(it.text)}">לטפל</button></li>`).join('');
+}
+$('agendaList').onclick = e => {
+  const b = e.target.closest('[data-ag]');
+  const it = b ? agendaShown[Number(b.dataset.ag)] : null;
+  if (!it) return;
+  if (it.action === 'backup') { runBackup(); return; }
+  const key = 'econ:' + String(it.view || 'dashboard');
+  // משימה עם אשף — אותו מסלול של "מה תרצה לעשות?" (runCommandTask ← shell:start-task, המטען נבדק ב-main.js)
+  if (it.task && CMD_TASKS && CMD_TASKS.getTask(it.task) && window.shellAPI.startTask && taskAllowed(it.task)) {
+    runCommandTask({ id: it.task, prefill: it.prefill && typeof it.prefill === 'object' ? it.prefill : {} });
+  } else open(BY_KEY.has(key) ? key : 'econ:dashboard');
+};
+$('simpleTasks').onclick = e => {
+  const b = e.target.closest('[data-task]');
+  const t = b && SIMPLE ? SIMPLE.TASKS.find(x => x.id === b.dataset.task) : null;
+  if (!t) return;
+  if (t.action === 'search') focusSearch();
+  else if (t.action === 'backup') runBackup();
+  else if (t.action === 'help') showGuide();
+  else if (t.task && window.shellAPI.startTask && taskAllowed(t.task)) runCommandTask({ id: t.task, prefill: {} });
+  else if (t.key) open(t.key);
+};
+$('simpleAll').onclick = () => { ui.simpleAll = !ui.simpleAll; renderSimpleHome(); };
+$('simpleOff').onclick = () => saveA11y({ simple: 'off' }, 'מצב פשוט: כבוי');
+$('simpleHome').onclick = () => goHome();
 
 /* ---------- מסך הבית: מדדים ו"היום" (יארצייטים, הלוואות לפירעון, חשבוניות פתוחות) ----------
    הנתונים מגיעים מ-shellAPI.getHomeSummary (קריאה בלבד, לפי הרשאות ורישיון — main.js). כשאין ערוץ או שאין כניסה
@@ -452,12 +550,21 @@ function renderToday(now) {
   }).join('');
 }
 async function loadHome() {
+  loadTaskAccess();
   if (!window.shellAPI.getHomeSummary) return;
   try {
     const d = await window.shellAPI.getHomeSummary();
     homeData = d && typeof d === 'object' ? d : null;
   } catch { homeData = null; }
-  if (!ui.active) { renderKpis(); renderToday(new Date()); }
+  // גיבוי שנכשל — ל"מה יש לעשות היום" (רק סטטוס הגיבוי האחרון; בלי כניסה — null)
+  try {
+    // הגיבוי הידני — למנהל בלבד; בדיקה שקטה כאן, ולא לפי ברירת המחדל של shellAdmin
+    const admin = window.shellAPI.isAdmin ? (await window.shellAPI.isAdmin()) === true : false;
+    const st = homeData && admin && window.shellAPI.getBackupStatus ? await window.shellAPI.getBackupStatus() : '';
+    const first = String(st || '').split(' · ')[0];
+    backupWarn = first.startsWith('⚠') ? first : '';
+  } catch { backupWarn = ''; }
+  if (!ui.active) { renderKpis(); renderToday(new Date()); renderHomeAgenda(); }
 }
 
 /* ---------- שאל את התוכנה: תיבת השאלה במסך הבית ----------
@@ -479,9 +586,16 @@ function askOut(html) {
   const x = out.querySelector('[data-ask-close]');
   if (x) x.onclick = () => { askOut(''); $('askQ').focus(); };
 }
+// מונה שאלות: תשובה שהגיעה אחרי סוף הפגישה (או אחרי שאלה חדשה) לא מוצגת (סקירת קוד 2.11.2026)
+let askSeq = 0;
 async function ask(raw) {
   const q = String(raw || '').trim().slice(0, 500);
   if (!q) { $('askQ').focus(); return; }
+  // "מה תרצה לעשות?": בקשה (משימה / מסך) ← אישור או "התכוונת ל...?"; רק שאלה ממשיכה לעוזר
+  if (CMD_INTENTS && CMD_TASKS) {
+    const r = CMD_INTENTS.parse(q, { today: localToday() });
+    if (r.kind !== 'question') { askSeq++; $('askGo').disabled = false; showCommand(r, q); return; }
+  }
   const head = (label) => `<div class="a-head"><span class="ss-badge">${svg('sparkles')} ${esc(label)}</span>` +
     `<button type="button" class="ss-btn-ghost ss-btn-sm" data-ask-close aria-label="סגירת התשובה">${svg('x')}</button></div><p class="a-q">${esc(q)}</p>`;
   if (!window.shellAPI.aiAsk) {
@@ -489,16 +603,150 @@ async function ask(raw) {
     open('econ:ai');
     return;
   }
+  const seq = ++askSeq;
   $('askGo').disabled = true;
   askOut(head('חושב…') + '<span class="ss-skeleton"></span><span class="ss-skeleton short"></span>');
   try {
     const r = await window.shellAPI.aiAsk(q);
+    if (seq !== askSeq) return;
     askOut(head(r && r.engineLabel ? 'ענה: ' + r.engineLabel : 'תשובה') + `<p class="a-text ss-pre">${esc((r && r.text) || 'אין תשובה')}</p>`);
   } catch (e) {
+    if (seq !== askSeq) return;
     // Electron מוסיף לשגיאת IPC קידומת אנגלית — מציגים רק את העברית (כמו ב-devices.js)
     const msg = String((e && e.message) || '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
     askOut(head('לא נענה') + `<p class="a-text">${esc(msg || 'העוזר אינו זמין כרגע')}</p>`);
-  } finally { $('askGo').disabled = false; }
+  } finally { if (seq === askSeq) $('askGo').disabled = false; }
+}
+/* ---------- "מה תרצה לעשות?" — בקשה במילים פשוטות (תיבת הפקודה) ----------
+   shell/intents.js מבין את הבקשה (בלי רשת ובלי מודל), shell/tasks.js — רשימת המשימות והאימות.
+   כלל הבטיחות: **לא נשמר כלום מכאן**. מוצג מה הובן (שם, סכום, תאריך) ← "כן" ← הטופס נפתח מלא במסך שלו,
+   והמשתמש בודק ושומר בעצמו. לא הובן — עד 3 הצעות "התכוונת ל...?", בלי הודעת שגיאה. */
+const CMD_TASKS = window.SUITE_TASKS || null;
+const CMD_INTENTS = window.SUITE_INTENTS || null;
+// המשימות שהתהליך הראשי מתיר (רישיון ותפקיד, shell:task-access); null — לא ידוע (בלי ערוץ)
+let taskAccess = null;
+async function loadTaskAccess() {
+  if (!window.shellAPI.taskAccess) return;
+  try { const r = await window.shellAPI.taskAccess(); taskAccess = Array.isArray(r) ? r.filter(x => typeof x === 'string') : null; }
+  catch { taskAccess = null; }
+}
+function allowedTasks() {
+  if (!CMD_TASKS) return [];
+  return CMD_TASKS.tasksFor({ has: k => BY_KEY.has(k), open: k => itemOpen(BY_KEY.get(k)), admin: shellAdmin, allowed: taskAccess });
+}
+const taskAllowed = (id) => allowedTasks().some(t => t.id === id);
+function localToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+let cmdPending = null;   // המשימה שמחכה ל"כן"
+let cmdOptions = [];     // ההצעות שעל המסך
+function cmdHead(label, q) {
+  return `<div class="a-head"><span class="ss-badge">${svg('sparkles')} ${esc(label)}</span>` +
+    `<button type="button" class="ss-btn-ghost ss-btn-sm" data-ask-close aria-label="סגירה">${svg('x')}</button></div><p class="a-q">${esc(q)}</p>`;
+}
+function optionLabel(o) {
+  if (o.type === 'task') { const t = CMD_TASKS.getTask(o.id); return t ? t.verb : ''; }
+  const it = BY_KEY.get(o.key);
+  return it ? 'לפתוח את המסך: ' + it.name : '';
+}
+// הצעות: רק משימות ומסכים שפתוחים למשתמש
+function choicesHtml(list) {
+  cmdOptions = list.filter(o => (o.type === 'task' ? taskAllowed(o.id) : BY_KEY.has(o.key) && itemOpen(BY_KEY.get(o.key)))).slice(0, 3);
+  return `<div class="cmd-choices" role="group" aria-label="התכוונת ל...?">` + cmdOptions.map((o, i) =>
+    `<button type="button" class="ss-btn ss-btn-secondary" data-cmd-opt="${i}">${esc(optionLabel(o))}</button>`).join('') + '</div>';
+}
+function suggestionsFor(q) {
+  return CMD_INTENTS.suggest(q, { tasks: allowedTasks(), items: ITEMS.filter(itemOpen), limit: 3 });
+}
+function showCommand(r, q) {
+  cmdPending = null;
+  if (r.kind === 'task') {
+    const t = CMD_TASKS.getTask(r.task);
+    if (!t) return showCommand({ kind: 'unknown' }, q);
+    if (!taskAllowed(t.id)) {
+      const sg = suggestionsFor(q);
+      askOut(cmdHead('אי אפשר כאן', q) + `<p class="a-text">את הפעולה „${esc(t.label)}” אי אפשר לעשות כאן — היא אינה כלולה ברישיון או בהרשאה שלכם.</p>` +
+        (sg.list.length ? '<p class="a-text">אפשר לבחור:</p>' + choicesHtml(sg.list) : ''));
+      return;
+    }
+    cmdPending = { id: t.id, prefill: r.prefill || {} };
+    const rows = CMD_TASKS.describe(t.id, cmdPending.prefill);
+    const labels = (r.missing || []).map(k => CMD_TASKS.FIELDS[k] && CMD_TASKS.FIELDS[k].label).filter(Boolean);
+    const unclear = (r.unclear || []).includes('amount') ? '<p class="a-text">לא הבנתי איזה סכום — ממלאים אותו בטופס.</p>' : '';
+    const isBackup = t.action === 'backup';
+    askOut(cmdHead('הבנתי', q) + `<p class="a-text"><b>${esc(t.label)}</b></p>` +
+      (rows.length ? '<dl class="cmd-fields">' + rows.map(x => `<div style="display:contents"><dt>${esc(x.label)}</dt><dd>${esc(x.value)}</dd></div>`).join('') + '</dl>' : '') +
+      unclear + (labels.length ? `<p class="a-text">את ה${esc(labels.join(' ואת ה'))} ממלאים בטופס.</p>` : '') +
+      `<p class="a-text ask-small">${isBackup ? 'הגיבוי מתחיל רק אחרי שבוחרים סיסמה ומקום לשמירה.' : 'שום דבר עוד לא נשמר. הטופס ייפתח מלא — בודקים ולוחצים „שמירה”.'}</p>` +
+      `<div class="cmd-actions"><button type="button" class="ss-btn ss-btn-primary" data-cmd-yes>${isBackup ? 'כן, לגבות' : 'כן, לפתוח את הטופס'}</button>` +
+      '<button type="button" class="ss-btn ss-btn-secondary" data-cmd-no>לא, לתקן</button></div>');
+    return;
+  }
+  if (r.kind === 'screen') {
+    askOut(cmdHead('הבנתי', q) + '<p class="a-text">נראה שמחפשים את המסך הזה:</p>' + choicesHtml([{ type: 'screen', key: r.key }]));
+    return;
+  }
+  if (r.kind === 'choose') {
+    const list = r.options || [];
+    askOut(cmdHead('התכוונת ל...?', q) + '<p class="a-text">יש כאן כמה אפשרויות. מה מתאים?</p>' + choicesHtml(list));
+    if (cmdOptions.length) return;
+  }
+  // לא הובן — הצעות קרובות, או המשימות הנפוצות. בלי הודעת שגיאה
+  const sg = suggestionsFor(q);
+  askOut(cmdHead('התכוונת ל...?', q) + `<p class="a-text">${sg.guess ? 'לא בטוח שהבנתי. אפשר לכתוב במילים אחרות, למשל „לרשום תרומה”, או לבחור כאן:' : 'אולי התכוונתם לאחד מאלה:'}</p>` +
+    choicesHtml(sg.list));
+}
+async function runCommandTask(p) {
+  const t = p && CMD_TASKS.getTask(p.id);
+  if (!t) return;
+  if (t.action === 'backup') { askOut(''); runBackup(); return; }
+  if (!window.shellAPI.startTask) { askOut(''); open(t.key); return; }
+  try {
+    const r = await window.shellAPI.startTask(t.id, p.prefill || {});
+    if (r && r.ok) {
+      askOut('');
+      $('askQ').value = '';
+      ui.active = 'econ'; ui.views.econ = t.view; mark(); pushRecent(t.key);
+      return;
+    }
+    askOut(cmdHead('לא נפתח', t.label) + `<p class="a-text">${r && r.reason === 'not-allowed'
+      ? 'הפעולה הזו אינה כלולה ברישיון או בהרשאה שלכם.' : 'לא הצלחתי לפתוח את הטופס עם הפרטים האלה. אפשר לפתוח אותו בלעדיהם:'}</p>` +
+      choicesHtml([{ type: 'screen', key: t.key }]));
+  } catch { askOut(''); open(t.key); }
+}
+$('askOut').addEventListener('click', (e) => {
+  const yes = e.target.closest('[data-cmd-yes]');
+  if (yes) { const p = cmdPending; cmdPending = null; runCommandTask(p); return; }
+  if (e.target.closest('[data-cmd-no]')) { cmdPending = null; askOut(''); $('askQ').focus(); if ($('askQ').select) $('askQ').select(); return; }
+  const opt = e.target.closest('[data-cmd-opt]');
+  const o = opt ? cmdOptions[Number(opt.dataset.cmdOpt)] : null;
+  if (!o) return;
+  if (o.type === 'screen') { askOut(''); open(o.key); return; }
+  showCommand({ kind: 'task', task: o.id, prefill: o.prefill || {}, missing: [] }, $('askQ').value || optionLabel(o));
+});
+// דיבור: רק ההכתבה של מערכת ההפעלה (Win+H / מיקרופון במקלדת) — הטקסט נכנס לתיבה כרגיל. אין זיהוי דיבור
+// בתוכנה: זיהוי הדיבור של הדפדפן שולח את הקול לשרת חיצוני (כלל ברזל 6)
+if (window.__ssBuildInfo) { $('voiceWin').hidden = true; $('voiceAndroid').hidden = false; }
+$('askMic').onclick = () => {
+  const show = $('askVoice').hidden;
+  $('askVoice').hidden = !show;
+  $('askMic').setAttribute('aria-expanded', String(show));
+  $('askQ').focus();
+};
+// סוף פגישה (יציאה או ניתוק שקט): התשובה ונתוני מסך הבית של המשתמש הקודם לא נשארים גלויים
+if (window.shellAPI.onSession) {
+  window.shellAPI.onSession((on) => {
+    if (on) { loadHome(); return; }
+    askSeq++;
+    cmdPending = null; taskAccess = null; loadTaskAccess();
+    askOut('');
+    $('askQ').value = '';
+    $('askGo').disabled = false;
+    homeData = null;
+    backupWarn = '';
+    if (!ui.active) { renderKpis(); renderToday(new Date()); renderHomeAgenda(); }
+  });
 }
 
 /* ---------- סיור קצר: 3 שלבים אחרי אשף ההתחלה ----------
@@ -569,7 +817,7 @@ function renderLicense() {
   block.hidden = false;
   block.className = 'lic-block' + (blocked ? '' : ' limited');
   block.innerHTML = `<h2>${IC ? svg(blocked ? 'lock' : 'pause') : (blocked ? '🔒' : '⏸')} ${esc(lic.message)}</h2>` +
-    (blocked ? '<p>התוכנה אינה זמינה לעבודה כרגע.</p>' : `<p>אפשר לצפות בנתונים, לייצא ולגבות. יצירה ועריכה חסומות עד ${lic.status === 'trial_ended' ? 'להתקנת רישיון' : 'לחידוש'}.</p>`) +
+    (blocked ? '<p>התוכנה אינה זמינה לעבודה כרגע.</p>' : `<p>אפשר לצפות בנתונים, לייצא ולגבות. ${lic.status === 'terminated' ? 'יצירה ועריכה אינן אפשריות עוד' : 'יצירה ועריכה חסומות עד ' + (lic.status === 'trial_ended' ? 'להתקנת רישיון' : 'לחידוש')}.</p>`) +
     '<p>הנתונים שלך שמורים במחשב ולא נמחקו. לחידוש הפעילות פנו לספק, או קלטו רישיון / עדכון סטטוס.</p>' +
     `<button type="button" class="lic-go" data-key="econ:licensing">${IC ? svg('key') : '🔑'} רישוי ומערכות</button>` +
     `<button type="button" class="lic-go" data-key="econ:messages">${IC ? svg('message') : '💬'} הודעה לספק</button>`;
@@ -627,12 +875,17 @@ if (window.shellAPI.onActiveView) {
 
 /* ---------- דיאלוגים ----------
    תצוגת המודול מצוירת מעל המעטפת, ולכן בזמן שדיאלוג פתוח מסתירים אותה (shell:overlay) */
+// המיקוד חוזר בסגירה לרכיב שפתח את החלון (גם כשהחלון נסגר בקוד ולא ב-Esc)
 function showDialog(dlg) {
   if (window.shellAPI.setOverlay) window.shellAPI.setOverlay(true);
+  dlg.__ssReturn = document.activeElement || null;
   dlg.showModal();
 }
 function closeDialog(dlg) {
   dlg.close();
+  const back = dlg.__ssReturn;
+  dlg.__ssReturn = null;
+  if (back && back.isConnected && typeof back.focus === 'function' && !document.querySelector('dialog[open]')) back.focus();
   // במצב שבת מסך המנוחה נשאר מעל הכול — לא מחזירים את המודול
   if (window.shellAPI.setOverlay && !shabbatOn) window.shellAPI.setOverlay(false);
 }
@@ -746,8 +999,15 @@ $('tg').onclick = async () => {
 async function showRecoveryCode() {
   const dlg = $('rkDlg');
   let code;
-  try { code = await window.shellAPI.getRecoveryCode(); }
-  catch (e) { await ssDialog.alert(e.message || 'קוד השחזור מוצג למנהל בלבד — יש להיכנס כמנהל'); return; }
+  // הקוד פותח את כל הגיבויים והמסד — רק אחרי הקלדה חוזרת של הסיסמה (גם אחרי כניסה עם Google; סקירת קוד 2.11.2026)
+  const password = await ssDialog.prompt('כדי להציג את קוד השחזור, הקלידו שוב את הסיסמה שלכם (של המנהל המחובר):', '', { title: 'קוד שחזור', type: 'password', okText: 'הצג' });
+  if (password == null) return;
+  try { code = await window.shellAPI.getRecoveryCode(password); }
+  catch (e) {
+    // בלי הקידומת האנגלית של Electron — "הסיסמה שגויה" בעברית
+    const msg = String((e && e.message) || '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    await ssDialog.alert(msg || 'קוד השחזור מוצג למנהל בלבד — יש להיכנס כמנהל'); return;
+  }
   $('rkCode').textContent = code;
   $('rkErr').textContent = '';
   const close = () => { dlg.oncancel = null; closeDialog(dlg); };
@@ -788,6 +1048,10 @@ async function refreshTargetIfLoggedIn() {
     // סטטוס הגיבוי האחרון: כשל שקט (אין הצפנת מערכת / כונן מנותק) חייב להיות גלוי למשתמש
     const st = window.shellAPI.getBackupStatus ? await window.shellAPI.getBackupStatus() : '';
     if (st) $('tgInfo').textContent += ' · ' + st;
+    // גיבוי שנכשל — גם ב"מה יש לעשות היום" של המצב הפשוט (הסטטוס הראשון הוא של הגיבוי האחרון)
+    const first = String(st || '').split(' · ')[0];
+    backupWarn = first.startsWith('⚠') ? first : '';
+    if (!ui.active) renderHomeAgenda();
     refreshPlainBackups();
   } catch { /* נעדכן במעבר הבא */ }
 }
@@ -873,6 +1137,7 @@ window.shellAPI.onCmd(cmd => {
   if (cmd === 'search') focusSearch();
   if (cmd === 'backup') runBackup();
   if (cmd === 'restore') runRestore();
+  if (cmd === 'a11y') openA11y();
 });
 
 /* ---------- לוח עברי, זמני היום ושבת ---------- */
@@ -954,14 +1219,122 @@ loadCalendar();
    ההגדרות נשמרות בתהליך הראשי ומגיעות לכל המסכים דרך display-preload.js. כאן — החלון, עם תצוגה מקדימה במעטפת */
 const DSP = window.SUITE_DISPLAY;
 let display = DSP ? { ...DSP.DEFAULTS } : null;
-const DS_LABELS = { theme: 'ערכת צבע', accent: 'צבע הדגשה', density: 'צפיפות', text: 'גודל טקסט', shape: 'פינות', contrast: 'ניגודיות', motion: 'אנימציות ותנועה' };
-const DS_ICONS = IC ? { classic: svg('building'), night: svg('moon'), office: svg('chart-bar'), easy: svg('search'), calm: svg('leaf') }
-  : { classic: '🏛', night: '🌙', office: '📊', easy: '🔍', calm: '🌿' };
+const DS_LABELS = { theme: 'ערכת צבע', accent: 'צבע הדגשה', density: 'צפיפות', text: 'גודל טקסט', shape: 'פינות', contrast: 'ניגודיות', motion: 'אנימציות ותנועה',
+  simple: 'מצב פשוט', targets: 'גודל כפתורים', links: 'קישורים', font: 'גופן' };
+const DS_ICONS = IC ? { classic: svg('building'), night: svg('moon'), office: svg('chart-bar'), easy: svg('search'), calm: svg('leaf'), access: svg('access') }
+  : { classic: '🏛', night: '🌙', office: '📊', easy: '🔍', calm: '🌿', access: '♿' };
 // צבע הנקודה ליד כל צבע הדגשה — מתוך שפת העיצוב, דרך המאפיין עצמו
-const dsPreview = (s) => DSP.applyTo(document, DSP.attrsFor(s, matchMedia('(prefers-color-scheme: dark)').matches));
+const dsPreview = (s) => DSP.applyTo(document, DSP.attrsFor(s, systemDark()));
 async function loadDisplay() {
-  if (!DSP || !window.shellAPI.getDisplay) { const b = $('ds'); if (b) b.hidden = true; return; }
+  if (!DSP || !window.shellAPI.getDisplay) { for (const id of ['ds', 'a11yBtn']) { const b = $(id); if (b) b.hidden = true; } return; }
   try { display = DSP.sanitize(await window.shellAPI.getDisplay()); } catch { /* נשאר ברירת המחדל */ }
+  applyA11yState();
+  maybeAskA11y();
+}
+// מצב פשוט: הסרגל ומסך הבית נבנים מחדש לפי ההגדרות
+function applyA11yState() {
+  const simple = !!(display && display.simple === 'on');
+  if (simple !== ui.simple) { ui.simple = simple; ui.simpleAll = false; ui.navMore = false; }
+  renderNav();
+  if (!ui.active) renderHome();
+}
+
+/* ---------- חלון "♿ נגישות" (סבב 4): מתגים גדולים, כל שינוי נשמר מיד ופועל בכל המסכים ---------- */
+const A11Y_SWITCHES = [
+  { k: 'simple', on: 'on', off: 'off', name: 'מצב פשוט', desc: 'רק הפעולות הנפוצות, משימות גדולות במסך הבית וכפתורים גדולים' },
+  { k: 'contrast', on: 'high', off: 'normal', name: 'ניגודיות גבוהה', desc: 'טקסט וקווים כהים וחזקים יותר' },
+  { k: 'motion', on: 'reduced', off: 'normal', name: 'עצירת אנימציות', desc: 'בלי תנועה ומעברים במסך' },
+  { k: 'targets', on: 'large', off: 'normal', name: 'כפתורים גדולים', desc: 'קל יותר ללחוץ — גם במסך מגע' },
+  { k: 'links', on: 'underline', off: 'normal', name: 'קו תחתון לקישורים', desc: 'רואים מיד מה אפשר ללחוץ' },
+  { k: 'font', on: 'readable', off: 'normal', name: 'גופן קריא', desc: 'אותיות פשוטות ורווחים גדולים בין אותיות ושורות' },
+  { k: 'theme', on: 'dark', off: 'light', name: 'רקע כהה', desc: 'נוח לעיניים בערב ובתאורה חלשה' },
+];
+const A11Y_SIZES = ['sm', 'md', 'lg', 'xl', 'xxl'];
+function a11yAnnounce(text) {
+  const live = $('a11yLive');
+  live.textContent = '';
+  setTimeout(() => { live.textContent = text; }, 50);
+}
+async function saveA11y(patch, announce) {
+  if (!DSP || !window.shellAPI.saveDisplay) return;
+  const next = DSP.sanitize({ ...display, ...patch });
+  try { display = DSP.sanitize(await window.shellAPI.saveDisplay(next)); } catch { display = next; }
+  dsPreview(display);
+  applyA11yState();
+  if (announce) a11yAnnounce(announce);
+}
+const systemDark = () => { try { return matchMedia('(prefers-color-scheme: dark)').matches; } catch { return false; } };
+function renderA11y() {
+  const sizeName = (id) => (DSP.OPTIONS.text.find(o => o.id === id) || {}).name || id;
+  const sw = A11Y_SWITCHES.map(o => {
+    const on = display[o.k] === o.on || (o.k === 'theme' && display.theme === 'system' && systemDark());
+    return `<div class="a11y-row"><span><b id="a11y-${o.k}">${esc(o.name)}</b><small id="a11y-${o.k}-d">${esc(o.desc)}</small></span>` +
+      `<button type="button" class="a11y-sw" role="switch" aria-checked="${on}" aria-labelledby="a11y-${o.k}" aria-describedby="a11y-${o.k}-d" data-a11y="${o.k}">${on ? 'פועל' : 'כבוי'}</button></div>`;
+  });
+  const sizes = '<div class="a11y-row"><span><b id="a11y-text">גודל הטקסט</b><small>חמישה גדלים — מהקטן ועד הענק</small></span>' +
+    `<div class="a11y-sizes" role="group" aria-labelledby="a11y-text">${A11Y_SIZES.map(id =>
+      `<button type="button" data-size="${id}" aria-pressed="${display.text === id}" aria-label="א — ${esc(sizeName(id))}" title="${esc(sizeName(id))}">א</button>`).join('')}</div></div>`;
+  $('a11yOpts').innerHTML = sw[0] + sizes + sw.slice(1).join('');
+}
+function openA11y() {
+  if (!DSP || !display) return;
+  const dlg = $('a11yDlg');
+  if (dlg.open) return;
+  renderA11y();
+  const done = () => { dlg.oncancel = null; closeDialog(dlg); };
+  $('a11yOpts').onclick = async (e) => {
+    const b = e.target.closest('[data-a11y], [data-size]');
+    if (!b) return;
+    let patch, msg;
+    if (b.dataset.size) {
+      patch = { text: b.dataset.size };
+      msg = 'גודל הטקסט: ' + ((DSP.OPTIONS.text.find(o => o.id === b.dataset.size) || {}).name || '');
+    } else {
+      const o = A11Y_SWITCHES.find(x => x.k === b.dataset.a11y);
+      if (!o) return;
+      const turnOn = b.getAttribute('aria-checked') !== 'true';
+      patch = { [o.k]: turnOn ? o.on : o.off };
+      msg = o.name + ': ' + (turnOn ? 'פועל' : 'כבוי');
+    }
+    const focusKey = b.dataset.size ? `[data-size="${b.dataset.size}"]` : `[data-a11y="${b.dataset.a11y}"]`;
+    await saveA11y(patch, msg);
+    renderA11y();
+    const again = $('a11yOpts').querySelector(focusKey);
+    if (again) again.focus();
+  };
+  $('a11yDone').onclick = done;
+  $('a11yAll').onclick = async () => { await saveA11y({ ...DSP.A11Y_FULL }, 'כל הגדרות הנגישות פועלות'); renderA11y(); };
+  $('a11yReset').onclick = async () => { await saveA11y(DSP.resetA11y(display), 'חזרה למצב הרגיל'); renderA11y(); };
+  dlg.oncancel = (e) => { e.preventDefault(); done(); };
+  showDialog(dlg);
+  const first = $('a11yOpts').querySelector('button');
+  if (first) first.focus();
+}
+if ($('a11yBtn')) $('a11yBtn').onclick = openA11y;
+
+// שאלה אחת בהפעלה הראשונה: "רוצה שהתוכנה תהיה פשוטה יותר וגדולה יותר?" — רק כשכל הגדרות הנגישות רגילות,
+// לא במצב שבת, ופעם אחת (התשובה נשמרת ב-localStorage של המעטפת)
+const A11Y_ASKED_KEY = 'suite.a11yAsked';
+function maybeAskA11y() {
+  let asked = true;
+  try { asked = !!localStorage.getItem(A11Y_ASKED_KEY); } catch { /* אין אחסון — לא שואלים */ }
+  if (asked || shabbatOn || !DSP.isPlain(display)) return;
+  const dlg = $('a11yAsk');
+  if (dlg.open || document.querySelector('dialog[open]')) return;
+  const answer = async (what) => {
+    try { localStorage.setItem(A11Y_ASKED_KEY, what); } catch { /* בפעם הבאה נשאל שוב */ }
+    $('a11yAskYes').onclick = $('a11yAskNo').onclick = $('a11yAskPick').onclick = null;
+    dlg.oncancel = null;
+    closeDialog(dlg);
+    if (what === 'yes') await saveA11y({ ...DSP.A11Y_EASY }, 'מצב פשוט וטקסט גדול — פועלים');
+    if (what === 'pick') openA11y();
+  };
+  $('a11yAskYes').onclick = () => answer('yes');
+  $('a11yAskNo').onclick = () => answer('no');
+  $('a11yAskPick').onclick = () => answer('pick');
+  dlg.oncancel = (e) => { e.preventDefault(); answer('no'); };
+  showDialog(dlg);
+  $('a11yAskYes').focus();
 }
 function openDisplaySettings() {
   const dlg = $('dsDlg');
@@ -990,4 +1363,13 @@ function openDisplaySettings() {
   showDialog(dlg);
 }
 loadDisplay();
-setInterval(() => { tickShabbat(); if (!ui.active) renderDay(Date.now()); }, 60000);
+setInterval(() => {
+  tickShabbat();
+  if (ui.active) return;
+  const now = Date.now();
+  if (homeStampAt(now) === homeStamp) { renderDay(now); return; }
+  // יום אזרחי חדש — גם הנתונים ("היום", יארצייטים) מהשרת
+  const newDay = homeStamp.split('|').slice(1, 4).join('|') !== homeStampAt(now).split('|').slice(1, 4).join('|');
+  renderHome();
+  if (newDay) loadHome();
+}, 60000);

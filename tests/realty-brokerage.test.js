@@ -150,7 +150,8 @@ test('IPC: עמלות לשני הצדדים, תשלומים, חשבונית פע
   const invoices = await handlers['acct:getInvoices'](ev(95));
   const stored = (invoices.invoices || invoices).find(i => i.id === inv.id);
   assert.equal(stored.customer, 'משפחת כהן');
-  assert.equal(stored.customerTaxId, undefined, 'ת"ז של לקוח פרטי אינה מספר עוסק');
+  // החלטת הבעלים 5.11.2026: הת"ז מכרטיס הלקוח ממולאת מראש בחלון (rltyInvoiceTaxId, ניתנת לעריכה) — השרת לוקח רק את מה שנשלח
+  assert.equal(stored.customerTaxId, undefined, 'בלי ערך מהחלון — בלי מספר עוסק / ת"ז (המשתמש מחק את הערך שמולא)');
   assert.equal(stored.status, 'paid');
 
   // הזמנה

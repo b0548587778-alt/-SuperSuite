@@ -58,6 +58,12 @@ function labState() {
   return state.lab;
 }
 
+// תאריך האימות — היום המקומי של חותמת הזמן (UTC), לא 10 התווים הראשונים שלה (סקירת קוד 2.11.2026)
+function labStampDay(v) {
+  const t = Date.parse(String(v || ''));
+  return Number.isFinite(t) ? isoDate(new Date(t)) : String(v || '').slice(0, 10);
+}
+
 const pctFmt = (v, d = 2) => (v == null || !Number.isFinite(Number(v)) ? '—' : (Number(v) * 100).toFixed(d) + '%');
 const labNum = (v) => (v === '' || v == null ? '' : v);
 
@@ -86,6 +92,11 @@ function labEditorHtml(id, rows, { shareMode = false, bounds = false, anchors = 
     <button class="secondary" data-lab-addrow="${id}">＋ מסלול</button>`;
 }
 
+function labPruneRow(row) {
+  if (!row || !row.type) return;
+  for (const f of Object.keys(LAB_FIELD_FOR)) if (!LAB_FIELD_FOR[f](row.type)) delete row[f];
+}
+
 // קריאת כל השדות שעל המסך אל המצב — לפני כל חישוב, החלפת לשונית או רינדור מחדש
 function labCollect() {
   const lab = labState();
@@ -98,6 +109,9 @@ function labCollect() {
     else if (el.type === 'number') row[f] = el.value === '' ? '' : Number(el.value);
     else row[f] = el.value;
   });
+  // סקירת קוד 2.11.2026: שדה שלא שייך לסוג המסלול (ריבית קבועה אחרי מעבר למשתנה) נמחק — אחרת הוא נשלח לחישוב
+  const pruned = [...Object.entries(lab.editors).filter(([k]) => k !== 'prepay').map(([, rows]) => rows), ...lab.approvals.map(a => a.tracks)];
+  pruned.forEach(rows => (rows || []).forEach(labPruneRow));
   document.querySelectorAll('[data-lab-form]').forEach(el => {
     lab.form[el.dataset.labForm] = el.type === 'checkbox' ? !!el.checked : el.value;
   });
@@ -304,7 +318,7 @@ function labTabOpt(o, lab) {
     ${r ? `<p class="muted">נבדקו ${r.evaluated} חלוקות, נפסלו ${r.rejected}.</p>
       ${r.candidates.length === 0 ? '<div class="acct-row warn">לא נמצא תמהיל שעומד בכל המגבלות</div>' : `<div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>#</th><th>חלוקה</th><th>החזר ראשון</th><th>החזר מקסימלי</th><th>סה"כ תשלומים</th><th>אזהרות</th></tr></thead>
-      <tbody>${r.candidates.map((cd, i) => `<tr><td>${i + 1}</td><td>${cd.shares.map((s, k) => s > 0 ? `${esc(LAB_TRACK_TYPES[(lab.editors.opt[k] || {}).type] || '')} ${Math.round(s * 100)}%` : '').filter(Boolean).join(' · ')}</td>
+      <tbody>${r.candidates.map((cd, i) => `<tr><td>${i + 1}</td><td>${cd.shares.map((s, k) => s > 0 ? `${esc(LAB_TRACK_TYPES[(r.blockTypes || [])[k]] || '')} ${Math.round(s * 100)}%` : '').filter(Boolean).join(' · ')}</td>
         <td>${money(cd.summary.firstPayment)}</td><td>${money(cd.summary.maxPayment)}</td><td>${money(cd.summary.totalPayments)}</td><td>${cd.warnings.map(w => esc(w.label)).join(' · ')}</td></tr>`).join('')}</tbody>
     </table></div>`}` : ''}
   </div>`;
@@ -374,7 +388,7 @@ function labTabSettings(o, lab) {
     <div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>כלל</th><th>ערך</th><th>מקור</th><th>מצב</th><th></th></tr></thead>
       <tbody>${rules.map(r => `<tr><td>${esc(r.description)}</td><td>${fmtVal(r)}</td><td><small>${esc(r.source)}</small></td>
-        <td>${r.needsVerification ? `<span class="warn">⚠ ${esc(r.statusLabel || 'לא מאומת')}</span>` : `<span class="ok">✓ אומת</span> <small>${esc(String(r.verifiedAt || '').slice(0, 10))} · ${esc(r.verifiedNote)}</small>`}</td>
+        <td>${r.needsVerification ? `<span class="warn">⚠ ${esc(r.statusLabel || 'לא מאומת')}</span>` : `<span class="ok">✓ אומת</span> <small>${esc(labStampDay(r.verifiedAt))} · ${esc(r.verifiedNote)}</small>`}</td>
         <td>${r.needsVerification ? `<button class="secondary" data-lab-verify="${esc(r.id)}">אימות</button>` : `<button class="icon-btn" data-lab-unverify="${esc(r.id)}" title="ביטול אימות">↺</button>`}</td></tr>`).join('')}</tbody>
     </table></div>
   </div>`;
@@ -389,7 +403,7 @@ function renderMortgageLab(o) {
   return `
     <div class="mortgage-lab">
       ${demo || unverified ? `<div class="card warn-banner">⚠ ${demo ? 'התחזית היא נתוני הדגמה. ' : ''}${unverified ? `${unverified} כללים רגולטוריים טרם אומתו. ` : ''}<button class="secondary" data-lab-tab="settings">לתחזית ולכללים</button></div>` : ''}
-      <div class="lab-tabs">${LAB_TABS.map(([k, l]) => `<button class="${lab.tab === k ? 'primary' : 'secondary'}" data-lab-tab="${k}">${l}</button>`).join('')}</div>
+      <div class="lab-tabs" role="group" aria-label="בחירת כלי">${LAB_TABS.map(([k, l]) => `<button class="${lab.tab === k ? 'primary' : 'secondary'}" data-lab-tab="${k}" aria-pressed="${lab.tab === k}">${l}</button>`).join('')}</div>
       ${(tabs[lab.tab] || labTabMix)(o, lab)}
     </div>`;
 }
@@ -409,9 +423,10 @@ async function labRun(key, fn) {
 async function labAskNote(title) {
   if (typeof openDialog !== 'function') return null;
   return openDialog((box, done) => {
-    box.innerHTML = `<h3>${esc(title)}</h3><p class="muted">ציין את שם ההוראה, הסעיף ותאריך הנוסח שמולו בדקת.</p>
+    // כותרת חלון ברמה 2, ותווית לשדה (r4 נגישות)
+    box.innerHTML = `<h2>${esc(title)}</h2><label for="labNote" class="muted" style="display:block;padding:0 1.5rem">ציין את שם ההוראה, הסעיף ותאריך הנוסח שמולו בדקת.</label>
       <textarea id="labNote" rows="3" style="width:100%"></textarea>
-      <div class="modal-actions"><button class="secondary" id="labNoteCancel">ביטול</button><button class="primary" id="labNoteOk">אישור</button></div>`;
+      <div class="modal-actions"><button type="button" class="secondary" id="labNoteCancel">ביטול</button><button type="button" class="primary" id="labNoteOk">אישור</button></div>`;
     box.querySelector('#labNoteOk').addEventListener('click', () => done(box.querySelector('#labNote').value.trim() || null));
     box.querySelector('#labNoteCancel').addEventListener('click', () => done(null));
   });
@@ -422,15 +437,18 @@ function attachLabHandlers() {
   const api = window.systemAPI;
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
   const rerender = () => { labCollect(); renderView('mortgage-lab'); };
+  // שינוי בשורות האופטימייזר (סוג, הוספה, הסרה) — התוצאה הישנה כבר לא מתאימה (סקירת קוד 2.11.2026)
+  const dropOpt = (id) => { if (id === 'opt') lab.results.opt = null; };
 
   document.querySelectorAll('[data-lab-tab]').forEach(b => b.addEventListener('click', () => { labCollect(); lab.tab = b.dataset.labTab; renderView('mortgage-lab'); }));
   // שינוי סוג מסלול משנה את השדות הרלוונטיים — רינדור מחדש
-  document.querySelectorAll('[data-f="type"]').forEach(s => s.addEventListener('change', rerender));
+  document.querySelectorAll('[data-f="type"]').forEach(s => s.addEventListener('change', () => { dropOpt(s.dataset.ed); rerender(); }));
   document.querySelectorAll('[data-lab-addrow]').forEach(b => b.addEventListener('click', () => {
     labCollect();
     const id = b.dataset.labAddrow;
     const target = id.startsWith('appr') ? lab.approvals[Number(id.slice(4))].tracks : lab.editors[id];
     if (target.length >= 12) { showError('עד 12 מסלולים'); return; }
+    dropOpt(id);
     target.push(id === 'prepay' ? { balance: '', monthlyPayment: '', remainingPayments: '', contractRatePct: '', averageRatePct: '', isFixedRate: true } : { type: 'FIXED_UNLINKED', repayment: 'SPITZER', years: 25 });
     renderView('mortgage-lab');
   }));
@@ -439,6 +457,7 @@ function attachLabHandlers() {
     const id = b.dataset.labDelrow;
     const target = id.startsWith('appr') ? lab.approvals[Number(id.slice(4))].tracks : lab.editors[id];
     target.splice(Number(b.dataset.i), 1);
+    dropOpt(id);
     renderView('mortgage-lab');
   }));
 
@@ -458,7 +477,12 @@ function attachLabHandlers() {
     } catch (error) { showError('שגיאה בשמירה: ' + errMsg(error)); }
   });
   on('labCalcPrepay', () => labRun('prepay', (l) => api.calcLabPrepayment({ tracks: l.editors.prepay })));
-  on('labCalcOpt', () => labRun('opt', (l) => api.calcLabOptimize({ amount: l.form.oAmount, blocks: labTracks(l.editors.opt), objective: l.form.oObjective, maxMonthlyPayment: l.form.oCap, stepPct: l.form.oStep, monthlyNetIncome: l.form.monthlyNetIncome, propertyValue: l.form.propertyValue, buyerType: l.form.buyerType })));
+  // התוויות נשמרות עם התוצאה — לפי המסלולים שנשלחו (אחרי סינון שורות ריקות), לא לפי העורך כפי שהוא עכשיו
+  on('labCalcOpt', () => labRun('opt', async (l) => {
+    const blocks = labTracks(l.editors.opt);
+    const r = await api.calcLabOptimize({ amount: l.form.oAmount, blocks, objective: l.form.oObjective, maxMonthlyPayment: l.form.oCap, stepPct: l.form.oStep, monthlyNetIncome: l.form.monthlyNetIncome, propertyValue: l.form.propertyValue, buyerType: l.form.buyerType });
+    return r && { ...r, blockTypes: blocks.map(b => b.type) };
+  }));
 
   on('labAddAppr', () => { labCollect(); if (lab.approvals.length >= 10) return; lab.approvals.push({ lender: '', validUntil: '', fees: '', maxAmount: '', tracks: labShares(labDefaultMix(), [34, 33, 33]) }); renderView('mortgage-lab'); });
   document.querySelectorAll('[data-lab-delappr]').forEach(b => b.addEventListener('click', () => { labCollect(); lab.approvals.splice(Number(b.dataset.labDelappr), 1); renderView('mortgage-lab'); }));
@@ -474,7 +498,12 @@ function attachLabHandlers() {
   document.querySelectorAll('[data-lab-load]').forEach(b => b.addEventListener('click', () => {
     const s = ((state.data.mortgageLab || {}).scenarios || []).find(x => x.id === b.dataset.labLoad);
     if (!s) return;
-    lab.editors.mix = s.tracks.map(t => ({ ...t, years: t.years != null ? t.years : Math.round(t.termMonths / 12) }));
+    // בלי termMonths: "שנים" שעל המסך הוא מקור התקופה, ושינוי שלהן חייב להשפיע (סקירת קוד 2.11.2026)
+    lab.editors.mix = s.tracks.map(({ termMonths, ...t }) => {
+      const row = { ...t, years: t.years != null ? t.years : Math.round(termMonths / 12) };
+      labPruneRow(row);
+      return row;
+    });
     lab.results.mix = null;
     lab.tab = 'mix';
     renderView('mortgage-lab');

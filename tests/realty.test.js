@@ -222,10 +222,10 @@ test('IPC: נכס ← לקוחות ← התאמה ← עסקה ← סטטוס ה
 test('המסך: קטלוג, כפתור בסרגל, סקריפט לפני boot, ערוצים ב-preload, בלי alert/confirm', () => {
   const root = path.join(__dirname, '..');
   const catalog = require('../shell/catalog');
-  const realty = catalog.DOMAINS ? catalog.DOMAINS.find(d => d.id === 'realty') : null;
-  const src = fs.readFileSync(path.join(root, 'shell', 'catalog.js'), 'utf8');
-  assert.match(src, /view: 'realty'/);
-  if (realty) assert.ok(realty.items.some(i => i.view === 'realty'));
+  // סקירת קוד 2.11.2026: catalog.DOMAINS לא קיים — הבדיקה הייתה קוד מת. הפריט בתחום "משכנתאות ונדל"ן"
+  const item = catalog.ITEMS.find(i => i.mod === 'econ' && i.view === 'realty');
+  assert.ok(item, 'פריט realty בקטלוג');
+  assert.equal(item.group, 'realty');
   const html = fs.readFileSync(path.join(root, 'modules', 'econ', 'views', 'index.html'), 'utf8');
   assert.match(html, /data-view="realty"/);
   assert.ok(html.indexOf('ui/realty.js') > 0 && html.indexOf('ui/realty.js') < html.indexOf('ui/boot.js'));

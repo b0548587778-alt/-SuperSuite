@@ -92,8 +92,9 @@ test('דמי הבראה לפי ותק והיקף משרה, ופיצויים לפ
   assert.deepEqual(C.havraa({ years: 4.5, dayRate: 418, jobPct: 50 }), { days: 7, amountAg: 146300, eligible: true });
   assert.equal(C.havraa({ years: 25, dayRate: 400 }).days, 10);
   assert.throws(() => C.havraa({ years: 3, dayRate: '' }), /שווי יום/);
-  assert.deepEqual(C.severance({ salary: '10000', from: '2020-01-01', to: '2026-01-01' }), { days: 2192, years: 6, amountAg: 6000000, eligible: true });
-  assert.equal(C.severance({ salary: 10000, from: '2024-03-15', to: '2025-09-15' }).amountAg, 1500000);
+  // תאריך הסיום — יום העבודה האחרון, כולל (סקירת קוד 2.11.2026)
+  assert.deepEqual(C.severance({ salary: '10000', from: '2020-01-01', to: '2025-12-31' }), { days: 2192, years: 6, amountAg: 6000000, eligible: true });
+  assert.equal(C.severance({ salary: 10000, from: '2024-03-15', to: '2025-09-14' }).amountAg, 1500000);
   assert.equal(C.severance({ salary: 8000, from: '2025-01-01', to: '2025-07-01' }).eligible, false);
   assert.throws(() => C.severance({ salary: 8000, from: '2025-07-01', to: '2025-01-01' }), /אחרי/);
 });
@@ -124,6 +125,6 @@ test('מעשרות: רשימת התצוגה מדלגת על רשומה פגומ�
   assert.equal(C.maaserRecent(many).length, 100);
   // הדף משתמש בה (ולא במיון ישיר שנופל על רשומה בלי תאריך)
   const app = fs.readFileSync(path.join(__dirname, '..', 'modules', 'tools', 'app.js'), 'utf8');
-  assert.match(app, /C\.maaserRecent\(M\)/);
+  assert.match(app, /C\.maaserRecent\(M[,)]/);
   assert.doesNotMatch(app, /b\.date\.localeCompare\(a\.date\)/);
 });

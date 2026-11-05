@@ -24,6 +24,9 @@ const ALLOWED = {
 const ALLOWED_IN = {
   'shell/google-signin.js': ['accounts.google.com', 'oauth2.googleapis.com', 'www.googleapis.com'],
   'shell/licensing/default-relay.js': ['supersuite-license.duckdns.org'],
+  // אימות תשלום הרשמה אצל מנהל-העל (GetLpResult) — פנייה שמנהל-העל מפעיל בלחיצה, דרך fetchImpl של התהליך הראשי;
+  // פרטי המסוף מוצפנים במפתח השורש ולא נשלחים לשרת הרישוי (החלטת הבעלים 5.11.2026)
+  'shell/licensing/owner-cardcom.js': ['secure.cardcom.solutions'],
   'modules/shamai/lib/qrcode.js': ['stackoverflow.com', 'www.d-project.com', 'www.denso-wave.com', 'www.opensource.org']
 };
 // קבצים שמותר להם לפנות לרשת בפועל (fetch וכדומה)

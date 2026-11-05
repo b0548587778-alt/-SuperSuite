@@ -33,7 +33,20 @@ function hebrewOfDeath(date, afterSunset) {
   return { day: h.day, month: h.month, year: h.year };
 }
 
-function validateMemorial(input, { count = 0 } = {}) {
+// עם תאריך פטירה לועזי התאריך העברי מחושב ממנו. יום / חודש / שנה עבריים שהוקלדו ושונים מהחישוב היו נזרקים בשקט —
+// עכשיו: שגיאה בעברית (סקירת קוד 2.11.2026). prev — הרשומה הקודמת: ערכים עבריים שלה שחזרו מהטופס כמו שהם
+// (נגזרים מתאריך הפטירה הקודם) אינם הקלדה, ומחושבים מחדש כשתאריך הפטירה או "אחרי השקיעה" השתנו
+function hebrewConflict(input, computed, prev) {
+  const has = (v) => v !== undefined && v !== null && String(v).trim() !== '';
+  const echoed = (k) => prev && String(input[k] ?? '') === String(prev[k] ?? '');
+  const diff = [];
+  if (has(input.hebrewDay) && !echoed('hebrewDay') && Number(input.hebrewDay) !== computed.day) diff.push('היום');
+  if (has(input.hebrewMonth) && !echoed('hebrewMonth') && input.hebrewMonth !== computed.month) diff.push('החודש');
+  if (has(input.hebrewYear) && !echoed('hebrewYear') && Number(input.hebrewYear) !== computed.year) diff.push('השנה');
+  return diff;
+}
+
+function validateMemorial(input, { count = 0, prev = null } = {}) {
   if (!input || typeof input !== 'object') throw new Error('רשומת הנצחה לא תקינה');
   if (count >= MAX_MEMORIALS) throw new Error('הגעת למספר המקסימלי של רשומות הנצחה');
   const name = str(input.name, 200, 'שם הנפטר');
@@ -41,7 +54,16 @@ function validateMemorial(input, { count = 0 } = {}) {
   let { hebrewDay: day, hebrewMonth: month, hebrewYear: year } = input;
   const deathDate = str(input.deathDate, 10, 'תאריך הפטירה');
   const afterSunset = input.afterSunset === true || input.afterSunset === '1' || input.afterSunset === 'true';
-  if (deathDate) ({ day, month, year } = hebrewOfDeath(deathDate, afterSunset));
+  if (deathDate) {
+    const computed = hebrewOfDeath(deathDate, afterSunset);
+    const diff = hebrewConflict(input, computed, prev);
+    if (diff.length) {
+      throw new Error(`התאריך העברי מחושב מתאריך הפטירה הלועזי, ו${diff.join(' ו')} שהוקלדו אינם תואמים לו ` +
+        `(לפי התאריך הלועזי: ${H.gematria(computed.day)} ${MONTH_NAMES[computed.month] || computed.month}). ` +
+        'כדי לקבוע תאריך עברי אחר — יש לרוקן את תאריך הפטירה הלועזי, או לתקן אותו');
+    }
+    ({ day, month, year } = computed);
+  }
   day = Number(day);
   year = year === '' || year === undefined || year === null ? null : Number(year);
   if (!MONTH_NAMES[month]) throw new Error('יש לבחור חודש עברי');
@@ -108,14 +130,17 @@ function occurrences(m, cal) {
 }
 
 // יארצייטים קרובים: מהיום ועד days ימים קדימה, ממוינים לפי תאריך
+// הלוח מתחיל יום אחד קודם: יארצייט של ל׳ בחודש חסר מופיע גם ב-א׳ של החודש הבא — כשהרשימה מתחילה ב-א׳,
+// כ״ט (אתמול) חייב להיות בלוח כדי שהמופע של היום יימצא (סקירת קוד 2.11.2026). מופע לפני היום — לא מוצג
 function upcoming(memorials, todayIso, days = 30) {
   if (!H.available()) return { available: false, rows: [] };
   const d = Math.max(1, Math.min(400, Number(days) || 30));
-  const cal = calendar(todayIso, d);
   const today = H.civil(todayIso);
+  const cal = calendar(iso(today - DAY), d + 1);
   const rows = [];
   for (const m of memorials || []) {
     for (const o of occurrences(m, cal)) {
+      if (o.t < today) continue;
       rows.push({
         id: m.id, name: m.name, parentName: m.parentName || '', contactName: m.contactName || '', contactPhone: m.contactPhone || '',
         plaque: m.plaque || '', date: o.date, weekday: o.weekday, hebrew: o.text, uncertain: o.uncertain,

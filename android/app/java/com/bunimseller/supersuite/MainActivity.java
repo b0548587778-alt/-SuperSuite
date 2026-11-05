@@ -7,13 +7,16 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.print.PrintAttributes;
 import android.print.PrintManager;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.util.Log;
+import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.webkit.ConsoleMessage;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
@@ -23,6 +26,7 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import org.json.JSONObject;
@@ -47,6 +51,7 @@ public class MainActivity extends Activity {
     private static final String OPEN_TOO_BIG = "הקובץ גדול מדי לזיכרון של המכשיר";
 
     private WebView web;
+    private Bridge bridge;
     private AssetServer assets;
     private TreeFiles trees;
     private String token;
@@ -155,9 +160,31 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        web.addJavascriptInterface(new Bridge(this, token), "SuperSuiteBridge");
-        setContentView(web);
+        bridge = new Bridge(this, token);
+        web.addJavascriptInterface(bridge, "SuperSuiteBridge");
+        setContentView(edgeToEdgeRoot(web));
         web.loadUrl(AssetServer.origin("shell") + "/shell.html");
+    }
+
+    /**
+     * אנדרואיד 15 (targetSdk 35) כופה תצוגה מקצה לקצה: בלי ריפוד, ☰ מתחת לפס הסטטוס וכפתורי הגיבוי והשחזור
+     * מתחת לפס הניווט (סקירת קוד 2.11.2026). המכל מרופד לפי פסי המערכת, החריץ והמקלדת (adjustResize לא פועל
+     * מקצה לקצה), וה-insets נצרכים כאן — ה-WebView מקבל 0, ולכן env(safe-area-inset-*) ב-mobile.css לא מכפיל.
+     * לפני 35 החלון לא מקצה לקצה — המערכת כבר מזיזה את התוכן.
+     */
+    private ViewGroup edgeToEdgeRoot(WebView view) {
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.parseColor("#0f1a30")); // מאחורי פסי המערכת — כמו צבע פס הסטטוס
+        root.addView(view, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (Build.VERSION.SDK_INT >= 35) {
+            root.setOnApplyWindowInsetsListener((v, insets) -> {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                android.graphics.Insets ime = insets.getInsets(WindowInsets.Type.ime());
+                v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
+                return WindowInsets.CONSUMED;
+            });
+        }
+        return root;
     }
 
     @Override
@@ -171,6 +198,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (web != null) web.destroy();
+        // המסד נסגר — יצירה מחדש של המסך (שינוי תצורה שלא ב-configChanges) פותחת חיבור חדש ולא משאירה את הקודם
+        if (bridge != null) bridge.close();
         super.onDestroy();
     }
 

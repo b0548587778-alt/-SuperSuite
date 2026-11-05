@@ -252,6 +252,17 @@ function missingDocsMessage(client, officeName) {
 const MAX_APPROVALS = 10;
 const APPROVAL_TRACK_TYPES = new Set(['PRIME', 'FIXED_UNLINKED', 'FIXED_LINKED', 'VARIABLE_UNLINKED', 'VARIABLE_LINKED', 'ELIGIBILITY', 'BRIDGE']);
 const REPAYMENT_KEYS = new Set(['SPITZER', 'EQUAL_PRINCIPAL', 'BULLET']);
+// השדות של כל סוג מסלול (כמו בעורך המסלולים במעבדה). סקירת קוד 2.11.2026: שדה של סוג אחר
+// (ריבית קבועה שנשארה אחרי מעבר למשתנה) נשלח למנוע והשפיע על החישוב — מסננים לפי הסוג
+const FLOATING_TYPES = new Set(['PRIME', 'VARIABLE_UNLINKED', 'VARIABLE_LINKED']);
+const VARIABLE_TYPES = new Set(['VARIABLE_UNLINKED', 'VARIABLE_LINKED']);
+const TRACK_FIELD_FOR = {
+  ratePct: (type) => !FLOATING_TYPES.has(type),
+  spreadPct: (type) => FLOATING_TYPES.has(type),
+  resetMonths: (type) => VARIABLE_TYPES.has(type),
+  anchorKey: (type) => VARIABLE_TYPES.has(type)
+};
+const trackFieldAllowed = (type, field) => !TRACK_FIELD_FOR[field] || TRACK_FIELD_FOR[field](type);
 
 const optNum = (v, label, min, max) => {
   if (v === undefined || v === null || v === '') return undefined;
@@ -272,11 +283,12 @@ function validateApprovalTrack(t, i, lender) {
   const spreadPct = optNum(t.spreadPct, `${where}: המרווח`, -10, 20);
   const resetMonths = optNum(t.resetMonths, `${where}: תדירות השינוי`, 1, 600);
   const graceMonths = optNum(t.graceMonths, `${where}: חודשי הגרייס`, 0, 600);
-  if (ratePct !== undefined) out.ratePct = ratePct;
-  if (spreadPct !== undefined) out.spreadPct = spreadPct;
-  if (resetMonths !== undefined) out.resetMonths = Math.round(resetMonths);
+  const ok = (f) => trackFieldAllowed(t.type, f);
+  if (ratePct !== undefined && ok('ratePct')) out.ratePct = ratePct;
+  if (spreadPct !== undefined && ok('spreadPct')) out.spreadPct = spreadPct;
+  if (resetMonths !== undefined && ok('resetMonths')) out.resetMonths = Math.round(resetMonths);
   if (graceMonths) { out.graceMonths = Math.round(graceMonths); out.graceType = t.graceType === 'FULL' ? 'FULL' : 'PARTIAL'; }
-  if (t.anchorKey) out.anchorKey = str(t.anchorKey, 40, 'העוגן');
+  if (t.anchorKey && ok('anchorKey')) out.anchorKey = str(t.anchorKey, 40, 'העוגן');
   return out;
 }
 
@@ -473,12 +485,17 @@ function scheduleTable(offer, clientName) {
 const MAX_FEE_PAYMENTS = 50;
 const FEE_METHODS = { transfer: 'העברה בנקאית', check: 'המחאה', cash: 'מזומן', card: 'כרטיס אשראי', other: 'אחר' };
 
-function validateFeePayment(input) {
+// status — feeStatus של התיק: תשלום מעל היתרה נדחה (טעות הקלדה 47,200 במקום 4,720 הוצגה "שולם"
+// ואפשר היה להפיק עליה חשבונית), כמו בעמלת תיווך (סקירת קוד 2.11.2026). תיק בלי עמלה מוגדרת — לא נבדק
+function validateFeePayment(input, status = null) {
   if (!input || typeof input !== 'object') throw new Error('תשלום לא תקין');
   const date = String(input.date || '');
   if (!isDate(date)) throw new Error('תאריך התשלום אינו תקין');
   const amount = Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1e7) throw new Error('סכום התשלום אינו תקין');
+  if (status && status.totalAg > 0 && toAg(amount) > status.balanceAg) {
+    throw new Error(`הסכום (${fromAg(toAg(amount))} ₪) גבוה מיתרת העמלה לגבייה (${fromAg(status.balanceAg)} ₪)`);
+  }
   return { date, amountAg: toAg(amount), method: FEE_METHODS[input.method] ? input.method : 'transfer', note: str(input.note, 200, 'ההערה') };
 }
 
@@ -489,12 +506,13 @@ function feeStatus(client, vatRate, fullRate) {
   const paidAg = (Array.isArray(c.feePayments) ? c.feePayments : []).reduce((t, p) => t + (isAg(p.amountAg) ? p.amountAg : 0), 0);
   const depositAg = isAg(c.feeDepositAg) ? Math.min(c.feeDepositAg, fee.totalAg) : 0;
   const balanceAg = Math.max(0, fee.totalAg - paidAg);
-  const state = fee.totalAg === 0 ? 'none' : paidAg === 0 ? 'open' : balanceAg === 0 ? 'paid' : 'partial';
+  // שולם ביתר (למשל אחרי הורדת העמלה) — מוצג, לא נבלע ב"שולם"
+  const state = fee.totalAg === 0 ? 'none' : paidAg === 0 ? 'open' : paidAg > fee.totalAg ? 'overpaid' : balanceAg === 0 ? 'paid' : 'partial';
   return { totalAg: fee.totalAg, paidAg, balanceAg, depositAg, depositDueAg: Math.max(0, depositAg - paidAg), overpaidAg: Math.max(0, paidAg - fee.totalAg), state,
     total: fromAg(fee.totalAg), paid: fromAg(paidAg), balance: fromAg(balanceAg), deposit: fromAg(depositAg) };
 }
 
-const FEE_STATES = { none: 'אין עמלה', open: 'טרם שולם', partial: 'שולם חלקית', paid: 'שולם' };
+const FEE_STATES = { none: 'אין עמלה', open: 'טרם שולם', partial: 'שולם חלקית', paid: 'שולם', overpaid: 'שולם ביתר' };
 
 // הכנסות המשרד בשנה: התקבל לפי חודש וליועץ, יתרות פתוחות (תיקים שלא "לא התקדם"), וצפי מתיקים פתוחים
 function officeIncome(clients, { year, vatRate, fullVatRate, advisorName = () => '' } = {}) {
@@ -619,7 +637,7 @@ module.exports = {
   TRACKS, TRACK_KEYS, CLIENT_STATUSES, STAGE_KEYS, CLOSED_STAGES, DEFAULT_STAGE, DOCUMENTS, DEFAULT_SETTINGS,
   normalizeStage, normalizeSettings, canSee, resolveAdvisor, withStage, daysInStage, pipelineBoard,
   EMPLOYMENT, DEALS, normalizeProfile, setDocState, missingDocsMessage,
-  MAX_APPROVALS, validateApproval, approvalView, approvalsForLab, approvalsSummary,
+  MAX_APPROVALS, validateApproval, approvalView, approvalsForLab, approvalsSummary, trackFieldAllowed,
   MAX_FEE_PAYMENTS, FEE_METHODS, FEE_STATES, validateFeePayment, feeStatus, officeIncome, caseVatRate, lockFeeVat,
   validateClient, clientStored, clientView, offerStored, ltv, advisoryFee, docsProgress, toggleDoc,
   validateTrack, tracksFromForm, validateOffer, validateCpi, trackSchedule, offerSchedule, offerSummary,

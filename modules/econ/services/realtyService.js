@@ -33,7 +33,18 @@ class RealtyService {
       analyses: Array.isArray(r.analyses) ? r.analyses : [],
       projects: Array.isArray(r.projects) ? r.projects : []
     };
+    // מעמד המע"מ ננעל בעסקה בתשלום הראשון (כמו feeVatExempt בייעוץ משכנתאות). עסקה ישנה עם תשלומים —
+    // לפי ההגדרה שבתוקף בטעינה (סקירת קוד 2.11.2026)
+    const exempt = !!data.realty.settings.vatExempt;
+    for (const d of data.realty.deals) {
+      if (d && typeof d.feeVatExempt !== 'boolean' && Array.isArray(d.commissionPayments) && d.commissionPayments.length) d.feeVatExempt = exempt;
+    }
     return data;
+  }
+
+  // עוסק פטור בעסקה: הנעילה בעסקה, ובלעדיה — ההגדרה של היום
+  _dealExempt(data, d) {
+    return typeof d.feeVatExempt === 'boolean' ? d.feeVatExempt : !!data.realty.settings.vatExempt;
   }
 
   _find(list, id, label) {
@@ -51,7 +62,7 @@ class RealtyService {
   // mortgageCaseId לא יוצא: מזהה התיק מוצג רק דרך mortgage (_mortgageStatus) — עם הרישיון וההרשאה לראות את התיק
   _dealOut(data, d, ctx) {
     const { commissions, commissionPayments, mortgageCaseId: _caseId, ...rest } = d;
-    const st = B.commissionStatus(d, this._vatRate(data), data.realty.settings.vatExempt);
+    const st = B.commissionStatus(d, this._vatRate(data), this._dealExempt(data, d));
     return {
       ...R.dealView(rest, ctx),
       commission: { ...st, sides: st.sides.map(s => ({ side: s.side, label: s.label, feeText: s.feeText, state: s.state, total: s.total, paid: s.paid, balance: s.balance, overpaid: s.overpaid })) },
@@ -133,9 +144,10 @@ class RealtyService {
     const d = this._find(data.realty.deals, dealId, 'העסקה');
     const list = Array.isArray(d.commissionPayments) ? d.commissionPayments : [];
     if (list.length >= B.MAX_PAYMENTS) throw new Error('הגעת למספר המקסימלי של תשלומים בעסקה');
-    const st = B.commissionStatus(d, this._vatRate(data), data.realty.settings.vatExempt);
+    const st = B.commissionStatus(d, this._vatRate(data), this._dealExempt(data, d));
     const balances = Object.fromEntries(st.sides.map(s => [s.side, s.balanceAg]));
     const p = { id: crypto.randomUUID(), ...B.validatePayment(input, Object.keys(d.commissions || {}), balances), by: actorId || null, createdAt: new Date().toISOString() };
+    d.feeVatExempt = this._dealExempt(data, d);
     d.commissionPayments = [...list, p];
     d.updatedAt = p.createdAt;
     await this.db.save(data);
@@ -149,6 +161,7 @@ class RealtyService {
     if (!p) throw new Error('התשלום לא נמצא');
     if (this._liveInvoice(data, p)) throw new Error(`הופקה חשבונית לתשלום הזה (מספר ${p.invoiceNumber}) — אי אפשר למחוק אותו`);
     d.commissionPayments = d.commissionPayments.filter(x => x.id !== paymentId);
+    if (!d.commissionPayments.length) delete d.feeVatExempt;
     d.updatedAt = new Date().toISOString();
     await this.db.save(data);
     return true;
@@ -167,7 +180,7 @@ class RealtyService {
     const prop = data.realty.properties.find(x => x.id === d.propertyId);
     return {
       key: `rlty:${d.id}:${p.id}`, customer: c.name, date: p.date, grossAgorot: p.amountAg, method: p.method,
-      description: `דמי תיווך — ${prop ? R.propertyTitle(prop) : 'נכס'}`.slice(0, 200), exempt: data.realty.settings.vatExempt
+      description: `דמי תיווך — ${prop ? R.propertyTitle(prop) : 'נכס'}`.slice(0, 200), exempt: this._dealExempt(data, d)
     };
   }
 
@@ -259,6 +272,8 @@ class RealtyService {
     const data = await this._load();
     this._find(data.realty.properties, id, 'הנכס');
     if (data.realty.deals.some(d => d.propertyId === id)) throw new Error('לנכס יש עסקאות — אפשר לסמן אותו "הוסר" במקום למחוק');
+    // הזמנת שירותי תיווך על הנכס — כמו בלקוח (סקירת קוד 2.11.2026)
+    if (data.realty.orders.some(o => o.propertyId === id)) throw new Error('לנכס יש הזמנת שירותי תיווך — אפשר לסמן אותו "הוסר" במקום למחוק');
     data.realty.properties = data.realty.properties.filter(p => p.id !== id);
     // ניתוח כדאיות שהיה מקושר לנכס נשאר, בלי הקישור
     for (const a of data.realty.analyses) if (a.propertyId === id) a.propertyId = '';
@@ -409,8 +424,21 @@ class RealtyService {
     const data = await this._load();
     const t = I.validateTaxTable(input);
     const list = data.realty.taxTables;
-    const i = list.findIndex(x => x.year === t.year && x.kind === t.kind);
     const now = new Date().toISOString();
+    // עריכה (עם מזהה): הטבלה הזו בלבד. סקירת קוד 2.11.2026: קודם המזהה לא נשלח — שינוי השנה או סוג הרוכש
+    // דרס טבלה אחרת (גם מאומתת) והמקורית נשארה. שנה וסוג של טבלה אחרת ← סירוב
+    const editId = input && input.id ? String(input.id) : '';
+    if (editId) {
+      const k = list.findIndex(x => x.id === editId);
+      if (k < 0) throw new Error('הטבלה לא נמצאה');
+      if (list.some(x => x.id !== editId && x.year === t.year && x.kind === t.kind)) {
+        throw new Error('כבר קיימת טבלה לשנה ולסוג הרוכש האלה — יש לערוך אותה או למחוק אותה קודם');
+      }
+      list[k] = { id: list[k].id, ...t, createdAt: list[k].createdAt, updatedAt: now };
+      await this.db.save(data);
+      return I.taxTableView(list[k]);
+    }
+    const i = list.findIndex(x => x.year === t.year && x.kind === t.kind);
     if (i < 0) {
       if (list.length >= I.MAX_TABLES) throw new Error('הגעת למספר המקסימלי של טבלאות');
       list.push({ id: crypto.randomUUID(), ...t, createdAt: now, updatedAt: now });

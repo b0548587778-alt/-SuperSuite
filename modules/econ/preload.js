@@ -4,8 +4,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 // בקשת ניווט מהסרגל האחיד של המעטפת. אם הגיעה לפני שהממשק נרשם — נשמרת ונמסרת ברישום
 let pendingGoto = null;
 let gotoListener = null;
+// מחרוזת = תצוגה; { view, task, prefill } = משימה מתיבת "מה תרצה לעשות?" (main.js אימת את המטען — shell/tasks.js)
 ipcRenderer.on('econ:goto', (_e, view) => {
-  if (typeof view !== 'string') return;
+  const ok = typeof view === 'string' || (!!view && typeof view === 'object' && typeof view.view === 'string');
+  if (!ok) return;
   if (gotoListener) gotoListener(view); else pendingGoto = view;
 });
 
@@ -19,7 +21,8 @@ const masavChannel = (domain, op) => {
 contextBridge.exposeInMainWorld('systemAPI', {
   // Authentication
   authStatus: () => ipcRenderer.invoke('auth:status'),
-  setupAdmin: (username, password) => ipcRenderer.invoke('auth:setup', username, password),
+  // recoveryCode — רק כשהמסד שוחזר בלי משתמשים (auth:status → recoveryCodeRequired)
+  setupAdmin: (username, password, recoveryCode) => ipcRenderer.invoke('auth:setup', username, password, recoveryCode),
   login: (username, password) => ipcRenderer.invoke('auth:login', username, password),
   logout: () => ipcRenderer.invoke('auth:logout'),
   googleLogin: () => ipcRenderer.invoke('auth:google-login'),
@@ -109,12 +112,12 @@ contextBridge.exposeInMainWorld('systemAPI', {
   // קליטת חשבונית ספק — מחזיר טיוטה בלבד; השמירה רק ב-createEntry
   captureInvoice: (input) => ipcRenderer.invoke('acct:captureInvoice', input),
   reverseEntry: (entryId) => ipcRenderer.invoke('acct:reverseEntry', entryId),
-  getInvoices: () => ipcRenderer.invoke('acct:getInvoices'),
+  getInvoices: (opts) => ipcRenderer.invoke('acct:getInvoices', opts),
   createInvoice: (invoice) => ipcRenderer.invoke('acct:createInvoice', invoice),
   recordPayment: (invoiceId, payment) => ipcRenderer.invoke('acct:recordPayment', invoiceId, payment),
   getAccountingReports: (range) => ipcRenderer.invoke('acct:getReports', range),
   getAccountingSettings: () => ipcRenderer.invoke('acct:getSettings'),
-  cancelInvoice: (invoiceId) => ipcRenderer.invoke('acct:cancelInvoice', invoiceId),
+  cancelInvoice: (invoiceId, opts) => ipcRenderer.invoke('acct:cancelInvoice', invoiceId, opts),
   setAllocation: (invoiceId, input) => ipcRenderer.invoke('acct:setAllocation', invoiceId, input),
   waiveAllocation: (invoiceId, input) => ipcRenderer.invoke('acct:waiveAllocation', invoiceId, input),
   getProducts: () => ipcRenderer.invoke('acct:getProducts'),
@@ -220,6 +223,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   saveGemachSettings: (input) => ipcRenderer.invoke('gemach:saveSettings', input),
   addGemachLoan: (input) => ipcRenderer.invoke('gemach:addLoan', input),
   recordGemachPayment: (loanId, seq, input) => ipcRenderer.invoke('gemach:recordPayment', loanId, seq, input),
+  reverseGemachPayment: (loanId, seq, input) => ipcRenderer.invoke('gemach:reversePayment', loanId, seq, input),
   cancelGemachLoan: (loanId) => ipcRenderer.invoke('gemach:cancelLoan', loanId),
   addGemachDeposit: (input) => ipcRenderer.invoke('gemach:addDeposit', input),
   deleteGemachDeposit: (id) => ipcRenderer.invoke('gemach:deleteDeposit', id),
@@ -356,7 +360,9 @@ contextBridge.exposeInMainWorld('systemAPI', {
   listUsers: () => ipcRenderer.invoke('users:list'),
   createUser: (input) => ipcRenderer.invoke('users:create', input),
   updateUser: (id, input) => ipcRenderer.invoke('users:update', id, input),
-  resetUserPassword: (id, password) => ipcRenderer.invoke('users:resetPassword', id, password),
+  // ownPassword — הסיסמה של המנהל עצמו, נדרשת אחרי כניסה עם Google
+  resetUserPassword: (id, password, ownPassword) => ipcRenderer.invoke('users:resetPassword', id, password, ownPassword),
+  unlinkUserGoogle: (id, ownPassword) => ipcRenderer.invoke('users:unlinkGoogle', id, ownPassword),
   listAudit: (filter) => ipcRenderer.invoke('audit:list', filter),
   exportAudit: (filter) => ipcRenderer.invoke('audit:export', filter),
   getLicenseStatus: () => ipcRenderer.invoke('license:getStatus'),
@@ -414,6 +420,10 @@ contextBridge.exposeInMainWorld('systemAPI', {
   ownerSignups: () => ipcRenderer.invoke('owner:signups'),
   ownerSignupIssue: (id, opts) => ipcRenderer.invoke('owner:signupIssue', id, opts),
   ownerSignupDocument: (id) => ipcRenderer.invoke('owner:signupDocument', id),
+  ownerGetPaymentProvider: () => ipcRenderer.invoke('owner:getPaymentProvider'),
+  ownerSetCardcomCredentials: (input) => ipcRenderer.invoke('owner:setCardcomCredentials', input),
+  ownerClearCardcomCredentials: () => ipcRenderer.invoke('owner:clearCardcomCredentials'),
+  ownerVerifySignupPayment: (id) => ipcRenderer.invoke('owner:verifySignupPayment', id),
   updateDownload: () => ipcRenderer.invoke('update:download'),
   updateFromFile: () => ipcRenderer.invoke('update:fromFile'),
   updateInstall: () => ipcRenderer.invoke('update:install'),

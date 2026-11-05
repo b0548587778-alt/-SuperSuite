@@ -99,7 +99,9 @@ function summarize(p) {
     activeLoansOutstanding: loans.reduce((t, h) => t + toAg(h.ref.outstanding), 0) / 100,
     activeGuarantees: guarantees.length,
     late: loans.some(h => h.ref.lateCount > 0) || guarantees.some(h => h.ref.lateCount > 0),
-    itemsOut: p.hits.filter(h => h.role === 'itemBorrower' && !h.ref.returned).length
+    itemsOut: p.hits.filter(h => h.role === 'itemBorrower' && !h.ref.returned).length,
+    // נזקק חסוי בתוצאה (מגיע רק למי שמורשה) — לרישום הצפייה ביומן (ipc.js, סקירת קוד 2.11.2026)
+    ...(p.hits.some(h => h.role === 'beneficiary' && h.ref.confidential) ? { confidential: true } : {})
   };
 }
 

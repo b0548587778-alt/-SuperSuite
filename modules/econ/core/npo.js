@@ -28,7 +28,7 @@ const MAX_GRANTS = 5000;
 
 const DEFAULT_SETTINGS = {
   orgName: '', regNumber: '', address: '', phone: '',
-  sec46Number: '', sec46ValidUntil: '',
+  sec46Number: '', sec46ValidFrom: '', sec46ValidUntil: '',
   vatStatus: 'exempt', vatNumber: '',
   largeDonorThreshold: 20000,
   funds: [],
@@ -62,6 +62,10 @@ function applySettings(current, input, usedFundIds = new Set(), newId) {
   next.sec46Number = str(input.sec46Number, 30, 'מספר אישור סעיף 46');
   next.sec46ValidUntil = str(input.sec46ValidUntil, 10, 'תוקף האישור');
   if (next.sec46ValidUntil && !isDate(next.sec46ValidUntil)) throw new Error('תוקף אישור סעיף 46 אינו תאריך תקין');
+  // תחילת תוקף האישור — קבלה על תרומה מלפניו לא תודפס "מוכרת לזיכוי" (סקירת קוד 2.11.2026)
+  next.sec46ValidFrom = str(input.sec46ValidFrom, 10, 'תחילת תוקף האישור');
+  if (next.sec46ValidFrom && !isDate(next.sec46ValidFrom)) throw new Error('תחילת תוקף אישור סעיף 46 אינה תאריך תקין');
+  if (next.sec46ValidFrom && next.sec46ValidUntil && next.sec46ValidFrom > next.sec46ValidUntil) throw new Error('תחילת תוקף אישור סעיף 46 אחרי סוף התוקף');
   next.vatStatus = VAT_STATUSES[input.vatStatus] ? input.vatStatus : 'exempt';
   next.vatNumber = next.vatStatus === 'osek' ? str(input.vatNumber, 20, 'מספר העוסק') : '';
   if (next.vatStatus === 'osek' && !/^\d{9}$/.test(next.vatNumber)) throw new Error('בעוסק מורשה יש להזין מספר עוסק בן 9 ספרות');
@@ -88,10 +92,11 @@ function applySettings(current, input, usedFundIds = new Set(), newId) {
   return next;
 }
 
-// האם תרומה בתאריך נתון מזכה לפי סעיף 46: יש מספר אישור, והתאריך בתוך התוקף (אם הוגדר)
+// האם תרומה בתאריך נתון מזכה לפי סעיף 46: יש מספר אישור, והתאריך בתוך התוקף (מ- ועד, אם הוגדרו)
 function sec46Eligible(settings, date) {
   const s = normalizeSettings(settings);
   if (!s.sec46Number) return false;
+  if (s.sec46ValidFrom && date < s.sec46ValidFrom) return false;
   if (s.sec46ValidUntil && date > s.sec46ValidUntil) return false;
   return true;
 }
@@ -108,20 +113,20 @@ function validateDonation(input, settings, count = 0) {
   if (!input || typeof input !== 'object') throw new Error('תרומה לא תקינה');
   if (count >= MAX_DONATIONS) throw new Error('הגעת למספר המקסימלי של תרומות');
   const date = input.date || localToday();
-  if (!isDate(date)) throw new Error('תאריך לא תקין (YYYY-MM-DD)');
+  if (!isDate(date)) throw new Error('תאריך התרומה אינו תקין — בחרו תאריך מהלוח (למשל היום).');
   const donorName = str(input.donorName, 200, 'שם התורם');
-  if (!donorName) throw new Error('שם התורם חובה');
+  if (!donorName) throw new Error('חסר שם התורם — ממי התרומה? כתבו את שם התורם.');
   const type = DONOR_TYPES[input.donorType] ? input.donorType : 'israeli';
   const donorId = str(input.donorId, 12, 'מספר הזהות');
   if (type !== 'israeli' && donorId) throw new Error(`לתורם ${DONOR_TYPES[type]} אין להזין ת.ז — בדיווח יירשם הקוד ${REPORT_IDS[type]}`);
   assertIsraeliId(donorId, 'מספר זהות / ח"פ של התורם');
   const foreign = parseForeign(input);
   const amount = foreign ? fromAg(foreign.ilsAg) : Number(input.amount);
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new Error('סכום התרומה אינו תקין');
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new Error('חסר סכום התרומה — כמה נתרם? כתבו מספר גדול מאפס, למשל 100.');
   const method = METHODS[input.method] ? input.method : 'transfer';
   const fundId = input.fundId || GENERAL_FUND.id;
   const fund = allFunds(settings).find(f => f.id === fundId && !f.archived);
-  if (!fund) throw new Error('הקרן שנבחרה אינה קיימת');
+  if (!fund) throw new Error('הקרן שנבחרה אינה קיימת (אולי הועברה לארכיון) — בחרו קרן אחרת, או "כללי".');
   return {
     date, donorName, donorId,
     ...(type !== 'israeli' ? { donorType: type } : {}),
@@ -265,6 +270,8 @@ function planChequeDonation(input, settings, count = 0) {
     const clean = validateDonation({ ...input, currency: 'ILS', date, amount: fromAg(g.amountAg), method: 'check', reference: chequeReference(g.cheques) }, s, count + i);
     if (sec46Eligible(s, receivedDate) && !sec46Eligible(s, date)) {
       warnings.push({ code: 'sec46-lapsed', year: g.year, text: `אישור סעיף 46 בתוקף עד ${s.sec46ValidUntil} — הקבלה לשנת ${g.year} תצא בלי זיכוי לפי סעיף 46` });
+    } else if (s.sec46Number && s.sec46ValidFrom && date < s.sec46ValidFrom) {
+      warnings.push({ code: 'sec46-not-yet', year: g.year, text: `אישור סעיף 46 בתוקף רק מ-${s.sec46ValidFrom} — הקבלה לשנת ${g.year} תצא בלי זיכוי לפי סעיף 46` });
     }
     return { ...clean, cheques: g.cheques, receivedDate };
   });
@@ -391,14 +398,27 @@ function donorAnnualStatement(donations, settings, donorKey, year) {
   const rows = donorYearDonations(donations, donorKey, y);
   const last = rows[rows.length - 1];
   const totalAg = rows.reduce((t, d) => t + toAg(d.amount), 0);
-  const sec46Ag = rows.filter(d => d.receipt && d.receipt.sec46).reduce((t, d) => t + toAg(d.amount), 0);
+  // זיכוי לפי סעיף 46 — רק תרומה של תושב ישראל עם קבלה מזכה (כמו מכתב התודה), ומספר האישור — מהקבלות
+  // של אותה שנה, לא האישור שבתוקף היום (סקירת קוד 2.11.2026)
+  const credits = (d) => donorType(d) === 'israeli' && !!(d.receipt && d.receipt.sec46);
+  const eligible = rows.filter(credits);
+  const sec46Ag = eligible.reduce((t, d) => t + toAg(d.amount), 0);
+  const approvals = [];
+  for (const d of eligible) {
+    const a = { number: String(d.receipt.sec46Number || ''), validUntil: String(d.receipt.sec46ValidUntil || '') };
+    if (a.number && !approvals.some(x => x.number === a.number && x.validUntil === a.validUntil)) approvals.push(a);
+  }
   const s = normalizeSettings(settings);
+  // קבלות ישנות שלא שמרו את מספר האישור — האישור מההגדרות (כמו לפני התיקון)
+  if (eligible.length && !approvals.length && s.sec46Number) approvals.push({ number: s.sec46Number, validUntil: s.sec46ValidUntil });
+  const numbers = [...new Set(approvals.map(a => a.number))];
   return {
     year: y,
     donor: { name: last.donorName, id: last.donorId || '', address: last.donorAddress || '' },
-    org: { name: s.orgName, regNumber: s.regNumber, address: s.address, phone: s.phone, sec46Number: s.sec46Number, sec46ValidUntil: s.sec46ValidUntil },
-    receipts: rows.map(d => ({ number: receiptLabel(d), date: d.date, amount: d.amount, method: d.method, sec46: !!(d.receipt && d.receipt.sec46), fundName: d.receipt.fundName || 'כללי' })),
-    total: fromAg(totalAg), sec46Total: fromAg(sec46Ag)
+    org: { name: s.orgName, regNumber: s.regNumber, address: s.address, phone: s.phone,
+      sec46Number: numbers.join(', '), sec46ValidUntil: approvals.length === 1 ? approvals[0].validUntil : '' },
+    receipts: rows.map(d => ({ number: receiptLabel(d), date: d.date, amount: d.amount, method: d.method, sec46: credits(d), fundName: d.receipt.fundName || 'כללי' })),
+    total: fromAg(totalAg), sec46Total: fromAg(sec46Ag), sec46Approvals: approvals
   };
 }
 
@@ -408,7 +428,10 @@ function donorAnnualStatement(donations, settings, donorKey, year) {
 function yearEndPack(donations, settings, year, opts = {}) {
   const y = Number(year);
   if (!Number.isInteger(y) || y < 2000 || y > 2100) throw new Error('שנה לא תקינה');
-  const minRaw = opts.minTotal === undefined || opts.minTotal === null || opts.minTotal === '' ? 0 : Number(String(opts.minTotal).replace(/[,\s₪]/g, ''));
+  // פסיק — רק מפריד אלפים ("1,000"); "10,50" נדחה ולא נקרא 1,050 (סקירת קוד 2.11.2026)
+  const minText = String(opts.minTotal ?? '').replace(/[\s₪]/g, '');
+  const minRaw = minText === '' ? 0
+    : (minText.includes(',') && !/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(minText)) ? NaN : Number(minText.replace(/,/g, ''));
   if (!Number.isFinite(minRaw) || minRaw < 0) throw new Error('הסכום המינימלי אינו תקין');
   const minAg = toAg(minRaw);
   const onlySec46 = opts.onlySec46 === true;

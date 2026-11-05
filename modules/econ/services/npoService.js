@@ -224,8 +224,20 @@ class NpoService {
       // חודש שסומן "התקבל" ידנית בינתיים — בלי קבלה נוספת. אחרת — קבלה בסכום שחויב בקובץ
       const last = (order.history || []).filter(h => h.month === month).pop();
       if (!last || last.status !== 'received') {
-        this._recordStandingIn(data, order, month, 'received', b.chargeDate, { masavBatchId: b.id }, { amountAg: it.amountAg });
-        receipts++;
+        // הוראה שאי אפשר להפיק לה קבלה (למשל קרן שעברה לארכיון בנתונים ישנים) — לטיפול ידני, לא מפילה את כל האצווה
+        try {
+          this._recordStandingIn(data, order, month, 'received', b.chargeDate, { masavBatchId: b.id }, { amountAg: it.amountAg });
+          receipts++;
+        } catch (e) {
+          it.status = 'paid';
+          it.manual = `הכסף נגבה אבל לא הופקה קבלה: ${e.message}`;
+          manual.push({ label: it.label, amountAg: it.amountAg, why: it.manual });
+          continue;
+        }
+      } else if (!last.masavBatchId) {
+        // החודש סומן "התקבל" ידנית (למשל במזומן) בזמן שהחיוב היה באצווה — הבנק גבה שוב: גבייה כפולה, לטיפול ידני
+        it.manual = 'החודש סומן "התקבל" ידנית בזמן שהחיוב היה באצווה — הבנק גבה שוב. יש להחזיר לתורם או להפיק קבלה ידנית';
+        manual.push({ label: it.label, amountAg: it.amountAg, why: it.manual });
       }
       it.status = 'paid';
     }
@@ -304,7 +316,7 @@ class NpoService {
     const list = data.npo.memorials;
     const prev = memorialId ? list.find(m => m.id === memorialId) : null;
     if (memorialId && !prev) throw new Error('רשומת ההנצחה לא נמצאה');
-    const clean = MEM.validateMemorial({ ...(prev || {}), ...input }, { count: prev ? 0 : list.length });
+    const clean = MEM.validateMemorial({ ...(prev || {}), ...input }, { count: prev ? 0 : list.length, prev });
     const now = new Date().toISOString();
     const m = prev ? Object.assign(prev, clean, { updatedAt: now }) : { id: crypto.randomUUID(), ...clean, createdAt: now };
     if (!prev) list.push(m);
@@ -365,7 +377,9 @@ class NpoService {
       year: y,
       settings: npo.settings,
       funds: N.allFunds(npo.settings),
-      donations: [...npo.donations].sort((a, b) => b.date.localeCompare(a.date) || N.byReceipt(b, a)).map(d => ({ ...d, taxStatus: N.taxStatus(d) })),
+      // רק התרומות של שנת y — המסך מציג שנה אחת; כל השנים היו נשלחות בכל פתיחה (סקירת קוד 2.11.2026, ביצועים)
+      donations: npo.donations.filter(d => String(d.date).startsWith(y + '-'))
+        .sort((a, b) => b.date.localeCompare(a.date) || N.byReceipt(b, a)).map(d => ({ ...d, taxStatus: N.taxStatus(d) })),
       grants: [...npo.grants].sort((a, b) => b.year - a.year || a.source.localeCompare(b.source, 'he')),
       // donors — כל השנים (רשימת התורמים במסך); yearDonors — רק התרומות של שנת y. עוזר ה-AI („תרומות השנה”, מכתב תודה)
       // משתמש ב-yearDonors: פעם קיבל את סכום כל השנים והציג אותו כ„בשנת y” (בדיקת קוד 23.10.2026, ממצא 46)
@@ -382,7 +396,22 @@ class NpoService {
   async saveSettings(input = {}) {
     const data = await this._load();
     const used = new Set([...data.npo.donations.map(d => d.fundId), ...data.npo.grants.map(g => g.fundId)]);
-    data.npo.settings = N.applySettings(data.npo.settings, input, used, () => crypto.randomUUID());
+    const next = N.applySettings(data.npo.settings, input, used, () => crypto.randomUUID());
+    // קרן שהוראת קבע פעילה (או חיוב באצוות מס"ב פתוחה) משתמשת בה — לא מוסרת ולא עוברת לארכיון: אחרת
+    // ההוראה נחסמת ואי אפשר לסגור את האצווה (סקירת קוד 2.11.2026)
+    const live = new Set(N.allFunds(next).filter(f => !f.archived).map(f => f.id));
+    const thisMonth = localDay().slice(0, 7);
+    const pending = new Set(data.npo.masav.batches.filter(b => b.status === 'open')
+      .flatMap(b => b.items.filter(i => i.status === 'pending').map(i => i.key.split('|')[0])));
+    for (const o of data.npo.standingOrders) {
+      const active = !o.endMonth || o.endMonth >= thisMonth || pending.has(o.id);
+      const fundId = o.fundId || 'general';
+      if (active && !live.has(fundId)) {
+        const f = N.allFunds(data.npo.settings).find(x => x.id === fundId);
+        throw new Error(`הקרן "${f ? f.name : fundId}" משמשת את הוראת הקבע של ${o.donorName} — יש להעביר את ההוראה לקרן אחרת או לקבוע לה חודש סיום לפני הסרת הקרן`);
+      }
+    }
+    data.npo.settings = next;
     await this.db.save(data);
     return data.npo.settings;
   }
@@ -471,6 +500,14 @@ class NpoService {
     if (d.status === 'cancelled') throw new Error('הקבלה כבר בוטלה');
     d.status = 'cancelled';
     d.cancelledAt = new Date().toISOString();
+    // קבלה של הוראת קבע: החודש כבר לא "התקבל" — אפשר לסמן "נכשל" או לחייב שוב. הרישום עובר ל-cancelledHistory
+    // באותה שמירה (סקירת קוד 2.11.2026)
+    const order = d.standingOrderId ? data.npo.standingOrders.find(o => o.id === d.standingOrderId) : null;
+    if (order && Array.isArray(order.history) && order.history.some(h => h.donationId === d.id)) {
+      order.cancelledHistory = [...(Array.isArray(order.cancelledHistory) ? order.cancelledHistory : []),
+        ...order.history.filter(h => h.donationId === d.id).map(h => ({ ...h, cancelledAt: d.cancelledAt }))];
+      order.history = order.history.filter(h => h.donationId !== d.id);
+    }
     await this.db.save(data);
     return d;
   }

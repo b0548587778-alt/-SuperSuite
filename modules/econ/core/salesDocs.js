@@ -43,7 +43,7 @@ function validateDraft(kind, input, vatRate) {
   if (!DRAFT_KINDS.includes(kind)) throw new Error('סוג מסמך לא מוכר');
   if (!input || typeof input !== 'object') throw new Error('מסמך לא תקין');
   const customer = clip(input.customer, 200);
-  if (!customer) throw new Error('שם לקוח חובה');
+  if (!customer) throw new Error('חסר שם לקוח — למי המסמך? כתבו את שם הלקוח.');
   const date = String(input.date || '');
   if (!isDate(date)) throw new Error('תאריך לא תקין');
   const customerTaxId = clip(input.customerTaxId, 12);
@@ -150,13 +150,22 @@ function validatePayment(input = {}) {
   return { method, ...(reference ? { reference } : {}) };
 }
 
+// סוג החשבונית לתצוגה ולהפניה מזיכוי / קבלה. עוסק פטור — "חשבונית עסקה" (כמו docTypeOf ב-uniformFile)
+function invoiceLabel(inv) {
+  if (inv && inv.vatExempt) return 'חשבונית עסקה';
+  return inv && inv.kind === 'tax-invoice-receipt' ? 'חשבונית מס/קבלה' : 'חשבונית מס';
+}
+
+// תווית המסמך: זיכוי של עוסק פטור — "חשבונית זיכוי", לא "חשבונית מס זיכוי" (סקירת קוד 2.11.2026)
+const kindLabelOf = (d) => (d.kind === 'credit' && d.vatExempt ? 'חשבונית זיכוי' : KINDS[d.kind] ? KINDS[d.kind].label : d.kind);
+
 // תצוגה: תווית, תווית מצב ותווית אמצעי תשלום
 function docView(d) {
-  return { ...d, kindLabel: KINDS[d.kind] ? KINDS[d.kind].label : d.kind, statusLabel: STATUSES[d.status] || d.status,
+  return { ...d, kindLabel: kindLabelOf(d), statusLabel: STATUSES[d.status] || d.status,
     ...(d.method ? { methodLabel: PAYMENT_METHODS[methodOf(d.method)].label } : {}) };
 }
 
 module.exports = {
   KINDS, DRAFT_KINDS, STATUSES, PAYMENT_METHODS, methodOf, methodCode, nextNumber, validateDraft, conversionInput,
-  assertConvertible, creditedAg, validateCredit, creditToEntry, validatePayment, docView
+  assertConvertible, creditedAg, validateCredit, creditToEntry, validatePayment, docView, invoiceLabel
 };

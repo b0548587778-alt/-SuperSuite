@@ -28,10 +28,18 @@ function silverIls(grams, purityPpt, prices) {
 
 const findMult = (list, k) => list.find((x) => x.k === k)?.mult ?? 1;
 
+// מדרגת המחיר של משקל: המדרגה האחרונה שהמשקל הגיע לתחילתה — בלי פערים. פעם 0.995 או 1.495 קראט נפלו
+// בין max של מדרגה ל-min של הבאה, והתוצאה הייתה ריקה בלי הודעה (סקירת קוד 2.11.2026)
+function diamondBracket(carat) {
+  let found = null;
+  for (const b of DIAMOND_BASE_PRICES) if (carat >= b.min) found = b;
+  return found;
+}
+
 // יהלום: מחיר בסיס לקראט × מקדמים; סיטונאי = 65%; מעבדה = 25%. null מתחת ל-0.30 קראט
 function diamondValue(d, carat, usdIls) {
   if (!carat || carat < 0.30) return null;
-  const bracket = DIAMOND_BASE_PRICES.find((b) => carat >= b.min && carat <= b.max);
+  const bracket = diamondBracket(carat);
   if (!bracket) return null;
   const pricePerCarat = bracket.price
     * findMult(DIAMOND_COLORS, d.color) * findMult(DIAMOND_CLARITY, d.clarity) * findMult(DIAMOND_CUTS, d.cut)
@@ -103,25 +111,66 @@ function rugValue(rg) {
   return { sqm, basePerSqm, regionMult, condMult, ageMult, kpsiMult, baseValue, estValue, maxPurchase: estValue * 0.50 };
 }
 
-// סקראפ: מחיר לק"ג שהוקלד, ואם לא — ממחיר ברירת המחדל לליברה; לסוחר = שוק × מקדם הסוחר. null — סוג לא מוכר
-function scrapValue(s, usdIls) {
-  const type = SCRAP_TYPES.find((t) => t.k === s.type);
-  if (!type) return null;
-  const weightKg = s.unit === 'ton' ? s.weight * 1000 : s.weight;
-  const pricePerKg = s.priceKg > 0 ? s.priceKg : type.pricePerLb * usdIls / POUND;
-  const marketValue = weightKg * pricePerKg;
-  return { type, weightKg, pricePerKg, marketValue, dealerPay: marketValue * type.dealerMargin };
+// מחיר לליברה של סוג סקראפ: נחושת / אלומיניום — נגזר מהמחיר בלוח המחירים (באותו יחס לברירת המחדל),
+// ולא מהקבוע: פעם עדכון מחיר הנחושת בלוח לא השפיע בכלל (סקירת קוד 2.11.2026). שאר הסוגים — ערך ייחוס קבוע
+function scrapPricePerLb(type, prices) {
+  const board = type.base && prices ? Number(prices[type.base]) : NaN;
+  const ref = type.base ? DEFAULT_PRICES[type.base] : 0;
+  return board > 0 && ref > 0 ? type.pricePerLb * board / ref : type.pricePerLb;
 }
 
-// מטבע: הגבוה מבין התכה לבין התכה × פרמיה × דירוג; רכישה = 65%
+// סקראפ: מחיר לק"ג שהוקלד, ואם לא — מהמחיר בלוח (scrapPricePerLb); לסוחר = שוק × מקדם הסוחר. null — סוג לא מוכר.
+// prices — state.prices (מספר — שער הדולר בלבד, כמו בגרסה קודמת)
+function scrapValue(s, prices) {
+  const type = SCRAP_TYPES.find((t) => t.k === s.type);
+  if (!type) return null;
+  const p = typeof prices === 'number' ? { usdIls: prices } : (prices || {});
+  const weightKg = s.unit === 'ton' ? s.weight * 1000 : s.weight;
+  const pricePerLb = scrapPricePerLb(type, p);
+  const pricePerKg = s.priceKg > 0 ? s.priceKg : pricePerLb * p.usdIls / POUND;
+  const marketValue = weightKg * pricePerKg;
+  return { type, weightKg, pricePerLb, pricePerKg, marketValue, dealerPay: marketValue * type.dealerMargin };
+}
+
+// רכב: מחירון × נזילות × מצב × יד × קילומטראז' × מאפיינים; לסוחר = 85%. אותה פונקציה למסך ולפנקס.
+// גיל — שנה אחת לפחות: פעם רכב משנת הייצור הנוכחית קיבל ממוצע 0 ק"מ, וכל קילומטר נחשב חריגה של 15%
+// (סקירת קוד 2.11.2026). nowYear — מוזרק בבדיקות
+function vehicleValue(v, nowYear = new Date().getFullYear()) {
+  const liquidity = VEHICLE_BRANDS.find((b) => b.k === v.brand)?.liquidity ?? 0.7;
+  const condMult = VEHICLE_CONDITIONS.find((c) => c.k === v.condition)?.mult ?? 1;
+  const handMult = { '1': 1.05, '2': 1.00, '3': 0.92, '4+': 0.80 }[v.hand] ?? 1;
+  let kmMult = 1;
+  if (v.km && v.year) {
+    const age = Math.max(1, nowYear - v.year);
+    const avgKm = 15000 * age;
+    if (v.km > avgKm * 1.5) kmMult = 0.85;
+    else if (v.km > avgKm * 1.2) kmMult = 0.92;
+    else if (v.km < avgKm * 0.7) kmMult = 1.05;
+  }
+  const featMult = (v.test ? 1.03 : 1) * (v.accident ? 0.75 : 1) * (v.private ? 1.05 : 1) * (v.service ? 1.04 : 1);
+  const estValue = (v.list || 0) * liquidity * condMult * handMult * kmMult * featMult;
+  return { liquidity, condMult, handMult, kmMult, featMult, estValue, maxBuy: estValue * 0.85 };
+}
+
+const coinIsPrecious = (c) => c.metal === 'gold' || c.metal === 'silver';
+
+// מטבע מזהב או מכסף: הגבוה מבין התכה לבין התכה × פרמיה × דירוג; רכישה = 65%.
+// מטבע מנחושת או ממתכת אחרת — אין ערך התכה: מחיר השוק שהשמאי הקליד × דירוג. פעם יצא תמיד ₪0,
+// גם עם פרמיה ×50 (סקירת קוד 2.11.2026). פרמיה לא תקינה ← ×1.5; 0 = "אין פרמיה"
 function coinValue(c, prices) {
+  const gradeMult = findMult(COIN_GRADES, c.grade);
+  const premium = Number.isFinite(c.premium) && c.premium >= 0 ? c.premium : 1.5;
+  if (!coinIsPrecious(c)) {
+    const market = Number(c.market) > 0 ? Number(c.market) : 0;
+    const value = market * gradeMult;
+    return { meltIls: 0, gradeMult, value, maxPurchase: value * 0.65, needsMarket: !market };
+  }
   let meltIls = 0;
-  if (c.weight > 0 && (c.metal === 'gold' || c.metal === 'silver')) {
+  if (c.weight > 0) {
     const spotUsd = c.metal === 'gold' ? prices.gold : prices.silver;
     meltIls = c.weight * (c.purity / 1000) * pricePerPureGramUsd(spotUsd) * prices.usdIls;
   }
-  const gradeMult = findMult(COIN_GRADES, c.grade);
-  const value = Math.max(meltIls, meltIls * c.premium * gradeMult);
+  const value = Math.max(meltIls, meltIls * premium * gradeMult);
   return { meltIls, gradeMult, value, maxPurchase: value * 0.65 };
 }
 

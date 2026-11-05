@@ -33,7 +33,8 @@ const prevMonth = (ym) => {
 // ---------- זיהוי הכוונה ----------
 // כל סימן הוא רשימת ביטויים; הראשון שמתאים קובע את סוג השאלה. סדר חשוב: ספציפי לפני כללי
 const INTENTS = [
-  { id: 'unpaid', words: ['מי לא שילם', 'לא שילמו', 'חייבים', 'חוב לקוחות', 'יתרות פתוחות', 'חשבוניות פתוחות', 'גבייה פתוחה'] },
+  // „מי חייב לי כסף?” — תיבת „מה תרצה לעשות?” (סבב 5)
+  { id: 'unpaid', words: ['מי לא שילם', 'לא שילמו', 'חייבים', 'חייב לי', 'חייב כסף', 'חוב לקוחות', 'יתרות פתוחות', 'חשבוניות פתוחות', 'גבייה פתוחה'] },
   { id: 'profit', words: ['רווח', 'הפסד', 'עודף', 'תוצאות'] },
   { id: 'vat', words: ['מע"מ', 'מעמ', 'מס עסקאות'] },
   { id: 'income', words: ['גביתי', 'גבייתי', 'גבייה', 'הכנסות', 'הכנסה', 'מכירות', 'מחזור', 'הכנסתי', 'הכנסתי החודש'] },
@@ -173,11 +174,14 @@ function answerRange(ctx, kind) {
 function answerCustomers(ctx) {
   const a = ctx.analytics;
   if (!a) return answer('נתוני הניתוח של החשבוניות אינם זמינים בהרשאה של המשתמש הזה.');
-  const repeat = Array.isArray(a.repeatCustomers) ? a.repeatCustomers.slice(0, 5) : [];
+  // כל הלקוחות החוזרים נספרים; מוצגים 5 הראשונים ו„ועוד N” — פעם הספירה נעצרה ב-5 (סקירת קוד 2.11.2026)
+  const all = Array.isArray(a.repeatCustomers) ? a.repeatCustomers : [];
+  const repeat = all.slice(0, 5);
   if (!repeat.length) return answer(`אין עדיין לקוחות חוזרים — מתוך ${a.customers || 0} לקוחות, לכל אחד חשבונית אחת.`);
   const lines = repeat.map(c => `• ${c.customer} — ${c.count} חשבוניות, ${nis(Math.round(Number(c.total) * 100))}`);
-  return answer(`יש ${repeat.length} לקוחות חוזרים מתוך ${a.customers} (${pct(Math.round(Number(a.repeatShare || 0) * 100))}):\n${lines.join('\n')}`,
-    { kind: 'customers', repeat });
+  if (all.length > repeat.length) lines.push(`• ועוד ${all.length - repeat.length} לקוחות חוזרים`);
+  return answer(`יש ${all.length} לקוחות חוזרים מתוך ${a.customers} (${pct(Math.round(Number(a.repeatShare || 0) * 100))}):\n${lines.join('\n')}`,
+    { kind: 'customers', repeat, repeatCount: all.length });
 }
 
 // „איך/היכן” — הוראות קצרות מתוך המדריך, בלי נתונים
@@ -247,10 +251,39 @@ function answerShamai(ctx) {
   return answer(lines.join('\n'), { kind: 'shamai', valueAg: s.valueAg, confidence: s.confidence });
 }
 
+// ---------- הנצחות: מתי היארצייט ----------
+// ctx.memorials — [{ name, parentName, date ('YYYY-MM-DD'), hebrew, uncertain, daysLeft }]: המועד הקרוב לכל נפטר,
+// בלי טלפון ואיש קשר (aiRulesContext ב-ipc.js), או null. השם נמצא בשאלה — או אחרי „של”
+const normName = (s) => String(s || '').replace(/["'״׳?!.,]/g, '').replace(/\s+/g, ' ').trim();
+const dmy = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || '')); return m ? `${Number(m[3])}.${Number(m[2])}.${m[1]}` : String(iso || ''); };
+const whenLabel = (n) => (n === 0 ? 'היום' : n === 1 ? 'מחר' : `בעוד ${n} ימים`);
+function memorialLine(m) {
+  const who = m.parentName ? `${m.name} ${m.parentName}` : m.name;
+  return `היארצייט של ${who} חל ב${m.hebrew} (${dmy(m.date)}), ${whenLabel(Number(m.daysLeft) || 0)}${m.uncertain ? ' — התאריך לבירור (יום שאינו קיים השנה)' : ''}.`;
+}
+function answerMemorial(ctx, q) {
+  const list = Array.isArray(ctx.memorials) ? ctx.memorials.filter(m => m && m.name && m.date) : null;
+  if (!list) return answer('רשימת ההנצחות אינה זמינה כרגע.');
+  if (!list.length) return answer('לא נרשמו הנצחות בתוכנה. מוסיפים אותן במסך „עמותה וצדקה” ← הנצחות.');
+  const s = normName(q);
+  let hits = list.filter(m => s.includes(normName(m.name)));
+  if (!hits.length) {
+    const after = /של\s+(.+)$/.exec(s);
+    const part = after ? normName(after[1]) : '';
+    if (part.length >= 2) hits = list.filter(m => normName(m.name).includes(part));
+  }
+  if (hits.length) return answer(hits.slice(0, 3).map(memorialLine).join('\n'), { kind: 'memorial', count: hits.length });
+  const next = [...list].sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 3);
+  return answer('לא מצאתי בשאלה שם מרשימת ההנצחות. היארצייטים הקרובים:\n' + next.map(m => '• ' + memorialLine(m)).join('\n'),
+    { kind: 'memorial', count: 0 });
+}
+
 // סדר תחומים: שאלה „איך…” — מדריך; אחרת התחום שהשאלה מכוונת אליו; ואם אין סימן — החשבונות
 const DOMAINS = [
+  // „מתי היארצייט של…?” — לפני העמותה (הנצחות הן חלק ממנה, אבל התשובה אחרת)
+  { id: 'memorial', words: ['יארצייט', 'יאָרצייט', 'יורצייט', 'יום השנה', 'אזכרה', 'הנצחה', 'הנצחות'] },
   { id: 'shamai', words: ['הערכת שווי', 'שווי', 'הערכת', 'שמאות', 'שמאי', 'שומה'] },
-  { id: 'npo', words: ['תורם', 'תורמים', 'תרומה', 'תרומות', 'עמותה', 'קבלות לתורם'] },
+  { id: 'npo', words: ['תורם', 'תורמים', 'תרומה', 'תרומות', 'עמותה', 'קבלות לתורם', 'תרמו', 'תרם', 'נדבה', 'נדבות'] },
 ];
 function detectDomain(q) {
   const s = String(q || '').toLowerCase();
@@ -269,6 +302,10 @@ function runRules(question, context = {}) {
   const intent = detectIntent(q);
   if (intent === 'howto') return answerHowTo(q);
   const domain = detectDomain(q);
+  if (domain === 'memorial') {
+    if (domainClosed(ctx, 'npo')) return answer('על ההנצחות אני עונה רק כשתחום העמותה פתוח ברישיון ובהרשאה של המשתמש הזה.');
+    return answerMemorial(ctx, q);
+  }
   if (domain === 'shamai') {
     if (domainClosed(ctx, 'shamai')) return answer('על השמאות אני עונה רק כשמודול השמאות פתוח ברישיון ובהרשאה של המשתמש הזה.');
     return answerShamai(ctx);

@@ -21,6 +21,7 @@ function licForm(title, fields, submitText, intro) {
     form.className = 'modal-form';
     form.noValidate = true;
     const get = {};
+    const fieldEls = {}; // לסימון השדה עם השגיאה (r4 נגישות)
     for (const f of fields) {
       if (f.type === 'checks') {
         const box = document.createElement('fieldset');
@@ -41,6 +42,7 @@ function licForm(title, fields, submitText, intro) {
           inputs.push(c);
         }
         form.appendChild(box);
+        fieldEls[f.name] = inputs[0];
         get[f.name] = () => inputs.filter(c => c.checked).map(c => c.value);
         continue;
       }
@@ -67,12 +69,18 @@ function licForm(title, fields, submitText, intro) {
         input.type = f.type || 'text';
         if (f.type === 'password') input.autocomplete = 'new-password';
       }
-      input.value = f.value != null ? String(f.value) : '';
+      const val = f.value != null ? String(f.value) : '';
+      // רשימת בחירה בלי ערך תואם — האפשרות הראשונה (לא רשימה ריקה שנשלחת כ-'' ונדחית באנגלית או דורסת הגדרה;
+      // סקירת קוד 2.11.2026)
+      if (f.type === 'select') input.selectedIndex = Math.max(0, f.options.findIndex(([v]) => String(v) === val));
+      else input.value = val;
       label.append(span, input);
       form.appendChild(label);
+      fieldEls[f.name] = input;
       get[f.name] = () => (f.type === 'password' ? input.value : input.value.trim());
     }
     const err = document.createElement('div');
+    err.setAttribute('role', 'alert'); // שגיאה מוקראת מיד (r4 נגישות)
     err.style.color = 'var(--ss-danger)';
     const actions = document.createElement('div');
     actions.className = 'modal-actions';
@@ -93,12 +101,12 @@ function licForm(title, fields, submitText, intro) {
       const values = {};
       for (const f of fields) {
         const v = get[f.name]();
-        if (f.required && (Array.isArray(v) ? !v.length : !v)) { err.textContent = 'יש למלא: ' + f.label; return; }
+        if (f.required && (Array.isArray(v) ? !v.length : !v)) { dialogFieldError(err, fieldEls[f.name], `חסר: ${f.label}. מלאו את השדה ונסו שוב.`); return; }
         if (f.type === 'number') {
           // שדה ריק אינו 0 (Number('') === 0 היה נשמר בשקט כאפס)
           const n = v === '' ? NaN : Number(v);
           if (!Number.isInteger(n) || n < (f.min ?? 0) || (f.max != null && n > f.max)) {
-            err.textContent = `${f.label}: מספר שלם${f.max != null ? ' עד ' + f.max : ''}`; return;
+            dialogFieldError(err, fieldEls[f.name], `${f.label}: מספר שלם${f.max != null ? ' עד ' + f.max : ''} — כתבו מספר בלי נקודה ובלי אותיות.`); return;
           }
           values[f.name] = n;
         } else values[f.name] = v;
@@ -274,7 +282,7 @@ function attachLicensingHandlers() {
     await licSave(r.package, 'עדכון-סטטוס', 'ההחזרה נרשמה — העבירו את קובץ העדכון למערכת הבת');
   });
   each('data-lic-child-terminate', async (b) => {
-    if (!(await askConfirm('סיום מערכת בת הוא סופי ואינו ניתן לביטול. להמשיך?'))) return;
+    if (!(await askConfirm('סיום מערכת בת הוא סופי ואינו ניתן לביטול. להמשיך?', { danger: true, okText: 'כן, לסיים את המערכת' }))) return;
     const v = await licReason('סיום מערכת בת');
     if (!v) return;
     const r = await window.systemAPI.terminateLicenseChild({ childId: b.dataset.licChildTerminate, reason: v.reason });
@@ -365,13 +373,51 @@ function attachLicensingHandlers() {
   each('data-owner-signup-issue', async (b) => {
     const id = b.dataset.ownerSignupIssue;
     let r;
-    try { r = await window.systemAPI.ownerSignupIssue(id); } catch (e) {
-      // הרשמה לפי הצעה שכבר הוחלפה (ממצא 31) — הנפקה רק אחרי אישור מפורש של מנהל-העל
-      if (!/הוחלפה/.test(errMsg(e))) throw e;
-      if (!(await askConfirm(errMsg(e) + '\n\nלהנפיק בכל זאת, לפי התכנית שבהרשמה?'))) return;
-      r = await window.systemAPI.ownerSignupIssue(id, { force: true });
+    const opts = {};
+    let verified = false;
+    // הרשמה בתשלום שעוד לא אומתה, כשמוגדרים פרטי Cardcom — בודקים לפני ההנפקה (גם אחרי בדיקה קודמת שלא הושלמה)
+    if (b.dataset.ownerVerifyFirst === '1') {
+      verified = true;
+      const c = await window.systemAPI.ownerVerifySignupPayment(id);
+      showToast(c.message);
+    }
+    // שני אישורים אפשריים: הצעה שהוחלפה (ממצא 31), ואימות התשלום מול חברת הסליקה (סקירת קוד 2.11.2026).
+    // כשמוגדרים פרטי Cardcom — קודם אימות אוטומטי במחשב הזה (החלטת הבעלים 5.11.2026); לא ניתן לאמת ← אישור ידני
+    for (;;) {
+      try { r = await window.systemAPI.ownerSignupIssue(id, { ...opts }); break; } catch (e) {
+        const m = errMsg(e);
+        if (/נדרש אימות מול Cardcom/.test(m) && !verified) {
+          verified = true;
+          const c = await window.systemAPI.ownerVerifySignupPayment(id);
+          showToast(c.message);
+          // לא תואם / לא שולם — הקריאה הבאה נחסמת בשרת עם ההסבר; לא נבדק — עוברים לאישור הידני
+        } else if (/הוחלפה/.test(m) && !opts.force) {
+          if (!(await askConfirm(m + '\n\nלהנפיק בכל זאת, לפי התכנית שבהרשמה?'))) return;
+          opts.force = true;
+        } else if (/נדרש אימות התשלום/.test(m) && !opts.paymentConfirmed) {
+          if (!(await askConfirm(m + '\n\nבדקתי — התשלום התקבל. להנפיק ולהפיק חשבונית?'))) return;
+          opts.paymentConfirmed = true;
+        } else throw e;
+      }
     }
     showToast(r.invoice ? `הרישיון של "${r.name}" נשלח, והופקה חשבונית מס/קבלה ${r.invoice.number}` : `הרישיון של "${r.name}" נשלח`);
+  });
+  each('data-owner-signup-verify', async (b) => {
+    const c = await window.systemAPI.ownerVerifySignupPayment(b.dataset.ownerSignupVerify);
+    showToast(c.message);
+  });
+  on('ownerCardcomBtn', async () => {
+    const v = await askFields('פרטי המסוף של Cardcom — לאימות תשלומי הרשמה', [
+      { name: 'terminal', label: 'מספר מסוף', hint: 'מממשק הניהול של Cardcom' },
+      { name: 'apiName', label: 'שם API (ApiName)', type: 'password', newPassword: true, hint: 'נשמר מוצפן במפתח מנהל-העל, במחשב הזה בלבד — לא נשלח לשרת הרישוי' }], 'שמירה');
+    if (!v) return;
+    await window.systemAPI.ownerSetCardcomCredentials({ terminal: v.terminal, apiName: v.apiName });
+    showToast('פרטי המסוף נשמרו — תשלומי הרשמה ייבדקו מול Cardcom לפני הנפקה');
+  });
+  on('ownerCardcomClearBtn', async () => {
+    if (!(await askConfirm('להסיר את פרטי המסוף של Cardcom? הנפקה בתשלום תחזור לאישור ידני.'))) return;
+    await window.systemAPI.ownerClearCardcomCredentials();
+    showToast('פרטי המסוף הוסרו');
   });
   each('data-owner-signup-invoice', async (b) => {
     const r = await window.systemAPI.exportInvoicePdf(b.dataset.ownerSignupInvoice);
@@ -393,7 +439,7 @@ function attachLicensingHandlers() {
     if (r && r.ok) showToast(`גרסה ${r.version} נבדקה ומוכנה להתקנה`);
   });
   on('updInstallBtn', async () => {
-    if (!(await askConfirm('התוכנה תיסגר ותיפתח ההתקנה של הגרסה החדשה. מומלץ לגבות לפני כן. להמשיך?'))) return;
+    if (!(await askConfirm('התוכנה תיסגר ותיפתח ההתקנה של הגרסה החדשה. מומלץ לגבות לפני כן. להמשיך?', { okText: 'כן, להתקין עכשיו' }))) return;
     await window.systemAPI.updateInstall();
   });
   on('ownerReleaseBtn', async () => {
@@ -553,7 +599,7 @@ function attachLicensingHandlers() {
     }
   });
   on('ownerKillBtn', async () => {
-    if (!(await askConfirm('נעילה גלובלית תנעל את כל המערכות של כל הלקוחות ברגע שיקבלו את העדכון. להמשיך?'))) return;
+    if (!(await askConfirm('נעילה גלובלית תנעל את כל המערכות של כל הלקוחות ברגע שיקבלו את העדכון. להמשיך?', { danger: true, okText: 'כן, לנעול את כולם' }))) return;
     const v = await licReason('נעילת כל המערכות');
     if (!v) return;
     await window.systemAPI.ownerNotice({ type: 'hold', target: '*', kind: 'locked', reason: v.reason });
@@ -572,13 +618,13 @@ function attachLicensingHandlers() {
     showToast('ההחזרה נרשמה — שלחו "קובץ עדכון" ללקוח');
   });
   each('data-owner-terminate', async (b) => {
-    if (!(await askConfirm('סיום לקוח הוא סופי ומסיים גם את כל מערכות הבת שלו. להמשיך?'))) return;
+    if (!(await askConfirm('סיום לקוח הוא סופי ומסיים גם את כל מערכות הבת שלו. להמשיך?', { danger: true, okText: 'כן, לסיים את הלקוח' }))) return;
     const v = await licReason('סיום לקוח');
     if (!v) return;
     await window.systemAPI.ownerNotice({ type: 'terminate', target: b.dataset.ownerTerminate, reason: v.reason });
   });
   each('data-owner-revoke', async (b) => {
-    if (!(await askConfirm('ביטול האישור מסיים את מערכת הבת ומפנה את המשבצת במכסה. להמשיך?'))) return;
+    if (!(await askConfirm('ביטול האישור מסיים את מערכת הבת ומפנה את המשבצת במכסה. להמשיך?', { danger: true, okText: 'כן, לבטל את האישור' }))) return;
     const v = await licReason('ביטול אישור מערכת בת');
     if (!v) return;
     await window.systemAPI.ownerRevoke({ childId: b.dataset.ownerRevoke, reason: v.reason });

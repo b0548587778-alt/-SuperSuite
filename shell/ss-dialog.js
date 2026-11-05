@@ -11,15 +11,16 @@
 
   const STYLE_ID = 'ss-dialog-style';
   const FIELD = {}; // ערך כפתור = התוכן של שדה הקלט
+  let seq = 0; // מזהים ייחודיים לכותרת ולהודעה (חלון בתוך חלון)
   // צבעים רק משפת העיצוב (tests/ss-dialog.test.js)
   const CSS = [
     '.ss-dlg-back{position:fixed;inset:0;z-index:2147483646;background:var(--ss-overlay);display:flex;align-items:center;justify-content:center;padding:16px}',
-    '.ss-dlg{direction:rtl;background:var(--ss-surface);color:var(--ss-text);border:1px solid var(--ss-border);border-radius:var(--ss-radius-lg);box-shadow:var(--ss-shadow-lg);width:min(440px,100%);padding:20px 22px;font:15px/1.5 var(--ss-font)}',
-    '.ss-dlg h2{margin:0 0 8px;font:700 18px var(--ss-font-title);color:var(--ss-text)}',
+    '.ss-dlg{direction:rtl;background:var(--ss-surface);color:var(--ss-text);border:1px solid var(--ss-border);border-radius:var(--ss-radius-lg);box-shadow:var(--ss-shadow-lg);width:min(440px,100%);max-height:100%;overflow:auto;padding:20px 22px;font:calc(var(--ss-fs-md) + 1px)/1.5 var(--ss-font)}',
+    '.ss-dlg h2{margin:0 0 8px;font:700 var(--ss-fs-lg) var(--ss-font-title);color:var(--ss-text)}',
     '.ss-dlg p{margin:0 0 14px;white-space:pre-line;color:var(--ss-text-2)}',
     '.ss-dlg input{width:100%;box-sizing:border-box;margin:0 0 14px;padding:9px 11px;font:inherit;color:var(--ss-text);background:var(--ss-surface-input,var(--ss-surface));border:1px solid var(--ss-border-strong);border-radius:var(--ss-radius-sm)}',
     '.ss-dlg .ss-dlg-row{display:flex;gap:8px;justify-content:flex-start;flex-wrap:wrap}',
-    '.ss-dlg button{font:600 14px var(--ss-font);padding:8px 18px;border-radius:var(--ss-radius-sm);border:1px solid var(--ss-border-strong);background:var(--ss-surface-2);color:var(--ss-text);cursor:pointer}',
+    '.ss-dlg button{font:600 var(--ss-fs-md) var(--ss-font);min-height:max(36px,var(--ss-target-min));padding:8px 18px;border-radius:var(--ss-radius-sm);border:1px solid var(--ss-border-strong);background:var(--ss-surface-2);color:var(--ss-text);cursor:pointer}',
     '.ss-dlg button.ss-ok{background:var(--ss-primary);border-color:var(--ss-primary);color:var(--ss-surface)}',
     '.ss-dlg button.ss-danger{background:var(--ss-danger);border-color:var(--ss-danger);color:var(--ss-surface)}'
   ].join('\n');
@@ -47,13 +48,16 @@
         box.setAttribute('aria-modal', 'true');
         if (title) {
           const h = doc.createElement('h2');
-          h.id = 'ss-dlg-title';
+          h.id = 'ss-dlg-title-' + (++seq);
           h.textContent = title;
-          box.setAttribute('aria-labelledby', 'ss-dlg-title');
+          box.setAttribute('aria-labelledby', h.id);
           box.appendChild(h);
         }
         const p = doc.createElement('p');
         p.textContent = String(message == null ? '' : message);
+        // ההודעה מוקראת יחד עם הכותרת כשהחלון נפתח (נגישות, סבב 4)
+        p.id = 'ss-dlg-msg-' + (++seq);
+        box.setAttribute('aria-describedby', p.id);
         box.appendChild(p);
         let field = null;
         if (input) {
@@ -89,6 +93,14 @@
         const onKey = e => {
           if (e.key === 'Escape') { e.preventDefault(); finish(cancelValue); }
           else if (e.key === 'Enter' && field && doc.activeElement === field) { e.preventDefault(); first && first.click(); }
+          // מלכודת מיקוד: Tab ו-Shift+Tab נשארים בתוך החלון (נגישות, סבב 4)
+          else if (e.key === 'Tab') {
+            const list = [...box.querySelectorAll('button, input')];
+            if (!list.length) return;
+            const i = list.indexOf(doc.activeElement);
+            if (e.shiftKey && i <= 0) { e.preventDefault(); list[list.length - 1].focus(); }
+            else if (!e.shiftKey && (i < 0 || i === list.length - 1)) { e.preventDefault(); list[0].focus(); }
+          }
         };
         doc.addEventListener('keydown', onKey, true);
         back.addEventListener('click', e => { if (e.target === back) finish(cancelValue); });

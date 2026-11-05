@@ -103,7 +103,8 @@ const rltyOrderSchema = {
     f('propertyId').options = [{ value: '', label: 'ללא נכס מסוים (תיאור בהמשך)' }, ...(o.properties || []).map(p => ({ value: p.id, label: p.title }))];
     f('transaction').options = rltyOpts(o.transactions, 'לבחירה');
     f('feeType').options = rltyOpts(o.feeTypes);
-    f('date').value = f('date').value || madvToday();
+    // בכל פתיחה מחדש — לא התאריך של הפתיחה הראשונה בהפעלה (סקירת קוד 2.11.2026); בעריכה ערך הרשומה גובר
+    f('date').value = madvToday();
   },
   fields: [
     { name: 'clientId', label: 'לקוח', type: 'select', required: true, options: [] },
@@ -132,7 +133,7 @@ const rltyTaxTableSchema = {
   prepare: async (schema) => {
     schema.fields.find(x => x.name === 'kind').options = rltyOpts(rltyData().taxKinds);
     const y = schema.fields.find(x => x.name === 'year');
-    y.value = y.value || new Date().getFullYear();
+    y.value = new Date().getFullYear();
   },
   fields: [
     { name: 'year', label: 'שנת תוקף', type: 'number', required: true },
@@ -142,7 +143,8 @@ const rltyTaxTableSchema = {
     { name: 'source', label: 'מקור (מאיפה הועתקו המדרגות)', type: 'text' }
   ],
   create: (d) => window.systemAPI.saveRealtyTaxTable(d),
-  update: (id, d) => window.systemAPI.saveRealtyTaxTable(d)
+  // המזהה נשלח — עריכה משנה את הטבלה הזו, לא טבלה אחרת עם אותה שנה וסוג
+  update: (id, d) => window.systemAPI.saveRealtyTaxTable({ ...d, id })
 };
 
 // ---------- תזרים פרויקט ליזם ----------
@@ -156,7 +158,7 @@ const rltyProjectSchema = {
   title: 'פרויקט יזמי חדש',
   prepare: async (schema) => {
     const m = schema.fields.find(x => x.name === 'startMonth');
-    m.value = m.value || madvToday().slice(0, 7);
+    m.value = madvToday().slice(0, 7);
   },
   fields: [
     { name: 'name', label: 'שם הפרויקט', type: 'text', required: true },
@@ -188,7 +190,7 @@ formSchemas['realty'] = {
 
 function rltyTabsHtml(o) {
   const count = { properties: (o.properties || []).length, clients: (o.clients || []).length, deals: (o.deals || []).length, orders: (o.orders || []).length, invest: (o.analyses || []).length, project: (o.projects || []).length };
-  return `<div class="lab-tabs" role="tablist">${RLTY_TABS.map(([id, label]) => `<button class="${rltyUi.tab === id ? '' : 'secondary'}" data-rlty-tab="${id}" aria-pressed="${rltyUi.tab === id}">${label} (${count[id]})</button>`).join('')}</div>`;
+  return `<div class="lab-tabs" role="group" aria-label="בחירת רשימה">${RLTY_TABS.map(([id, label]) => `<button class="${rltyUi.tab === id ? '' : 'secondary'}" data-rlty-tab="${id}" aria-pressed="${rltyUi.tab === id}">${label} (${count[id]})</button>`).join('')}</div>`;
 }
 
 function rltyMatchesHtml() {
@@ -368,6 +370,7 @@ function rltyAskPayment(deal) {
     method.innerHTML = Object.entries(o.payMethods || {}).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
     const note = field('הערה (לא חובה)', mk('text', ''));
     const err = document.createElement('div');
+    err.setAttribute('role', 'alert'); // שגיאה מוקראת מיד (r4 נגישות)
     err.style.color = 'var(--ss-danger)';
     const actions = document.createElement('div');
     actions.className = 'modal-actions';
@@ -381,12 +384,23 @@ function rltyAskPayment(deal) {
     cancel.addEventListener('click', () => finish(null));
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (!date.value) { err.textContent = 'יש לבחור תאריך'; return; }
-      if (!(Number(amount.value) > 0)) { err.textContent = 'יש להזין סכום חיובי'; amount.focus(); return; }
+      if (!date.value) { dialogFieldError(err, date, 'חסר תאריך התשלום. בחרו תאריך ונסו שוב.'); return; }
+      if (!(Number(amount.value) > 0)) { dialogFieldError(err, amount, 'הסכום חסר או אינו נכון. כתבו סכום גדול מאפס (למשל 1500).'); return; }
       finish({ side: side.value, date: date.value, amount: Number(amount.value), method: method.value, note: note.value.trim() });
     });
     amount.focus();
   });
+}
+
+// שדה הלקוח בחלון הפקת חשבונית העמלה (גם בייעוץ המשכנתאות)
+const RLTY_TAX_ID_LABEL = 'מספר עוסק / ת"ז של הלקוח (לבדוק)';
+// ת"ז / ע.מ מכרטיס הלקוח של הצד ששילם (קונה / מוכר) — כמו commissionPaymentForInvoice בשרת; אין — ריק
+function rltyInvoiceTaxId(o, deal, paymentId) {
+  const p = ((deal && deal.commissionPayments) || []).find(x => x.id === paymentId);
+  if (!p) return '';
+  const clientId = p.side === 'buyer' ? deal.buyerClientId : deal.sellerClientId;
+  const c = ((o && o.clients) || []).find(x => x.id === clientId);
+  return c && c.idNumber ? String(c.idNumber) : '';
 }
 
 function attachRealtyCommissionHandlers() {
@@ -417,8 +431,11 @@ function attachRealtyCommissionHandlers() {
     catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
   }));
   document.querySelectorAll('[data-rlty-invoice]').forEach(b => b.addEventListener('click', async () => {
-    if (!(await askConfirm('להפיק חשבונית מס/קבלה על התשלום הזה? החשבונית תירשם בהנהלת החשבונות ותקבל מספר.'))) return;
-    try { const r = await window.systemAPI.issueRealtyCommissionInvoice(deal.id, b.dataset.rltyInvoice, { confirmed: true }); showToast(`הופקה חשבונית מספר ${r.number}`); await switchView('realty'); }
+    // מספר עוסק / ת"ז של הלקוח — ממולא מכרטיס הלקוח של הצד ששילם, וניתן לעריכה ולמחיקה (החלטת הבעלים 5.11.2026)
+    const v = await askDocFields('להפיק חשבונית על התשלום? היא תירשם בהנהלת החשבונות ותקבל מספר', [
+      { name: 'customerTaxId', label: RLTY_TAX_ID_LABEL, value: rltyInvoiceTaxId(o, deal, b.dataset.rltyInvoice) }], 'הפקת החשבונית');
+    if (!v) return;
+    try { const r = await window.systemAPI.issueRealtyCommissionInvoice(deal.id, b.dataset.rltyInvoice, { confirmed: true, customerTaxId: v.customerTaxId || '' }); showToast(`הופקה חשבונית מספר ${r.number}`); await switchView('realty'); }
     catch (error) { showError('שגיאה בהפקת החשבונית: ' + errMsg(error)); }
   }));
   document.querySelectorAll('[data-rlty-order-pdf]').forEach(b => b.addEventListener('click', async () => {
@@ -625,7 +642,7 @@ function rltyBalanceChart(rows) {
   const width = 20 + rows.length * (w + gap);
   return `<svg class="biz-chart rlty-chart" viewBox="0 0 ${width} ${total + 20}" role="img" aria-label="יתרה מצטברת לפי חודש">
     <line x1="5" y1="${top + 10}" x2="${width - 5}" y2="${top + 10}" class="biz-axis"/>${bars}</svg>
-    <div class="biz-legend"><span class="biz-dot biz-in"></span>יתרה חיובית <span class="biz-dot rlty-neg"></span>גירעון</div>`;
+    <div class="biz-legend"><span class="biz-dot biz-in" aria-hidden="true"></span>יתרה חיובית <span class="biz-dot rlty-neg" aria-hidden="true"></span>גירעון</div>`;
 }
 
 function rltyProjectResultHtml(r) {

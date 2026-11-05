@@ -32,6 +32,8 @@ const TEXT_PAIRS = [
   ['dark-text', 'dark-bg'], ['dark-muted', 'dark-bg'], ['dark-muted', 'dark-surface'], ['dark-faint', 'dark-bg'], ['dark-gold', 'dark-bg'],
   // עוזר ה-AI (תיבת השאלה, הסיור) וכותרת מסך הבית
   ['violet', 'surface'], ['violet', 'violet-soft'], ['violet-ink', 'violet-soft'], ['ink-2', 'hero-end'],
+  // נגישות, סבב 4: "חזרה למסך הבית" (נייבי על זהב), משימות מצב פשוט (tests/r4-a11y-shell.test.js — גם בכהה ובניגודיות גבוהה)
+  ['navy-1', 'gold-bright'], ['navy-1', 'gold-pale'], ['text', 'primary-soft'],
 ];
 
 test('ניגודיות: כל זוג טקסט ורקע בשפת העיצוב — 4.5 לפחות', () => {

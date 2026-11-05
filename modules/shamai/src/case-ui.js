@@ -33,15 +33,11 @@ const caseStatusName = (c) => (c.status === 'final' ? 'סופי' : 'טיוטה')
 
 function currentCase() {
   if (CASE_UI.pending && CASE_UI.pending.id === CASE_UI.editId) return CASE_UI.pending;
-  return CASE_UI.editId ? loadCases().find(c => c.id === CASE_UI.editId) || null : null;
+  return CASE_UI.editId ? findCase(CASE_UI.editId) : null;
 }
 
-function storeCase(c) {
-  const list = loadCases();
-  const i = list.findIndex(x => x.id === c.id);
-  if (i >= 0) list[i] = c; else list.unshift(c);
-  return saveCases(list);
-}
+// מפתח לכל תיק (src/casefile.js → saveCase): שמירה של תיק אחד לא כותבת מחדש את כל התיקים
+function storeCase(c) { return saveCase(c); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  רשימת התיקים והלקוחות
@@ -109,24 +105,26 @@ function openNewCase(client) {
 }
 
 async function deleteCase(id) {
-  const c = loadCases().find(x => x.id === id);
+  const c = findCase(id);
   if (!c) return;
   const msg = c.status === 'final'
     ? `תיק ${caseReportNo(c)} הוא דוח סופי שהופק ללקוח. למחוק אותו ואת התמונות שלו? אי אפשר לבטל.`
     : `למחוק את הטיוטה של תיק ${caseReportNo(c)} ואת התמונות שלה?`;
   if (!(await ssDialog.confirm(msg, { danger: true, okText: 'מחיקה' }))) return;
   // קודם התיק ואחר כך התמונות: מחיקה שנדחתה לא משאירה תיק בלי התמונות שלו
-  if (!saveCases(loadCases().filter(x => x.id !== id))) return;
-  deleteCasePhotos((c.items || []).flatMap(i => i.photos || []));
+  if (!removeCase(id)) return;
+  deleteCasePhotos([...new Set([...(c.items || []).flatMap(i => i.photos || []), ...caseHistoryPhotoIds(c)])]);
   toast('התיק נמחק', 'success');
   renderCasesView();
 }
 
+// דוח סופי — עם פרטי השמאי מזמן ההנפקה (frozen), לא הנוכחיים; תיק ישן בלי עותק — הנוכחיים
 function showCaseReport(c) {
   if (!c) return;
   const photos = {};
   for (const it of c.items || []) for (const id of it.photos || []) photos[id] = loadCasePhoto(id);
-  openPrintPreview(buildCaseReportHtml(c, state.prices, loadAppraiser(), loadAppraiserEn(), photos));
+  const fz = c.status === 'final' && c.frozen ? c.frozen : {};
+  openPrintPreview(buildCaseReportHtml(c, state.prices, fz.appraiser || loadAppraiser(), fz.appraiserEn || loadAppraiserEn(), photos));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -236,7 +234,7 @@ function renderCaseEditor() {
       <span class="ss-push ss-muted" id="cs-saved"></span>
     </div>
     ${final ? `<div class="ss-hint">התיק נעול: דוח סופי הופק ב-${shortDay(c.reportDate)}. כדי לשנות — "גרסה מתוקנת" (מספר הדוח יקבל סיומת, והגרסה הקודמת נשמרת בהיסטוריה).</div>` : ''}
-    ${(c.history || []).length ? `<div class="ss-hint">גרסאות קודמות: ${c.history.map(h => `${escapeHtml(String(c.no) + (h.rev ? '-' + h.rev : ''))} (${shortDay(h.reportDate)}, ${caseMoney(h.totalAg)})`).join(' · ')}</div>` : ''}
+    ${(c.history || []).length ? `<div class="ss-hint">גרסאות קודמות: ${c.history.map(h => `${escapeHtml(String(c.no) + (h.rev ? '-' + h.rev : ''))} (${shortDay(h.reportDate)}, ${caseMoney(h.totalAg)})${h.snapshot ? ` <button class="ss-btn-ghost ss-btn-sm" data-hist-rev="${Number(h.rev) || 0}" aria-label="הדפסה חוזרת של ${caseVal(String(c.no) + (h.rev ? '-' + h.rev : ''))}">🖨</button>` : ''}`).join(' · ')}</div>` : ''}
     <fieldset class="ss-fieldset ss-stack" ${final ? 'disabled' : ''}>
       <legend class="ss-section-title">הלקוח</legend>
       <div class="ss-form-grid">${caseField('שם מלא', 'client.name', c.client.name, 'maxlength="80"')}${caseField('מספר זהות (רשות)', 'client.idNumber', c.client.idNumber, 'inputmode="numeric" maxlength="9"')}</div>
@@ -281,9 +279,11 @@ function caseSummaryHtml(c, t) {
 }
 
 // מחירים ישנים או שלא עודכנו מעולם — מאלה שהתיק משתמש בהם
+// וגם מחירים מתאריך רחוק מהמועד הקובע (casePriceDateWarnings)
 function priceWarningsFor(c) {
   return casePriceKeys(c).map(k => ({ k, f: priceFreshness(state.prices, k) })).filter(x => x.f.state !== 'fresh')
-    .map(x => `${PRICE_FIELDS.find(f => f.k === x.k)?.name || x.k}: ${priceAgeLabel(x.f)}`);
+    .map(x => `${PRICE_FIELDS.find(f => f.k === x.k)?.name || x.k}: ${priceAgeLabel(x.f)}`)
+    .concat(casePriceDateWarnings(c, state.prices));
 }
 
 // נתיב "a.b.c" מהמסך. מפתח של אב-טיפוס (__proto__ / constructor / prototype) נדחה — בלי זיהום אובייקטים
@@ -325,6 +325,7 @@ function attachCaseEditor(c) {
     renderCasesView();
   };
   $('#cs-preview').onclick = () => showCaseReport(currentCase());
+  $$('#cs-root [data-hist-rev]').forEach(b => b.onclick = () => showCaseReport(caseHistoryVersion(currentCase() || c, Number(b.dataset.histRev))));
   $('#cs-finalize') && ($('#cs-finalize').onclick = () => finalizeCurrentCase());
   $('#cs-reopen') && ($('#cs-reopen').onclick = async () => {
     if (!(await ssDialog.confirm(`לפתוח גרסה מתוקנת של תיק ${caseReportNo(c)}? הדוח שכבר הופק נשמר בהיסטוריה, והדוח החדש יקבל את המספר ${c.no}-${(c.rev || 0) + 1}.`, { okText: 'גרסה מתוקנת' }))) return;
@@ -395,7 +396,9 @@ function attachCaseEditor(c) {
     if (!Array.isArray(arr)) return;
     if (parts.length === 1) {
       if (!(await ssDialog.confirm(`להסיר את פריט ${idx + 1} ואת התמונות שלו?`, { danger: true, okText: 'הסרה' }))) return;
-      deleteCasePhotos(arr[idx].photos);
+      // תמונה שגרסה שהונפקה מפנה אליה — נשארת להדפסה החוזרת
+      const keep = caseHistoryPhotoIds(cur);
+      deleteCasePhotos((arr[idx].photos || []).filter(id => !keep.has(id)));
     }
     arr.splice(idx, 1);
     if (parts.length === 1 && !arr.length) arr.push(newCaseItem());
@@ -405,7 +408,7 @@ function attachCaseEditor(c) {
     const cur = currentCase();
     const [i, k] = b.dataset.rmPhoto.split('.').map(Number);
     const [id] = cur.items[i].photos.splice(k, 1);
-    deleteCasePhotos([id]);
+    if (!caseHistoryPhotoIds(cur).has(id)) deleteCasePhotos([id]);
     caseAutosave(cur, true);
   });
   const fileInput = $('#cs-photo-file');
@@ -466,10 +469,10 @@ async function finalizeCurrentCase() {
   const warn = priceWarningsFor(c);
   const total = caseTotals(c, state.prices).totalAg;
   const msg = `לנעול את תיק ${caseReportNo(c)} ולהפיק דוח סופי על סך ${caseMoney(total)}?\nאחרי הנעילה המחירים והערכים קבועים, ושינוי יוצר גרסה מתוקנת.`
-    + (warn.length ? `\n\nלתשומת לב — מחירים לא עדכניים:\n${warn.join('\n')}` : '');
+    + (warn.length ? `\n\nלתשומת לב — מחירים לא עדכניים או מתאריך אחר מהמועד הקובע:\n${warn.join('\n')}` : '');
   if (!(await ssDialog.confirm(msg, { okText: 'נעילה והפקה' }))) return;
   try {
-    const f = finalizeCase(c, state.prices);
+    const f = finalizeCase(c, state.prices, localToday(), { appraiser: loadAppraiser(), appraiserEn: loadAppraiserEn() });
     // נעילה שלא נשמרה — התיק נשאר טיוטה, ואין "דוח סופי" להצגה (ההודעה — מ-Storage.save)
     if (!storeCase(f)) return;
     toast(`דוח ${caseReportNo(f)} הופק ✓`, 'success');

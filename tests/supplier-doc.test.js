@@ -119,7 +119,7 @@ test('טופס התרומה והוראת הקבע: הסבר ש"שכר לימוד
   assert.match(npoUi, /const TUITION_HINT = '[^']*שכר לימוד[^']*אינם תרומה/);
   assert.equal((npoUi.match(/hint: TUITION_HINT/g) || []).length, 2);
   const forms = fs.readFileSync(path.join(__dirname, '../modules/econ/ui/forms.js'), 'utf8');
-  assert.match(forms, /f\.hint \? `[^`]*<small class="ss-hint">\$\{esc\(f\.hint\)\}<\/small>/, 'ההסבר עובר esc');
+  assert.match(forms, /f\.hint \? `[^`]*<small class="ss-hint"[^>]*>\$\{esc\(f\.hint\)\}<\/small>/, 'ההסבר עובר esc');
   const shamai = fs.readFileSync(path.join(__dirname, '../modules/shamai/src/analytics.js'), 'utf8');
   assert.match(shamai, /שווי מלאי \(הערכת שוק, לא עלות\)/);
 });

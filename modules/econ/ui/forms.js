@@ -121,7 +121,10 @@ function attachViewHandlers(viewName) {
   if (viewName === 'acct-invoices') attachInvoiceViewHandlers();
   if (viewName === 'acct-bank') attachBankHandlers();
   if (viewName === 'biz-reports') attachBizHandlers();
-  if (viewName === 'dashboard') attachBizDashHandlers();
+  if (viewName === 'dashboard') { attachBizDashHandlers(); attachAgendaHandlers(); }
+  // "צעד אחר צעד" בראש המסך — לפי ההרשאה מיד, ולפי הרישיון כשנטען
+  updateWizardBtn(viewName);
+  if (VIEW_TASKS[viewName] && state.wizLicense === undefined) ensureWizLicense().then(() => { if (state.currentView === viewName) updateWizardBtn(viewName); });
   if (viewName === 'npo') attachNpoHandlers();
   if (viewName === 'gemach') attachGemachHandlers();
   if (viewName === 'chesed') attachChesedHandlers();
@@ -149,8 +152,14 @@ function attachViewHandlers(viewName) {
   }
 }
 
-// Handle add action — פותח את הטופס המתאים לתצוגה
-async function handleAdd() {
+// Handle add action — פותח את הטופס המתאים לתצוגה.
+// מצב פשוט: במסכים שיש להם אשף — האשף (שאלה אחת בכל פעם) במקום הטופס הארוך; opts.form — הטופס המלא בכל זאת
+async function handleAdd(opts = {}) {
+  const task = (VIEW_TASKS[state.currentView] || [])[0];
+  if (!opts.form && task && isSimpleMode() && wizardAllowedSync(task)) {
+    await econStartTask(task);
+    return;
+  }
   const schema = formSchemas[state.currentView];
   if (!schema) {
     showToast('בתצוגה זו אין טופס הוספה');
@@ -190,85 +199,137 @@ function attachDynamicFields(schema) {
       const el = document.getElementById('f_' + f.name);
       if (el && f.name !== kindName) prev[f.name] = el.value;
     }
-    fieldsWrap.innerHTML = buildFormHtml(activeFields(schema).filter(f => f.name !== kindName));
+    fieldsWrap.innerHTML = buildFormHtml(activeFields(schema).filter(f => f.name !== kindName), true);
     // שחזור ערכים תואמים
     for (const [name, value] of Object.entries(prev)) {
       const el = document.getElementById('f_' + name);
       if (el) el.value = value;
+    }
+    // מצב פשוט: כפתור "עוד אפשרויות" לשדות החדשים, והצגה שכבר נפתחה נשארת פתוחה
+    const form = elements.modalForm;
+    if (form && typeof form.querySelector === 'function') {
+      const t = form.querySelector('.ss-more-toggle');
+      if (!t) setupAdvancedToggle(form);
+      else if (typeof t.getAttribute === 'function' && t.getAttribute('aria-expanded') === 'true') revealAdvanced(form, true);
     }
   };
   kindEl.addEventListener('change', refresh);
   refresh();
 }
 
-// בניית HTML של טופס לפי סכימה
-function buildFormHtml(fields) {
+// בניית HTML של טופס לפי סכימה. inner — רק השדות (מילוי מחדש של #formFields בטופס דינמי, בלי עטיפה כפולה)
+function buildFormHtml(fields, inner = false) {
   // טופס דינמי: שדה הסוג נשאר בחוץ, שאר השדות נעטפים ב-wrapper שמתחלף
   const schema = currentSchema();
-  if (!schema || !schema.dynamic) return fields.map(renderField).join('');
+  const tiers = fieldTiers(fields);
+  const render = (f) => renderField(f, tiers.get(f));
+  if (inner || !schema || !schema.dynamic) return fields.map(render).join('');
 
   const kindName = schema.fields[0].name;
   const isKind = (f) => f.name === kindName;
-  const head = fields.filter(isKind).map(renderField).join('');
+  const head = fields.filter(isKind).map(render).join('');
   const rest = fields.filter(f => !isKind(f));
-  return head + `<div id="formFields">${rest.map(renderField).join('')}</div>`;
+  return head + `<div id="formFields">${rest.map(render).join('')}</div>`;
 }
 
-// רינדור שדה בודד
-function renderField(f) {
-  const req = f.required ? 'required' : '';
+// מצב פשוט (r4): אילו שדות מוסתרים מאחורי "עוד אפשרויות". שדה חובה תמיד גלוי;
+// f.essential — תמיד גלוי, f.advanced — תמיד מתקדם; אחרת ארבעת השדות הראשונים גלויים (החשובים מופיעים ראשונים)
+const SIMPLE_VISIBLE = 4;
+function fieldTiers(fields) {
+  const tiers = new Map();
+  let shown = 0;
+  for (const f of fields) {
+    const advanced = !f.required && !f.essential && (f.advanced || shown >= SIMPLE_VISIBLE);
+    tiers.set(f, advanced);
+    if (!advanced) shown++;
+  }
+  return tiers;
+}
+
+// רינדור שדה בודד — תווית מקושרת (for), "(חובה)" במילים, הסבר מקושר (aria-describedby),
+// מקום להודעת שגיאה ליד השדה, ו-data-ss-help כשיש הסבר מורחב (f.help)
+function renderField(f, advanced = false) {
+  const id = 'f_' + esc(f.name);
+  const req = f.required ? 'required aria-required="true"' : '';
+  const described = [f.hint ? `h_${esc(f.name)}` : '', f.help ? `x_${esc(f.name)}` : '', `e_${esc(f.name)}`].filter(Boolean).join(' ');
+  const aria = ` aria-describedby="${described}"`;
   let input;
   if (f.type === 'textarea') {
-    input = `<textarea id="f_${esc(f.name)}" name="${esc(f.name)}" rows="3" ${req}>${esc(f.value ?? '')}</textarea>`;
+    input = `<textarea id="${id}" name="${esc(f.name)}" rows="3" ${req}${aria}>${esc(f.value ?? '')}</textarea>`;
   } else if (f.type === 'select') {
     const opts = (f.options || [])
       .map(o => `<option value="${esc(o.value)}"${String(o.value) === String(f.value ?? '') ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
-    input = `<select id="f_${esc(f.name)}" name="${esc(f.name)}" ${req}>${opts}</select>`;
+    input = `<select id="${id}" name="${esc(f.name)}" ${req}${aria}>${opts}</select>`;
   } else {
     const val = f.value !== undefined && f.value !== null ? ` value="${esc(f.value)}"` : '';
-    input = `<input id="f_${esc(f.name)}" name="${esc(f.name)}" type="${esc(f.type)}"${val} ${req}>`;
+    const mode = f.type === 'number' ? ' inputmode="decimal" step="any"' : '';
+    input = `<input id="${id}" name="${esc(f.name)}" type="${esc(f.type)}"${val}${mode} ${req}${aria}>`;
   }
+  const cls = 'field' + (advanced ? ' ss-advanced' : '');
+  // f.help — הסבר מורחב: בועת "?" של המעטפת (data-ss-help על התווית) וגם טקסט לקורא המסך (x_<שם>)
+  const help = f.help ? ` data-ss-help="${esc(f.help)}" data-ss-help-linked="1"` : '';
+  const helpSr = f.help ? `<span class="sr-only" id="x_${esc(f.name)}">${esc(f.help)}</span>` : '';
   // f.hint — הסבר קצר מתחת לשדה (טקסט בלבד)
-  return `<label class="field">
-    <span>${esc(f.label)}${f.required ? ' *' : ''}</span>
-    ${input}${f.hint ? `\n    <small class="ss-hint">${esc(f.hint)}</small>` : ''}
-  </label>`;
+  return `<div class="${cls}">
+    <label for="${id}"${help}>${esc(f.label)}${f.required ? ' <span class="req">(חובה)</span>' : ''}</label>
+    ${input}${helpSr}${f.hint ? `\n    <small class="ss-hint" id="h_${esc(f.name)}">${esc(f.hint)}</small>` : ''}
+    <small class="field-error" id="e_${esc(f.name)}" hidden></small>
+  </div>`;
 }
 
-// איסוף ערכי הטופס — בטופס דינמי נאספים רק השדות הפעילים לסוג הנבחר
+// איסוף ערכי הטופס — בטופס דינמי נאספים רק השדות הפעילים לסוג הנבחר.
+// בעריכה (state.editingId) שדה ריק נשלח כ-'' = "נקה". בלי זה השירותים (שממזגים עם הרשומה השמורה)
+// השאירו את הערך הישן בשקט: בלעדיות "לא", ייעוד או ת"ז שנמחקו (סקירת קוד 2.11.2026)
 function collectFormData(fields) {
   const schema = currentSchema();
   const relevant = (schema && schema.dynamic) ? activeFields(schema) : fields;
+  const editing = !!state.editingId;
   const data = {};
   for (const f of relevant) {
     const el = document.getElementById('f_' + f.name);
     if (!el) continue;
+    // רשימה שהערך השמור אינו באפשרויות שלה (למשל יועץ אחר) — לא נשלחת, והשרת שומר את הקיים
+    if (editing && el.tagName === 'SELECT' && el.selectedIndex < 0) continue;
     let value = el.value.trim();
     if (f.required && !value) {
-      throw new Error(`השדה "${f.label}" הוא שדה חובה`);
+      throw fieldErr(f, `חסר: "${f.label}". זה שדה חובה — מלאו אותו ולחצו שוב "שמירה".`);
     }
     if (f.type === 'number' && value !== '') {
-      value = Number(value);
+      // פסיק עשרוני או מפריד אלפים שהוקלדו — מספר רגיל (1,500 / 12,5)
+      value = Number(normalizeNumberText(value));
       if (Number.isNaN(value)) {
-        throw new Error(`השדה "${f.label}" חייב להיות מספר`);
+        throw fieldErr(f, `ב"${f.label}" צריך לכתוב מספר בלבד (למשל 1500), בלי אותיות.`);
       }
     }
-    if (value !== '') data[f.name] = value;
+    if (value !== '' || editing) data[f.name] = value;
   }
   return data;
+}
+
+// שגיאה שקשורה לשדה מסוים — handleSubmit מציג אותה ליד השדה
+function fieldErr(f, message) {
+  const e = new Error(message);
+  e.field = f.name;
+  return e;
+}
+// "1,500" → "1500"; "12,5" → "12.5" (פסיק יחיד עם 1–2 ספרות אחריו = עשרוני)
+function normalizeNumberText(v) {
+  const s = String(v).replace(/[\s₪%]/g, '');
+  if (/^-?\d+,\d{1,2}$/.test(s)) return s.replace(',', '.');
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) return s.replace(/,/g, '');
+  return s;
 }
 
 // Handle user action
 async function handleUser() {
   try {
+    // החלפת משתמש = איפוס מלא של הממשק וחלון כניסה אחד (relogin), ואחרי הכניסה המסך נטען מחדש
+    // בשם המשתמש החדש — לא נשאר המסך של הקודם (סקירת קוד 2.11.2026)
     if (state.user) {
       await window.systemAPI.logout();
-      state.user = null;
       showToast('התנתקת מהמערכת');
-      await loginUser();
-    } else {
-      await loginUser();
     }
+    await relogin();
   } catch (error) {
     showError('שגיאה בניהול משתמש: ' + errMsg(error));
   }
@@ -312,7 +373,7 @@ async function handleRestore() {
       if (!file) return;
       try {
         const text = await file.text();
-        if (!(await askConfirm('השחזור יחליף את כל הנתונים הכלכליים הקיימים. להמשיך?'))) return;
+        if (!(await askConfirm('השחזור יחליף את כל הנתונים הכלכליים הקיימים. להמשיך?', { danger: true, okText: 'כן, לשחזר ולהחליף' }))) return;
         let run;
         if (text.startsWith('SSBK1:')) {
           const f = await askFields('שחזור מגיבוי מוצפן', [{ name: 'pass', label: 'סיסמת הגיבוי', type: 'password' }], 'שחזר');
@@ -342,7 +403,12 @@ async function handleRestore() {
 
 // Handle form submission — יוצר או מעדכן רשומה בפועל
 async function handleSubmit() {
+  // שליחה אחת בכל פעם: הכפתור המושבת לא חוסם את Ctrl+Enter, ושליחה כפולה הפיקה שתי חשבוניות מס (סקירת קוד 2.11.2026)
+  if (state.submitting) return;
   const schema = currentSchema();
+  // הטופס הראשי של המסך (לא טופס משני) — רק לו יש "טעיתי, לבטל" (FORM_UNDO ב-ui/wizards.js)
+  const mainForm = !state.subForm;
+  const view = state.currentView;
   if (!schema) {
     closeModal();
     return;
@@ -352,18 +418,22 @@ async function handleSubmit() {
   try {
     data = collectFormData(schema.fields);
   } catch (error) {
+    // ליד השדה (ומוקרא), בלי טוסט שנעלם — המשתמש רואה בדיוק מה לתקן
+    if (error && error.field) { showFormError(errMsg(error), error.field); return; }
     showError(errMsg(error));
     return;
   }
 
   try {
+    state.submitting = true;
     elements.submitBtn.disabled = true;
     if (state.editingId && schema.update) {
       await schema.update(state.editingId, data);
       showToast('הרשומה עודכנה בהצלחה');
     } else {
-      await schema.create(data);
-      showToast('הרשומה נשמרה בהצלחה');
+      const created = await schema.create(data);
+      const undo = mainForm ? formUndoSpec(view, created) : null;
+      if (undo) showUndoToast('הרשומה נשמרה בהצלחה ✓', undo); else showToast('הרשומה נשמרה בהצלחה');
     }
     state.editingId = null;
     closeModal();
@@ -371,6 +441,7 @@ async function handleSubmit() {
   } catch (error) {
     showError('שגיאה בשמירה: ' + errMsg(error));
   } finally {
+    state.submitting = false;
     elements.submitBtn.disabled = false;
   }
 }

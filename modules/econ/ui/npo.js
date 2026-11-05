@@ -31,11 +31,13 @@ formSchemas['npo'] = {
   fields: [
     { name: 'date', label: 'תאריך התרומה', type: 'date', required: true },
     { name: 'donorName', label: 'שם התורם', type: 'text', required: true },
-    { name: 'donorType', label: 'סוג התורם (לדיווח ל"תרומות ישראל")', type: 'select', options: opts(NPO_DONOR_TYPES) },
-    { name: 'donorId', label: 'ת.ז / ח.פ של התורם (לתושב ישראל)', type: 'text' },
-    { name: 'amount', label: 'סכום (₪) — בתרומה במטבע זר יחושב לפי השער', type: 'number' },
+    { name: 'donorType', label: 'סוג התורם (לדיווח ל"תרומות ישראל")', type: 'select', options: opts(NPO_DONOR_TYPES), advanced: true,
+      help: 'ברוב המקרים — תושב ישראל, ואין צורך לשנות. תורם בעילום שם או תושב חוץ — רק כשזה באמת המצב.' },
+    { name: 'donorId', label: 'ת.ז / ח.פ של התורם (לתושב ישראל)', type: 'text',
+      help: 'מספר הזהות של התורם (9 ספרות). בזכותו התורם מקבל זיכוי ממס על התרומה.' },
+    { name: 'amount', label: 'סכום (₪) — בתרומה במטבע זר יחושב לפי השער', type: 'number', essential: true },
     ...CURRENCY_FIELDS,
-    { name: 'method', label: 'אמצעי תשלום', type: 'select', options: opts(NPO_METHODS) },
+    { name: 'method', label: 'אמצעי תשלום', type: 'select', options: opts(NPO_METHODS), essential: true },
     { name: 'fundId', label: 'קרן', type: 'select', options: [] },
     { name: 'campaignId', label: 'קמפיין', type: 'select', options: [] },
     { name: 'ambassadorId', label: 'שגריר בקמפיין', type: 'select', options: [] },
@@ -55,6 +57,7 @@ const npoSettingsSchema = {
     { name: 'address', label: 'כתובת', type: 'text' },
     { name: 'phone', label: 'טלפון', type: 'tel' },
     { name: 'sec46Number', label: 'מספר אישור סעיף 46', type: 'text' },
+    { name: 'sec46ValidFrom', label: 'אישור סעיף 46 בתוקף מתאריך (לא חובה)', type: 'date' },
     { name: 'sec46ValidUntil', label: 'תוקף אישור סעיף 46', type: 'date' },
     { name: 'vatStatus', label: 'מעמד מע"מ', type: 'select', options: [
       { value: 'exempt', label: 'עמותה פטורה ממע"מ (ברירת מחדל)' },
@@ -295,7 +298,7 @@ function renderNpoStanding(st) {
       <div class="kpi${st.missedCount ? ' neg' : ''}"><small>חודשים שלא סומנו</small><strong>${Number(st.missedCount) || 0}</strong></div>
       <div class="kpi${st.atRisk ? ' neg' : ''}"><small>נכשלו פעמיים ברצף ומעלה</small><strong>${Number(st.atRisk) || 0}</strong></div>
     </div>
-    ${rows.length === 0 ? renderEmpty('אין הוראות קבע עדיין') : `<div class="acct-scroll"><table class="acct-table">
+    ${rows.length === 0 ? renderEmpty('אין הוראות קבע עדיין — לחצו "＋ הוראת קבע" כדי לרשום תורם שתורם כל חודש') : `<div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>תורם</th><th>סכום</th><th>יום</th><th>תקופה</th><th>החודש</th><th>פתוחים</th><th></th></tr></thead>
       <tbody>${rows.map(r => `<tr class="${r.ended ? 'muted' : ''}">
         <td>${esc(r.donorName)}${r.failures >= 2 ? ` <small class="bad">· ${r.failures} כישלונות ברצף</small>` : ''}${r.bankMasked ? ` <small class="muted">· 🏦 ${esc(r.bankMasked)}</small>` : ''}${r.masavStopped ? ` <small class="bad">· מס"ב נעצר: ${esc(r.masavStopped)}</small>` : ''}</td>
@@ -530,7 +533,7 @@ async function importNpoDonations() {
             <thead><tr>${pv.headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
             <tbody>${pv.sample.map(r => `<tr>${pv.headers.map((h, i) => `<td>${esc(r[i] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody>
           </table></div>
-          <div class="npo-import-err" style="color:var(--ss-danger);font-size:.9rem"></div>
+          <div class="npo-import-err" role="alert" style="color:var(--ss-danger);font-size:.9rem"></div>
           <div class="modal-actions"><button type="button" class="secondary" data-act="cancel">ביטול</button><button type="submit" class="primary">ייבוא</button></div>
         </form>`;
       const form = card.querySelector('form');
@@ -868,6 +871,8 @@ async function masavBankForm(title, current, save) {
   if (!v) return false;
   const empty = !v.bank && !v.branch && !v.account;
   if (empty && !current) return false;
+  // הטופס נפתח ריק: "שמירה" בלי שינוי מחקה בשקט את החשבון השמור (סקירת קוד 2.11.2026) — רק באישור מפורש
+  if (empty && !(await askConfirm(`להסיר את החשבון השמור (${current})? ההוראה לא תיכלל בקובץ החיוב הבא.`))) return false;
   await save(empty ? null : v);
   showToast(empty ? 'פרטי החשבון הוסרו' : 'פרטי החשבון נשמרו');
   return true;

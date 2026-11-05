@@ -492,7 +492,8 @@ function approvalToTracks(offer, principalAg) {
   const amounts = splitAg(principalAg, shares);
   return list.map((t, i) => {
     const track = { id: `${offer.id}:${i}`, type: t.type, repayment: t.repayment || 'SPITZER', principal: fromAg(amounts[i]), termMonths: t.termMonths };
-    for (const k of ['annualRate', 'spread', 'resetEveryMonths', 'anchorKey', 'isCpiLinked']) if (t[k] !== undefined && t[k] !== '') track[k] = t[k];
+    // סקירת קוד 2.11.2026: גם הגרייס — בלעדיו ההשוואה הציגה החזר ועלות של מסלול בלי גרייס
+    for (const k of ['annualRate', 'spread', 'resetEveryMonths', 'anchorKey', 'isCpiLinked', 'grace']) if (t[k] !== undefined && t[k] !== '' && t[k] !== null) track[k] = t[k];
     return track;
   });
 }

@@ -28,4 +28,13 @@ function dayOr(v, fallback = localDay) {
   return v;
 }
 
-module.exports = { isDay, localDay, dayOr, BAD_DAY };
+// היום המקומי של חותמת זמן (createdAt / updatedAt ב-UTC). סקירת קוד 2.11.2026: slice(0, 10) של חותמת UTC
+// הציג בין חצות ל-03:00 את אתמול. תאריך יום (בלי שעה) — כמו שהוא; ערך לא מזוהה — 10 התווים הראשונים
+function stampDay(v) {
+  const s = String(v ?? '');
+  if (!s || DAY_RE.test(s)) return s;
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? localDay(t) : s.slice(0, 10);
+}
+
+module.exports = { isDay, localDay, dayOr, stampDay, BAD_DAY };

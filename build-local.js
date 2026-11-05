@@ -113,6 +113,8 @@ async function main() {
   if (exists(electronPkg)) ok('electron מותקן'); else { bad('electron חסר ב-node_modules'); missing++; }
   if (exists(builderPkg)) ok('electron-builder מותקן'); else { bad('electron-builder חסר ב-node_modules'); missing++; }
   if (exists(electronExe)) ok('electron.exe קיים ב-node_modules/electron/dist');
+  // מ-Electron 42 אין הורדה ב-postinstall — הפריסה ב-node node_modules/electron/install.js (גם מהמטמון המקומי)
+  else info('electron.exe עוד לא נפרס (Electron 42 ומעלה): node node_modules/electron/install.js — לא נדרש לבנייה עם ארכיון zip');
 
   // הנתון הקריטי: האם יש ארכיון Electron מקומי. זה מה שמונע את ההורדה בזמן האריזה.
   const version = electronVersion();

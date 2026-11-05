@@ -2416,3 +2416,9 @@ select {
 [data-theme="light"] .status-pill.watching { background: var(--ss-info-soft); color: var(--ss-info-ink); }
 [data-theme="light"] .status-pill.bought { background: var(--ss-warning-soft); color: var(--ss-warning-ink); }
 [data-theme="light"] .status-pill.sold { background: var(--ss-success-soft); color: var(--ss-success-ink); }
+
+/* מסך צר / הגדלה (נגישות, סבב 4): הכותרת והמדדים נשברים לשורה נוספת — בלי גלילה לרוחב */
+@media (max-width: 480px) {
+  .hdr { flex-wrap: wrap; gap: 8px; }
+  .hdr-stats { flex-wrap: wrap; justify-content: flex-start; }
+}

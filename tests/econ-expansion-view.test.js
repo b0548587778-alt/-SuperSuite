@@ -98,7 +98,7 @@ test('עמותה: נתונים חסרים או פגומים לא מפילים א
   for (const npo of [null, {}, { settings: null, donations: 'x', fundSummary: { funds: null } }]) {
     const h = await makeHarness({ npo });
     await goTo(h, 'npo');
-    assert.doesNotMatch(h.elements.view.innerHTML, /^<div class="loading">/, 'התצוגה רונדרה');
+    assert.doesNotMatch(h.elements.view.innerHTML, /^<div class="loading"/, 'התצוגה רונדרה');
     assert.equal(h.elements.addBtn.disabled, false);
   }
 });

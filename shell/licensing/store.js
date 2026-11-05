@@ -159,7 +159,17 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     const signers = p.issuer === S.ROOT ? rootKeys : (ctx.keys.has(p.issuer) ? [ctx.keys.get(p.issuer)] : []);
     return signers.some(k => L.verifyObject(p, n.sig, k));
   }
-  const save = (d, opts) => { storage.write(JSON.stringify(d)); cached = null; syncGuard(d, opts); };
+  // השומר נכתב ראשון (סקירת קוד 2.11.2026): license-key.bin לקריאה בלבד ← השמירה נכשלת וההודעה לא נקלטת,
+  // ולא נשארת רק בקובץ הגלוי (שם מחיקה שלה הייתה מחזירה "פעיל"). כשל בכתיבת הקובץ — השומר חוזר לקודם
+  const save = (d, opts) => {
+    const prevSecret = secret.read();
+    syncGuard(d, opts);
+    try { storage.write(JSON.stringify(d)); } catch (e) {
+      if (prevSecret != null) { try { secret.write(prevSecret); } catch { /* נשאר השומר החדש — מחמיר, לא מקל */ } }
+      throw e;
+    }
+    cached = null;
+  };
 
   function nodeKey(create) {
     const sec = readSecret();
@@ -589,6 +599,11 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     const d = load();
     return d && Array.isArray(d.chain) && d.chain.length ? d.chain[d.chain.length - 1].payload : null;
   }
+  // כל ה-payloads בשרשרת (מהשורש לעלה) — לתנאי "רישיון שנתי" של מערכת בת (activation.js)
+  function chainPayloads() {
+    const d = load();
+    return d && Array.isArray(d.chain) ? d.chain.map(l => l && l.payload) : [];
+  }
   // הזמן נשמר רק קדימה — אי אפשר לחדש כניסה ישנה בהחזרת שעון
   function markGoogleSignIn(at = clock()) {
     try {
@@ -602,7 +617,7 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
   // סימון מגיבוי ששוחזר — רק מחמיר: תחילת ניסיון מוקדמת יותר, "הותקן רישיון". גיבוי ישן לא מאריך דבר
   const importMark = (m) => noteMark(m);
 
-  return { current, invalidate() { cached = null; }, leafPayload, lastSyncTime, syncProof: () => syncProof(), markGoogleSignIn, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
+  return { current, invalidate() { cached = null; }, leafPayload, chainPayloads, lastSyncTime, syncProof: () => syncProof(), markGoogleSignIn, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
     syncKey, syncInfo, noticesForChild, getRemoteSettings, setRemoteSettings, setMark, importMark, mark: () => ({ ...mark }) };
 }
 

@@ -23,7 +23,7 @@ function renderPeople(o) {
     </div>
     <div class="card acct-wide">
       <h3>${Number(o.total)} אנשים${o.truncated ? ` <small class="muted">(מוצגים ${o.rows.length} הראשונים — צמצם את החיפוש)</small>` : ''}</h3>
-      ${o.rows.length === 0 ? renderEmpty(q ? 'לא נמצאו תוצאות' : 'אין עדיין אנשים במערכת') : `<div class="acct-scroll"><table class="acct-table">
+      ${o.rows.length === 0 ? renderEmpty(q ? 'לא נמצאו תוצאות — בדקו את האיות, או חפשו לפי מספר זהות' : 'אין עדיין אנשים במערכת — אנשים נוספים לכאן מעצמם כשרושמים תרומה, הלוואה בגמ"ח או נזקק בחסד') : `<div class="acct-scroll"><table class="acct-table">
         <thead><tr><th>שם</th><th>ת.ז</th><th>טלפון</th><th>תפקידים</th><th>תרומות</th><th>גמ"ח</th><th></th></tr></thead>
         <tbody>${o.rows.map(p => `<tr>
           <td>${esc(p.name)}${p.nameOnly ? ` <small class="muted" title="${p.ambiguous ? 'יש כמה אנשים עם ת.ז בשם הזה — לא שויך' : 'אין ת.ז — זוהה לפי שם'}">· לפי שם${p.ambiguous ? ' (כמה אפשרויות)' : ''}</small>` : ''}</td>

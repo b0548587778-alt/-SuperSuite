@@ -13,7 +13,7 @@ const PORT_LABELS = {
 };
 function renderPortsBar(kinds) {
   const multi = kinds.length > 1;
-  return `<div class="ports-bar">${kinds.map(k => `
+  return `<div class="ports-bar ss-advanced">${kinds.map(k => `
     <span class="ports-group">${multi ? `<small class="muted">${esc(PORT_LABELS[k] || k)}:</small>` : ''}
       <button class="secondary small" data-port-export="${esc(k)}">⬇ ייצוא ל-Excel</button>
       <button class="secondary small" data-port-import="${esc(k)}">⬆ ייבוא מ-CSV</button>

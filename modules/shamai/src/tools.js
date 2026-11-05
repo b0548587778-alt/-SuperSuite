@@ -300,6 +300,16 @@ function recalcVehicle() {
   `;
 }
 
+// שערים ביחס לדולר. דולר, אירו וליש"ט — מהשערים שהשמאי הקליד בלוח (eurIls / gbpIls); פעם האירו והליש"ט היו קבועים
+// והטקסט טען לשער שמתעדכן מ-API — אין API (סקירת קוד 2.11.2026). CHF / JPY — מקורבים קבועים
+function currencyRates(prices) {
+  const p = prices || {};
+  const usdIls = p.usdIls > 0 ? p.usdIls : DEFAULT_PRICES.usdIls;
+  const eurIls = p.eurIls > 0 ? p.eurIls : DEFAULT_PRICES.eurIls;
+  const gbpIls = p.gbpIls > 0 ? p.gbpIls : DEFAULT_PRICES.gbpIls;
+  return { USD: 1, ILS: usdIls, EUR: usdIls / eurIls, GBP: usdIls / gbpIls, CHF: 0.88, JPY: 150 };
+}
+
 function recalcCurrency() {
   const r = $('#cu-result');
   if (!r) return;
@@ -312,17 +322,7 @@ function recalcCurrency() {
     return;
   }
 
-  // Convert through USD as base
-  // ILS rate is direct from API
-  // Approximate cross rates:
-  const rates = {
-    USD: 1,
-    ILS: state.prices.usdIls || 3.6,
-    EUR: 0.92,
-    GBP: 0.79,
-    CHF: 0.88,
-    JPY: 150,
-  };
+  const rates = currencyRates(state.prices);
 
   const inUSD = amount / rates[from];
   const result = inUSD * rates[to];
@@ -333,7 +333,7 @@ function recalcCurrency() {
       <strong>${fmt(result, 2)} ${to}</strong>
     </div>
     <div class="r-row sep"><span class="r-label">שער</span><span class="r-value">1 ${from} = ${fmt(rates[to] / rates[from], 4)} ${to}</span></div>
-    <div class="text-faint" style="margin-top:10px">שערים מקורבים. רק USD/ILS מעודכן בזמן אמת מ-API.</div>
+    <div class="text-faint" style="margin-top:10px">דולר, אירו וליש״ט — לפי השערים בלוח המחירים (הקלדה או קובץ, בלי אינטרנט). פרנק שוויצרי ויין — שערים מקורבים קבועים.</div>
   `;
 }
 

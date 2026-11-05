@@ -283,7 +283,7 @@ function bindEvents() {
   });
 
   // Coin
-  ['cn-name', 'cn-year', 'cn-metal', 'cn-weight', 'cn-purity', 'cn-premium', 'cn-asking'].forEach(id => {
+  ['cn-name', 'cn-year', 'cn-metal', 'cn-weight', 'cn-purity', 'cn-premium', 'cn-market', 'cn-asking'].forEach(id => {
     document.addEventListener('input', e => { if (e.target.id === id) recalcCoin(); });
     document.addEventListener('change', e => { if (e.target.id === id) recalcCoin(); });
   });
@@ -528,6 +528,10 @@ function clearAllShamaiData() {
   const keep = new Set(KEEP_ON_CLEAR.map(Storage.k));
   const keys = [];
   for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+  // אינדקס התיקים אחרון (מפתח לכל תיק, src/casefile.js): מחיקה שנעצרה באמצע משאירה אינדקס שמפנה למפתחות חסרים —
+  // הטעינה מנקה אותו — ולא תיקים שהאינדקס כבר לא מכיר, שהטעינה הייתה מחזירה אליו
+  const last = Storage.k('casesIndex');
+  keys.sort((a, b) => (a === last) - (b === last));
   try {
     for (const k of keys) {
       if (typeof k === 'string' && k.startsWith('shamai_') && !keep.has(k)) localStorage.removeItem(k);
@@ -560,6 +564,18 @@ function exportJSON() {
   toast('פריטי הפנקס יוצאו', 'success');
 }
 
+// תא CSV: הגנת נוסחאות כמו בכלכלה (csvFormulaRisk ב-modules/econ/core/exports.js — אותו כלל, סקריפט רגיל כאן):
+// ערך שמתחיל ב-= + @ טאב או CR, או מינוס שאינו מספר שלילי פשוט — מקבל גרש בהתחלה (סקירת קוד 2.11.2026)
+function shamaiCsvFormulaRisk(s) {
+  return /^[=+@\t\r]/.test(s) || (s[0] === '-' && !/^-\d+(?:[.,]\d+)*$/.test(s));
+}
+function shamaiCsvCell(v) {
+  let s = String(v ?? '');
+  if (shamaiCsvFormulaRisk(s)) s = "'" + s;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+const csvMoney = (v) => { const n = roundMoney(v); return n ? n : ''; };
+
 function exportCSV() {
   const rows = [['ID', 'שם', 'קטגוריה', 'סטטוס', 'מחיר מבוקש', 'שווי משוער', 'רווח', '%', 'מוכר', 'תאריך', 'הערות']];
   state.opportunities.forEach(o => {
@@ -570,8 +586,8 @@ function exportCSV() {
       o.name,
       o.category || '',
       o.status,
-      o.asking || '',
-      o.estimate || '',
+      csvMoney(o.asking),
+      csvMoney(o.estimate),
       profit !== null ? profit : '',
       margin !== null ? margin.toFixed(1) : '',
       o.seller || '',
@@ -579,7 +595,7 @@ function exportCSV() {
       (o.notes || '').replace(/\n/g, ' '),
     ]);
   });
-  const csv = '\uFEFF' + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const csv = '\uFEFF' + rows.map(r => r.map(shamaiCsvCell).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -608,6 +624,7 @@ function importJSON(e) {
         { label: 'להוסיף לקיים', value: 'merge' }, { label: 'להחליף את הקיים', value: 'replace', kind: 'danger' }]);
       if (!mode) return;
       let added = items.length, dup = 0;
+      const before = state.opportunities;
       if (mode === 'merge') {
         const existing = new Set(state.opportunities.map(o => o.id));
         const fresh = items.filter(o => !existing.has(o.id));
@@ -618,7 +635,10 @@ function importJSON(e) {
         if (!(await ssDialog.confirm('להחליף את כל הנתונים הקיימים?', { danger: true }))) return;
         state.opportunities = items;
       }
-      Storage.save('opportunities', state.opportunities);
+      // שמירה שנדחתה — הפנקס חוזר למה שהיה (ההודעה — מ-Storage.save)
+      if (!Storage.save('opportunities', state.opportunities)) { state.opportunities = before; return; }
+      bumpReportSeqFrom(state.opportunities);
+      if (mode === 'replace') dropReplacedPhotos(before, state.opportunities);
       renderLedger();
       renderHeader();
       toast(`יובאו ${added} פריטים${dup ? ` · ${dup} כבר היו בפנקס ודולגו` : ''}`, 'success');
@@ -648,6 +668,8 @@ function loadSavedState() {
 
 async function init() {
   loadSavedState();
+  // תיקי השמאות: העברה למפתח לכל תיק ותיקון האינדקס — בעליית המסך, לא רק בפתיחת מסך התיקים (src/casefile.js)
+  try { if (typeof ensureCasesLayout === 'function') ensureCasesLayout(); } catch (e) { console.error('cases layout', e); }
 
   // Render
   renderHeader();

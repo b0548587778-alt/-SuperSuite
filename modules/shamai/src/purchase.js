@@ -118,6 +118,11 @@ function createPurchase(input, { no, today = localToday(), prices }) {
 
 const agToIls = (ag) => '₪' + fmt(ag / 100, 2);
 
+// פרטי השמאי לשטר: מזמן ההפקה; שטר ישן בלי עותק — הפרטים הנוכחיים
+function purchaseAppraiser(p) {
+  return p && p.appraiser && typeof p.appraiser === 'object' ? p.appraiser : loadAppraiser();
+}
+
 // טהור: HTML של שטר הקנייה (כל ערך עובר escape)
 function buildPurchaseHtml(p, appraiser) {
   const ap = appraiser || {};
@@ -284,7 +289,9 @@ async function savePurchase() {
     if (!(await ssDialog.confirm(msg, { okText: 'הפקה' }))) return;
     // המספור נקבע רק אחרי האישור, ולא חוזר אחורה
     const no = (Number(Storage.load('purchaseSeq', 0)) || 0) + 1;
-    const p = { ...preview, no };
+    // פרטי השמאי בזמן ההפקה — הדפסה חוזרת לא מציגה פרטים שהשתנו מאז (סקירת קוד 2.11.2026)
+    const ap = loadAppraiser();
+    const p = { ...preview, no, appraiser: Object.fromEntries(APPRAISER_FIELDS.map(f => [f.k, ap[f.k] || ''])) };
     const list = Storage.load('purchases', []) || [];
     list.unshift(p);
     // שטר שלא נשמר לא מודפס: המספר שלו היה מונפק שוב לשטר הבא (ההודעה — מ-Storage.save)
@@ -296,7 +303,7 @@ async function savePurchase() {
     state.purchase = null;
     ['#pu-name', '#pu-id', '#pu-phone', '#pu-address', '#pu-notes'].forEach(s => { const el = $(s); if (el) el.value = ''; });
     renderPurchaseView();
-    openPrintPreview(buildPurchaseHtml(p, loadAppraiser()));
+    openPrintPreview(buildPurchaseHtml(p, p.appraiser));
   } catch (e) {
     toast(e.message, 'error');
   }
@@ -313,7 +320,7 @@ function renderPurchaseList() {
   </div>`).join('') : '<div class="field-hint">עדיין לא הופקו שטרי קנייה</div>';
   $$('#pu-list [data-print]').forEach(b => b.addEventListener('click', () => {
     const p = (Storage.load('purchases', []) || []).find(x => x.id === b.dataset.print);
-    if (p) openPrintPreview(buildPurchaseHtml(p, loadAppraiser()));
+    if (p) openPrintPreview(buildPurchaseHtml(p, purchaseAppraiser(p)));
   }));
 }
 

@@ -37,7 +37,7 @@ function renderCollect(d) {
     <div class="card">
       <div class="acct-header">
         <div class="acct-actions">
-          <select id="collectFilter">
+          <select id="collectFilter" aria-label="אילו דרישות להציג">
             ${[['open', 'ממתינים לתשלום'], ['paid', 'שולמו'], ['cancelled', 'בוטלו'], ['all', 'הכול']].map(([v, l]) => `<option value="${v}"${filter === v ? ' selected' : ''}>${l}</option>`).join('')}
           </select>
         </div>
@@ -69,6 +69,7 @@ function collectMessageDialog(m) {
     ta.rows = 12;
     ta.readOnly = true;
     ta.value = m.text;
+    ta.setAttribute('aria-label', 'נוסח ההודעה ללקוח, להעתקה'); // r4 נגישות
     ta.style.cssText = 'width:100%;font:inherit;padding:8px';
     const p = document.createElement('p');
     p.className = 'muted';

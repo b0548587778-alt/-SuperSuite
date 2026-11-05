@@ -29,7 +29,8 @@ function reToForm(c) {
     property: Object.fromEntries(Object.entries(p).map(([k, v]) => [k, reStr(v)])),
     comparables: (c.comparables || []).map(x => {
       const adj = {};
-      for (const a of x.adjustments || []) adj[a.factor] = { pct: rePct(a.bp), note: a.note || '' };
+      // התאמה שנשמרה כ-0% היא התאמה מפורשת — '0' ולא שדה ריק, אחרת היא נמחקת בשמירה הבאה (סקירת קוד 2.11.2026)
+      for (const a of x.adjustments || []) adj[a.factor] = { pct: a.bp === 0 ? '0' : rePct(a.bp), note: a.note || '' };
       return { id: x.id, date: x.date, price: reShekel(x.priceAg), area: reStr(x.area), address: x.address || '', city: x.city || '',
         block: x.block || '', parcel: x.parcel || '', subParcel: x.subParcel || '', rooms: reStr(x.rooms), floor: reStr(x.floor),
         yearBuilt: reStr(x.yearBuilt), source: x.source || '', notes: x.notes || '', included: x.included !== false, weight: reStr(x.weight), adj };
@@ -419,6 +420,8 @@ function attachRealEstateHandlers() {
   }));
   on('reImportCancel', () => { re.importPreview = null; re.importText = ''; renderView('realestate'); });
   on('reImportApply', guard('שגיאה בייבוא', async () => {
+    // מה שהוקלד בזמן שהתצוגה המקדימה פתוחה — נשמר לפני הייבוא; אחרת reOpenCase זורק אותו (סקירת קוד 2.11.2026)
+    await reSaveCase({ quiet: true });
     const r = await api.importRealEstateComparables(re.caseId, re.importText, { source: 'קובץ', apply: true });
     re.importPreview = null; re.importText = '';
     showToast(`נוספו ${r.added} עסקאות`);
@@ -438,7 +441,9 @@ function attachRealEstateHandlers() {
     await reOpenCase(re.caseId);
   }));
   on('reExport', guard('שגיאה ביצירת הדוח', async () => {
-    if (re.current.case.status !== 'final') await reSaveCase({ quiet: true });
+    // בלי הרשאת עריכה (רואה חשבון, צופה) — הייצוא בלי שמירה קודמת; השמירה נכשלה וחסמה את הייצוא (סקירת קוד 2.11.2026)
+    const canEdit = !!(state.user && Array.isArray(state.user.permissions) && state.user.permissions.includes('data.edit'));
+    if (re.current.case.status !== 'final' && canEdit) await reSaveCase({ quiet: true });
     const r = await api.exportRealEstateReport(re.caseId);
     if (r && r.ok) showToast('הדוח נשמר');
     renderView('realestate');

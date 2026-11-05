@@ -70,6 +70,8 @@ function load() {
     localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) } };
   ctx.window = ctx;
   ctx.shellAPI = shellAPI;
+  // קוד השחזור מוצג רק אחרי הקלדה חוזרת של הסיסמה (סקירת קוד 2.11.2026)
+  ctx.ssDialog = { prompt: async () => 'menahel-pass-long-1', alert: async () => {}, confirm: async () => true };
   ctx.HTMLElement = function () {};
   vm.createContext(ctx);
   for (const f of ['hebcal.js', 'catalog.js', 'onboarding.js', 'shell.js']) vm.runInContext(read(f), ctx, { filename: f });

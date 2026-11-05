@@ -49,7 +49,10 @@ function supplierTaxIdOf(v) {
 // סכום בשקלים שהוקלד (או מספר) ← אגורות; ריק = null
 function agOrNull(v, label) {
   if (v === undefined || v === null || String(v).trim() === '') return null;
-  const ag = toAg(String(v).trim().replace(/[,\s₪]/g, ''));
+  // פסיק — רק מפריד אלפים בקבוצות של 3 ("1,234.50"); "10,50" נדחה ולא נקרא 1,050 (סקירת קוד 2.11.2026)
+  const raw = String(v).trim().replace(/[\s₪]/g, '');
+  if (raw.includes(',') && !/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(raw)) throw new Error(`${label}: סכום לא תקין — פסיק רק כמפריד אלפים (למשל 1,234.50)`);
+  const ag = toAg(raw.replace(/,/g, ''));
   if (!Number.isSafeInteger(ag) || ag < 0) throw new Error(`${label}: סכום לא תקין`);
   return ag;
 }

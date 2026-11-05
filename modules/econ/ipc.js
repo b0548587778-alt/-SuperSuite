@@ -6,6 +6,7 @@ const L = require('./core/npoLetters'); // מכתבים לעמותה — טהו�
 const DATES = require('./core/dates'); // תאריך יום: בדיקה מול הלוח (isDay / dayOr)
 const { initializeDatabase, issuedAfter, defaults: DB_DEFAULTS } = require('./core/database');
 const ModCounters = require('../../shell/module-counters');
+const UB = require('./core/usersBackup'); // משתמשים ויומן הפעולות בגיבוי המלא (סקירת קוד 2.11.2026)
 const { AuthService: authService } = require('./services/authService');
 const { FinancialService: financialService } = require('./services/financialService');
 const { MarketIntelService: marketIntelService } = require('./services/marketIntelService');
@@ -26,6 +27,7 @@ const { SampleService: sampleService } = require('./services/sampleService');
 const { PrivacyService: privacyService } = require('./services/privacyService');
 const { MortgageAdvisorService: mortgageAdvisorService } = require('./services/mortgageAdvisorService');
 const { RealtyService: realtyService } = require('./services/realtyService');
+const { inOneSave } = require('./services/oneSave');
 const MR = require('./core/mortgageReport');
 const BR = require('./core/brokerage');
 const RI = require('./core/realtyInvest');
@@ -51,6 +53,7 @@ const GOOGLE_CLIENT = require('../../shell/google-client');
 const LS = require('../../shell/licensing/store');
 const ROOT_KEYS = require('../../shell/licensing/root-keys');
 const OC = require('../../shell/licensing/owner-core');
+const OCC = require('../../shell/licensing/owner-cardcom');
 const { createLicenseSync } = require('../../shell/licensing/sync');
 const { validateUrl } = require('../../shell/licensing/remote');
 const { DEFAULT_RELAY_URL } = require('../../shell/licensing/default-relay');
@@ -69,9 +72,12 @@ const AI_MODS = require('../../shell/ai/module-context'); // טהור — נתו
 let db;
 let licenseStore = null;
 let ownerCore = null;
+// הפנייה של מנהל-העל ל-Cardcom (אימות תשלום הרשמה) — fetchImpl של התהליך הראשי (net.fetch)
+let ownerFetch = null;
 let licenseSync = null;
 let chatStore = null;
 let restTime = () => false; // מצב שבת (מוזרק מ-main.js)
+let recoveryCodeCheck = null; // initEcon({ recoveryCode: { available(), verify(code) } }) — main.js, מול מפתח הגיבוי האוטומטי
 let ownerChatStore = null;
 let updateManager = null;
 let updatesDir = null;
@@ -92,7 +98,9 @@ function activationState(base) {
   if (!licenseStore || s.mode !== 'licensed') return ACT.evaluate({ state: s });
   const now = Math.max(clockNow(), Number(s.seenAt) || 0);
   // מהשומר המוצפן — לא מהקובץ הגלוי (lastSyncTime ב-store.js)
-  return ACT.evaluate({ state: s, leaf: licenseStore.leafPayload(), lastSync: licenseStore.lastSyncTime(), now });
+  const chain = typeof licenseStore.chainPayloads === 'function' ? licenseStore.chainPayloads() : null;
+  const leaf = chain && chain.length ? chain[chain.length - 1] : licenseStore.leafPayload();
+  return ACT.evaluate({ state: s, leaf, chain, lastSync: licenseStore.lastSyncTime(), now });
 }
 // מערכת שלא הופעלה = נעולה (רק רישוי, כניסה והודעות פתוחים). רישיון לא פעיל — נשאר הסטטוס שלו (חוב: קריאה בלבד)
 function withActivation(s) {
@@ -208,6 +216,8 @@ async function initEcon(userDataPath, opts = {}) {
   const { rootKeys = ROOT_KEYS, relayUrl = DEFAULT_RELAY_URL, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
   updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, googleClient } = opts;
   restTime = isRestTime;
+  // קוד השחזור (🔑) כהוכחת בעלות — במסד ששוחזר בלי משתמשים (auth:setup). אין במכשיר בלי גיבוי אוטומטי
+  recoveryCodeCheck = opts.recoveryCode && typeof opts.recoveryCode.verify === 'function' && typeof opts.recoveryCode.available === 'function' ? opts.recoveryCode : null;
   shamaiSource = typeof opts.shamaiData === 'function' ? opts.shamaiData : null;
   // שם הפרמטר חופף למשתנה הגלובלי — כאן מעדכנים רק את הגלובלי (הצהרה מחודשת הייתה אסורה)
   aiOptions = typeof opts.aiOptions === 'function' ? opts.aiOptions : null;
@@ -232,6 +242,7 @@ async function initEcon(userDataPath, opts = {}) {
   lockOwner();
   // legacyCipher — קבצים שהוצפנו במפתח המסד בגרסת ביניים (SSDB1:) נקראים ומומרים למפתח השורש בפתיחה הבאה
   ownerCore = OC.createOwnerCore({ storage: ownerStorage || ad.owner, clock, legacyCipher: () => (db && db.cipher) || null });
+  ownerFetch = fetchImpl || globalThis.fetch;
   rootKeysInUse = rootKeys;
   // עבודה מרחוק דרך שרת הרישוי — כתובת ברירת מחדל ב-default-relay.js; המנהל יכול להחליף או למחוק (מחיקה: אופליין לגמרי)
   // קבצים מצורפים שמורים מקומית: באנדרואיד (localStorage מוגבל) — מעט מאוד
@@ -293,6 +304,13 @@ async function initEcon(userDataPath, opts = {}) {
   realEstateService.initialize(db);
   const startSettings = (await db.load()).settings || {};
   authService.setIdleMinutes(startSettings.idleMinutes);
+  // שחזור (מכל מסלול — המסך הכלכלי, המעטפת, התאוששות ממסד פגום, אנדרואיד) מרענן את זמן הניתוק ואת מדיניות Google,
+  // ולא רק בהפעלה הבאה (סקירת קוד 2.11.2026)
+  db.onRestore = async () => {
+    const st = (await db.load()).settings || {};
+    authService.setIdleMinutes(st.idleMinutes);
+    googlePolicy = normalizeGoogle(st.google);
+  };
   // באנדרואיד אין כניסה עם Google (אין http ואין דפדפן חיצוני) — גם לא עם המזהה המובנה
   googleBuiltIn = ad.platform === 'android' ? null : builtInGoogle(googleClient === undefined ? GOOGLE_CLIENT : googleClient);
   googlePolicy = normalizeGoogle(startSettings.google);
@@ -462,7 +480,13 @@ function shellCall(channel, senderId, ...args) {
   });
 }
 
+// אתחול חוזר (initEcon שני — למשל ניסיון חוזר של שחזור בהתאוששות ממסד פגום): Electron זורק על רישום שני של אותו
+// ערוץ, וכל ניסיון חוזר נכשל עד סוף ההפעלה (סקירת קוד 2.11.2026) — הרישום הקודם מוסר קודם
+function unregister(channel) {
+  if (typeof ipcMain.removeHandler === 'function') { try { ipcMain.removeHandler(channel); } catch { /* לא היה רשום */ } }
+}
 function handle(channel, fn) {
+  unregister(channel);
   ipcMain.handle(channel, (event, ...args) => enqueue(async () => {
     try { return await runGuarded(channel, fn, event, args); }
     catch (e) { throw toUserError(e); }
@@ -543,6 +567,7 @@ async function runLong(channel, { lock, busy, before, work, after }, event, args
   } catch (e) { throw toUserError(e); }
 }
 function handleLong(channel, spec) {
+  unregister(channel);
   ipcMain.handle(channel, (event, ...args) => runLong(channel, spec, event, args));
 }
 
@@ -604,9 +629,17 @@ function writeFileDurable(file, body, encoding) {
     fs.renameSync(tmp, file);
   } catch (e) {
     try { fs.rmSync(tmp, { force: true }); } catch { /* הכונן נותק */ }
-    try { errorLogger('econ-save-file', e); } catch { /* היומן לא מפיל פעולה */ }
+    // ביומן — רק הקוד: ההודעה של fs כוללת את הנתיב, ושם הקובץ יכול להכיל שם של אדם (סקירת קוד 2.11.2026)
+    try { errorLogger('econ-save-file', { code: e.code || 'error', syscall: e.syscall || '' }); } catch { /* היומן לא מפיל פעולה */ }
     throw new Error('שמירת הקובץ נכשלה, והקובץ הקודם באותו שם (אם היה) לא נפגע — ייתכן שהכונן מלא, מוגן מפני כתיבה, נותק, או שהקובץ פתוח בתוכנה אחרת (' + (e.code || 'שגיאה') + ')');
   }
+}
+// קובץ שהגיע מבחוץ (מצורף בהודעה) — סימון "הגיע מהאינטרנט" (Zone.Identifier, ZoneId=3), כדי ש-Windows יזהיר
+// בפתיחת קובץ הרצה ששלח גורם חיצוני (סקירת קוד 2.11.2026). רק ב-Windows; כונן בלי NTFS (FAT32) — בלי סימון
+function markFromInternet(file, { platform = (typeof process !== 'undefined' && process.platform) || '', fsx = fs } = {}) {
+  if (platform !== 'win32') return false;
+  try { fsx.writeFileSync(file + ':Zone.Identifier', '[ZoneTransfer]\r\nZoneId=3\r\n', 'utf8'); return true; }
+  catch (e) { try { errorLogger('econ-zone-identifier', { code: e.code || 'error' }); } catch { /* היומן לא מפיל פעולה */ } return false; }
 }
 // טבלה לקובץ CSV (rows בתוצאה — מספר השורות)
 const csvSpec = ({ headers, rows, name }) => ({ name: `${name}.csv`, filters: CSV_FILTERS, data: X.toCsv(headers, rows), encoding: 'utf8', rows: rows.length, result: { rows: rows.length } });
@@ -617,16 +650,17 @@ async function pickSavePath(defaultPath, filters) {
 }
 
 // כניסה בדפדפן (עד 3 דקות). כניסה וקישור — לא יחד
-function handleGoogle(channel, { loginHint } = {}, fn) {
+// prepare(ev) — בתור, לפני הדפדפן: { loginHint, ... }; מה שהחזיר מגיע ל-fn(ev, identity, pre) אחרי הדפדפן
+function handleGoogle(channel, { prepare } = {}, fn) {
   handleLong(channel, {
     lock: googleLock, busy: 'כניסה עם Google כבר פתוחה בדפדפן — השלימו אותה או המתינו',
     before: async (ev) => {
       if (!googlePolicy.enabled) throw new Error('כניסה עם Google לא הופעלה במערכת הזו');
-      return loginHint ? await loginHint(ev) : undefined;
+      return prepare ? await prepare(ev) : {};
     },
-    work: (pre) => googleDeps.signIn({ clientId: googlePolicy.clientId, clientSecret: googlePolicy.clientSecret },
-      { openBrowser: googleDeps.openBrowser, fetchImpl: googleDeps.fetchImpl, loginHint: pre || undefined }),
-    after: (ev, identity, ...args) => fn(ev, identity, ...args),
+    work: async (pre) => ({ pre, identity: await googleDeps.signIn({ clientId: googlePolicy.clientId, clientSecret: googlePolicy.clientSecret },
+      { openBrowser: googleDeps.openBrowser, fetchImpl: googleDeps.fetchImpl, loginHint: (pre && pre.loginHint) || undefined }) }),
+    after: (ev, { identity, pre }, ...args) => fn(ev, identity, pre, ...args),
   });
 }
 
@@ -648,11 +682,24 @@ async function auditEvent(event, action, details) {
   try { await db.audit(user && user.id, action, JSON.stringify(details || {})); } catch (e) { console.error('audit failed', e); }
 }
 
+// CSP למסמך שמודפס ל-PDF: אין סקריפט, אין רשת — רק סגנון בתוך המסמך ותמונות/גופנים מוטמעים (data:)
+const PDF_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+function withPdfCsp(html) {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${PDF_CSP}">`;
+  const s = String(html);
+  // ראשון ב-<head>, לפני כל משאב; מסמך בלי <head> — בראש המסמך
+  return /<head[^>]*>/i.test(s) ? s.replace(/<head[^>]*>/i, (m) => m + meta) : meta + s;
+}
+
 // הפקת PDF מ-HTML: רינדור בחלון נסתר בלי JavaScript (מחוץ לתור — handleSave)
 async function renderPdf(html, opts = { preferCSSPageSize: true }) {
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false, devTools: !(require('electron').app && require('electron').app.isPackaged) } });
+  // שכבת הגנה (סקירת קוד 2.11.2026): בלי ניווט ובלי חלונות, ו-CSP שמתיר רק סגנון ותמונות מוטמעים — אין פנייה החוצה
+  const wc = win.webContents;
+  if (wc && typeof wc.on === 'function') wc.on('will-navigate', (e) => e.preventDefault());
+  if (wc && typeof wc.setWindowOpenHandler === 'function') wc.setWindowOpenHandler(() => ({ action: 'deny' }));
   try {
-    await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64'));
+    await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(withPdfCsp(html), 'utf8').toString('base64'));
     return await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, ...opts });
   } finally {
     win.destroy();
@@ -671,19 +718,44 @@ function econFromBackup(data) {
   return data;
 }
 
+// מסד ששוחזר אחרי תקלה מגיבוי בלי משתמשים (מסומן ב-recoverDatabase), במחשב שיש בו קוד שחזור — auth:setup דורש את הקוד
+async function setupNeedsRecoveryCode() {
+  if (!recoveryCodeCheck || !recoveryCodeCheck.available() || await db.hasUsers()) return false;
+  return db.setupNeedsRecoveryCode();
+}
+
+// סיסמה חוזרת לפעולה רגישה של מנהל כשהפגישה נפתחה עם Google: במחשב משותף שבו הדפדפן נשאר מחובר לחשבון של
+// המנהל, כל אחד יכול להיכנס כמוהו (סקירת קוד 2.11.2026). פגישה שנפתחה בסיסמה — הסיסמה כבר הוקלדה
+async function stepUp(event, password) {
+  const me = authService.getSession(event.sender.id);
+  if (!me) throw new Error('נדרשת כניסה');
+  if (me.via !== 'google') return;
+  if (typeof password !== 'string' || !password) throw Object.assign(new Error('נכנסת עם Google — לפעולה הזו יש להקליד שוב את הסיסמה שלך'), { code: 'password-required' });
+  await db.confirmPassword(me.id, password);
+}
+
 function registerIpcHandlers() {
   // Auth handlers
   handle('auth:status', async (event) => {
     const st = await authService.getStatus(event.sender.id);
-    return { ...st, google: { enabled: googlePolicy.enabled } };
+    // מסד ששוחזר אחרי תקלה בלי משתמשים — יצירת המנהל דורשת את קוד השחזור (מסך הכניסה מוסיף את השדה)
+    const recoveryCodeRequired = !st.configured && await setupNeedsRecoveryCode();
+    return { ...st, google: { enabled: googlePolicy.enabled }, ...(recoveryCodeRequired ? { recoveryCodeRequired } : {}) };
   });
   
   // יצירת המנהל הראשון (רק כשאין אף משתמש) — והוא מחובר מיד. בלי זה הממשק נראה מחובר
-  // אבל לשרת אין פגישה, וכל פעולה נכשלת עד כניסה נוספת
-  handle('auth:setup', async (event, username, password) => {
+  // אבל לשרת אין פגישה, וכל פעולה נכשלת עד כניסה נוספת.
+  // מסד ששוחזר מגיבוי ישן (בלי משתמשים) אחרי תקלה — לא מי שהגיע ראשון נעשה מנהל: נדרש קוד השחזור (🔑) של המחשב,
+  // שנבדק בתהליך הראשי (סקירת קוד 2.11.2026). במכשיר בלי קוד שחזור (אנדרואיד, בלי הצפנת Windows) אין התאוששות ממסד פגום
+  handle('auth:setup', async (event, username, password, recoveryCode) => {
+    const viaCode = await setupNeedsRecoveryCode();
+    if (viaCode && !recoveryCodeCheck.verify(typeof recoveryCode === 'string' ? recoveryCode : '')) {
+      throw new Error('במערכת יש נתונים אבל אין משתמשים (שוחזרה אחרי תקלה). כדי ליצור מנהל יש להקליד את קוד השחזור (🔑) של המחשב הזה');
+    }
     const user = await authService.setupAdmin(username, password);
     authService.setSession(event.sender.id, user, 'password');
     emitAuthChange();
+    if (viaCode) await db.audit(user.id, 'auth.setup.recovery', JSON.stringify({ username: user.username }));
     return user;
   });
   
@@ -704,12 +776,17 @@ function registerIpcHandlers() {
     return user;
   });
   // קישור החשבון של המשתמש המחובר. הדפדפן מציע את החשבון המקושר (אם יש) כברירת מחדל
-  handleGoogle('auth:google-link', { loginHint: async (ev) => {
+  // הקישור — למי שהתחיל אותו: אם בזמן ההמתנה לדפדפן המשתמש יצא או התחלף (👤 משתמש), הקישור נדחה
+  // ולא נקשר למי שמחובר כשהדפדפן מסיים (סקירת קוד 2.11.2026)
+  handleGoogle('auth:google-link', { prepare: async (ev) => {
     const me = authService.getSession(ev.sender.id);
     const cur = await db.googleLinkOf(me.id);
-    return cur && cur.email;
-  } }, async (event, g) => {
+    return { loginHint: cur && cur.email, session: authService.sessions.get(ev.sender.id) };
+  } }, async (event, g, pre) => {
     const me = authService.getSession(event.sender.id);
+    if (!pre || !me || authService.sessions.get(event.sender.id) !== pre.session) {
+      throw new Error('המשתמש המחובר התחלף בזמן הכניסה ל-Google — החשבון לא קושר. התחברו שוב ונסו שנית');
+    }
     const r = await db.linkGoogle(me.id, g);
     markGoogleActivation();
     await auditEvent(event, 'auth.google.link', { email: g.email });
@@ -940,7 +1017,8 @@ function registerIpcHandlers() {
     await auditEvent(event, 'acct.entry.reverse', { id: result && (result.id || result.number) });
     return result;
   });
-  handle('acct:getInvoices', async () => accountingService.getInvoices());
+  // limit — לוח הבקרה מציג 5 בלבד (סקירת קוד 2.11.2026)
+  handle('acct:getInvoices', async (event, opts) => accountingService.getInvoices(opts && typeof opts === 'object' ? { limit: opts.limit } : {}));
   handle('acct:createInvoice', async (event, invoice) => {
     const result = await accountingService.createInvoice(invoice);
     await auditEvent(event, 'acct.invoice.create', { id: result && (result.id || result.number) });
@@ -1033,9 +1111,15 @@ function registerIpcHandlers() {
   handleSave('acct:exportSalesDocPdf', async (event, docId) => {
     const d = await accountingService.getSalesDoc(docId);
     const { business } = await accountingService.getSettings();
-    const html = d.kind === 'receipt' ? X.renderReceiptHtml(d, business) : X.renderInvoiceHtml(d, business);
+    // זיכוי וקבלה — "מקור" בהדפסה הראשונה, "העתק" אחריה; מסמך מגרסה קודמת (בלי issuer) — תמיד העתק (סקירת קוד 2.11.2026)
+    const official = d.kind === 'receipt' || d.kind === 'credit';
+    const opts = official ? { copy: !!d.printedAt || !d.issuer } : {};
+    const html = d.kind === 'receipt' ? X.renderReceiptHtml(d, business, opts) : X.renderInvoiceHtml(d, business, opts);
     return { html, name: `${d.kindLabel}-${d.number}.pdf`.replace(/[\\/:*?"<>|]/g, ''), d };
-  }, (event, { d }) => auditEvent(event, 'acct.doc.pdf', { kind: d.kind, number: d.number }));
+  }, async (event, { d }) => {
+    if (d.kind === 'receipt' || d.kind === 'credit') await accountingService.markPrinted('doc', d.id);
+    await auditEvent(event, 'acct.doc.pdf', { kind: d.kind, number: d.number });
+  });
   // לוגו (מסמכים / דוח ללקוח): חלון הבחירה וקריאת הקובץ (PNG / JPEG עד 200KB) — מחוץ לתור; השמירה — בתור,
   // אחרי בדיקה חוזרת (ממצא 39). remove — הסרת הלוגו, בלי חלון
   const pickLogo = async (title) => {
@@ -1139,9 +1223,11 @@ function registerIpcHandlers() {
     await auditEvent(event, 'acct.invoice.allocation-waived', { number: result.number, reason: result.allocationWaived.reason });
     return result;
   });
-  handle('acct:cancelInvoice', async (event, invoiceId) => {
-    const result = await accountingService.cancelInvoice(invoiceId);
-    await auditEvent(event, 'acct.invoice.cancel', { number: result.number });
+  // הביטול מפיק חשבונית זיכוי מלאה (330) — "היום" נקבע כאן לפי השעון המקומי
+  handle('acct:cancelInvoice', async (event, invoiceId, opts) => {
+    const reason = opts && typeof opts === 'object' && typeof opts.reason === 'string' ? opts.reason : '';
+    const result = await accountingService.cancelInvoice(invoiceId, { reason });
+    await auditEvent(event, 'acct.invoice.cancel', { number: result.number, credit: result.cancelCreditNumber || null });
     return result;
   });
   handle('acct:saveSettings', async (event, input) => {
@@ -1153,8 +1239,13 @@ function registerIpcHandlers() {
   handleSave('acct:exportInvoicePdf', async (event, invoiceId) => {
     const inv = await accountingService.getInvoice(invoiceId);
     const { business } = await accountingService.getSettings();
-    return { html: X.renderInvoiceHtml(inv, business), name: `חשבונית-${inv.number}.pdf`, number: inv.number };
-  }, (event, spec) => auditEvent(event, 'acct.invoice.pdf', { number: spec.number }));
+    // "מקור" בהדפסה הראשונה, "העתק" אחריה; חשבונית מגרסה קודמת (בלי issuer) — תמיד העתק (סקירת קוד 2.11.2026)
+    const copy = !!inv.printedAt || !inv.issuer;
+    return { html: X.renderInvoiceHtml(inv, business, { copy }), name: `חשבונית-${inv.number}.pdf`, number: inv.number, id: inv.id };
+  }, async (event, spec) => {
+    await accountingService.markPrinted('invoice', spec.id);
+    await auditEvent(event, 'acct.invoice.pdf', { number: spec.number });
+  });
   // קבצים במבנה אחיד (PLAN.md 9.1): בחירת תיקייה, כתיבת OPENFRMT\<עוסק>.<שנה>\<MMDDhhmm>\ עם INI.TXT, BKMVDATA.zip
   // ודוח ההפקה (PDF). הקבצים עצמם אינם מוצפנים — הם מיועדים להעברה לרשות המסים או לרואה החשבון.
   // הנתונים בתור; חלון הבחירה ודוח ההפקה — מחוץ לתור; הכתיבה — בתור, אחרי בדיקה חוזרת (ממצא 39)
@@ -1493,6 +1584,12 @@ function registerIpcHandlers() {
     await auditEvent(event, 'gemach.loan.payment', { id: loanId, seq });
     return l;
   });
+  // "טעיתי, לבטל" מיד אחרי רישום תשלום (מצב פשוט): מחזיר את התשלום למצב שלפני, רק אם לא השתנה מאז. הרשאת מחיקה (reverse*)
+  handle('gemach:reversePayment', async (event, loanId, seq, input) => {
+    const l = await gemachService.reversePayment(loanId, seq, input || {});
+    await auditEvent(event, 'gemach.loan.payment.reverse', { id: loanId, seq });
+    return l;
+  });
   handle('gemach:cancelLoan', async (event, loanId) => {
     const l = await gemachService.cancelLoan(loanId);
     await auditEvent(event, 'gemach.loan.cancel', { id: loanId });
@@ -1566,7 +1663,11 @@ function registerIpcHandlers() {
   // רק התחומים הפתוחים ברישיון — כרטיס אדם לא חושף תחום סגור (סקירת אבטחה 10.2026, ממצא 6)
   handle('people:search', async (event, query) => {
     const sources = LG.peopleSources(licenseState());
-    return peopleService.search(query, canSeeConfidential(event), sources);
+    const r = await peopleService.search(query, canSeeConfidential(event), sources);
+    // "כל צפייה בנזקק חסוי נרשמת" — גם בתוצאות החיפוש (סקירת קוד 2.11.2026)
+    const shown = ((r && r.rows) || []).filter(p => p.confidential).length;
+    if (shown) await auditEvent(event, 'chesed.confidential.view', { via: 'people-search', count: shown });
+    return r;
   });
   handle('people:getCard', async (event, key) => {
     const sources = LG.peopleSources(licenseState());
@@ -1575,10 +1676,16 @@ function registerIpcHandlers() {
     return c;
   });
   // לוח בוקר: מה דורש טיפול היום בעמותה, בגמ"ח ובחסד. מצרף כמה תחומים — ולכן רק הפתוחים ברישיון
+  // agenda — "מה יש לעשות היום" למצב הפשוט: אותם פריטים במילים פשוטות + חשבוניות פתוחות, עד 5, קריאה בלבד
+  const briefWithAgenda = (data, today, sources, acct) => {
+    const brief = MB.morningBrief(data, today, { sources, acct });
+    const inv = acct ? HS.openInvoices(data, today) : [];
+    return { ...brief, agenda: MB.agenda(brief, { openInvoices: acct ? { count: inv.length, late: inv.filter(i => i.late).length } : null }) };
+  };
   handle('dashboard:getMorningBrief', async () => {
     const sources = LG.peopleSources(licenseState());
     const acct = !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view');
-    return MB.morningBrief(await db.load(), localDay(Date.now()), { sources: sources || MB.SOURCES, acct });
+    return briefWithAgenda(await db.load(), localDay(Date.now()), sources || MB.SOURCES, acct);
   });
   // מסך הבית של המעטפת: מדדים ומשימות להיום. קריאה בלבד, ורק תחומים שפתוחים ברישיון
   homeSummaryFn = async () => {
@@ -1589,7 +1696,12 @@ function registerIpcHandlers() {
       npo: sources.includes('npo'),
       gemach: sources.includes('gemach'),
     };
-    return HS.homeSummary(await db.load(), localDay(clockNow()), open);
+    const data = await db.load();
+    const today = localDay(clockNow());
+    const out = HS.homeSummary(data, today, open);
+    // סדר היום של המצב הפשוט במסך הבית — רק התחומים הפתוחים (כמו המדדים)
+    out.agenda = briefWithAgenda(data, today, sources, open.acct).agenda;
+    return out;
   };
   handle('dashboard:getHomeSummary', homeSummaryFn);
   handle('chesed:getOverview', async (event) => {
@@ -1599,7 +1711,7 @@ function registerIpcHandlers() {
     return o;
   });
   // מזעור לפי סוג — רק בתחום שפתוח ברישיון (אחרת: רשימת שמות ושינוי נתונים של תחום סגור)
-  const RETENTION_DOMAIN = { beneficiaries: 'chesed:x', donors: 'npo:x', borrowers: 'gemach:x', itemBorrowers: 'gemach:x', mortgageClients: 'madv:x', realtyClients: 'rlty:x' };
+  const RETENTION_DOMAIN = { beneficiaries: 'chesed:x', donors: 'npo:x', borrowers: 'gemach:x', applications: 'gemach:x', itemBorrowers: 'gemach:x', mortgageClients: 'madv:x', realtyClients: 'rlty:x' };
   // תיבות ההודעות במיפוי (ממצא 26) — רק תיבה שקיימת במחשב הזה: של המערכת — כששרת ההודעות מוגדר או שיש בה שיחות;
   // של מנהל-העל — כשהמצב הוגדר כאן (מספר השיחות — רק כשהוא פתוח בסיסמה). הודעות אינן תחום ברישוי (chat: תמיד פתוח ב-gate.js)
   const mailboxPeers = (box) => {
@@ -1614,8 +1726,14 @@ function registerIpcHandlers() {
     if (ownerCore && ownerCore.isInitialized()) out.owner = { count: ownerCore.isUnlocked() && ownerChatStore ? mailboxPeers(ownerChatStore) : null };
     return out;
   };
-  handle('privacy:getMap', async () => {
-    const m = await privacyService.getMap(await db.listUsers(), { mailboxes: privacyMailboxes() });
+  // יש נתונים במחסן השמאות? (רק ברישיון למודול; קריאה שנכשלה ← לא ידוע). להצעת רמת האבטחה (סקירת קוד 2.11.2026)
+  const shamaiPresent = (event) => {
+    if (!shamaiSource || !event || !event.sender || !LG.moduleAllowed(licenseState(), 'shamai')) return false;
+    try { const items = shamaiSource(event.sender.id); return !!items && typeof items === 'object' && Object.keys(items).length > 0; } catch { return false; }
+  };
+  const privacyOpts = (event) => ({ mailboxes: privacyMailboxes(), shamai: shamaiPresent(event) });
+  handle('privacy:getMap', async (event) => {
+    const m = await privacyService.getMap(await db.listUsers(), privacyOpts(event));
     const open = Object.entries(m.retentionKinds || {}).filter(([k]) => !LG.checkChannel(licenseState(), RETENTION_DOMAIN[k] || 'econ:x', 'data.view'));
     return { ...m, retentionKinds: Object.fromEntries(open) };
   });
@@ -1634,9 +1752,9 @@ function registerIpcHandlers() {
     return r;
   });
   // מסמכים לתיקון 13 (PLAN.md 9.15) — PDF במקום שהמנהל בוחר
-  handleSave('privacy:exportDefinitionPdf', async () => ({ html: await privacyService.definitionHtml(await db.listUsers(), { mailboxes: privacyMailboxes() }), name: 'מסמך-הגדרות-מאגר.pdf' }),
+  handleSave('privacy:exportDefinitionPdf', async (event) => ({ html: await privacyService.definitionHtml(await db.listUsers(), privacyOpts(event)), name: 'מסמך-הגדרות-מאגר.pdf' }),
     (event) => auditEvent(event, 'privacy.doc.export', { doc: 'definition' }));
-  handleSave('privacy:exportProcedurePdf', async () => ({ html: await privacyService.procedureHtml(await db.listUsers(), { mailboxes: privacyMailboxes() }), name: 'נוהל-אבטחת-מידע.pdf' }),
+  handleSave('privacy:exportProcedurePdf', async (event) => ({ html: await privacyService.procedureHtml(await db.listUsers(), privacyOpts(event)), name: 'נוהל-אבטחת-מידע.pdf' }),
     (event) => auditEvent(event, 'privacy.doc.export', { doc: 'procedure' }));
   handleSave('privacy:exportNoticePdf', async (event, kind) => ({ html: await privacyService.noticeHtml(kind), name: `הודעת-יידוע-${String(kind).replace(/[^a-z]/gi, '')}.pdf` }),
     (event, spec, kind) => auditEvent(event, 'privacy.doc.export', { doc: 'notice', kind }));
@@ -1751,7 +1869,12 @@ function registerIpcHandlers() {
     await auditEvent(event, 'madv.client.delete', { id });
     return true;
   });
-  handle('madv:toggleDoc', async (event, id, key, docState) => mortgageAdvisorService.toggleDoc(id, key, madvActor(event), docState));
+  // פעולות כתיבה שלא נרשמו ביומן הפעולות (סקירת קוד 2.11.2026): מסמכי משכנתא, תיק שומה, צילומים והגדרות שמאות
+  handle('madv:toggleDoc', async (event, id, key, docState) => {
+    const r = await mortgageAdvisorService.toggleDoc(id, key, madvActor(event), docState);
+    await auditEvent(event, 'madv.doc.toggle', { id, key: String(key || '').slice(0, 60), state: docState ? String(docState).slice(0, 20) : null });
+    return r;
+  });
   handle('madv:getMissingDocsMessage', async (event, id) => mortgageAdvisorService.getMissingDocsMessage(id, madvActor(event)));
   // אישורים עקרוניים: נשמרים בתיק, ומושווים במנוע של מעבדת התמהיל (אותה תחזית, אותו חישוב)
   handle('madv:saveApprovals', async (event, id, list) => {
@@ -1790,10 +1913,16 @@ function registerIpcHandlers() {
     const denied = LG.checkChannel(licenseState(), 'acct:x', 'data.edit');
     if (denied) throw new Error(denied);
     if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
-    const p = await mortgageAdvisorService.feePaymentForInvoice(id, paymentId, madvActor(event));
     // עוסק פטור (הגדרות המשרד או בחירה מפורשת) — חשבונית עסקה בלי מע"מ + קבלה
-    const inv = await accountingService.createAdvisoryReceipt({ ...p, exempt: opts.exempt === true || p.exempt === true });
-    await mortgageAdvisorService.linkFeeInvoice(id, paymentId, inv);
+    // ע.מ / ת"ז של הלקוח — מהחלון (בתיק הייעוץ אין שדה כזה); נבדק בספרת ביקורת בשירות
+    const customerTaxId = typeof opts.customerTaxId === 'string' ? opts.customerTaxId.trim().slice(0, 12) : '';
+    // החשבונית והקישור לתשלום בשמירה אחת — כשל באמצע לא משאיר חשבונית ממוספרת שלא מקושרת (סקירת קוד 2.11.2026)
+    const { p, inv } = await inOneSave([accountingService, mortgageAdvisorService], async () => {
+      const p = await mortgageAdvisorService.feePaymentForInvoice(id, paymentId, madvActor(event));
+      const inv = await accountingService.createAdvisoryReceipt({ ...p, customerTaxId, exempt: opts.exempt === true || p.exempt === true });
+      await mortgageAdvisorService.linkFeeInvoice(id, paymentId, inv);
+      return { p, inv };
+    });
     await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'madv', amountAg: p.grossAgorot });
     return { id: inv.id, number: inv.number, total: inv.total };
   });
@@ -1873,9 +2002,14 @@ function registerIpcHandlers() {
     const denied = LG.checkChannel(licenseState(), 'acct:x', 'data.edit');
     if (denied) throw new Error(denied);
     if (!opts || opts.confirmed !== true) throw new Error('הפקת חשבונית דורשת אישור מפורש');
-    const p = await realtyService.commissionPaymentForInvoice(String(dealId || ''), String(paymentId || ''));
-    const inv = await accountingService.createAdvisoryReceipt(p);
-    await realtyService.linkCommissionInvoice(dealId, paymentId, inv);
+    const typed = typeof opts.customerTaxId === 'string' ? opts.customerTaxId.trim().slice(0, 12) : '';
+    // החשבונית והקישור לתשלום בשמירה אחת (סקירת קוד 2.11.2026)
+    const { p, inv } = await inOneSave([accountingService, realtyService], async () => {
+      const p = await realtyService.commissionPaymentForInvoice(String(dealId || ''), String(paymentId || ''));
+      const inv = await accountingService.createAdvisoryReceipt(typed ? { ...p, customerTaxId: typed } : p);
+      await realtyService.linkCommissionInvoice(dealId, paymentId, inv);
+      return { p, inv };
+    });
     await auditEvent(event, 'acct.invoice.create', { id: inv.id, number: inv.number, source: 'rlty', amountAg: p.grossAgorot });
     return { id: inv.id, number: inv.number, total: inv.total };
   });
@@ -1946,9 +2080,13 @@ function registerIpcHandlers() {
   // "פתח תיק משכנתא": תיק ייעוץ חדש לקונה (משויך למי שפתח) וקישור בשני הצדדים
   handle('rlty:openMortgageCase', async (event, dealId, input) => {
     if (!rltyMortgage()) throw new Error('ייעוץ המשכנתאות אינו פתוח ברישיון');
-    const caseInput = await realtyService.mortgageCaseInput(String(dealId || ''), input || {});
-    const c = await mortgageAdvisorService.createClient(caseInput, madvActor(event));
-    await realtyService.linkMortgageCase(String(dealId), c.id);
+    // התיק והקישור בעסקה בשמירה אחת — כשל באמצע לא משאיר תיק יתום (סקירת קוד 2.11.2026)
+    const c = await inOneSave([realtyService, mortgageAdvisorService], async () => {
+      const caseInput = await realtyService.mortgageCaseInput(String(dealId || ''), input || {});
+      const c = await mortgageAdvisorService.createClient(caseInput, madvActor(event));
+      await realtyService.linkMortgageCase(String(dealId), c.id);
+      return c;
+    });
     await auditEvent(event, 'madv.client.create', { id: c.id, advisorId: c.advisorId || null, source: 'rlty' });
     await auditEvent(event, 'realty.deal.mortgageLink', { id: dealId, caseId: c.id });
     return c;
@@ -1991,7 +2129,11 @@ function registerIpcHandlers() {
     await auditEvent(event, 'realestate.case.create', { id: c.id, no: c.no });
     return c;
   });
-  handle('realestate:updateCase', async (event, id, input) => realEstateService.updateCase(String(id || ''), input || {}));
+  handle('realestate:updateCase', async (event, id, input) => {
+    const c = await realEstateService.updateCase(String(id || ''), input || {});
+    await auditEvent(event, 'realestate.case.update', { id: String(id || '') });
+    return c;
+  });
   handle('realestate:deleteCase', async (event, id) => {
     await realEstateService.deleteCase(String(id || ''));
     await auditEvent(event, 'realestate.case.delete', { id });
@@ -2013,9 +2155,21 @@ function registerIpcHandlers() {
     await auditEvent(event, 'realestate.case.reopen', { id: s.id, reportNo: s.reportNo });
     return s;
   });
-  handle('realestate:addPhoto', async (event, id, input) => realEstateService.addPhoto(String(id || ''), input || {}));
-  handle('realestate:deletePhoto', async (event, id, photoId) => realEstateService.deletePhoto(String(id || ''), String(photoId || '')));
-  handle('realestate:saveSettings', async (event, input) => realEstateService.saveSettings(input || {}));
+  handle('realestate:addPhoto', async (event, id, input) => {
+    const r = await realEstateService.addPhoto(String(id || ''), input || {});
+    await auditEvent(event, 'realestate.photo.add', { id: String(id || ''), photoId: r.id });
+    return r;
+  });
+  handle('realestate:deletePhoto', async (event, id, photoId) => {
+    const r = await realEstateService.deletePhoto(String(id || ''), String(photoId || ''));
+    await auditEvent(event, 'realestate.photo.delete', { id: String(id || ''), photoId: String(photoId || '') });
+    return r;
+  });
+  handle('realestate:saveSettings', async (event, input) => {
+    const r = await realEstateService.saveSettings(input || {});
+    await auditEvent(event, 'realestate.settings.save', {});
+    return r;
+  });
   handle('realestate:getReportHtml', async (event, id) => realEstateService.getReportHtml(String(id || '')));
   handleSave('realestate:exportRegister', async () => csvSpec(await realEstateService.getRegisterExport()),
     (event, spec) => auditEvent(event, 'realestate.register.export', { rows: spec.rows }));
@@ -2157,10 +2311,22 @@ function registerIpcHandlers() {
     await auditEvent(event, 'users.update', { username: u.username, role: u.role, active: u.active });
     return u;
   });
-  handle('users:resetPassword', async (event, id, password) => {
+  // איפוס סיסמה של משתמש אחר מנתק גם את הקישור שלו ל-Google (database.js). אחרי כניסה עם Google — רק עם
+  // הסיסמה של המנהל עצמו (stepUp)
+  handle('users:resetPassword', async (event, id, password, ownPassword) => {
+    await stepUp(event, ownPassword);
     await db.resetPassword(id, String(password || ''));
     authService.dropUser(id);
     await auditEvent(event, 'users.resetPassword', { id });
+    return true;
+  });
+  // ניתוק Google של משתמש אחר בידי המנהל (סקירת קוד 2.11.2026) — למשל חשבון שנשאר מחובר בדפדפן משותף
+  handle('users:unlinkGoogle', async (event, id, ownPassword) => {
+    await stepUp(event, ownPassword);
+    const u = (await db.listUsers()).find(x => x.id === id);
+    if (!u) throw new Error('המשתמש לא נמצא');
+    await db.unlinkGoogle(id);
+    await auditEvent(event, 'users.unlinkGoogle', { username: u.username, email: u.google || '' });
     return true;
   });
   // שמירת קובץ רישוי (בקשה / רישיון / אישור / הודעות) בבוחר שמירה — המשתמש מעביר אותו בעצמו.
@@ -2468,6 +2634,10 @@ function registerIpcHandlers() {
       const x = ownerCore.signups().find(y => y.id === sid);
       if (!x) throw new Error('ההרשמה לא נמצאה');
       if (x.status === 'review' && !force) throw new Error(x.problem || 'ההרשמה ממתינה לבדיקה');
+      // אישור התשלום מהשרת אינו חתום — הנפקה בתשלום רק אחרי אימות מול Cardcom במחשב הזה (כשהוגדרו פרטי המסוף),
+      // או אישור מפורש של מנהל-העל (סקירת קוד 2.11.2026; החלטת הבעלים 5.11.2026)
+      const pay = OC.signupPaymentCode(x, { paymentConfirmed: !!(opts && opts.paymentConfirmed === true), verifyConfigured: !!ownerCore.cardcomCredentials() });
+      if (pay) throw Object.assign(new Error(pay.message), { code: pay.code });
       // חשבונית קודם (אם שולם ועוד אין) — כך שלא יונפק רישיון בתשלום בלי מסמך חשבונאי
       let invoice = x.invoice || null;
       if (!invoice && x.payment && x.payment.amountAgorot > 0) {
@@ -2484,6 +2654,39 @@ function registerIpcHandlers() {
     record: async (event, sent, { sid, force, invoice, r }) => {
       await ownerAudit(event, 'signup.issue', { id: sid, tenant: r.id, name: r.name, invoice: invoice && invoice.number, ...(force ? { force: true } : {}) });
       return { name: r.name, invoice };
+    },
+  });
+  // ---------- אימות תשלום הרשמה מול Cardcom (החלטת הבעלים 5.11.2026) ----------
+  // פרטי המסוף נשמרים מוצפנים במפתח השורש; שם ה-API לא חוזר למסך ולא נשלח לשרת הרישוי
+  handle('owner:getPaymentProvider', async () => ownerCore.paymentProviderInfo());
+  handle('owner:setCardcomCredentials', async (event, input) => {
+    const r = ownerCore.setCardcomCredentials(input || {});
+    await ownerAudit(event, 'payment.cardcom.set', { terminal: r.cardcom.terminal });
+    return r;
+  });
+  handle('owner:clearCardcomCredentials', async (event) => {
+    const r = ownerCore.clearCardcomCredentials();
+    await ownerAudit(event, 'payment.cardcom.clear', {});
+    return r;
+  });
+  // הפנייה ל-Cardcom — מחוץ לתור (handleNet, בלי התור של שרת הרישוי); התוצאה נשמרת בהרשמה ונרשמת ביומן — בתור
+  const cardcomLock = { busy: false };
+  handleNet('owner:verifySignupPayment', {
+    lock: cardcomLock, busy: 'אימות תשלום מול Cardcom כבר מתבצע — המתינו לסיומו', relay: false,
+    before: async (event, id) => {
+      const sid = String(id || '');
+      const x = ownerCore.signups().find(y => y.id === sid);
+      if (!x) throw new Error('ההרשמה לא נמצאה');
+      if (!x.payment || !(x.payment.amountAgorot > 0)) throw new Error('ההרשמה אינה בתשלום — אין מה לאמת');
+      const creds = ownerCore.cardcomCredentials();
+      if (!creds) throw new Error('לא הוגדרו פרטי המסוף של Cardcom — יש להגדיר אותם במסך מנהל-העל, או לאשר את התשלום ידנית');
+      return { sid, creds, payment: x.payment };
+    },
+    work: async ({ creds, payment }) => OCC.verifyCardcomPayment({ creds, payment, fetchImpl: ownerFetch }),
+    record: async (event, r, { sid }) => {
+      const c = ownerCore.setSignupPaymentCheck(sid, r);
+      await ownerAudit(event, 'signup.payment.verify', { id: sid, status: c.status, tranzactionId: c.tranzactionId || undefined });
+      return c;
     },
   });
   handleSave('owner:signupDocument', async (event, id) => {
@@ -2730,6 +2933,7 @@ function registerIpcHandlers() {
     },
     after: async (event, { a, file }) => {
       fs.writeFileSync(file, Buffer.from(a.data, 'base64'));
+      markFromInternet(file);
       return { saved: true };
     },
   });
@@ -2830,7 +3034,8 @@ function registerIpcHandlers() {
   handle('license:terminateChild', childNotice('terminate'));
   handle('audit:list', async (event, filter = {}) => db.listAudit(filter || {}));
   handleSave('audit:export', async (event, filter = {}) => {
-    const rows = await db.listAudit({ ...(filter || {}), limit: 5000 });
+    // כל היומן — בלי חיתוך שקט (סקירת קוד 2.11.2026)
+    const rows = await db.listAudit({ action: (filter && filter.action) || '', all: true });
     // המועד נשמר ב-UTC — בקובץ ובשמו לפי השעון המקומי (אחרת השעות מוקדמות ב-2–3 שעות)
     const at = (v) => {
       const d = new Date(v);
@@ -2972,6 +3177,15 @@ function registerIpcHandlers() {
         const row = (d) => ({ name: d.name, count: d.count, total: d.total });
         ctx.npo = { year: ov.year, donors: (ov.yearDonors || []).map(row), names: (ov.donors || []).map(d => d.name) };
       } catch { ctx.npo = null; }
+      // „מתי היארצייט של…?” — המועד הקרוב לכל נפטר, רק שדות התצוגה (בלי טלפון ואיש קשר)
+      if (opts.memorials) {
+        try {
+          const m = await npoService.getMemorials(today, 400);
+          const seen = new Set();
+          ctx.memorials = (m.rows || []).filter(r => !seen.has(r.id) && seen.add(r.id)).slice(0, 500).map(r => ({
+            name: r.name, parentName: r.parentName || '', date: r.date, hebrew: r.hebrew || '', uncertain: !!r.uncertain, daysLeft: r.daysLeft }));
+        } catch { ctx.memorials = null; }
+      }
     }
     // הקשר הזמני שהועבר בערוץ ai:context — נשרף אחרי השימוש, ונוצל רק באותה פגישה שבה נשלח
     const held = aiContextBySender.get(event.sender.id);
@@ -3064,14 +3278,22 @@ function registerIpcHandlers() {
       const hint = (wantsRange && acctOpen && (!domain || domain === 'acct')) ? cleanAiRange(extra.range) : null;
       // הרמז מתקבל רק כשהוא מסכים עם הטווח שהכללים גזרו מהשאלה (ראו rangeAgrees) — אחרת השאלה קובעת
       const range = hint && AI_RULES.rangeAgrees(hint, fallback) ? hint : fallback;
-      const ctx = await aiRulesContext(event, today, range, { npoYear: AI_RULES.donorYear(q, today), modules: true });
+      const ctx = await aiRulesContext(event, today, range, { npoYear: AI_RULES.donorYear(q, today), modules: true, memorials: domain === 'memorial' });
       if (ctx.opened.acct) ctx.range = range;
       // קשר השמאות נשרף בכל שאלה — גם כשהוא לא נוצל (בלי כשירות לאימות/canRead) — והוא לא נשמר.
       // כאן ולא אחרי התשובה: הקשר חדש שנשלח בזמן שהמודל עונה שייך לשאלה הבאה
       aiContextBySender.delete(event.sender.id);
-      return { q, ctx };
+      return { q, ctx, senderId: event.sender.id, session: authService.sessions.get(event.sender.id) || null };
     },
-    work: async ({ q, ctx }) => longDone(await aiAssistant.run(q, ctx)),
+    // תשובה איטית (המודל המקומי — עד כמה דקות) לא נמסרת אחרי שהפגישה הסתיימה או הוחלפה בזמן ההמתנה:
+    // היא נבנתה מנתוני המשתמש הקודם (סקירת קוד 2.11.2026)
+    work: async ({ q, ctx, senderId, session }) => {
+      const res = await aiAssistant.run(q, ctx);
+      if (!session || !authService.peekSession(senderId) || authService.sessions.get(senderId) !== session) {
+        throw new Error('נדרשת כניסה למערכת (או שהפגישה פגה לאחר חוסר פעילות) — התשובה לא הוצגה');
+      }
+      return longDone(res);
+    },
   };
   handleLong('ai:run', aiRunFn);
   handle('ai:explain', async (event, payload) => aiAssistant.explain(payload || {}));
@@ -3175,10 +3397,27 @@ function systemChat() {
   if (!chatStore) throw new Error('תיבת ההודעות אינה זמינה');
   return chatStore;
 }
+// משתמשים, תפקידים, קישורי Google ויומן הפעולות — השדה users בגיבוי המלא (main.js / main-android.js; סקירת קוד 2.11.2026).
+// usersFromBackup — בדיקת הקובץ לפני חלון האישור (null = גיבוי ישן בלעדיו: לא נוגעים במשתמשים); usersRestore — מיזוג
+// בתור (database.js → importUsers: משתמש קיים לא משתנה), עם מכסת המשתמשים של הרישיון
+const usersBackup = () => enqueue(() => db.exportUsers());
+const usersRestore = (snap) => enqueue(async () => {
+  if (!snap) return null;
+  const st = licenseState();
+  const max = st && st.mode !== 'unlicensed' && st.limits && Number.isSafeInteger(st.limits.maxUsers) ? st.limits.maxUsers : Infinity;
+  return db.importUsers(snap, { maxActive: max });
+});
+// אימות חוזר של הסיסמה של המשתמש המחובר במודול הכלכלי — לפני הצגת קוד השחזור (main.js), בתור
+const confirmPassword = (senderId, password) => enqueue(async () => {
+  const me = authService.getSession(senderId);
+  if (!me) throw new Error('נדרשת כניסה');
+  try { await db.confirmPassword(me.id, password); } catch (e) { throw toUserError(e); }
+  return true;
+});
 const chatBackup = (opts) => systemChat().exportMailbox(opts);
 const chatRestore = (data, opts) => systemChat().restoreMailbox(data, opts);
 
-module.exports = { toUserError, setErrorLogger, initEcon, chatAutoFetch, flushChat, chatBackup, chatRestore, permissionFor, requiresAdmin, licenseState, licenseMarks, mergeLicenseMarks, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
+module.exports = { toUserError, setErrorLogger, markFromInternet, initEcon, chatAutoFetch, flushChat, chatBackup, chatRestore, usersBackup, usersRestore, usersFromBackup: UB.usersFromBackup, confirmPassword, permissionFor, requiresAdmin, licenseState, licenseMarks, mergeLicenseMarks, onLicenseChange: (fn) => { licenseListeners.push(fn); }, invalidateLicense: () => licenseStore && licenseStore.invalidate(), getDb: () => db, isLoggedIn: () => authService.sessions.size > 0, assertAccess,
   // מודולים שדורשים כניסה: בדיקה שקטה, רישום פעילות (עבודה במודול כזה מונעת ניתוק), ואירוע כניסה/יציאה
   hasSession: (senderId) => authService.peekSession(senderId),
   touchSession: (senderId) => { authService.getSession(senderId); },

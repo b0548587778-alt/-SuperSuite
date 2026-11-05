@@ -19,9 +19,11 @@ on:
     tags: ['v*']
 # יומני הבנייה נכתבים גם לענף ci-status (משימת report): דף היומנים של GitHub Actions חסום ב-NetFree,
 # וכך אפשר לקרוא את התוצאה ב-git fetch origin ci-status.
-# ריצה אחת בכל פעם: כל ריצה דורסת את ci-status, ושתי ריצות חופפות היו מוחקות זו לזו את היומנים
+# ריצה אחת בכל פעם: כל ריצה דורסת את ci-status, ושתי ריצות חופפות היו מוחקות זו לזו את היומנים.
+# ריצה שמפרסמת (תגית v* או publish) — בקבוצה משלה: GitHub משאיר רק ריצה ממתינה אחת בקבוצה, ודחיפה נוספת
+# הייתה מבטלת בשקט פרסום שממתין (סקירת קוד 2.11.2026). הדחיפה ל-ci-status עצמה מסודרת בתור במשימת report
 concurrency:
-  group: ci-status
+  group: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.publish) && format('publish-{0}', github.ref) || 'ci-status' }}
   cancel-in-progress: false
 jobs:
   # משימה אחת: הבדיקות, הכיווץ, האריזה ובדיקת העלייה.
@@ -30,6 +32,8 @@ jobs:
   # קריאה בלבד: כאן רץ קוד של צד שלישי (npm install, electron-builder) — בלי טוקן כתיבה למאגר ובלי טוקן הפרסום
   build:
     runs-on: windows-latest
+    # בלי זמן קצוב: צעד תקוע תופס מכונה עד 6 שעות ומעכב את כל הריצות שבתור (סקירת קוד 2.11.2026)
+    timeout-minutes: 120
     permissions:
       contents: read
     env:
@@ -65,13 +69,9 @@ jobs:
           if grep -q '"node_modules/node-llama-cpp"' package-lock.json; then CMD="npm ci"; else CMD="npm install"; fi
           { echo "== $CMD"; $CMD 2>&1; } | tee -a "$LOG"
           cp package-lock.json ci-logs/root-package-lock.json
-      # רכיב ההרצה של המודל המקומי — למחשב, דרך ci-status: node tools/llm-runtime.js fetch.
-      # תוספת בלבד: כישלון כאן לא עוצר את הבנייה (ריצה #62)
-      - name: llm runtime for ci-status
-        continue-on-error: true
-        run: set -o pipefail; { echo "== llm-runtime"; node tools/llm-runtime.js pack ci-logs/llm-runtime 2>&1; } | tee -a "$LOG"
       # הבדיקות רצות על הקוד המקורי, לפני הכיווץ
       - name: npm test
+        timeout-minutes: 40
         run: set -o pipefail; { echo "== npm test"; npm test 2>&1; } | tee -a "$LOG"
       # כיווץ הקוד (PLAN.md 3.5) — במקום, בעותק של GitHub בלבד, אחרי הבדיקות.
       # צעד נפרד בלי סודות החתימה, ובלי npm install: esbuild הנעול (tools/minify-deps/package-lock.json)
@@ -119,6 +119,14 @@ jobs:
             dist/SuperSuite-Portable.exe
           key: installer-${{ github.run_id }}-${{ github.run_attempt }}
           enableCrossOsArchive: true
+      # רכיב ההרצה של המודל המקומי — למחשב, דרך ci-status: node tools/llm-runtime.js fetch.
+      # אחרי ה-Build ובדיקת העלייה (סקירת קוד 2.11.2026): מקובץ הנעילה הייעודי (tools/llm-runtime-deps) ב-npm ci
+      # --ignore-scripts, כך ששום קוד של התלויות לא רץ לפני האריזה; SHA-256 של העץ ב-llm-runtime.json וביומן.
+      # תוספת בלבד: כישלון כאן לא עוצר את הבנייה (ריצה #62)
+      - name: llm runtime for ci-status
+        continue-on-error: true
+        timeout-minutes: 20
+        run: set -o pipefail; { echo "== llm-runtime"; node tools/llm-runtime.js pack ci-logs/llm-runtime 2>&1; } | tee -a "$LOG"
       # היומנים למשימת report — תמיד, גם אחרי כישלון
       - name: logs for report
         if: always()
@@ -136,6 +144,7 @@ jobs:
     needs: [build]
     if: ${{ (inputs.publish || startsWith(github.ref, 'refs/tags/v')) && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -175,6 +184,11 @@ jobs:
     needs: [build, publish]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # ריצת פרסום ורגילה יכולות לרוץ יחד (קבוצות נפרדות) — הדחיפה ל-ci-status אחת-אחת
+    concurrency:
+      group: ci-status-push
+      cancel-in-progress: false
     permissions:
       contents: write
       actions: read

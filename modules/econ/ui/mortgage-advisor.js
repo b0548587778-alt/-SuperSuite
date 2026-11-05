@@ -157,6 +157,7 @@ function madvShowMessage(title, text) {
     h.textContent = title;
     const ta = document.createElement('textarea');
     ta.rows = 12; ta.readOnly = true; ta.value = text; ta.className = 'ss-input';
+    ta.setAttribute('aria-label', 'נוסח ההודעה להעתקה'); // r4 נגישות
     const actions = document.createElement('div');
     actions.className = 'modal-actions';
     const close = document.createElement('button');
@@ -378,7 +379,7 @@ function attachMadvHandlers() {
   document.querySelectorAll('[data-madv-status]').forEach(sel => sel.addEventListener('change', async () => {
     const patch = { status: sel.value };
     if (sel.value === 'lost') {
-      const v = await askFields('למה התיק לא התקדם?', [{ name: 'lostReason', label: 'סיבה (לא חובה)' }], 'שמירה');
+      const v = await askFields('למה התיק לא התקדם?', [{ name: 'lostReason', label: 'סיבה (לא חובה)', optional: true }], 'שמירה');
       if (!v) { await switchView('mortgage-advisor'); return; }
       patch.lostReason = v.lostReason || '';
     }
@@ -461,6 +462,7 @@ function madvAskPayment(c) {
     method.innerHTML = Object.entries(methods).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
     const note = field('הערה (לא חובה)', mk('text', ''));
     const err = document.createElement('div');
+    err.setAttribute('role', 'alert'); // שגיאה מוקראת מיד (r4 נגישות)
     err.style.color = 'var(--ss-danger)';
     const actions = document.createElement('div');
     actions.className = 'modal-actions';
@@ -474,8 +476,8 @@ function madvAskPayment(c) {
     cancel.addEventListener('click', () => finish(null));
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (!date.value) { err.textContent = 'יש לבחור תאריך'; date.focus(); return; }
-      if (!(Number(amount.value) > 0)) { err.textContent = 'יש להזין סכום חיובי'; amount.focus(); return; }
+      if (!date.value) { dialogFieldError(err, date, 'חסר תאריך התשלום. בחרו תאריך ונסו שוב.'); return; }
+      if (!(Number(amount.value) > 0)) { dialogFieldError(err, amount, 'הסכום חסר או אינו נכון. כתבו סכום גדול מאפס (למשל 1500).'); return; }
       finish({ date: date.value, amount: Number(amount.value), method: method.value, note: note.value.trim() });
     });
     amount.focus();
@@ -506,9 +508,13 @@ function attachMadvFeeHandlers() {
   document.querySelectorAll('[data-madv-invoice]').forEach(btn => btn.addEventListener('click', async () => {
     // מעמד המע"מ שננעל בתיק בתשלום הראשון (לא ההגדרה הנוכחית של המשרד)
     const exempt = !!(madvClient(btn.dataset.madvInvoice) || {}).feeExempt;
-    if (!(await askConfirm(`להפיק ${exempt ? 'חשבונית עסקה וקבלה' : 'חשבונית מס/קבלה'} על התשלום הזה? החשבונית תירשם בהנהלת החשבונות ותקבל מספר.`))) return;
+    // מספר עוסק / ת"ז של הלקוח (לא חובה) — בתיק הייעוץ אין שדה ת"ז, ולכן אין מה למלא מראש (החלטת הבעלים 5.11.2026);
+    // בלעדיו חשבונית מעל הסף מודפסת "אין לנכות" (סקירת קוד 2.11.2026)
+    const v = await askDocFields(`להפיק ${exempt ? 'חשבונית עסקה וקבלה' : 'חשבונית מס/קבלה'} על התשלום? היא תירשם בהנהלת החשבונות ותקבל מספר`, [
+      { name: 'customerTaxId', label: RLTY_TAX_ID_LABEL }], 'הפקת החשבונית');
+    if (!v) return;
     try {
-      const r = await window.systemAPI.issueMortgageFeeInvoice(btn.dataset.madvInvoice, btn.dataset.pay, { confirmed: true });
+      const r = await window.systemAPI.issueMortgageFeeInvoice(btn.dataset.madvInvoice, btn.dataset.pay, { confirmed: true, customerTaxId: v.customerTaxId || '' });
       showToast(`הופקה חשבונית מספר ${r.number}`);
       await switchView('mortgage-advisor');
     } catch (error) { showError('שגיאה בהפקת החשבונית: ' + errMsg(error)); }

@@ -97,34 +97,51 @@ function invoiceAnalytics(invoices) {
 }
 
 // ---------- CSV: קריאה (תומך במרכאות, BOM ושורות חדשות) ----------
+// סקירת קוד 2.11.2026: (1) מרכאה פותחת ציטוט רק בתחילת תא — קודם "בע"מ" / ש"ח / גמ"ח באמצע תא לא מצוטט
+// פתחו ציטוט ואיחדו שורות בשקט (כמו splitCsvLine בשמאות מקרקעין). (2) לכל שורה — line: מספר השורה הפיזית
+// בקובץ שבה היא מתחילה, כדי שהודעות השגיאה יצביעו על השורה הנכונה גם אחרי שורות ריקות ותאים רב-שורתיים
 function parseCsv(text) {
-  const src = String(text || '').replace(/^﻿/, '');
+  const src = String(text || '').replace(/^\uFEFF/, '');
   const rows = [];
-  let row = [], cell = '', inQ = false;
+  let row = [], cell = '', inQ = false, line = 1, rowLine = 1;
+  const endRow = () => {
+    row.push(cell); cell = '';
+    // line — מאפיין לא נספר: השורה נשארת מערך תאים רגיל (השוואות, JSON)
+    if (row.some(c => c.trim() !== '')) { Object.defineProperty(row, 'line', { value: rowLine }); rows.push(row); }
+    row = [];
+  };
   for (let i = 0; i < src.length; i++) {
     const ch = src[i];
     if (inQ) {
       if (ch === '"' && src[i + 1] === '"') { cell += '"'; i++; }
       else if (ch === '"') inQ = false;
-      else cell += ch;
-    } else if (ch === '"') inQ = true;
+      else {
+        if (ch === '\n' || (ch === '\r' && src[i + 1] !== '\n')) line++;
+        cell += ch;
+      }
+    } else if (ch === '"' && cell.trim() === '') { cell = ''; inQ = true; }
     else if (ch === ',') { row.push(cell); cell = ''; }
     else if (ch === '\n' || ch === '\r') {
       if (ch === '\r' && src[i + 1] === '\n') i++;
-      row.push(cell); cell = '';
-      if (row.some(c => c.trim() !== '')) rows.push(row);
-      row = [];
+      endRow();
+      line++;
+      rowLine = line;
     } else cell += ch;
   }
   if (inQ) throw new Error('קובץ CSV לא תקין: מרכאה לא נסגרה');
-  row.push(cell);
-  if (row.some(c => c.trim() !== '')) rows.push(row);
+  endRow();
   return rows;
+}
+
+// גרש שהוסיף toCsv (exports.js) לפני ערך שנראה כנוסחה — מוסר רק כשמה שאחריו באמת היה מנוטרל
+function unguardCell(c) {
+  return typeof c === 'string' && c[0] === "'" && require('./exports').csvFormulaRisk(c.slice(1)) ? c.slice(1) : c;
 }
 
 // ייבוא מחירון: עמודות name, kind, cost, markupPct, vatExempt (כותרת בשורה הראשונה)
 function parseProductsCsv(text) {
-  const rows = parseCsv(text);
+  // תאים שהתוכנה ניטרלה בייצוא (גרש לפני נוסחה) — חוזרים לערך המקורי
+  const rows = parseCsv(text).map(r => Object.assign(r.map(unguardCell), { line: r.line }));
   if (rows.length < 2) throw new Error('הקובץ ריק או חסר שורות נתונים');
   if (rows.length - 1 > MAX_IMPORT_ROWS) throw new Error(`ניתן לייבא עד ${MAX_IMPORT_ROWS} שורות בכל פעם`);
   const head = rows[0].map(h => h.trim().toLowerCase());
@@ -139,7 +156,7 @@ function parseProductsCsv(text) {
         name: get('name'), kind: get('kind') || 'goods',
         cost: get('cost') || 0, markupPct: get('markuppct') || 0, vatExempt: yes
       }));
-    } catch (e) { errors.push({ line: idx + 2, message: e.message }); }
+    } catch (e) { errors.push({ line: r.line || idx + 2, message: e.message }); }
   });
   return { products, errors };
 }
@@ -171,6 +188,10 @@ function writeEncryptedAutoBackup({ dir, plainText, key, keep = 14, today, tag }
     const oldOwn = ownFiles.length < keep ? files.filter(f => legacy.test(f) && f.slice(5, 15) < since) : [];
     existing = oldOwn.concat(ownFiles).sort(byDay);
   }
+  // קובץ עם תאריך עתידי (נכתב כששעון המחשב הקדים) — לא נספר בסבב, כדי שלא יישאר לתמיד כ"חדש ביותר" וידחוק
+  // גיבויים אמיתיים. נמחק רק כשיש keep גיבויים אחרים (בלי עתידיים) — אז הוא בוודאות שארית (סקירת קוד 2.11.2026)
+  const future = existing.filter(f => f.slice(5, 15) > day);
+  existing = existing.filter(f => f.slice(5, 15) <= day);
   if (existing.includes(name)) return { ok: true, skipped: true, file: path.join(dir, name) };
   const file = path.join(dir, name);
   const tmp = file + '.tmp';
@@ -187,10 +208,11 @@ function writeEncryptedAutoBackup({ dir, plainText, key, keep = 14, today, tag }
   const all = existing.concat(name).sort(byDay);
   const removed = [];
   for (const f of all.slice(0, Math.max(0, all.length - keep))) { fs.unlinkSync(path.join(dir, f)); removed.push(f); }
+  if (all.length >= keep) for (const f of future) { fs.unlinkSync(path.join(dir, f)); removed.push(f); }
   return { ok: true, file, removed };
 }
 
 module.exports = {
   periodSummary, validatePersonalEntry, personalSummary, invoiceAnalytics,
-  parseCsv, parseProductsCsv, writeEncryptedAutoBackup, MAX_PERSONAL, MAX_IMPORT_ROWS
+  parseCsv, unguardCell, parseProductsCsv, writeEncryptedAutoBackup, MAX_PERSONAL, MAX_IMPORT_ROWS
 };

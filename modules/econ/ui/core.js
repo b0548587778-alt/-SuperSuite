@@ -18,8 +18,13 @@ const state = {
 const elements = {
   view: document.getElementById('view'),
   pageTitle: document.getElementById('pageTitle'),
+  pageHelp: document.getElementById('pageHelp'),
+  announcer: document.getElementById('srAnnounce'),
   today: document.getElementById('today'),
   addBtn: document.getElementById('addBtn'),
+  wizardBtn: document.getElementById('wizardBtn'),
+  helpBtn: document.getElementById('helpBtn'),
+  helpPanel: document.getElementById('helpPanel'),
   userBtn: document.getElementById('userBtn'),
   backupBtn: document.getElementById('backupBtn'),
   restoreBtn: document.getElementById('restoreBtn'),
@@ -30,6 +35,7 @@ const elements = {
   cancelBtn: document.getElementById('cancelBtn'),
   closeModal: document.getElementById('closeModal'),
   toastContainer: document.getElementById('toastContainer'),
+  alertContainer: document.getElementById('alertContainer'),
   navButtons: document.querySelectorAll('.nav')
 };
 
@@ -69,6 +75,50 @@ const viewTitles = {
   'biz-reports': 'תזרים צפוי, כרטסת לקוחות ומקדמות'
 };
 
+// נגישות ושפה פשוטה (r4): "מה עושים כאן" — משפט אחד לכל מסך, ומה לוחצים קודם.
+// מוצג מתחת לכותרת (#pageHelp), ונמסר גם כ-data-ss-help לבועת "?" של המעטפת
+const VIEW_HELP = {
+  'dashboard': 'כאן רואים במבט אחד מה קורה: הכנסות, משימות ומה דורש טיפול היום. לחצו על כרטיס כדי לעבור למסך שלו.',
+  'ai': 'כאן כותבים שאלה במילים פשוטות (למשל "כמה תרומות היו החודש?") ומקבלים תשובה מהנתונים שלכם. הכול נשאר במחשב.',
+  'finance': 'כאן רואים תמונת מצב של הכסף המשפחתי: הכנסות, הוצאות וחיסכון. את הפריטים עצמם מוסיפים במסך "התוכנית הפיננסית".',
+  'business': 'כאן שומרים תוכניות לעסק: עלות הקמה והכנסה צפויה. להתחלה — לחצו "＋ הוספת רשומה".',
+  'acct-reports': 'כאן רואים את הדוחות של העסק: כמה נכנס, כמה יצא, וכמה מע"מ לשלם. לבחירת חודשים אחרים — "החלף תקופה".',
+  'biz-reports': 'כאן רואים כמה כסף צפוי להיכנס ולצאת בחודשים הקרובים, מי חייב לכם כסף, וכמה מקדמות מס לשלם.',
+  'acct-journal': 'כאן רושמים הכנסה או הוצאה שאינן חשבונית שהוצאתם — למשל קבלה מספק. להתחלה — לחצו "＋ הוספת רשומה".',
+  'collect': 'כאן שולחים ללקוח בקשת תשלום עם קישור לתשלום, ורואים מי כבר שילם.',
+  'acct-invoices': 'כאן מוציאים חשבונית ללקוח, רואים מי שילם ומדפיסים. להתחלה — לחצו "＋ הוספת רשומה" ומלאו שם לקוח, פריט וסכום.',
+  'acct-bank': 'כאן משווים את דף הבנק לרישומים שלכם. להתחלה — "📥 קליטת דף בנק" (קובץ CSV שמורידים מאתר הבנק).',
+  'acct-chart': 'רשימת "הקופות" של הנהלת החשבונות (חשבונות). בדרך כלל אין צורך לשנות כאן דבר.',
+  'acct-settings': 'כאן ממלאים את פרטי העסק שיודפסו על החשבוניות, ואת סוג העוסק (מורשה או פטור). כדאי למלא לפני החשבונית הראשונה.',
+  'acct-pricing': 'כאן שומרים מוצרים ושירותים עם מחיר קבוע, כדי לבחור אותם מהר בחשבונית. המחשבון עוזר לקבוע מחיר.',
+  'acct-personal': 'כאן רושמים הוצאות והכנסות של הבית והמשפחה — בנפרד מהעסק. להתחלה — לחצו "＋ הוספת רשומה".',
+  'market-intel': 'כאן שומרים מידע על השוק: ידיעות, דוחות והערות. להתחלה — לחצו "＋ הוספת רשומה".',
+  'mortgage': 'כאן מחשבים הלוואה או משכנתא: כמה תשלמו כל חודש וכמה בסך הכול. להתחלה — לחצו "＋ הוספת רשומה".',
+  'mortgage-advisor': 'כאן מנהלים תיקי לקוחות של ייעוץ משכנתאות: פרטים, מסלולים, מסמכים ותשלום.',
+  'mortgage-lab': 'כאן בונים ומשווים תמהילי משכנתא בפירוט. מסך למתקדמים — לחישוב פשוט השתמשו ב"משכנתאות והלוואות".',
+  'realty': 'כאן מנהלים נכסים, לקוחות ועסקאות בתיווך. בחרו לשונית למעלה (נכסים, לקוחות, עסקאות) ואז "＋ הוספת רשומה".',
+  'realestate': 'כאן מכינים שומת מקרקעין (הערכת שווי של דירה או נכס) ומדפיסים דוח.',
+  'npo': 'כאן רושמים תרומות ומוציאים קבלות לתורמים. להתחלה — לחצו "＋ הוספת רשומה" ומלאו שם תורם וסכום.',
+  'gemach': 'כאן מנהלים את הגמ"ח: הלוואות, ערבים, החזרים והפקדות. להתחלה — לחצו "＋ הוספת רשומה".',
+  'chesed': 'כאן מנהלים נזקקים, מתנדבים וסבבי חלוקה. להתחלה — הוסיפו נזקק, ואחר כך פתחו סבב חלוקה.',
+  'people': 'כאן מחפשים אדם ורואים במקום אחד את כל מה שקשור אליו: תרומות, הלוואות וחלוקות. הקלידו שם או מספר זהות.',
+  'personal-finance': 'כאן מגדירים את התוכנית הפיננסית של המשפחה: הכנסות, הוצאות, חסכונות והלוואות. להתחלה — "＋ הוספת רשומה".',
+  'tasks': 'כאן רושמים דברים שצריך לעשות ומסמנים כשסיימתם. להתחלה — לחצו "＋ הוספת רשומה".',
+  'contacts': 'כאן שומרים אנשי קשר: שם, טלפון וכתובת. להתחלה — לחצו "＋ הוספת רשומה".',
+  'voice-notes': 'כאן שומרים הערות ורשימות קצרות. להתחלה — לחצו "＋ הוספת רשומה".',
+  'canvas': 'כאן שומרים לוחות לרעיונות ולתכנון. להתחלה — לחצו "＋ הוספת רשומה".',
+  'settings': 'כאן קובעים הגדרות כלליות, מוסיפים משתמשים ומעבירים נתונים מקובץ או אל קובץ.',
+  'licensing': 'כאן רואים אם הרישיון פעיל ומה לעשות אם לא. בדרך כלל אין צורך להיכנס לכאן.',
+  'messages': 'כאן קוראים ושולחים הודעות בין המערכות של הארגון.'
+};
+
+// בקשה מהמעטפת: תצוגה, או משימה מתיבת "מה תרצה לעשות?" ({ view, task, prefill } — shell/tasks.js).
+// econStartTask (אם קיים) פותח את הטופס מלא מראש ו**לא שומר** — המשתמש בודק ושומר בעצמו; אחרת — התצוגה בלבד
+function openShellRequest(req) {
+  if (req.task && typeof window.econStartTask === 'function') return window.econStartTask(req.task, req.prefill || {}, req.view);
+  return switchView(req.view, { focus: true });
+}
+
 // Initialize application
 async function init() {
   try {
@@ -78,11 +128,15 @@ async function init() {
     }
     // בקשת מעבר מהסרגל האחיד. לפני כניסה — נשמרת ונפתחת מיד אחרי הכניסה
     if (typeof window.systemAPI.onGoto === 'function') {
-      window.systemAPI.onGoto(view => {
-        if (!Object.prototype.hasOwnProperty.call(viewTitles, view)) return;
-        if (state.user) switchView(view); else state.requestedView = view;
+      window.systemAPI.onGoto(msg => {
+        const req = typeof msg === 'string' ? { view: msg } : msg;
+        if (!req || !Object.prototype.hasOwnProperty.call(viewTitles, req.view)) return;
+        if (state.user) openShellRequest(req);
+        else { state.requestedView = req.view; state.requestedTask = req.task ? req : null; }
       });
     }
+    // אשף "צעד אחר צעד" לבקשה מהמעטפת (openShellRequest) — הקלט לא מהימן ונבדק שוב ב-sanitizePrefill (ui/wizards.js)
+    window.econStartTask = econStartTask;
     // פגישה שפגה בשקט: הממשק עוד "מחובר" — מציגים שוב את מסך הכניסה
     if (typeof window.systemAPI.onAuthCheck === 'function') {
       window.systemAPI.onAuthCheck(async () => {
@@ -102,9 +156,11 @@ async function init() {
 
     // רישום הכפתורים קודם — גם אם מסך ההתחברות נכשל, הממשק נשאר מגיב
     elements.navButtons.forEach(btn => {
-      btn.addEventListener('click', () => switchView(btn.dataset.view));
+      btn.addEventListener('click', () => switchView(btn.dataset.view, { focus: true }));
     });
     elements.addBtn.addEventListener('click', () => handleAdd());
+    if (elements.wizardBtn) elements.wizardBtn.addEventListener('click', () => { if (elements.wizardBtn.dataset.task) econStartTask(elements.wizardBtn.dataset.task); });
+    attachHelpButton();
     elements.userBtn.addEventListener('click', () => handleUser());
     elements.backupBtn.addEventListener('click', () => handleBackup());
     elements.restoreBtn.addEventListener('click', () => handleRestore());
@@ -114,6 +170,7 @@ async function init() {
     // Enter בטופס עם שדה אחד שולח GET ומרענן את המודול (הנתונים ו-?embedded=1 אובדים) — בולמים.
     // גם ה-CSP חוסם (form-action 'none'); השמירה — בכפתור
     if (elements.modalForm) elements.modalForm.addEventListener('submit', (e) => e.preventDefault());
+    watchViewA11y();
 
     // מסך כניסה: לא ממשיכים בלי משתמש מחובר
     const authStatus = await window.systemAPI.authStatus();
@@ -130,7 +187,10 @@ async function init() {
     try { const adv = await window.systemAPI.getAdvancedSettings(); if (adv && adv.startView) start = adv.startView; } catch { /* ברירת מחדל */ }
     // תצוגה שנבחרה בסרגל האחיד לפני הכניסה גוברת על מסך הפתיחה
     if (state.requestedView) { start = state.requestedView; state.requestedView = null; }
+    const task = state.requestedTask && state.requestedTask.view === start ? state.requestedTask : null;
+    state.requestedTask = null;
     await switchView(start);
+    if (task) await openShellRequest(task);
     showToast('מערכת מאוחדת נטענה בהצלחה');
   } catch (error) {
     showError('שגיאה באתחול המערכת: ' + errMsg(error));
@@ -144,21 +204,27 @@ function isAdminUser() {
 }
 
 // Switch between views
-async function switchView(viewName) {
+// opts.focus — המעבר התחיל בלחיצה של המשתמש: המיקוד עובר לכותרת המסך, וקורא המסך מקריא אותה (r4 נגישות)
+async function switchView(viewName, opts = {}) {
   // מונה מעברים: טעינה איטית של מסך קודם לא מתרנדרת מעל מסך שנפתח אחריה
   const seq = state.viewSeq = (state.viewSeq || 0) + 1;
   try {
     state.currentView = viewName;
     state.loading = true;
     state.error = null;
+    // חלון העזרה שייך למסך הקודם
+    toggleHelp(false);
 
     // Update navigation
     elements.navButtons.forEach(btn => {
       btn.classList.toggle('active', btn.dataset.view === viewName);
+      if (btn.dataset.view === viewName) btn.setAttribute('aria-current', 'page');
+      else if (btn.removeAttribute) btn.removeAttribute('aria-current');
     });
 
     // Update title
     elements.pageTitle.textContent = viewTitles[viewName] || viewName;
+    setPageHelp(viewName);
 
     // סימון התצוגה בסרגל האחיד (גם כשהמעבר התחיל מקישור פנימי בלוח הבקרה)
     if (typeof window.systemAPI.reportView === 'function') {
@@ -173,8 +239,9 @@ async function switchView(viewName) {
       return;
     }
 
-    // Clear view
-    elements.view.innerHTML = '<div class="loading">טוען...</div>';
+    // Clear view — "טוען" מוקרא (aria-busy על אזור התוכן)
+    elements.view.innerHTML = '<div class="loading" role="status">טוען… רגע אחד</div>';
+    if (elements.view.setAttribute) elements.view.setAttribute('aria-busy', 'true');
 
     // Load view data
     await loadViewData(viewName);
@@ -182,14 +249,44 @@ async function switchView(viewName) {
 
     // Render view
     renderView(viewName);
+    if (elements.view.removeAttribute) elements.view.removeAttribute('aria-busy');
+    if (opts.focus) focusPageTitle();
 
     state.loading = false;
   } catch (error) {
     if (seq !== state.viewSeq) return;
     state.loading = false;
     state.error = errMsg(error);
+    // במקום "טוען…" שנשאר לעד: הסבר במסך עצמו וכפתור "נסו שוב" (r4 נגישות)
+    if (elements.view && elements.view.setAttribute) {
+      elements.view.removeAttribute('aria-busy');
+      elements.view.innerHTML = '<div role="alert">' +
+        renderEmpty('המסך לא נפתח — ' + esc(state.error) + '. אפשר ללחוץ "נסו שוב"; אם זה חוזר — סגרו ופתחו את התוכנה.', '⚠') +
+        '<button type="button" class="primary empty-add" data-view-retry>נסו שוב</button></div>';
+      const retry = elements.view.querySelector && elements.view.querySelector('[data-view-retry]');
+      if (retry) retry.addEventListener('click', () => switchView(viewName, { focus: true }));
+    }
     showError('שגיאה בטעינת התצוגה: ' + errMsg(error));
   }
+}
+
+// הסבר "מה עושים כאן" מתחת לכותרת, וגם data-ss-help לבועת "?" של המעטפת
+function setPageHelp(viewName) {
+  const help = VIEW_HELP[viewName] || '';
+  const el = elements.pageHelp;
+  if (el) { el.textContent = help; el.hidden = !help; }
+  if (elements.pageTitle && elements.pageTitle.setAttribute) {
+    if (help) elements.pageTitle.setAttribute('data-ss-help', help);
+    else if (elements.pageTitle.removeAttribute) elements.pageTitle.removeAttribute('data-ss-help');
+  }
+}
+
+// מיקוד בכותרת המסך אחרי מעבר — המשתמש במקלדת מתחיל מראש המסך, וקורא המסך מקריא את שמו
+function focusPageTitle() {
+  const t = elements.pageTitle;
+  if (!t || typeof t.focus !== 'function') return;
+  if (t.setAttribute) t.setAttribute('tabindex', '-1');
+  t.focus();
 }
 
 // Load data for current view
@@ -278,7 +375,8 @@ async function loadViewData(viewName) {
         const signup = isAdmin && remote && remote.url && (status.mode !== 'licensed' || status.trial) ? await window.systemAPI.licenseSignupStatus().catch(() => null) : null;
         const ownerOffer = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerGetOffer().catch(() => null) : null;
         const signups = isAdmin && owner && owner.unlocked ? await window.systemAPI.ownerSignups().catch(() => []) : [];
-        state.data.licensing = { status, isAdmin, children, owner, remote, inbox, update, releases, signup, ownerOffer, signups };
+        const ownerPayment = isAdmin && owner && owner.unlocked && window.systemAPI.ownerGetPaymentProvider ? await window.systemAPI.ownerGetPaymentProvider().catch(() => null) : null;
+        state.data.licensing = { status, isAdmin, children, owner, remote, inbox, update, releases, signup, ownerOffer, signups, ownerPayment };
         break;
       }
       case 'collect':
@@ -383,7 +481,7 @@ async function loadDashboardData() {
     window.systemAPI.getTasks().catch(() => null),
     window.systemAPI.getMarketIntel().catch(() => null),
     window.systemAPI.getAccountingReports({ from: yearStart(), to: today() }).catch(() => null),
-    window.systemAPI.getInvoices().catch(() => []),
+    window.systemAPI.getInvoices({ limit: 5 }).catch(() => []),
     window.systemAPI.getProducts().catch(() => []),
     // לוח הבוקר (עמותה, גמ"ח, חסד) — תחום סגור ברישיון או תקלה לא מפילים את מסך הבית
     typeof window.systemAPI.getMorningBrief === 'function' ? window.systemAPI.getMorningBrief().catch(() => null) : null,
@@ -445,7 +543,8 @@ function renderView(viewName) {
 
   switch (viewName) {
     case 'dashboard':
-      html = renderSampleOffer() + renderDashboard(data);
+      // מצב פשוט: המסך מתחיל ב"מה יש לעשות היום" (ui/wizards.js)
+      html = (isSimpleMode() && data && data.brief && data.brief.agenda ? renderAgenda(data.brief.agenda) : '') + renderSampleOffer() + renderDashboard(data);
       break;
     case 'finance':
       html = renderFinance(data);
@@ -552,6 +651,7 @@ function renderView(viewName) {
   elements.view.querySelectorAll('[data-empty-add]').forEach(b => b.addEventListener('click', () => handleAdd()));
   attachSampleHandlers(elements.view);
   labelIconButtons(elements.view);
+  enhanceA11y(elements.view);
 }
 
 // נגישות (7.3): כפתור שכל התוכן שלו אייקון (🗑, ✎...) — הכותרת שלו הופכת לשם שקורא המסך מקריא
@@ -559,6 +659,129 @@ function labelIconButtons(root) {
   root.querySelectorAll('button[title]:not([aria-label])').forEach(b => {
     if (!/[֐-׿A-Za-z]{2,}/.test(b.textContent || '')) b.setAttribute('aria-label', b.getAttribute('title'));
   });
+}
+
+// ===== נגישות (r4): מעבר אחד על כל מסך שרונדר — מה שקורא מסך ומקלדת צריכים, בלי לגעת בכל מסך בנפרד =====
+const cleanText = (el) => String((el && el.textContent) || '').replace(/\s+/g, ' ').trim();
+// הכותרת הקרובה שמעל רכיב: בתוך הכרטיס / האזור שלו, אחרת כותרת המסך
+function nearestHeading(el) {
+  for (let box = el.parentNode; box && box.querySelector; box = box.parentNode) {
+    const h = box.querySelector('h2, h3, h4, h5, legend, .ss-section-title');
+    if (h && !el.contains(h) && cleanText(h)) return cleanText(h);
+    if (box === elements.view) break;
+  }
+  return cleanText(elements.pageTitle);
+}
+let a11ySeq = 0;
+function enhanceA11y(root) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+  // טבלאות: שם לטבלה (מהכותרת שמעליה) ו-scope לכותרות העמודות והשורות
+  root.querySelectorAll('table').forEach(t => {
+    if (!t.querySelector('caption') && !t.getAttribute('aria-label') && !t.getAttribute('aria-labelledby')) t.setAttribute('aria-label', nearestHeading(t));
+    t.querySelectorAll('th').forEach(th => {
+      if (th.getAttribute('scope')) return;
+      const row = th.parentNode;
+      const inHead = !!(row && row.parentNode && row.parentNode.tagName === 'THEAD');
+      // שורה שכולה כותרות = כותרות עמודה; th בודד בתחילת שורת נתונים = כותרת השורה
+      const allTh = !!row && [...row.children].every(c => c.tagName === 'TH');
+      th.setAttribute('scope', inHead || allTh ? 'col' : 'row');
+    });
+  });
+  // שדה בלי תווית: שם מכותרת העמודה (בטבלת עריכה), מ-placeholder או מ-title
+  root.querySelectorAll('input, select, textarea').forEach(f => {
+    if (f.type === 'hidden' || f.getAttribute('aria-label') || f.getAttribute('aria-labelledby')) return;
+    if (f.closest('label')) return;
+    if (f.id && root.querySelector(`label[for="${String(f.id).replace(/"/g, '')}"]`)) return;
+    let name = '';
+    const td = f.closest('td');
+    if (td && td.parentNode) {
+      const row = td.parentNode;
+      const idx = [...row.children].indexOf(td);
+      const table = td.closest('table');
+      const head = table && table.querySelector('thead tr');
+      const col = head && head.children[idx] ? cleanText(head.children[idx]) : '';
+      const first = row.children[0] && row.children[0] !== td ? cleanText(row.children[0]) : '';
+      name = [col, first].filter(Boolean).join(' — ');
+    }
+    if (!name) name = f.getAttribute('placeholder') || f.getAttribute('title') || '';
+    if (name) f.setAttribute('aria-label', name);
+  });
+  // כפתור אייקון שחוזר בכל שורה ("עריכה", "מחיקה") — השם כולל את השורה: "מחיקה — משה כהן"
+  root.querySelectorAll('button[aria-label]').forEach(b => {
+    if (b.dataset.a11yCtx) return;
+    if (/[֐-׿A-Za-z]{2,}/.test(b.textContent || '')) return;
+    const tr = b.closest('tr');
+    const card = !tr && b.closest('.card, .ss-card, .ss-list-row');
+    let ctx = '';
+    if (tr && tr.children[0] && !tr.children[0].contains(b)) ctx = cleanText(tr.children[0]);
+    else if (card) { const h = card.querySelector('h3, h4, strong, b'); ctx = h ? cleanText(h) : ''; }
+    if (ctx && !b.getAttribute('aria-label').includes(ctx)) b.setAttribute('aria-label', b.getAttribute('aria-label') + ' — ' + ctx.slice(0, 60));
+    b.dataset.a11yCtx = '1';
+  });
+  // כותרות: המסך מתחיל ב-h1 (#pageTitle); כותרות המסך מתחילות ברמה 2, בלי לדלג על רמות
+  const heads = [...root.querySelectorAll('h2, h3, h4, h5, h6')];
+  const levels = heads.map(h => Number(h.tagName.slice(1)));
+  if (levels.length) {
+    const min = Math.min(...levels);
+    // רמה אפקטיבית: הקטנה ביותר הופכת ל-2, וכל רמה אחרת — לכל היותר אחת מעל הקודמת
+    let prev = 1;
+    heads.forEach((h, i) => {
+      let lvl = levels[i] - (min - 2);
+      if (lvl > prev + 1) lvl = prev + 1;
+      if (lvl !== levels[i]) { h.setAttribute('role', 'heading'); h.setAttribute('aria-level', String(lvl)); }
+      prev = lvl;
+    });
+  }
+  // הסבר (data-ss-help) גם לקורא מסך, בלי תלות בבועת "?" של המעטפת
+  root.querySelectorAll('[data-ss-help]').forEach(el => describeWithHelp(el));
+  // רכיב לחיץ שאינו כפתור (data-goto על div וכו') — גם במקלדת
+  root.querySelectorAll('[data-goto]:not(button):not(a), [data-clickable]').forEach(el => makeKeyboardClickable(el));
+}
+// חלק מהמסך שמתרנדר מחדש בלי renderView (תוצאות חיפוש, סיכום מחושב, פרטי תיק) — עובר את אותו מעבר נגישות.
+// רק childList: השינויים של enhanceA11y עצמו הם מאפיינים, והוספת ההסבר הנסתר קורית פעם אחת לכל רכיב
+function watchViewA11y() {
+  if (typeof MutationObserver !== 'function' || !elements.view) return;
+  let pending = false;
+  const obs = new MutationObserver(() => {
+    if (pending) return;
+    pending = true;
+    const run = () => { pending = false; labelIconButtons(elements.view); enhanceA11y(elements.view); };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run); else setTimeout(run, 0);
+  });
+  obs.observe(elements.view, { childList: true, subtree: true });
+}
+// הסבר נסתר-ויזואלית שמקושר ב-aria-describedby
+function describeWithHelp(el) {
+  const text = el.getAttribute('data-ss-help');
+  if (!text || el.getAttribute('data-ss-help-linked')) return;
+  const span = document.createElement('span');
+  span.className = 'sr-only';
+  span.id = 'ssHelp' + (++a11ySeq);
+  span.textContent = text;
+  // אחרי הרכיב (או אחרי התווית שעוטפת אותו) — לא בתוכו, כדי שלא ייכנס לשם עצמו
+  const anchor = (el.closest && el.closest('label')) || el;
+  if (!anchor.parentNode || typeof anchor.parentNode.insertBefore !== 'function') return;
+  anchor.parentNode.insertBefore(span, anchor.nextSibling);
+  const prev = el.getAttribute('aria-describedby');
+  el.setAttribute('aria-describedby', (prev ? prev + ' ' : '') + span.id);
+  el.setAttribute('data-ss-help-linked', '1');
+}
+function makeKeyboardClickable(el) {
+  if (el.getAttribute('data-kb')) return;
+  if (!el.getAttribute('role')) el.setAttribute('role', 'button');
+  if (el.getAttribute('tabindex') === null) el.setAttribute('tabindex', '0');
+  el.setAttribute('data-kb', '1');
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+  });
+}
+
+// הודעה לקורא המסך (אזור aria-live שקט) — בלי חלון ובלי טוסט
+function announce(message) {
+  const a = elements.announcer;
+  if (!a) return;
+  a.textContent = '';
+  setTimeout(() => { a.textContent = String(message || ''); }, 30);
 }
 
 // תיבת חיפוש — מוצגת רק בתצוגות שתומכות בחיפוש

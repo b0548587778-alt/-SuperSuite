@@ -166,11 +166,17 @@ function buildRecords(csvText, options, existing, settings) {
     if (def.required && !mapping[f]) throw new Error(`יש לבחור עמודה עבור "${def.label}"`);
   }
   const col = Object.fromEntries(Object.entries(mapping).filter(([, h]) => h).map(([f, h]) => [f, headers.indexOf(h)]));
-  const seen = new Set((existing || []).map(dupKeyOf));
+  // סקירת קוד 2.11.2026: בלי מספר עסקה — מפתח + מספר המופע (#n), כמו בהתאמת הבנק. קודם שתי תרומות זהות
+  // אמיתיות באותו קובץ (אותו תורם, יום וסכום) נספרו ככפילות, והשנייה דולגה כ"כבר קיימת".
+  // תרומות קיימות נספרות באותה צורה, כך שקליטה חוזרת של אותו קובץ עדיין לא מוסיפה אף אחת מהן
+  const occKey = (base, counts) => { const n = (counts.get(base) || 0) + 1; counts.set(base, n); return base.startsWith('r|') ? `${base}#${n}` : base; };
+  const had = new Map();
+  const seen = new Set((existing || []).map(d => occKey(dupKeyOf(d), had)));
+  const occ = new Map();
   const records = [], errors = [];
   let skipped = 0;
   rows.forEach((r, i) => {
-    const line = i + 2;
+    const line = r.line || i + 2;
     const get = (f) => (col[f] === undefined ? '' : String(r[col[f]] ?? '').trim());
     try {
       const date = parseDate(get('date'));
@@ -214,12 +220,17 @@ function buildRecords(csvText, options, existing, settings) {
         ...clean,
         import: { source, externalId, externalReceipt: get('externalReceipt').slice(0, 40), receipts, importedAt: new Date().toISOString(), ...(note ? { note } : {}) }
       };
-      const dk = dupKeyOf(rec);
+      const dk = occKey(dupKeyOf(rec), occ);
       if (seen.has(dk)) { skipped++; return; }
       seen.add(dk);
       records.push(rec);
       if (note) errors.push({ line, message: note, warning: true });
       if (ambNote) errors.push({ line, message: ambNote, warning: true });
+      // קבלה מקומית מחוץ לתקופת אישור סעיף 46 — תצא בלי זיכוי (סקירת קוד 2.11.2026)
+      const s46 = N.normalizeSettings(settings);
+      if (receipts === 'issue' && s46.sec46Number && !N.sec46Eligible(s46, date)) {
+        errors.push({ line, message: `התרומה מ-${date} מחוץ לתקופת אישור סעיף 46 — הקבלה תצא בלי זיכוי לפי סעיף 46`, warning: true });
+      }
     } catch (e) {
       errors.push({ line, message: e.message });
     }

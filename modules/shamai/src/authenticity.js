@@ -288,7 +288,7 @@ function renderAuthChecker() {
       }).join('')}
     </div>
 
-    ${score !== null && score > 0 ? `
+    ${score !== null ? `
       <div class="auth-actions">
         <button class="btn-primary" id="btn-auth-save">💾 שמור דוח אותנטיות</button>
         <button class="btn-secondary" id="btn-auth-reset">↻ איפוס</button>
@@ -334,8 +334,13 @@ function renderAuthChecker() {
       }).filter(Boolean).join('\n')}`,
       authReport: { category: currentAuthCategory, score, verdict, results: { ...authResults } },
     };
+    // גם ציון 0 ("סבירות גבוהה לזיוף") נשמר — דווקא הוא חשוב לתיעוד. שמירה שהמחסן דחה — הפריט יוצא מהפנקס,
+    // ורשימת הבדיקה נשארת על המסך (פעם נמחקה בכל מקרה; סקירת קוד 2.11.2026). ההודעה — מ-Storage.save
     state.opportunities.unshift(opp);
-    Storage.save('opportunities', state.opportunities);
+    if (!Storage.save('opportunities', state.opportunities)) {
+      state.opportunities = state.opportunities.filter(o => o !== opp);
+      return;
+    }
     toast('✓ דוח נשמר בפנקס', 'success');
     authResults = {};
     renderAuthChecker();

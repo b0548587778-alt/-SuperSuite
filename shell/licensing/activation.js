@@ -17,14 +17,31 @@ const TERM_SLACK_DAYS = 2;
 /* state — תוצאת store.current(); leaf — ה-payload של הרישיון של המערכת (issuedAt, expiresAt).
    lastSync — זמן (ms) של הסנכרון האחרון שהצליח.
    now — הזמן האפקטיבי (כבר מוגן מהחזרת שעון ב-store). */
-function evaluate({ state, leaf, lastSync = 0, now, checkDays = CHECK_DAYS, minTermDays = MIN_TERM_DAYS }) {
+/* chain — ה-payloads של שרשרת הרישוי (מהשורש לעלה), אם ידועה. מערכת בת מונפקת עם expiresAt
+   שמוגבל לזה של ההורה, ולכן תקופתה קצרה משנה כשהיא מונפקת באמצע השנה של ההורה — היא עדיין
+   "שנתית": התנאי נבדק מול ההורה שהגביל אותה (סקירת קוד 2.11.2026, ממצא 1) */
+function annualTerm(leaf, chain, minMs) {
+  const term = (p) => Number(p.expiresAt) - Number(p.issuedAt);
+  const list = Array.isArray(chain) && chain.length && chain[chain.length - 1] === leaf ? chain : [leaf];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const p = list[i];
+    if (!p) return false;
+    if (term(p) >= minMs) return true;
+    const parent = list[i - 1];
+    // קצר משנה רק כי נחתך בתוקף של ההורה — בודקים את ההורה
+    if (!parent || Number(p.expiresAt) < Number(parent.expiresAt)) return false;
+  }
+  return false;
+}
+
+function evaluate({ state, leaf, chain = null, lastSync = 0, now, checkDays = CHECK_DAYS, minTermDays = MIN_TERM_DAYS }) {
   if (!state || state.mode !== 'licensed') return { required: false, ok: true, missing: [], steps: [], nextDue: null, dueSoon: false };
   const windowMs = checkDays * DAY_MS;
   const fresh = (t) => Number.isFinite(t) && t > 0 && t <= now + DAY_MS && now - t <= windowMs;
   const dueAt = (t) => (fresh(t) ? t + windowMs : null);
 
   const licenseOk = state.status === 'active' && !!leaf
-    && Number(leaf.expiresAt) - Number(leaf.issuedAt) >= (minTermDays - TERM_SLACK_DAYS) * DAY_MS;
+    && annualTerm(leaf, chain, (minTermDays - TERM_SLACK_DAYS) * DAY_MS);
   const licenseReason = !leaf ? 'לא הותקן רישיון למערכת'
     : state.status !== 'active' ? 'הרישיון אינו פעיל'
       : !licenseOk ? `הרישיון הונפק לפחות משנה — נדרש רישיון שנתי (${minTermDays} יום לפחות)` : '';

@@ -50,8 +50,9 @@ function salesItems(data, inRange) {
     const base = { customerId: taxIdOf(inv.customerTaxId), ref: inv.number, allocation: inv.allocationNumber || '',
       exempt: !!inv.vatExempt || !(Number(inv.vat) > 0), source: `חשבונית ${inv.number}` };
     if (inRange(inv.date)) items.push({ ...base, date: inv.date, netAg: A.toAg(inv.net), vatAg: A.toAg(inv.vat) });
-    // חשבונית שבוטלה — דיווח הפוך בתאריך הביטול (כמו רשומת ההיפוך ביומן)
-    if (inv.status === 'cancelled' && inv.cancelledAt && inRange(inv.cancelledAt)) {
+    // חשבונית שבוטלה בהיפוך יומן (לפני 2.11.2026) — דיווח הפוך בתאריך הביטול. ביטול בחשבונית זיכוי (cancelCreditId)
+    // מדווח דרך הזיכוי עצמו למטה — לא פעמיים
+    if (inv.status === 'cancelled' && !inv.cancelCreditId && inv.cancelledAt && inRange(inv.cancelledAt)) {
       items.push({ ...base, date: inv.cancelledAt, netAg: -A.toAg(inv.net), vatAg: -A.toAg(inv.vat), source: `ביטול חשבונית ${inv.number}` });
     }
   }

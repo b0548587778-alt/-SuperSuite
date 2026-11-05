@@ -5,14 +5,16 @@
   const api = window.shellAPI;
   const top = document.createElement('div');
   top.className = 'ss-top';
-  top.innerHTML = '<button id="ssMenu" type="button" aria-label="תפריט">☰</button><b id="ssTitle">SuperSuite</b>';
+  top.innerHTML = '<button id="ssMenu" type="button" aria-label="תפריט">☰</button><b id="ssTitle">SuperSuite</b>' +
+    // מצב פשוט (נגישות): "חזרה למסך הבית" גלוי תמיד בפס העליון כשמסך פתוח (ui-kit.css — .ss-simple-only)
+    '<button id="ssHome" class="ss-simple-only" type="button" hidden>⌂ למסך הבית</button>';
   const scrim = document.createElement('div');
   scrim.className = 'ss-scrim';
   document.body.prepend(scrim);
   document.body.prepend(top);
 
   // כפתורים של אפשרויות שאין להן מקבילה באנדרואיד (main-android.js — NOT_ON_ANDROID): לא מציגים כפתור שלא עושה כלום
-  for (const id of ['ds', 'crashReportBtn', 'userGuideBtn', 'userGuidePdfBtn']) {
+  for (const id of ['crashReportBtn', 'userGuideBtn', 'userGuidePdfBtn']) {
     const el = document.getElementById(id);
     if (el) el.hidden = true;
   }
@@ -34,7 +36,9 @@
   let hist = { canBack: false };
   let active = null;
   if (api.onHistory) api.onHistory(st => { hist = st || hist; });
-  api.onActive(id => { active = id; syncTitle(); });
+  const homeBtn = document.getElementById('ssHome');
+  homeBtn.onclick = () => { drawer(false); document.getElementById('hm').click(); };
+  api.onActive(id => { active = id; homeBtn.hidden = !id; syncTitle(); });
 
   // כפתור "אחורה" של המכשיר: מגירה ← דיאלוג פתוח ← היסטוריה ← מסך הבית. false = לצאת מהאפליקציה
   window.__ssBack = function () {

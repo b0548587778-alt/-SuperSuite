@@ -4,6 +4,8 @@
 // PLAN.md 9.15: הצעת רמת אבטחה, מדיניות שמירה גם לתורמים/לווים/תיקי משכנתאות, ויומן בקשות עיון ותיקון.
 // המקורות: docs/LEGAL-REQUIREMENTS.md, סעיף 4.
 
+const { stampDay } = require('./dates');
+
 const SENSITIVITY = { regular: 'רגיל', sensitive: 'רגיש — מצב כלכלי', high: 'רגיש מאוד — מתן בסתר' };
 const len = (v) => (Array.isArray(v) ? v.length : 0);
 
@@ -35,13 +37,14 @@ function mailboxRows(mb) {
 }
 
 // opts.mailboxes — תיבות ההודעות (mailboxRows למעלה); בלעדיו — רק המאגרים שבמסד
+// opts.encrypted — האם המסד במחשב הזה מוצפן בפועל (atRestStatus). בלי DPAPI ובאנדרואיד — לא (סקירת קוד 2.11.2026)
 function dataMap(data, userCounts = {}, opts = {}) {
   const npo = data.npo || {};
   const gm = data.gemach || {};
   const ch = data.chesed || {};
   const bens = Array.isArray(ch.beneficiaries) ? ch.beneficiaries : [];
   const conf = bens.filter(b => b.tier === 'confidential').length;
-  const all = 'כל המשתמשים המחוברים (צופה, עורך, מנהל)';
+  const all = 'כל המשתמשים המחוברים (צופה, עורך, מנהל, רואה חשבון)';
   const rows = [
     { area: 'עמותה — תורמים וקבלות', count: len(npo.donations), fields: 'שם, ת.ז, טלפון, כתובת, סכום', sensitivity: 'regular', access: all },
     { area: 'עמותה — הוראות קבע', count: len(npo.standingOrders), fields: 'שם, ת.ז, טלפון, כתובת, סכום חודשי; בהוראה בנקאית במס"ב — בנק, סניף וחשבון (בלי פרטי אשראי)', sensitivity: 'regular', access: all },
@@ -62,16 +65,19 @@ function dataMap(data, userCounts = {}, opts = {}) {
     { area: 'הנהלת חשבונות — לקוחות בחשבוניות', count: len(data.invoices), fields: 'שם הלקוח, ע.מ / ת.ז (רשות), כתובת, פריטים וסכומים', sensitivity: 'regular', access: all },
     { area: 'הנהלת חשבונות — ספקים ביומן', count: (Array.isArray(data.journal) ? data.journal : []).filter(e => e && (e.vatDoc || e.supplierDoc)).length,
       fields: 'שם הספק, ע.מ (בעוסק שהוא יחיד — מספר ת.ז), מספר החשבונית, תאריך וסכומים', sensitivity: 'regular', access: all },
-    { area: 'שמאות (במחסן המוצפן של המודול)', count: null,
+    // opts.shamai — יש נתונים במחסן השמאות (ipc.js); לא ידוע ← false. הכמות לא נספרת (null)
+    { area: 'שמאות (במחסן המוצפן של המודול)', count: null, present: !!(opts && opts.shamai),
       fields: 'פרטי לקוחות, פריטים, שטרי קנייה ותמונות', sensitivity: 'sensitive', access: 'משתמשים מחוברים עם רישיון למודול' }
   ];
   const mail = mailboxRows(opts && opts.mailboxes);
   rows.push(...mail);
+  const encrypted = !!(opts && opts.encrypted);
   return {
+    encrypted,
     rows: rows.map(r => ({ ...r, sensitivityLabel: SENSITIVITY[r.sensitivity] })),
     users: { admin: userCounts.admin || 0, editor: userCounts.editor || 0, viewer: userCounts.viewer || 0, accountant: userCounts.accountant || 0 },
     storage: [
-      'מסד נתונים מקומי במחשב (תיקיית נתוני המשתמש של התוכנה) — לא נשלח לאינטרנט',
+      `מסד נתונים מקומי במחשב (תיקיית נתוני המשתמש של התוכנה), ${encrypted ? 'מוצפן' : 'לא מוצפן במכשיר הזה'} — לא נשלח לאינטרנט`,
       'גיבוי ידני ואוטומטי — מוצפן בסיסמה (קובץ ‎.ssbk)',
       'קובצי ייצוא (CSV / PDF) — נשמרים במקום שהמשתמש בוחר, ללא הצפנה. יש לשמור ולמחוק אותם בהתאם',
       ...mail.map(r => `${r.area}: ${r.storedAt}; ${r.encryption}. ${r.retention}. גיבוי: ${r.backup}`)
@@ -82,7 +88,7 @@ function dataMap(data, userCounts = {}, opts = {}) {
 
 // פעילות אחרונה של נזקק: עדכון הרשומה או שיוך לסבב חלוקה
 function lastActivity(b, rounds) {
-  let last = String(b.updatedAt || b.createdAt || '').slice(0, 10);
+  let last = stampDay(b.updatedAt || b.createdAt || '');
   for (const r of rounds || []) {
     if ((r.allocations || []).some(a => a.beneficiaryId === b.id) && String(r.date || '') > last) last = String(r.date);
   }
@@ -127,8 +133,11 @@ function suggestLevel(map) {
   const u = (map && map.users) || {};
   const users = ['admin', 'editor', 'viewer', 'accountant'].reduce((t, k) => t + (Number(u[k]) || 0), 0);
   const total = rows.reduce((t, r) => t + (Number(r.count) || 0), 0);
-  const sensitive = rows.filter(r => r.sensitivity !== 'regular' && Number(r.count) > 0);
-  const sensitiveCount = sensitive.reduce((t, r) => t + Number(r.count), 0);
+  // שורה רגישה שהכמות בה לא נספרה (null) אבל יש בה נתונים (present) — קיימת. אחרת ארגון עם נתוני שמאות
+  // בלבד קיבל "בלי מידע רגיש" (סקירת קוד 2.11.2026)
+  const exists = (r) => Number(r.count) > 0 || (r.count == null && r.present === true);
+  const sensitive = rows.filter(r => r.sensitivity !== 'regular' && exists(r));
+  const sensitiveCount = sensitive.reduce((t, r) => t + (Number(r.count) || 0), 0);
   const reasons = [];
   let level;
   if (sensitiveCount >= 100000 || users > 100) {
@@ -157,7 +166,7 @@ function suggestLevel(map) {
 // ---------- מדיניות שמירה לכל סוג רשומה. בכל הסוגים: רק תצוגה מקדימה ואישור מנהל, והשרת בודק מחדש
 const idKey = (raw) => { const d = String(raw ?? '').replace(/\D/g, ''); return d && !/^0+$/.test(d) ? d.padStart(9, '0') : ''; };
 const normName = (v) => String(v ?? '').replace(/["'׳״]/g, '').replace(/\s+/g, ' ').trim();
-const day = (v) => String(v || '').slice(0, 10);
+const day = (v) => stampDay(v || ''); // חותמת זמן ← היום המקומי (לא UTC)
 const maxDay = (...vals) => vals.map(day).filter(Boolean).sort().pop() || '';
 
 const RETENTION_KINDS = {
@@ -166,9 +175,13 @@ const RETENTION_KINDS = {
   donors: { label: 'תורמים שלא תרמו בתקופה (עמותה)', minYears: 7,
     removes: 'טלפון וכתובת בכל התרומות של התורם ובהוראות קבע שהסתיימו, ומספר ההמחאה, הבנק והסניף בהמחאות דחויות. ' +
       'נשמרים: שם, ת.ז, סכום, תאריכי הפירעון ומספר הקבלה. ' +
-      'קבלה שתודפס מחדש תצא בלי כתובת. מינימום 7 שנים — כמו תקופת השמירה של קבלות.' },
+      'קבלה שתודפס מחדש תצא בלי כתובת. מינימום 7 שנים — כמו תקופת השמירה של קבלות, ונספרות מסוף שנת המס של התרומה האחרונה.' },
   borrowers: { label: 'לווים בהלוואות שנפרעו או בוטלו (גמ"ח)', minYears: 1,
-    removes: 'טלפון, כתובת והערות של הלווה, וטלפון הערבים. נשמרים: שמות, ת.ז, סכום ולוח התשלומים.' },
+    removes: 'טלפון, כתובת והערות של הלווה, וטלפון הערבים — בהלוואה ובבקשת ההלוואה שממנה נוצרה (שם נמחקים גם מטרת ההלוואה וסיכום הראיון). ' +
+      'נשמרים: שמות, ת.ז, סכום ולוח התשלומים.' },
+  applications: { label: 'בקשות הלוואה שנדחו או לא טופלו (גמ"ח)', minYears: 1,
+    removes: 'טלפון, כתובת, מטרה, הערות וסיכום הראיון של המבקש, סיבת הדחייה וטלפון הערבים. ' +
+      'נשמרים: שמות, ת.ז, הסכום המבוקש ושלבי הבקשה. בקשה שאושרה — דרך "לווים" (יחד עם ההלוואה).' },
   mortgageClients: { label: 'תיקי ייעוץ משכנתאות שלא עודכנו', minYears: 1,
     removes: 'טלפון והערות. נשמרים: שם הלקוח, הבנק, הסכומים וההצעות.' },
   itemBorrowers: { label: 'שואלי חפצים שהחזירו (גמ"ח חפצים)', minYears: 1,
@@ -184,9 +197,13 @@ function retentionKind(kind) {
 }
 
 function cutoffFor(kind, today, years) {
-  const k = RETENTION_KINDS[retentionKind(kind)];
+  const kk = retentionKind(kind);
+  const k = RETENTION_KINDS[kk];
   if (Number(years) < k.minYears) throw new Error(`ב${k.label} תקופת השמירה היא לפחות ${k.minYears} שנים`);
-  return retentionCutoff(today, years);
+  const cut = retentionCutoff(today, years);
+  // תורמים: התקופה נספרת מסוף שנת המס של התרומה (קבלה מדצמבר 2019 נשמרת עד סוף 2026),
+  // ולכן מועמד רק מי שהתרומה האחרונה שלו בשנה שהסתיימה לפני X שנים מלאות (סקירת קוד 2.11.2026)
+  return kk === 'donors' ? `${cut.slice(0, 4)}-01-01` : cut;
 }
 
 // מפתח תורם: ת.ז, ובלעדיה — השם
@@ -229,6 +246,17 @@ function candidatesFor(data, kind, today, years) {
       .map(l => ({ id: l.id, label: normName(l.borrowerName), last: maxDay(l.issueDate, l.updatedAt, l.cancelledAt, ...(l.schedule || []).map(x => x.paidDate)) }))
       .filter(x => x.last && x.last < cutoff).sort((a, b) => a.last.localeCompare(b.last));
   }
+  if (k === 'applications') {
+    // בקשה שנדחתה, או בקשה פתוחה שלא נגעו בה בתקופה. בקשה שאושרה — עם ההלוואה שלה (borrowers),
+    // חוץ מבקשה של הלוואה שכבר מוזערה (מזעור מלפני שהבקשה נכללה בו)
+    const minimizedLoans = new Set(((data.gemach && data.gemach.loans) || []).filter(l => l.privacyMinimizedAt).map(l => l.id));
+    return ((data.gemach && data.gemach.applications) || [])
+      .filter(a => a && a.id && !a.privacyMinimizedAt && appHasContact(a)
+        && (a.loanId ? minimizedLoans.has(a.loanId) : a.status !== 'approved'))
+      .map(a => ({ id: a.id, label: normName(a.borrowerName), status: a.status,
+        last: maxDay(a.requestDate, a.updatedAt, a.createdAt, ...(a.history || []).map(h => h && h.at)) }))
+      .filter(x => x.last && x.last < cutoff).sort((a, b) => a.last.localeCompare(b.last));
+  }
   if (k === 'itemBorrowers') {
     // רק השאלה שהוחזרה; השאלה פתוחה — השואל עדיין פעיל
     return ((data.gemach && data.gemach.lendings) || [])
@@ -255,6 +283,16 @@ function candidatesFor(data, kind, today, years) {
 // פרטי חשבון לחיוב (מס"ב) נמחקים במזעור — ההוראה או ההלוואה כבר לא פעילה
 const withoutBank = ({ bankAccount, ...rest }) => rest;
 
+// בקשת הלוואה: פרטי קשר והמידע על המצב הכלכלי (סיכום הראיון, הערות, מטרה, סיבת הדחייה)
+function appHasContact(a) {
+  return !!(a.borrowerPhone || a.borrowerAddress || a.notes || a.interviewNotes || a.purpose || a.rejectReason
+    || (a.guarantors || []).some(g => g && g.phone));
+}
+function minimizeApplication(a, at) {
+  return { ...a, borrowerPhone: '', borrowerAddress: '', notes: '', interviewNotes: '', purpose: '', rejectReason: '',
+    guarantors: (a.guarantors || []).map(g => ({ ...g, phone: '' })), privacyMinimizedAt: at };
+}
+
 // מזעור בפועל — רק מזהים שעדיין מועמדים ברגע הביצוע. מחזיר כמה מוזערו
 function applyRetention(data, kind, ids, today, years, at) {
   const k = retentionKind(kind);
@@ -267,9 +305,12 @@ function applyRetention(data, kind, ids, today, years, at) {
     data.chesed.beneficiaries = data.chesed.beneficiaries.map(b => (ok(b.id) ? (done++, minimize(b, at)) : b));
   } else if (k === 'donors') {
     const hit = new Set();
+    const cutoff = cutoffFor(k, today, years);
     data.npo.donations = data.npo.donations.map(d => {
       const key = donorKey(d);
       if (!ok(key)) return d;
+      // קבלה שעוד בתקופת השמירה (נספרת מסוף שנת המס שלה) — פרטי התשלום שהודפסו עליה נשמרים
+      if (day(d.date) >= cutoff) return d;
       hit.add(key);
       // המחאות דחויות: נשמרים הפירעון והסכום (הקבלה); מספר ההמחאה, הבנק והסניף נמחקים
       const cheques = Array.isArray(d.cheques) ? { cheques: d.cheques.map(c => ({ number: '', bank: '', branch: '', dueDate: c.dueDate, amountAg: c.amountAg })), reference: '' } : {};
@@ -282,6 +323,14 @@ function applyRetention(data, kind, ids, today, years, at) {
     data.gemach.loans = data.gemach.loans.map(l => (ok(l.id)
       ? (done++, { ...withoutBank(l), borrowerPhone: '', borrowerAddress: '', notes: '', guarantors: (l.guarantors || []).map(g => ({ ...g, phone: '' })), privacyMinimizedAt: at })
       : l));
+    // בקשת ההלוואה שממנה נוצרה ההלוואה — אותם פרטים, וגם סיכום הראיון (סקירת קוד 2.11.2026)
+    const gone = new Set(data.gemach.loans.filter(l => l.privacyMinimizedAt === at && ok(l.id)).map(l => l.id));
+    const apps = new Set(data.gemach.loans.filter(l => gone.has(l.id) && l.applicationId).map(l => l.applicationId));
+    if (Array.isArray(data.gemach.applications)) {
+      data.gemach.applications = data.gemach.applications.map(a => (a && (gone.has(a.loanId) || apps.has(a.id)) ? minimizeApplication(a, at) : a));
+    }
+  } else if (k === 'applications') {
+    data.gemach.applications = data.gemach.applications.map(a => (ok(a.id) ? (done++, minimizeApplication(a, at)) : a));
   } else if (k === 'itemBorrowers') {
     data.gemach.lendings = data.gemach.lendings.map(l => (ok(l.id) ? (done++, { ...l, borrowerPhone: '', notes: '', privacyMinimizedAt: at }) : l));
   } else if (k === 'realtyClients') {
@@ -357,6 +406,6 @@ const INCIDENT_CHECKLIST = [
 
 module.exports = {
   SENSITIVITY, INCIDENT_CHECKLIST, LEVELS, RETENTION_KINDS, REQUEST_TYPES, REQUEST_STATUSES, RESPONSE_DAYS,
-  dataMap, suggestLevel, lastActivity, retentionCutoff, retentionCandidates, minimize, candidatesFor, applyRetention,
+  dataMap, suggestLevel, lastActivity, retentionCutoff, cutoffFor, retentionCandidates, minimize, candidatesFor, applyRetention,
   validateRequest, closeRequest, requestView, addDays
 };

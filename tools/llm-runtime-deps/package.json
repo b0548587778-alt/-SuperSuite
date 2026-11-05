@@ -1,0 +1,12 @@
+{
+  "name": "supersuite-llm-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "description": "רכיב ההרצה של המודל המקומי (tools/llm-runtime.js pack) — קובץ נעילה ייעודי, npm ci --ignore-scripts. הגרסה וה-overrides זהים ל-package.json של השורש",
+  "dependencies": {
+    "node-llama-cpp": "3.22.2"
+  },
+  "overrides": {
+    "simple-git": "4.0.2"
+  }
+}

@@ -6,6 +6,7 @@
 //  4. Service Worker כבוי: הקבצים כבר מקומיים, ו-SW מעל מארח מיורט לא עובד באנדרואיד.
 //  5. קריאה בלבד בשמאות (רישיון, כניסה והרשאת עריכה): כתיבה ל-localStorage נחסמת (write-block).
 //  6. פעילות בשמאות מאריכה את הכניסה למערכת (activity).
+//  7. הגדרות התצוגה והנגישות (data-ss-* על <html>, כמו display-preload.js במחשב) ובועות העזרה (ss-help.js).
 (function () {
   'use strict';
   if (window.parent === window) return; // לא בתוך המעטפת
@@ -109,6 +110,8 @@
     },
     // קריאה בלבד לפי הרישיון (main-android.js — syncWriteBlocks): הודעה בעברית או null
     'write-block'(m) { if (GUARDED) setWriteBlock(m.message); },
+    // הגדרות התצוגה והנגישות (main-android.js — broadcastDisplay): רק data-ss-* עם ערך פשוט
+    display(m) { applyDisplay(m.attrs); },
     reload() { location.reload(); }
   };
   window.addEventListener('message', e => {
@@ -208,4 +211,29 @@
   }, true);
 
   window.addEventListener('load', () => post({ ss: 'ready' }));
+
+  /* ---------- תצוגה ונגישות (סבב 4) ---------- */
+  // כמו display-preload.js במחשב: המאפיינים מגיעים מהמעטפת (הודעת display, בכל טעינה ובכל שינוי) ונשמרים
+  // ב-sessionStorage, כדי שטעינה מחדש של המודול תתחיל מיד במצב הנכון (למשל מצב פשוט וטקסט גדול)
+  const DISPLAY_KEY = 'ss-display';
+  function applyDisplay(attrs, keep) {
+    if (!attrs || typeof attrs !== 'object') return;
+    const el = document.documentElement;
+    if (!el || typeof el.setAttribute !== 'function') return;
+    for (const [k, v] of Object.entries(attrs)) {
+      if (/^data-ss-[a-z]+$/.test(k) && typeof v === 'string' && /^[a-z]+$/.test(v)) el.setAttribute(k, v);
+    }
+    if (keep !== false) { try { window.sessionStorage.setItem(DISPLAY_KEY, JSON.stringify(attrs)); } catch { /* רק בזיכרון */ } }
+  }
+  try { applyDisplay(JSON.parse(window.sessionStorage.getItem(DISPLAY_KEY) || 'null'), false); } catch { /* אין מצב שמור */ }
+  // בועות העזרה "?" (data-ss-help) — אותו קובץ כמו במחשב, מועתק לכל מודול בבנייה (android/build-apk.js)
+  function addHelp() {
+    if (!document.head || typeof document.querySelector !== 'function' || document.querySelector('script[data-ss-help-loader]')) return;
+    const s = document.createElement('script');
+    s.src = '/ss-help.js';
+    s.setAttribute('data-ss-help-loader', '');
+    document.head.appendChild(s);
+  }
+  if (document.readyState === 'loading' && typeof document.addEventListener === 'function') document.addEventListener('DOMContentLoaded', addHelp);
+  else addHelp();
 })();

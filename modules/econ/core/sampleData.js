@@ -152,17 +152,61 @@ function apply(data, kinds, { today, uuid, allowed }) {
   return added;
 }
 
-// מוחק רק רשומות עם sample === true. שום רשומה אחרת לא נוגעת
-function remove(data) {
-  const before = counts(data);
-  if (data.npo && Array.isArray(data.npo.donations)) data.npo.donations = data.npo.donations.filter(d => !(d && d.sample === true));
-  if (data.gemach && Array.isArray(data.gemach.loans)) data.gemach.loans = data.gemach.loans.filter(l => !(l && l.sample === true));
-  if (Array.isArray(data.products)) data.products = data.products.filter(p => !(p && p.sample === true));
-  if (contactsList(data).some(c => c && c.sample === true)) data.contacts = contactsList(data).filter(c => !(c && c.sample === true));
-  if (data.realty && typeof data.realty === 'object') {
-    for (const key of ['properties', 'clients', 'deals', 'projects']) if (Array.isArray(data.realty[key])) data.realty[key] = data.realty[key].filter(x => !(x && x.sample === true));
+// מזהים של רשומות דוגמה שרשומה אמיתית מפנה אליהן — הן נשארות (סקירת קוד 2.11.2026):
+// עסקה / הזמנת תיווך / נכס / ניתוח / תיק משכנתא אמיתיים שמפנים לנכס, ללקוח או לעסקה של הדוגמה,
+// ודרישת תשלום, אצוות מס"ב או בקשת הלוואה שמפנות להלוואה או לתרומה של הדוגמה.
+// רשומת דוגמה שנשארת מחזיקה גם את רשומות הדוגמה שהיא מפנה אליהן
+const arr = (v) => (Array.isArray(v) ? v : []);
+const isSample = (x) => !!(x && x.sample === true);
+function referencedSamples(data) {
+  const keep = new Set();
+  const r = data.realty && typeof data.realty === 'object' ? data.realty : {};
+  const realtyRefs = (x, kind) => {
+    if (!x) return [];
+    if (kind === 'deals') return [x.propertyId, x.buyerClientId, x.sellerClientId];
+    if (kind === 'orders') return [x.clientId, x.propertyId];
+    if (kind === 'properties') return [x.ownerClientId];
+    if (kind === 'analyses') return [x.propertyId];
+    return [];
+  };
+  const add = (id) => { if (id) keep.add(String(id)); };
+  for (const kind of ['deals', 'orders', 'properties', 'analyses']) {
+    for (const x of arr(r[kind])) if (!isSample(x)) realtyRefs(x, kind).forEach(add);
   }
-  return before.total;
+  for (const c of arr(data.mortgageAdvisor && data.mortgageAdvisor.clients)) if (!isSample(c)) add(c.realtyDealId);
+  for (const p of arr(data.payments)) if (p && p.target) add(p.target.id);
+  for (const a of arr(data.gemach && data.gemach.applications)) if (!isSample(a)) add(a.loanId);
+  for (const b of arr(data.gemach && data.gemach.masav && data.gemach.masav.batches)) for (const it of arr(b && b.items)) add(String((it && it.key) || '').split('|')[0]);
+  for (const o of arr(data.npo && data.npo.standingOrders)) for (const h of arr(o && o.history)) add(h && h.donationId);
+  // סגירה: רשומת דוגמה שנשארת — גם מה שהיא מפנה אליו
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const kind of ['deals', 'orders', 'properties']) {
+      for (const x of arr(r[kind])) {
+        if (!isSample(x) || !keep.has(String(x.id))) continue;
+        for (const id of realtyRefs(x, kind)) if (id && !keep.has(String(id))) { keep.add(String(id)); changed = true; }
+      }
+    }
+  }
+  return keep;
+}
+
+// מוחק רק רשומות עם sample === true שאין אליהן הפניה. שום רשומה אחרת לא נוגעת.
+// מחזיר את מספר הרשומות שנמחקו; out.kept — רשומות דוגמה שנשארו בגלל הפניה
+function remove(data, out = {}) {
+  const before = counts(data);
+  const keep = referencedSamples(data);
+  const drop = (x) => isSample(x) && !keep.has(String(x.id));
+  if (data.npo && Array.isArray(data.npo.donations)) data.npo.donations = data.npo.donations.filter(d => !drop(d));
+  if (data.gemach && Array.isArray(data.gemach.loans)) data.gemach.loans = data.gemach.loans.filter(l => !drop(l));
+  if (Array.isArray(data.products)) data.products = data.products.filter(p => !drop(p));
+  if (contactsList(data).some(drop)) data.contacts = contactsList(data).filter(c => !drop(c));
+  if (data.realty && typeof data.realty === 'object') {
+    for (const key of ['properties', 'clients', 'deals', 'projects']) if (Array.isArray(data.realty[key])) data.realty[key] = data.realty[key].filter(x => !drop(x));
+  }
+  const after = counts(data);
+  out.kept = after.total;
+  return before.total - after.total;
 }
 
 module.exports = { KINDS, SAMPLE_TAG, availableKinds, counts, apply, remove };

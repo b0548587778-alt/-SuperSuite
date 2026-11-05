@@ -75,7 +75,7 @@ async function deleteSampleData() {
   if (!await askConfirm('למחוק את כל נתוני הדוגמה? רשומות שהקלדתם בעצמכם לא יימחקו.')) return;
   try {
     const r = await window.systemAPI.deleteSampleData();
-    showToast(`נמחקו ${r.removed} רשומות דוגמה`);
+    showToast(`נמחקו ${r.removed} רשומות דוגמה${r.kept ? ` · ${r.kept} נשארו כי רשומות שלכם מפנות אליהן` : ''}`);
     await refreshSampleStatus();
     switchView(state.currentView);
   } catch (error) {

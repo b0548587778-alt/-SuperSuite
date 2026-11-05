@@ -153,7 +153,10 @@ class MortgageAdvisorService {
   // מחיקת תיק מוחקת גם את ההצעות שלו — אחרת נשארות הצעות יתומות שאינן מוצגות בשום מקום
   async deleteClient(clientId, actor) {
     const data = await this._load();
-    this._findClient(data, clientId, actor);
+    const cur = this._findClient(data, clientId, actor);
+    // תשלום עמלה שהופקה עליו חשבונית — לא נמחק עם התיק (כמו במחיקת תשלום ובנדל"ן; סקירת קוד 2.11.2026)
+    const invoiced = (cur.feePayments || []).find(p => this._liveInvoice(data, p));
+    if (invoiced) throw new Error(`בתיק יש תשלום עמלה שהופקה עליו חשבונית (מספר ${invoiced.invoiceNumber}) — אי אפשר למחוק את התיק. אפשר לסמן אותו "לא התקדם"`);
     data.mortgageAdvisor.clients = data.mortgageAdvisor.clients.filter(c => c.id !== clientId);
     data.mortgageAdvisor.offers = data.mortgageAdvisor.offers.filter(o => o.clientId !== clientId);
     // עסקת תיווך שהייתה מקושרת לתיק — הקישור מתנתק (העסקה נשארת)
@@ -265,7 +268,7 @@ class MortgageAdvisorService {
     const c = this._findClient(data, clientId, actor);
     const list = Array.isArray(c.feePayments) ? c.feePayments : [];
     if (list.length >= M.MAX_FEE_PAYMENTS) throw new Error('הגעת למספר המקסימלי של תשלומים בתיק');
-    const p = { id: crypto.randomUUID(), ...M.validateFeePayment(input), by: actor ? actor.id : null, createdAt: new Date().toISOString() };
+    const p = { id: crypto.randomUUID(), ...M.validateFeePayment(input, M.feeStatus(c, this._vatRate(data), this._fullVatRate(data))), by: actor ? actor.id : null, createdAt: new Date().toISOString() };
     // התשלום הראשון נועל בתיק את מעמד המע"מ של המשרד (שינוי מאוחר של ההגדרה חל רק על תיקים בלי תשלומים)
     c.feeVatExempt = this._caseExempt(data, c);
     c.feePayments = [...list, p];

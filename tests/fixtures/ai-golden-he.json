@@ -58,6 +58,10 @@
     { "id": "local-receipt-text", "kind": "ask", "q": "נסח נוסח קבלה לתרומה של משפחת גולדברג", "ctx": "full",
       "expect": { "engine": "local", "task": "letter", "tools": ["donor_record"], "contains": ["משפחת גולדברג", "₪3,600.00"] },
       "mock": { "calls": [{ "name": "donor_record", "args": { "name": "גולדברג" } }],
+        "answer": "בס״ד\nהתקבלה בתודה תרומה מאת {{donor_record.matches.0.name}} בסך {{donor_record.matches.0.total}}. תודה רבה על התרומה." } },
+    { "id": "guard-sec46-letter", "kind": "ask", "q": "כתוב נוסח קבלה לתורם גולדברג", "ctx": "full",
+      "expect": { "engine": "rules", "fallback": "ungrounded", "notContains": ["סעיף 46"] },
+      "mock": { "calls": [{ "name": "donor_record", "args": { "name": "גולדברג" } }],
         "answer": "בס״ד\nהתקבלה בתודה תרומה מאת {{donor_record.matches.0.name}} בסך {{donor_record.matches.0.total}}. התרומה מוכרת לפי סעיף 46 בכפוף לאישור העמותה." } },
 
     { "id": "guard-invented-number", "kind": "ask", "q": "מה התחזית שלך לשנה הבאה?", "ctx": "full",

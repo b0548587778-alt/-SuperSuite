@@ -1,0 +1,13 @@
+# הגבלת קצב לכל כתובת לפני שהבקשה מגיעה לשרת (סקירת קוד 2.11.2026).
+# נטען מ-Caddyfile (import בתוך handle @relay) רק בתמונה של Dockerfile.caddy, שבה התוסף rate_limit קיים.
+# השרת עצמו מגביל ל-60 בקשות לדקה לכתובת (RATE ב-server/license-relay.js); כאן תקרה רחבה יותר נגד הצפה,
+# כדי שבקשות לא יגיעו בכלל ל-Node. route — כי rate_limit אינו הוראה עם סדר קבוע ב-Caddy.
+route {
+	rate_limit {
+		zone relay_per_ip {
+			key {remote_host}
+			events 300
+			window 1m
+		}
+	}
+}

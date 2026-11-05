@@ -132,6 +132,7 @@ function buildWeb() {
     fs.copyFileSync(path.join(ROOT, 'shell', 'design-tokens.css'), path.join(dst, 'design-tokens.css'));
     fs.copyFileSync(path.join(ROOT, 'shell', 'screen-guard.js'), path.join(dst, 'screen-guard.js'));
     fs.copyFileSync(path.join(ROOT, 'shell', 'ss-dialog.js'), path.join(dst, 'ss-dialog.js'));
+    fs.copyFileSync(path.join(ROOT, 'shell', 'ss-help.js'), path.join(dst, 'ss-help.js'));
     fs.copyFileSync(path.join(ROOT, 'shell', 'ui-kit.css'), path.join(dst, 'ui-kit.css'));
     const entry = path.join(dst, ENTRY_HTML[mod]);
     fs.writeFileSync(entry, injectIntoHead(fs.readFileSync(entry, 'utf8'), tags, entry));
@@ -140,8 +141,8 @@ function buildWeb() {
   // המעטפת
   const shellDst = path.join(WWW, 'shell');
   fs.mkdirSync(shellDst, { recursive: true });
-  for (const f of ['display.js', 'hebcal.js', 'catalog.js', 'onboarding.js', 'shell.js', 'design-tokens.css', 'ui-kit.css', 'ss-dialog.js']) fs.copyFileSync(path.join(ROOT, 'shell', f), path.join(shellDst, f));
-  for (const f of ['node-shims.js', 'host.js', 'mobile.js']) fs.copyFileSync(path.join(AND, 'web', f), path.join(shellDst, f));
+  for (const f of ['display.js', 'hebcal.js', 'catalog.js', 'onboarding.js', 'shell.js', 'design-tokens.css', 'ui-kit.css', 'ss-dialog.js', 'ss-help.js', 'simple-mode.js', 'tasks.js', 'intents.js']) fs.copyFileSync(path.join(ROOT, 'shell', f), path.join(shellDst, f));
+  for (const f of ['webview-check.js', 'node-shims.js', 'host.js', 'mobile.js']) fs.copyFileSync(path.join(AND, 'web', f), path.join(shellDst, f));
 
   const host = bundle({
     'econ-ipc': path.join(ROOT, 'modules', 'econ', 'ipc.js'),
@@ -168,7 +169,10 @@ function buildWeb() {
   if (!/connect-src 'self'[;"]/.test(html)) throw new Error("shell.html: ה-CSP חייב לכלול connect-src 'self' בלבד");
   html = html.replace(/<meta charset="utf-8">/i, m => m + '\n<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">');
   const mobileCss = fs.readFileSync(path.join(AND, 'web', 'mobile.css'), 'utf8');
-  html = html.replace(/<\/head>/i, `<style>\n${mobileCss}</style>\n</head>`);
+  // webview-check.js — לפני כל סקריפט אחר (בראש העמוד): WebView ישן מדי ← הודעה בעברית במקום מסך שבור
+  // (סקירת קוד 2.11.2026)
+  // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- mobileCss נקרא בזמן הבנייה מקובץ במאגר (android/web/mobile.css), לא קלט חיצוני
+  html = html.replace(/<\/head>/i, `<style>\n${mobileCss}</style>\n<script src="webview-check.js"></script>\n</head>`);
   const firstScript = '<script src="hebcal.js"></script>';
   if (!html.includes(firstScript)) throw new Error('shell.html: לא נמצא ' + firstScript);
   html = html.replace(firstScript,

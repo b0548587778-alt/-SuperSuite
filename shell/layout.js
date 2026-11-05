@@ -22,4 +22,24 @@ function viewBounds(width, height, sidebar, locale) {
   return { x: isRtlLocale(locale) ? sidebar : 0, y: 0, width: w, height: Math.max(0, height) };
 }
 
-module.exports = { isRtlLocale, viewBounds };
+// מיקום החלון השמור מול המסכים המחוברים (סקירת קוד 2.11.2026): אחרי ניתוק מסך שני החלון נפתח מחוץ למסך.
+// נשמר רק אם לפחות MIN_VISIBLE פיקסלים מכל ציר נראים באחד המסכים (workArea), אחרת — בלי x/y (Electron ממרכז).
+// displays שאינו מערך (לא ידוע) — המיקום נשמר כמו קודם
+const MIN_VISIBLE = 100;
+function restorePosition(st, displays) {
+  const s = st || {};
+  if (!Number.isFinite(s.x) || !Number.isFinite(s.y)) return {};
+  if (!Array.isArray(displays)) return { x: s.x, y: s.y };
+  const w = Number.isFinite(s.width) ? s.width : 0;
+  const h = Number.isFinite(s.height) ? s.height : 0;
+  const seen = displays.some((d) => {
+    const a = d && (d.workArea || d.bounds);
+    if (!a) return false;
+    const ox = Math.min(s.x + w, a.x + a.width) - Math.max(s.x, a.x);
+    const oy = Math.min(s.y + h, a.y + a.height) - Math.max(s.y, a.y);
+    return ox >= Math.min(MIN_VISIBLE, w || MIN_VISIBLE) && oy >= Math.min(MIN_VISIBLE, h || MIN_VISIBLE);
+  });
+  return seen ? { x: s.x, y: s.y } : {};
+}
+
+module.exports = { isRtlLocale, viewBounds, restorePosition };

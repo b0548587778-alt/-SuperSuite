@@ -150,9 +150,10 @@ async function restoreWith(file, pass) {
 
 test('מסך הקוד: מוצג רק מהמעטפת, יציב בין קריאות, ותואם למפתח שנשמר', async () => {
   await boot();
-  assert.throws(() => handlers['shell:get-recovery-code']({ sender: { id: 999 } }), /מתוך המעטפת בלבד/);
-  const a = handlers['shell:get-recovery-code'](shell());
-  const b = handlers['shell:get-recovery-code'](shell());
+  await assert.rejects(handlers['shell:get-recovery-code']({ sender: { id: 999 } }, 'menahel-pass-long-1'), /מתוך המעטפת בלבד/);
+  // הקוד מוצג רק אחרי הקלדה חוזרת של הסיסמה (סקירת קוד 2.11.2026)
+  const a = await handlers['shell:get-recovery-code'](shell(), 'menahel-pass-long-1');
+  const b = await handlers['shell:get-recovery-code'](shell(), 'menahel-pass-long-1');
   assert.equal(a, b);
   const stored = safeStorage.decryptString(fs.readFileSync(path.join(userData, 'autobackup.key')));
   assert.equal(A.keyFromRecoveryCode(a), stored);

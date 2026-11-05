@@ -3,7 +3,6 @@
 // הכתיבה למסד נעשית ב-ipc.js בשמירה אחת (בתוך enqueue) — ייבוא הוא "הכל או כלום" לרשומות התקינות.
 const crypto = require('crypto');
 const F = require('./features');
-const X = require('./exports');
 const PR = require('./pricing');
 const N = require('./npo');
 const M = require('./mortgageAdvisor');
@@ -142,7 +141,13 @@ const KINDS = {
       // opts.actor — בייצוא: רק התיקים שהיועץ רואה במסך (ownOnly, M.canSee). בלי actor (ייבוא, בדיקת כפילויות) — כל התיקים
       get: (data, opts = {}) => listIn('mortgageAdvisor', 'clients').get(data)
         .filter(c => M.canSee(c, opts.actor, data.mortgageAdvisor && data.mortgageAdvisor.settings)).map(M.clientView),
-      set: (data, list) => listIn('mortgageAdvisor', 'clients').set(data, list.map(M.clientStored))
+      set: (data, list) => listIn('mortgageAdvisor', 'clients').set(data, list.map(M.clientStored)),
+      // ייבוא: משרשרים לרשימה הגולמית. מעבר של התיקים הקיימים דרך clientView מחק את האישורים,
+      // תשלומי העמלה והפיקדון של כל הלקוחות (סקירת קוד 2.11.2026, ממצא 2)
+      append: (data, records) => {
+        const raw = listIn('mortgageAdvisor', 'clients').get(data);
+        listIn('mortgageAdvisor', 'clients').set(data, [...raw, ...records.map(M.clientStored)]);
+      }
     },
     columns: [
       ['name', 'שם'], ['phone', 'טלפון'], ['bank', 'בנק'], ['requestedAmount', 'סכום מבוקש'], ['propertyValue', 'שווי נכס'],
@@ -209,8 +214,8 @@ function exportTable(kind, data, opts = {}) {
 // קובץ שהתוכנה ייצאה: toCsv הוסיף גרש לפני ערך שנראה כנוסחה ("+972-50-..." ← "'+972-50-...") — מסירים אותו
 // רק כשמה שאחריו באמת היה מנוטרל, כדי שייבוא חוזר יחזיר את הערך המקורי
 function parseImport(kind, csvText, data) {
-  const unguard = (c) => (typeof c === 'string' && c[0] === "'" && X.csvFormulaRisk(c.slice(1)) ? c.slice(1) : c);
-  return parseRows(kind, F.parseCsv(csvText).map(r => r.map(unguard)), data);
+  const unguard = F.unguardCell;
+  return parseRows(kind, F.parseCsv(csvText).map(r => Object.assign(r.map(unguard), { line: r.line })), data);
 }
 
 // rows — מערך שורות (הראשונה כותרות). משותף ל-CSV ול-vCard, בלי לעבור דרך toCsv (שמוסיף גרש לטלפון "+972...")
@@ -232,7 +237,7 @@ function parseRows(kind, rows, data) {
   const records = [], errors = [];
   let skipped = 0;
   rows.slice(1).forEach((r, idx) => {
-    const line = idx + 2;
+    const line = r.line || idx + 2;
     const raw = {};
     for (const [key, i] of Object.entries(colIndex)) raw[key] = r[i] ?? '';
     try {
@@ -258,7 +263,9 @@ function parseRows(kind, rows, data) {
 
 function applyImport(kind, data, records) {
   const k = kindDef(kind);
-  k.store.set(data, [...k.store.get(data), ...records]);
+  // סוג שה-get שלו מחזיר תצוגה (ולא את הרשומה השמורה) חייב append משלו — אחרת הקיימים נדרסים בתצוגה
+  if (typeof k.store.append === 'function') k.store.append(data, records);
+  else k.store.set(data, [...k.store.get(data), ...records]);
   return data;
 }
 

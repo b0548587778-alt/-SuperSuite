@@ -143,6 +143,26 @@ nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:var(--
 .cta:hover{background:var(--ss-veil-2);border-color:var(--gold)}
 .cta .ss-icon{width:14px;height:14px}
 .cta kbd{font:600 10.5px var(--ss-font);border:1px solid var(--ss-veil-3);border-radius:6px;padding:1px 6px;color:var(--ss-on-dark);direction:ltr}
+/* "מה תרצה לעשות?": כותרת גלויה, כפתור "בצע" עם מילה, מיקרופון; בטלפון / טקסט גדול — הכפתורים יורדים לשורה */
+.ask-title{display:block;margin-top:22px;font:800 var(--ss-fs-xl) var(--ss-font-title);color:inherit}
+.ask-title + .ask{margin-top:10px}
+.ask{flex-wrap:wrap}
+.ask input{flex:1 1 12em}
+.ask-mic{width:44px;height:44px;flex:0 0 44px;border:1px solid var(--ss-border);border-radius:14px;display:grid;place-items:center;cursor:pointer;
+     background:var(--ss-surface);color:var(--ss-text)}
+.ask-mic[aria-expanded="true"]{background:var(--ss-violet-soft);color:var(--ss-violet-ink)}
+.ask-mic .ss-icon{width:20px;height:20px}
+.ask .ask-go{width:auto;min-width:44px;padding:0 16px;gap:8px;display:inline-flex;align-items:center;font:700 16px var(--ss-font)}
+.ask-hint{margin:10px 0 0;max-width:760px;font-size:14px;color:var(--ink-2)}
+.ask-small{font-size:13px}
+.ask-voice{margin-top:12px}
+.cmd-fields{margin:8px 0;display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:15px}
+.cmd-fields dt{color:var(--ss-muted);font-weight:600}
+.cmd-fields dd{margin:0;font-weight:700;color:var(--ss-text)}
+.cmd-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.cmd-actions .ss-btn{min-height:48px;font-size:16px}
+.cmd-choices{display:grid;gap:10px;margin-top:10px}
+.cmd-choices button{min-height:52px;justify-content:flex-start;font-size:16px;text-align:start}
 /* התשובה של העוזר */
 .ask-out{margin-top:16px;max-width:760px;padding:16px 18px;border-radius:var(--ss-radius-lg);background:var(--ss-surface);color:var(--ss-text);box-shadow:var(--ss-shadow-lg);
      border:1px solid var(--ss-border);animation:ss-rise var(--ss-dur-slow) var(--ss-ease) both}
@@ -423,6 +443,84 @@ dialog .ds-seg button[aria-pressed="true"],dialog .ds-presets button[aria-presse
 .ds-seg i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-inline-end:6px;vertical-align:-1px;border:1px solid var(--border)}
 [data-ss-swatch="blue"]{background:var(--ss-accent-blue)}[data-ss-swatch="navy"]{background:var(--ss-accent-navy)}[data-ss-swatch="teal"]{background:var(--ss-accent-teal)}[data-ss-swatch="green"]{background:var(--ss-accent-green)}[data-ss-swatch="purple"]{background:var(--ss-accent-purple)}[data-ss-swatch="burgundy"]{background:var(--ss-accent-burgundy)}[data-ss-swatch="gold"]{background:var(--ss-accent-gold)}
 .ds-note{font-size:12px;color:var(--muted);margin:4px 0 12px}
+
+/* ---- נגישות (סבב 4): כפתור "♿ נגישות" בראש הסרגל, החלון, מצב פשוט ---- */
+.a11y-bar{display:flex;flex-direction:column;gap:6px;margin:0 14px 10px;position:relative}
+.a11y-btn,.simple-home{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:40px;padding:6px 12px;border-radius:11px;cursor:pointer;
+      font:700 14px var(--ss-font);border:1.5px solid var(--gold);background:var(--ss-veil-2);color:var(--ss-on-dark);transition:background-color var(--ss-dur-fast)}
+.a11y-btn:hover,.simple-home:hover{background:var(--ss-veil-3)}
+.a11y-btn .a11y-ic{font-size:18px;line-height:1}
+.simple-home{background:var(--ss-gold-bright);color:var(--ss-navy-1);border-color:var(--ss-gold-bright);min-height:48px;font-size:15px}
+.simple-home:hover{background:var(--ss-gold-pale)}
+.simple-home .ss-icon{width:20px;height:20px}
+.simple-home[hidden]{display:none}
+dialog.a11y-dlg{width:min(620px,94vw);max-height:90vh;overflow:auto}
+.a11y-list{display:grid;gap:10px;margin:6px 0 12px}
+.a11y-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--border);border-radius:var(--ss-radius);background:var(--ss-surface)}
+.a11y-row > span{flex:1 1 200px;min-width:0}
+.a11y-row b{display:block;font-size:15px;color:var(--text)}
+.a11y-row small{display:block;font-size:13px;color:var(--muted);line-height:1.45}
+/* מתג: כבוי / פעיל — עם מילים, לא רק צבע */
+dialog button.a11y-sw{min-width:96px;border-radius:999px;font-weight:700}
+dialog button.a11y-sw[aria-checked="true"]{background:var(--ss-primary);border-color:var(--ss-primary);color:var(--ss-on-primary)}
+.a11y-sizes{display:flex;gap:6px;flex-wrap:wrap}
+dialog .a11y-sizes button{min-width:48px;padding:0 10px;line-height:1}
+dialog .a11y-sizes button[aria-pressed="true"]{border-color:var(--ss-primary);background:var(--ss-primary-soft);color:var(--ss-text);box-shadow:inset 0 0 0 2px var(--ss-primary)}
+.a11y-sizes [data-size="sm"]{font-size:13px}.a11y-sizes [data-size="md"]{font-size:16px}.a11y-sizes [data-size="lg"]{font-size:19px}
+.a11y-sizes [data-size="xl"]{font-size:23px}.a11y-sizes [data-size="xxl"]{font-size:28px}
+dialog.a11y-ask{width:min(560px,94vw);text-align:center}
+dialog.a11y-ask h3{font-size:24px;line-height:1.35;margin-bottom:10px}
+dialog.a11y-ask p{font-size:16px}
+dialog.a11y-ask .row{justify-content:center;flex-direction:column;align-items:stretch;gap:10px}
+dialog.a11y-ask .row button{min-height:52px;font-size:17px}
+/* מצב פשוט במסך הבית: משימות גדולות בפעלים */
+.simple-tasks{margin:0 0 26px;position:relative;z-index:2}
+.simple-tasks h2{margin:0 0 14px;font:800 24px var(--ss-font-title);color:var(--text)}
+.tasks{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:14px}
+.task{display:flex;align-items:center;gap:14px;min-height:88px;padding:16px 18px;border-radius:var(--ss-radius-lg);cursor:pointer;text-align:start;
+      font:inherit;color:var(--text);background:var(--surface);border:2px solid var(--ss-border-strong);box-shadow:var(--ss-shadow-sm)}
+.task:hover{border-color:var(--ss-primary);background:var(--ss-primary-soft)}
+.task .t-ic{width:52px;height:52px;flex:0 0 52px;border-radius:14px;display:grid;place-items:center;background:var(--ss-primary-soft);color:var(--ss-primary)}
+.task .t-ic .ss-icon{width:28px;height:28px}
+.task b{display:block;font-size:18px;line-height:1.3}
+.task small{display:block;margin-top:2px;font-size:14px;color:var(--muted)}
+.simple-note{margin:14px 0 0;font-size:15px;color:var(--muted)}
+/* מצב פשוט: "מה יש לעשות היום" (סבב 5) — עד 5 פריטים, לכל אחד "לטפל" */
+.agenda-sec{margin:0 0 22px;position:relative;z-index:2}
+.agenda-sec[hidden]{display:none}
+.agenda-sec h2{margin:0 0 12px;font:800 24px var(--ss-font-title);color:var(--text)}
+.ag-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.ag-item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-radius:var(--ss-radius-lg);background:var(--surface);border:2px solid var(--ss-border-strong)}
+.ag-urgent{border-inline-start:8px solid var(--ss-danger)}
+.ag-soon{border-inline-start:8px solid var(--ss-warning)}
+.ag-txt b{display:block;font-size:18px;line-height:1.3;color:var(--text)}
+.ag-txt small{display:block;margin-top:2px;font-size:15px;color:var(--muted)}
+.ag-go{min-height:52px;min-width:120px;padding:0 20px;border-radius:12px;border:0;cursor:pointer;font:700 17px var(--ss-font);background:var(--ss-primary);color:var(--ss-on-primary)}
+@media (max-width:720px){.ag-item{flex-direction:column;align-items:stretch}}
+.simple-note button.link{font-size:15px;min-height:44px;padding:4px 8px}
+:root[data-ss-simple="on"] .hero{padding-bottom:30px}
+:root[data-ss-simple="on"] .lic-block{margin-top:20px}
+/* "עוד מסכים" בסרגל (מצב פשוט) */
+.it.more{justify-content:center;border:1px dashed var(--ss-veil-3);color:var(--ink);margin-top:10px;font-weight:600}
+/* גודל טקסט במעטפת: המסך והחלונות מוגדלים (הסרגל ברוחב קבוע — main.js SIDEBAR — ולכן רק הגופן שלו גדל) */
+:root[data-ss-text="sm"] .stage{zoom:.94}
+:root[data-ss-text="lg"] .stage{zoom:1.14}
+:root[data-ss-text="xl"] .stage{zoom:1.28}
+:root[data-ss-text="xxl"] .stage{zoom:1.45}
+/* בחלונות — הגופן עצמו (zoom היה מוציא חלון רחב מהמסך) */
+:root:is([data-ss-text="lg"],[data-ss-text="xl"],[data-ss-text="xxl"]) dialog :is(p,li,label,small,.lbl,td,th){font-size:var(--ss-fs-md)}
+:root:is([data-ss-text="lg"],[data-ss-text="xl"],[data-ss-text="xxl"]) dialog h3{font-size:var(--ss-fs-xl)}
+:root:is([data-ss-text="lg"],[data-ss-text="xl"],[data-ss-text="xxl"]) dialog h4{font-size:var(--ss-fs-lg)}
+:root:is([data-ss-text="lg"],[data-ss-text="xl"],[data-ss-text="xxl"]) .it{font-size:16px}
+:root:is([data-ss-text="xl"],[data-ss-text="xxl"]) .it .nm{white-space:normal;line-height:1.25}
+:root:is([data-ss-text="xl"],[data-ss-text="xxl"]) .grp-t{font-size:13px}
+:root:is([data-ss-text="xl"],[data-ss-text="xxl"]) .histnav .where,:root:is([data-ss-text="xl"],[data-ss-text="xxl"]) .bot small{font-size:13px}
+/* כפתורים גדולים / מצב פשוט בסרגל */
+:root:is([data-ss-targets="large"],[data-ss-simple="on"]) .it{min-height:46px}
+:root:is([data-ss-targets="large"],[data-ss-simple="on"]) .histnav button{width:44px;height:44px}
+:root:is([data-ss-targets="large"],[data-ss-simple="on"]) .tools button{height:44px}
+:root:is([data-ss-targets="large"],[data-ss-simple="on"]) .search input{height:46px}
+:root:is([data-ss-targets="large"],[data-ss-simple="on"]) .grp-t{min-height:36px}
 </style>
 </head>
 <body>
@@ -431,6 +529,11 @@ dialog .ds-seg button[aria-pressed="true"],dialog .ds-presets button[aria-presse
     <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 20h16v-2H4zM5 16h3V10H5zm5.5 0h3V6h-3zM16 16h3V3h-3z" fill="currentColor"/></svg></div>
     <div><b>SuperSuite <span class="ed">כלכלה</span></b><small>כספים, עסק וקהילה — במקום אחד</small></div>
     <span class="hd" id="sideDate"></span>
+  </div>
+  <!-- נגישות (סבב 4): תמיד בראש הסרגל. קיצור: Alt+0 או Ctrl+Alt+A -->
+  <div class="a11y-bar">
+    <button id="a11yBtn" class="a11y-btn" type="button" aria-haspopup="dialog" title="נגישות: טקסט גדול, ניגודיות, מצב פשוט (Alt+0)"><span class="a11y-ic" aria-hidden="true">♿</span><span>נגישות</span></button>
+    <button id="simpleHome" class="simple-home ss-simple-only" type="button" hidden><span data-icon="home" aria-hidden="true"></span><span>חזרה למסך הבית</span></button>
   </div>
   <div class="histnav" role="group" aria-label="ניווט בהיסטוריה">
     <button id="navBack" type="button" title="אחורה (Alt+←)" aria-label="אחורה" disabled><span data-icon="arrow-right"></span></button>
@@ -467,14 +570,24 @@ dialog .ds-seg button[aria-pressed="true"],dialog .ds-presets button[aria-presse
     <div class="hero-in">
       <h1 id="greet">שלום</h1>
       <div class="dates" id="dates"></div>
-      <form class="ask" id="askForm" role="search" aria-label="שאל את התוכנה" autocomplete="off">
+      <!-- "מה תרצה לעשות?" (תיבת הפקודה): שאלה ← תשובה מהנתונים; בקשה ← הטופס נפתח מלא לאישור (shell/intents.js,
+           shell/tasks.js). שום דבר לא נשמר מכאן. דיבור — רק ההכתבה של מערכת ההפעלה (Win+H / מיקרופון במקלדת), בלי רשת -->
+      <label for="askQ" class="ask-title" id="askTitle">מה תרצה לעשות?</label>
+      <form class="ask" id="askForm" aria-labelledby="askTitle" autocomplete="off">
         <span class="ask-ic" data-icon="sparkles" aria-hidden="true"></span>
-        <label for="askQ" class="sr-only">שאלה לעוזר של התוכנה</label>
-        <input id="askQ" type="text" maxlength="500" enterkeyhint="send" placeholder="שאלו את התוכנה — למשל: מי לא שילם החודש?">
-        <button type="submit" class="ask-go" id="askGo" aria-label="שליחת השאלה" title="שליחה (Enter)"><span data-icon="send"></span></button>
+        <input id="askQ" type="text" maxlength="500" enterkeyhint="go" aria-describedby="askHint" placeholder="כתבו כאן במילים פשוטות">
+        <button type="button" class="ask-mic" id="askMic" aria-label="לדבר במקום להקליד" aria-expanded="false" aria-controls="askVoice" title="לדבר במקום להקליד"><span data-icon="mic"></span></button>
+        <button type="submit" class="ask-go" id="askGo" title="ביצוע (Enter)"><span data-icon="send" aria-hidden="true"></span><span class="ask-go-t">בצע</span></button>
       </form>
-      <div class="ask-sugg" id="askSugg" role="group" aria-label="שאלות לדוגמה"></div>
-      <div class="ask-meta">
+      <p class="ask-hint" id="askHint">לדוגמה: „כמה נכנס החודש?” · „תרשום תרומה ממשה כהן 500 שקל” · „הוצאה 200 על חשמל”</p>
+      <div class="ask-out ask-voice" id="askVoice" hidden>
+        <p class="a-text" id="voiceWin"><b>לדבר במקום להקליד:</b> לחצו יחד על מקש Windows ועל האות H (<bdi dir="ltr">Win+H</bdi>), דברו, ובסוף לחצו „בצע”.
+          ההכתבה בעברית עובדת רק אם במחשב מותקנת שפת הכתבה עברית (הגדרות Windows ← שעה ושפה).</p>
+        <p class="a-text" id="voiceAndroid" hidden><b>לדבר במקום להקליד:</b> לחצו על סמל המיקרופון במקלדת של הטלפון, דברו, ובסוף לחצו „בצע”.</p>
+        <p class="a-text ask-small">הדיבור מתורגם לטקסט על ידי מערכת ההפעלה. התוכנה עצמה לא מקליטה ולא שולחת דבר לרשת.</p>
+      </div>
+      <div class="ask-sugg ss-advanced" id="askSugg" role="group" aria-label="שאלות לדוגמה"></div>
+      <div class="ask-meta ss-advanced">
         <span><span data-icon="lock" aria-hidden="true"></span>העוזר עונה במחשב שלך, בלי רשת</span>
         <button class="cta" id="cta" type="button"><span data-icon="search" aria-hidden="true"></span>חיפוש מסכים <kbd>Ctrl K</kbd></button>
       </div>
@@ -483,8 +596,17 @@ dialog .ds-seg button[aria-pressed="true"],dialog .ds-presets button[aria-presse
   </section>
   <div class="body">
     <section class="lic-block" id="licBlock" role="alert" hidden></section>
-    <section class="kpis" id="kpis" aria-label="מדדים עיקריים"></section>
-    <div class="today-grid">
+    <section class="agenda-sec ss-simple-only" id="agendaSec" aria-labelledby="agendaHead" hidden>
+      <h2 id="agendaHead">מה יש לעשות היום</h2>
+      <ul class="ag-list" id="agendaList"></ul>
+    </section>
+    <section class="simple-tasks ss-simple-only" id="simpleSec" aria-labelledby="simpleTitle">
+      <h2 id="simpleTitle">מה רוצים לעשות?</h2>
+      <div class="tasks" id="simpleTasks"></div>
+      <p class="simple-note">צריכים משהו אחר? <button type="button" class="link" id="simpleAll" aria-expanded="false">הצגת כל המסכים</button> · <button type="button" class="link" id="simpleOff">יציאה ממצב פשוט</button></p>
+    </section>
+    <section class="kpis ss-advanced" id="kpis" aria-label="מדדים עיקריים"></section>
+    <div class="today-grid ss-advanced">
       <section class="panel today" id="today" aria-labelledby="todayTitle">
         <header><h2 id="todayTitle">היום</h2><span class="ss-badge" id="todayDate"></span></header>
         <div class="today-cols" id="todayCols"></div>
@@ -497,7 +619,7 @@ dialog .ds-seg button[aria-pressed="true"],dialog .ds-presets button[aria-presse
       <button type="button" class="primary" id="obStart">התחלה</button>
       <button type="button" id="obLater">לא עכשיו</button>
     </section>
-    <section class="ob-steps" id="obSteps" hidden aria-label="צעדים ראשונים">
+    <section class="ob-steps ss-advanced" id="obSteps" hidden aria-label="צעדים ראשונים">
       <h2>צעדים ראשונים <small id="obProgress"></small> <button type="button" class="link" id="tourAgain">סיור קצר</button></h2>
       <div class="ob-meter" role="progressbar" aria-label="התקדמות בצעדים הראשונים" aria-valuemin="0" aria-valuemax="100" id="obMeterBar"><i id="obMeter"></i></div>
       <ol id="obList"></ol>
@@ -604,10 +726,12 @@ dialog .ds-seg button[aria-pressed="true"],dialog .ds-presets button[aria-presse
   </ul>
   <h4 id="a11y">נגישות</h4>
   <ul>
+    <li>כפתור <b>♿ נגישות</b> בראש הסרגל (או <span class="keys" dir="ltr"><kbd>Alt</kbd>+<kbd>0</kbd></span>): טקסט גדול (חמישה גדלים), ניגודיות גבוהה, עצירת אנימציות, כפתורים גדולים, קו תחתון לקישורים, גופן קריא ורקע כהה. כל שינוי נשמר מיד ופועל בכל המסכים.</li>
+    <li><b>מצב פשוט</b>: מסך הבית מציג משימות גדולות במילים פשוטות, הסרגל מציג רק את המסכים הנפוצים ("עוד מסכים" — לכל השאר), וכפתור "חזרה למסך הבית" גלוי תמיד. ליד דברים מסובכים מופיע <b>?</b> — לחיצה עליו מסבירה.</li>
     <li>אפשר לעבוד בלי עכבר: <span class="keys" dir="ltr"><kbd>Tab</kbd></span> עובר בין הכפתורים והשדות (מסגרת בולטת מראה איפה אתם), <span class="keys" dir="ltr"><kbd>Enter</kbd></span> מפעיל, ו-<span class="keys" dir="ltr"><kbd>Esc</kbd></span> סוגר חלון.</li>
     <li>הגדלה והקטנה של הכול: <span class="keys" dir="ltr"><kbd>Ctrl</kbd>+<kbd>=</kbd></span> / <span class="keys" dir="ltr"><kbd>Ctrl</kbd>+<kbd>-</kbd></span>, וחזרה לגודל רגיל — <span class="keys" dir="ltr"><kbd>Ctrl</kbd>+<kbd>0</kbd></span>.</li>
     <li>הצבעים נבחרו כך שהטקסט בולט מספיק מהרקע, ולכפתורים עם אייקון יש שם שקורא מסך מקריא. כשמערכת ההפעלה מבקשת פחות תנועה — האנימציות כבויות.</li>
-    <li>מצאתם מקום שקשה להשתמש בו? פנו לספק דרך "הודעה לספק" במסך הרישוי, או צרפו דוח תקלה — ונתקן.</li>
+    <li>מצאתם מקום שקשה להשתמש בו? פנו לספק דרך "הודעה לספק" במסך הרישוי, בטלפון <span dir="ltr">054-858-7778</span> או בדוא"ל <span dir="ltr">b0548587778@gmail.com</span>, או צרפו דוח תקלה — ונתקן. הצהרת הנגישות המלאה — באתר התוכנה.</li>
   </ul>
   <h4>תקלות ותמיכה</h4>
   <ul>
@@ -622,6 +746,29 @@ dialog .ds-seg button[aria-pressed="true"],dialog .ds-presets button[aria-presse
   <h3 id="docTitle"></h3>
   <pre id="docText" tabindex="0"></pre>
   <div class="row"><button type="button" class="primary" id="docOk">סגירה</button></div>
+</dialog>
+<!-- נגישות (סבב 4): כל שינוי נשמר מיד ופועל בכל המסכים (display.js ← data-ss-* על כל מסך) -->
+<dialog id="a11yDlg" class="a11y-dlg" aria-labelledby="a11yTitle" aria-describedby="a11yIntro">
+  <h3 id="a11yTitle">נגישות</h3>
+  <p id="a11yIntro">כל שינוי נשמר מיד ופועל בכל המסכים. אפשר לחזור למצב הרגיל בכל רגע.</p>
+  <div class="a11y-list" id="a11yOpts"></div>
+  <p class="ds-note">סמן עכבר גדול יותר: בהגדרות Windows ← נגישות ← "סמן העכבר והמגע". הקראה של המסך: NVDA (חינמי) או "קריין" של Windows (<span dir="ltr">Ctrl+Win+Enter</span>).</p>
+  <div class="ss-sr-only" id="a11yLive" role="status" aria-live="polite"></div>
+  <div class="row">
+    <button type="button" class="primary" id="a11yDone">סגירה</button>
+    <button type="button" id="a11yAll">הכול בבת אחת</button>
+    <button type="button" id="a11yReset">חזרה למצב הרגיל</button>
+  </div>
+</dialog>
+<!-- שאלה אחת בהפעלה הראשונה (רק כשכל הגדרות הנגישות רגילות) -->
+<dialog id="a11yAsk" class="a11y-ask" aria-labelledby="a11yAskTitle" aria-describedby="a11yAskText">
+  <h3 id="a11yAskTitle">רוצה שהתוכנה תהיה פשוטה יותר וגדולה יותר?</h3>
+  <p id="a11yAskText">אפשר לשנות את זה בכל רגע — בכפתור "♿ נגישות" שבראש הסרגל.</p>
+  <div class="row">
+    <button type="button" class="primary" id="a11yAskYes">כן, בבקשה</button>
+    <button type="button" id="a11yAskNo">לא, תודה</button>
+    <button type="button" class="ghost" id="a11yAskPick">אני רוצה לבחור בעצמי</button>
+  </div>
 </dialog>
 <dialog id="dsDlg" class="ds-dlg" aria-labelledby="dsTitle">
   <h3 id="dsTitle">תצוגה</h3>
@@ -686,7 +833,11 @@ dialog .ds-seg button[aria-pressed="true"],dialog .ds-presets button[aria-presse
   </div>
 </dialog>
 <script src="ss-dialog.js"></script>
+<script src="ss-help.js"></script>
 <script src="display.js"></script>
+<script src="simple-mode.js"></script>
+<script src="tasks.js"></script>
+<script src="intents.js"></script>
 <script src="hebcal.js"></script>
 <script src="catalog.js"></script>
 <script src="onboarding.js"></script>

@@ -253,7 +253,8 @@ function buildUniformFile({ data, business, range, now = Date.now(), user = '', 
   for (const { inv, type } of docs) {
     link += 1;
     const isReceipt = type === 400;
-    const cancelled = inv.status === 'cancelled';
+    // מסמך מבוטל (שדה 1228) — רק ביטול ישן בהיפוך יומן. חשבונית שבוטלה בחשבונית זיכוי היא מסמך תקף, והזיכוי (330) מקזז אותה
+    const cancelled = inv.status === 'cancelled' && !inv.cancelCreditId;
     const issue = inv.createdAt ? localParts(Date.parse(inv.createdAt)) : { date: ymd(inv.date), time: '0000' };
     const total = ag(inv.total);
     const net = isReceipt ? total : ag(inv.net);

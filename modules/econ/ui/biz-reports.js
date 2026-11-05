@@ -39,7 +39,7 @@ function bizFlowChart(buckets) {
   const width = 40 + buckets.length * (w + gap);
   return `<svg class="biz-chart" viewBox="0 0 ${width} ${h + 36}" role="img" aria-label="נכנס ויוצא לפי חודש">
     <line x1="10" y1="${h + 10}" x2="${width - 10}" y2="${h + 10}" class="biz-axis"/>${bars}</svg>
-    <div class="biz-legend"><span class="biz-dot biz-in"></span>נכנס <span class="biz-dot biz-out"></span>יוצא</div>`;
+    <div class="biz-legend"><span class="biz-dot biz-in" aria-hidden="true"></span>נכנס <span class="biz-dot biz-out" aria-hidden="true"></span>יוצא</div>`;
 }
 
 function renderBizForecast(d) {
@@ -157,7 +157,7 @@ function renderBizReports(d) {
   if (!d) return renderEmpty('אין נתונים להצגה');
   const tabs = BIZ_TABS.map(([id, label]) => `<button class="biz-tab${d.ui.tab === id ? ' active' : ''}" data-biz-tab="${id}" aria-pressed="${d.ui.tab === id}">${label}</button>`).join('');
   const body = d.ui.tab === 'customers' ? renderBizCustomers(d) : d.ui.tab === 'advances' ? renderBizAdvances(d) : renderBizForecast(d);
-  return `<div class="biz-reports"><div class="biz-tabs" role="tablist">${tabs}</div>${body}</div>`;
+  return `<div class="biz-reports"><div class="biz-tabs" role="group" aria-label="בחירת דוח">${tabs}</div>${body}</div>`;
 }
 
 // כרטיס בלוח הבקרה: תזרים קצר, חייבים ותשלומים קרובים

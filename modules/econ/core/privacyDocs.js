@@ -71,7 +71,7 @@ ${level.reasons.map(r => `<div>• ${esc(r)}</div>`).join('')}
 <div class="muted">${esc(level.note)} המקור: ${esc(level.source)}</div>
 <h2>7. הסיכונים העיקריים ודרכי ההתמודדות</h2>
 <table><thead><tr><th>סיכון</th><th>מה קיים בתוכנה</th><th>מה נדרש מהארגון</th></tr></thead><tbody>
-<tr><td>גניבת המחשב או גישה לא מורשית אליו</td><td>מסד נתונים מוצפן, כניסה בסיסמה, נעילה אחרי חוסר פעילות</td><td>${FILL}</td></tr>
+<tr><td>גניבת המחשב או גישה לא מורשית אליו</td><td>${map.encrypted ? 'מסד נתונים מוצפן, כניסה בסיסמה, נעילה אחרי חוסר פעילות' : 'כניסה בסיסמה, נעילה אחרי חוסר פעילות. המסד במכשיר הזה אינו מוצפן'}</td><td>${FILL}</td></tr>
 <tr><td>משתמש שרואה מידע שאינו נחוץ לו</td><td>תפקידים (צופה / עורך / מנהל / רואה חשבון), נזקק חסוי למנהל בלבד, יומן פעולות</td><td>${FILL}</td></tr>
 <tr><td>אובדן נתונים</td><td>גיבוי מוצפן ידני ואוטומטי, קוד שחזור</td><td>${FILL}</td></tr>
 <tr><td>קובצי ייצוא (CSV / PDF) שנשארים גלויים</td><td>—</td><td>${FILL}</td></tr>
@@ -88,7 +88,8 @@ function renderProcedureHtml(map, level, org, today) {
   const body = `
 ${orgLine(org)}
 <div>רמת האבטחה המוצעת: <b>${esc(level.label)}</b> · משתמשים פעילים: ${usersLine(map)}</div>
-${sec('1. אבטחה פיזית וסביבתית', ['הנתונים נשמרים במחשב המקומי בלבד, במסד מוצפן'], 'היכן עומד המחשב, מי נכנס לחדר, נעילת המחשב ביציאה.')}
+${sec('1. אבטחה פיזית וסביבתית', [map.encrypted ? 'הנתונים נשמרים במחשב המקומי בלבד, במסד מוצפן'
+  : 'הנתונים נשמרים במכשיר המקומי בלבד. המסד במכשיר הזה אינו מוצפן (הצפנת המערכת אינה זמינה) — יש להצפין את הכונן או את המכשיר ולנעול אותו בסיסמה'], 'היכן עומד המחשב, מי נכנס לחדר, נעילת המחשב ביציאה.')}
 ${sec('2. הרשאות גישה', ['כל משתמש נכנס בשם משתמש וסיסמה משלו (לפחות 12 תווים)', 'תפקידים: צופה, עורך, מנהל, רואה חשבון — לפי הצורך בלבד', 'נזקק חסוי מוצג למנהל בלבד, וכל צפייה בו נרשמת'], 'מי מאשר משתמש חדש, ומתי מבטלים משתמש של מי שסיים לעבוד.')}
 ${sec('3. ניהול סיסמאות וזיהוי', ['נעילה אחרי חוסר פעילות (ברירת מחדל: 15 דקות)', 'אפשרות כניסה עם Google בנוסף לסיסמה'], 'איסור על מסירת סיסמה לאחר, והחלפת סיסמה אחרי חשד לדליפה.')}
 ${sec('4. תיעוד ובקרה', ['יומן פעולות במסך ההגדרות: מי עשה מה ומתי'], 'מי בודק את היומן ובאיזו תדירות.')}
@@ -158,10 +159,10 @@ const LABELS = {
   role: 'סוג לקוח', email: 'דוא"ל', areas: 'אזורים מבוקשים', types: 'סוגי נכס מבוקשים', minRooms: 'חדרים — מינימום', maxRooms: 'חדרים — מקסימום',
   budgetMinAg: 'תקציב מינימלי (אגורות)', budgetMaxAg: 'תקציב מקסימלי (אגורות)', needsMortgage: 'צריך משכנתא',
   propertyAddress: 'כתובת הנכס', effectiveDate: 'מועד קובע', caseStatus: 'מצב התיק',
-  supplierName: 'שם הספק', supplierTaxId: 'מספר עוסק'
+  supplierName: 'שם הספק', supplierTaxId: 'מספר עוסק', cancelCreditNumber: 'בוטלה בחשבונית זיכוי', printedAt: 'הודפס'
 };
 // מזהים פנימיים בלבד — לא מידע על האדם
-const SKIP = new Set(['id', 'entryId', 'paymentEntryId', 'reversalEntryId', 'loanId', 'itemId', 'applicationId', 'ambassadorId', 'standingOrderId', 'chequeGroupId', 'replacesId', 'replacedBy', 'realtyDealId', 'mortgageCaseId', 'advisorId', 'buyerClientId', 'sellerClientId', 'propertyId']);
+const SKIP = new Set(['id', 'entryId', 'paymentEntryId', 'reversalEntryId', 'loanId', 'itemId', 'applicationId', 'ambassadorId', 'standingOrderId', 'chequeGroupId', 'replacesId', 'replacedBy', 'realtyDealId', 'mortgageCaseId', 'advisorId', 'buyerClientId', 'sellerClientId', 'propertyId', 'cancelCreditId', 'issuer']);
 
 function show(key, v) {
   if (v === null || v === undefined || v === '') return '';

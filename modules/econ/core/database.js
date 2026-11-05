@@ -247,6 +247,23 @@ class Database {
     this.atRestStatus = 'plain';
     this._resolveCipher = resolveCipher;
     this._beforeEncrypt = beforeEncrypt;
+    // מטמון האוספים המפוענחים (AUDIT-2026-11-02-PLANS.md ג): collection ← { sealed, json }.
+    // sealed = הערך כפי שהוא במסד; שורה שהשתנתה מבחוץ (שחזור, מופע אחר, כתיבה ישירה) לא תואמת ולכן מפוענחת מחדש.
+    // קשור ל-cipher שבו נבנה — החלפת מפתח מבטלת אותו אוטומטית
+    this._cache = new Map();
+    this._cacheCipher = null;
+    this.stats = { decrypts: 0, encrypts: 0, rowsWritten: 0 };
+  }
+
+  // ביטול המטמון: שחזור, מיגרציה, הצפנת מסד ישן, החלפת מפתח, ROLLBACK
+  invalidateCache() {
+    this._cache = new Map();
+    this._cacheCipher = null;
+  }
+
+  _cacheMap() {
+    if (this._cacheCipher !== this.cipher) { this._cache = new Map(); this._cacheCipher = this.cipher; }
+    return this._cache;
   }
 
   // כל כשל בפתיחה (מסד פגום, נעול, בלי מפתח) סוגר את הקובץ — אחרת ב-Windows אי אפשר להעביר אותו הצידה (PLAN.md 2.3)
@@ -312,6 +329,7 @@ class Database {
     }
     this.cipher = AR.createCipher(r.key);
     this.atRestStatus = 'encrypted';
+    this.invalidateCache();
   }
 
   // המרה חד-פעמית של מסד ישן (גם ערכים גלויים שנשארו): גיבוי ← טרנזקציה אחת ← VACUUM
@@ -330,11 +348,13 @@ class Database {
       catch (e) {
         // בלי גיבוי לא ממירים. הכתיבה בהפעלה הזו נשארת גלויה, ונסיון נוסף בהפעלה הבאה
         this.cipher = AR.createCipher(null);
+        this.invalidateCache();
         this.atRestStatus = 'pending-backup';
         this.atRestError = e;
         return { converted: false, reason: 'backup-failed' };
       }
     }
+    this.invalidateCache();
     await this.exec('BEGIN IMMEDIATE TRANSACTION');
     try {
       for (const row of await this.all("SELECT collection, payload FROM collections WHERE payload NOT LIKE 'SSDB1:%'")) {
@@ -373,6 +393,7 @@ class Database {
     await this.run('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
     const applied = await this.all('SELECT version FROM schema_migrations');
     const appliedVersions = new Set(applied.map(row => row.version));
+    if (migrations.some(m => !appliedVersions.has(m.version))) this.invalidateCache();
 
     await this.exec('BEGIN IMMEDIATE TRANSACTION');
 
@@ -411,10 +432,18 @@ class Database {
     const rows = await this.all('SELECT collection, payload FROM collections');
     // עותק עמוק: אוסף חסר לא יחלוק מערכים עם defaults (push לתוכו היה משנה את ברירת המחדל לכל הקריאות הבאות)
     const data = freshDefaults();
+    const cache = this._cacheMap();
+    const seen = new Map();
 
     for (const row of rows) {
       try {
-        const payload = JSON.parse(this.cipher.open(row.payload));
+        // אותו ערך מוצפן כמו במטמון ← בלי פענוח. JSON.parse תמיד: השירותים מקבלים עותק טרי ולא משנים את המטמון
+        const hit = cache.get(row.collection);
+        let json;
+        if (hit && hit.sealed === row.payload) json = hit.json;
+        else { json = this.cipher.open(row.payload); this.stats.decrypts++; }
+        const payload = JSON.parse(json);
+        seen.set(row.collection, { sealed: row.payload, json });
         if (row.collection === 'meta') {
           Object.assign(data, payload);
         } else {
@@ -422,47 +451,66 @@ class Database {
         }
       } catch (err) {
         if (err && String(err.code || '').startsWith('db-key')) throw err; // מפתח שגוי — לא מציגים נתונים ריקים
-        // אוסף שלא נקרא — שגיאה, ולא רשימה ריקה: save() כותב את כל האוספים מחדש,
-        // ורשימה ריקה כאן הייתה מוחקת אותו לצמיתות בשמירה הבאה (למשל את כל החשבוניות)
+        // אוסף שלא נקרא — שגיאה, ולא רשימה ריקה: רשימה ריקה כאן הייתה נשמרת בשמירה הבאה
+        // ומוחקת אותו לצמיתות (למשל את כל החשבוניות)
         const e = new Error(`חלק מהנתונים במסד פגום (${row.collection}) ולא ניתן לקרוא אותו. כדי לא לדרוס נתונים, הפעולה נעצרה. יש לשחזר מגיבוי או לפנות לתמיכה.`);
         e.code = 'db-collection-corrupt';
         e.collection = row.collection;
         throw e;
       }
     }
+    // המטמון = מה שנמצא עכשיו במסד (שורה שנמחקה מבחוץ יוצאת ממנו)
+    this._cache = seen;
 
     return normalizeData(data);
   }
 
+  // שמירה חלקית: רק אוספים שה-JSON שלהם השתנה, או שהשורה במסד אינה זו שבמטמון (כתיבה מבחוץ), נכתבים.
+  // הכול בטרנזקציה אחת; המטמון מתעדכן רק אחרי COMMIT ומתבטל ב-ROLLBACK. אין שינוי בפורמט על הדיסק.
+  // INSERT OR REPLACE ולא UPSERT: ה-SQLite של אנדרואיד 9 (minSdk 28) הוא 3.22, בלי UPSERT
   async save(value) {
     if (!isValidData(value)) {
       throw new Error('הנתונים אינם תקינים');
     }
 
     const data = normalizeData(value);
+    const meta = { version: data.version, organization: data.organization, settings: data.settings };
+    const next = new Map();
+    for (const collection of collections) next.set(collection, JSON.stringify(data[collection]));
+    next.set('meta', JSON.stringify(meta));
+
+    const cache = this._cacheMap();
+    const written = new Map();
     await this.exec('BEGIN IMMEDIATE TRANSACTION');
 
     try {
-      await this.run('DELETE FROM collections');
-      for (const collection of collections) {
-        await this.run(
-          'INSERT INTO collections VALUES (?, ?, ?)',
-          [collection, this.cipher.seal(JSON.stringify(data[collection])), new Date().toISOString()]
-        );
+      // בתוך הטרנזקציה: מה שבאמת במסד עכשיו
+      const onDisk = new Map((await this.all('SELECT collection, payload FROM collections')).map(r => [r.collection, r.payload]));
+      const now = new Date().toISOString();
+      for (const [collection, json] of next) {
+        const hit = cache.get(collection);
+        if (hit && hit.json === json && onDisk.get(collection) === hit.sealed) {
+          written.set(collection, hit);
+          continue;
+        }
+        const sealed = this.cipher.seal(json);
+        this.stats.encrypts++;
+        this.stats.rowsWritten++;
+        await this.run('INSERT OR REPLACE INTO collections (collection, payload, updated_at) VALUES (?, ?, ?)', [collection, sealed, now]);
+        written.set(collection, { sealed, json });
       }
-      await this.run(
-        'INSERT INTO collections VALUES (?, ?, ?)',
-        ['meta', this.cipher.seal(JSON.stringify({
-          version: data.version,
-          organization: data.organization,
-          settings: data.settings
-        })), new Date().toISOString()]
-      );
+      // אוסף שאינו ברשימה (גרסה אחרת / שריד) — נמחק, כמו ב-DELETE של הכול בעבר
+      for (const name of onDisk.keys()) {
+        if (!next.has(name)) await this.run('DELETE FROM collections WHERE collection = ?', [name]);
+      }
       await this.exec('COMMIT');
     } catch (error) {
-      await this.exec('ROLLBACK');
+      this.invalidateCache();
+      try { await this.exec('ROLLBACK'); } catch { /* הטרנזקציה כבר בוטלה */ }
       throw error;
     }
+    this._cache = written;
+    this._cacheCipher = this.cipher;
 
     return data;
   }
@@ -483,6 +531,7 @@ class Database {
       [userId, username, hashPassword(password), now, now]
     );
     await this.run('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)', [userId, 'admin']);
+    await this.run("DELETE FROM maintenance WHERE task = 'setup-recovery-code'");
 
     return {
       id: userId,
@@ -591,10 +640,27 @@ class Database {
     return rows[0] ? { email: rows[0].email || '', linkedAt: rows[0].linked_at } : null;
   }
 
+  // אימות חוזר של הסיסמה של המשתמש המחובר (קוד השחזור, איפוס סיסמה של אחר אחרי כניסה עם Google — סקירת קוד 2.11.2026),
+  // עם אותה נעילה כמו בכניסה. אין כאן כניסה ואין שינוי בפגישה
+  async confirmPassword(userId, password) {
+    await this._checkCurrentPassword(userId, typeof password === 'string' ? password : '', 'הסיסמה שגויה');
+    return true;
+  }
+
   async changePassword(userId, currentPassword, newPassword) {
     validateCredentials('valid-user', newPassword);
+    await this._checkCurrentPassword(userId, currentPassword, 'הסיסמה הנוכחית שגויה');
+    await this.run(
+      'UPDATE auth_users SET password_hash = ?, updated_at = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?',
+      [hashPassword(newPassword), new Date().toISOString(), userId]
+    );
+
+    return true;
+  }
+
+  async _checkCurrentPassword(userId, currentPassword, wrong) {
     const rows = await this.all('SELECT password_hash, failed_attempts, locked_until FROM auth_users WHERE id = ? AND active = 1', [userId]);
-    if (!rows[0]) throw new Error('הסיסמה הנוכחית שגויה');
+    if (!rows[0]) throw new Error(wrong);
     // אותה נעילה כמו בכניסה: בלעדיה, מי שמצא מחשב עם כניסה פתוחה יכול היה לנחש את הסיסמה בלי הגבלה
     // (בדיקת קוד 23.10.2026)
     if (rows[0].locked_until && new Date(rows[0].locked_until) > new Date()) {
@@ -605,15 +671,9 @@ class Database {
       const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? new Date(Date.now() + LOCKOUT_MS).toISOString() : null;
       await this.run('UPDATE auth_users SET failed_attempts = ?, locked_until = ?, updated_at = ? WHERE id = ?',
         [failedAttempts, lockedUntil, new Date().toISOString(), userId]);
-      throw new Error('הסיסמה הנוכחית שגויה');
+      throw new Error(wrong);
     }
-
-    await this.run(
-      'UPDATE auth_users SET password_hash = ?, updated_at = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?',
-      [hashPassword(newPassword), new Date().toISOString(), userId]
-    );
-
-    return true;
+    if (rows[0].failed_attempts) await this.run('UPDATE auth_users SET failed_attempts = 0, locked_until = NULL WHERE id = ?', [userId]);
   }
 
   async hasUsers() {
@@ -704,6 +764,8 @@ class Database {
       await this.run('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)', [id, role]);
     }
     if (active !== undefined) await this.run('UPDATE auth_users SET active = ?, updated_at = ? WHERE id = ?', [active ? 1 : 0, new Date().toISOString(), id]);
+    // חסימה מנתקת גם את הקישור ל-Google: הפעלה מחדש לא מחזירה כניסה בלי סיסמה (סקירת קוד 2.11.2026)
+    if (active === false) await this.run('DELETE FROM auth_google_links WHERE user_id = ?', [id]);
     return (await this.listUsers()).find(u => u.id === id);
   }
 
@@ -713,17 +775,94 @@ class Database {
     const rows = await this.all('SELECT id FROM auth_users WHERE id = ?', [id]);
     if (!rows.length) throw new Error('המשתמש לא נמצא');
     await this.run('UPDATE auth_users SET password_hash = ?, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?', [hashPassword(newPassword), new Date().toISOString(), id]);
+    // איפוס בידי מנהל = החשבון אולי נפרץ: גם הקישור ל-Google מנותק, ומי שקושר אליו לא נכנס בלי הסיסמה החדשה
+    // (סקירת קוד 2.11.2026). המשתמש מקשר מחדש אחרי כניסה בסיסמה
+    await this.run('DELETE FROM auth_google_links WHERE user_id = ?', [id]);
     return true;
   }
 
-  async listAudit({ limit = 200, action = '' } = {}) {
-    const lim = Math.min(Math.max(1, Number(limit) || 200), 5000);
+  // all: true — כל היומן, בלי תקרה (ייצוא היומן; סקירת קוד 2.11.2026 — הייצוא נחתך בשקט ב-5,000)
+  async listAudit({ limit = 200, action = '', all = false } = {}) {
+    const lim = all === true ? -1 : Math.min(Math.max(1, Number(limit) || 200), 5000);
     const rows = await this.all(
       'SELECT a.created_at, a.action, a.details, u.username FROM audit_events a LEFT JOIN auth_users u ON u.id = a.user_id ' +
       (action ? 'WHERE a.action LIKE ? ' : '') + 'ORDER BY a.created_at DESC LIMIT ?',
       action ? [String(action).slice(0, 60) + '%', lim] : [lim]
     );
     return rows.map(r => ({ at: r.created_at, action: r.action, details: r.details ? this._openDetails(r.details) : '', user: r.username || '' }));
+  }
+
+  // ---------- משתמשים ויומן הפעולות בגיבוי המלא (סקירת קוד 2.11.2026) ----------
+  // השדה users ברמה העליונה של הגיבוי (main.js / main-android.js → collectBackup). הגיבוי מוצפן כולו (SSBK1),
+  // ולכן פרטי היומן נכתבים בו פתוחים (המפתח של המסד לא עובר למחשב אחר). גיבוב הסיסמה — כמו שהוא במסד
+  async exportUsers() {
+    const users = await this.all('SELECT id, username, password_hash, active, created_at, updated_at, ' +
+      '(SELECT GROUP_CONCAT(role_id) FROM user_roles ur WHERE ur.user_id = u.id) AS roles FROM auth_users u ORDER BY created_at');
+    const google = await this.all('SELECT user_id, google_sub, email, linked_at FROM auth_google_links');
+    const audit = await this.all('SELECT id, user_id, action, details, created_at FROM audit_events ORDER BY created_at');
+    return {
+      v: 1,
+      users: users.map(r => ({ id: r.id, username: r.username, passwordHash: r.password_hash, active: !!r.active,
+        createdAt: r.created_at, updatedAt: r.updated_at, role: String(r.roles || '').split(',')[0] || 'viewer' })),
+      google: google.map(r => ({ userId: r.user_id, sub: r.google_sub, email: r.email || '', linkedAt: r.linked_at })),
+      audit: audit.map(r => ({ id: r.id, userId: r.user_id || null, action: r.action, details: r.details ? this._openDetails(r.details) : '', at: r.created_at })),
+    };
+  }
+
+  // מיזוג מהגיבוי (snap — אחרי usersFromBackup): משתמש קיים (לפי שם) לא משתנה — לא סיסמה, לא תפקיד ולא חסימה,
+  // כך שהמנהל שמשחזר נשאר עם הסיסמה שלו, ומשתמש שנחסם כאן לא חוזר לפעול מגיבוי ישן. משתמש שאין כאן — נוסף עם
+  // הסיסמה, התפקיד והקישור ל-Google מהגיבוי. היומן — מתווסף (לפי מזהה, בלי כפילויות). maxActive — מכסת הרישיון:
+  // משתמש פעיל מעבר לה נוסף חסום. הכול בטרנזקציה אחת; פרטי היומן נכתבים דרך cipher.seal
+  async importUsers(snap, { maxActive = Infinity } = {}) {
+    this.invalidateCache();
+    const out = { added: 0, blocked: 0, existing: 0, audit: 0 };
+    if (!snap) return out;
+    await this.exec('BEGIN IMMEDIATE TRANSACTION');
+    try {
+      const idMap = new Map();
+      let active = (await this.all('SELECT COUNT(*) AS n FROM auth_users WHERE active = 1'))[0].n;
+      const added = new Set();
+      for (const u of snap.users) {
+        const byName = await this.all('SELECT id FROM auth_users WHERE username = ?', [u.username]);
+        if (byName.length) { idMap.set(u.id, byName[0].id); out.existing++; continue; }
+        if ((await this.all('SELECT 1 FROM auth_users WHERE id = ?', [u.id])).length) continue;
+        const on = u.active && active < maxActive;
+        if (u.active && !on) out.blocked++;
+        if (on) active++;
+        await this.run('INSERT INTO auth_users (id, username, password_hash, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+          [u.id, u.username, u.passwordHash, on ? 1 : 0, u.createdAt, u.updatedAt]);
+        await this.run('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)', [u.id, u.role]);
+        idMap.set(u.id, u.id);
+        added.add(u.id);
+        out.added++;
+      }
+      for (const g of snap.google) {
+        if (!added.has(g.userId)) continue;
+        if ((await this.all('SELECT 1 FROM auth_google_links WHERE google_sub = ?', [g.sub])).length) continue;
+        await this.run('INSERT INTO auth_google_links (user_id, google_sub, email, linked_at) VALUES (?, ?, ?, ?)', [g.userId, g.sub, g.email, g.linkedAt]);
+      }
+      for (const a of snap.audit) {
+        if ((await this.all('SELECT 1 FROM audit_events WHERE id = ?', [a.id])).length) continue;
+        await this.run('INSERT INTO audit_events (id, user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?)',
+          [a.id, (a.userId && idMap.get(a.userId)) || null, a.action, a.details ? this.cipher.seal(a.details) : '', a.at]);
+        out.audit++;
+      }
+      await this.exec('COMMIT');
+    } catch (e) {
+      await this.exec('ROLLBACK');
+      throw e;
+    }
+    return out;
+  }
+
+  // מסד ששוחזר אחרי תקלה מגיבוי בלי משתמשים (main.js → recoverDatabase): auth:setup לא נותן בו למי שהגיע ראשון
+  // להיות מנהל — נדרש קוד השחזור (ipc.js; סקירת קוד 2.11.2026). הסימון בטבלת maintenance, מחוץ לאוספים
+  async markSetupNeedsRecoveryCode() {
+    await this.run("INSERT OR REPLACE INTO maintenance (task, since) VALUES ('setup-recovery-code', ?)", [new Date().toISOString()]);
+  }
+
+  async setupNeedsRecoveryCode() {
+    return (await this.all("SELECT 1 FROM maintenance WHERE task = 'setup-recovery-code'")).length > 0;
   }
 
   // שורה ביומן שלא נפתחת לא מפילה את כל היומן
@@ -742,7 +881,11 @@ class Database {
     let current = null;
     try { current = await this.load(); } catch { /* מסד שלא נפתח — משחזרים כמו שהוא */ }
     if (current) keepCounters(data, current);
+    // השחזור כותב את כל האוספים מחדש — בלי להסתמך על המטמון
+    this.invalidateCache();
     await this.save(data);
+    // ipc.js: זמן הניתוק ומדיניות Google מההגדרות ששוחזרו (סקירת קוד 2.11.2026). כשל כאן לא מבטל שחזור שכבר נשמר
+    if (typeof this.onRestore === 'function') { try { await this.onRestore(); } catch { /* ההגדרות ייטענו בהפעלה הבאה */ } }
     return true;
   }
 

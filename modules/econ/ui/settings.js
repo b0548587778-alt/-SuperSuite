@@ -59,7 +59,7 @@ function renderPrivacyCard(pv) {
     </div>
     ${renderPrivacyRequests(pv.requests)}
     <h4>מזעור לפי תקופת שמירה</h4>
-    <p class="muted">רשומות שלא הייתה בהן פעילות בתקופה שנבחרה: הפרטים שאינם נחוצים עוד נמחקים, והשאר נשמר. לפני הביצוע מוצגת הרשימה ומה יימחק. הפעולה אינה הפיכה — כדאי לבצע גיבוי לפני.</p>
+    <p class="muted">רשומות שלא הייתה בהן פעילות בתקופה שנבחרה: הפרטים שאינם נחוצים עוד נמחקים, והשאר נשמר. בלווים — גם בקשת ההלוואה שממנה נוצרה ההלוואה; בתורמים — התקופה נספרת מסוף שנת המס. לפני הביצוע מוצגת הרשימה ומה יימחק. הפעולה אינה הפיכה — כדאי לבצע גיבוי לפני.</p>
     <div class="acct-actions">
       <select id="privacyRetentionKind" aria-label="סוג הרשומות">${Object.entries(pv.retentionKinds || { beneficiaries: { label: 'נזקקים לא פעילים (חסד)' } }).map(([k, v]) => `<option value="${esc(k)}">${esc(v.label)}</option>`).join('')}</select>
       <button class="secondary" id="privacyRetentionBtn">בדיקת רשומות למזעור…</button>
@@ -110,7 +110,7 @@ async function runPrivacySubject() {
 async function runPrivacyRequest() {
   const type = (document.getElementById('privacyRequestType') || {}).value || 'access';
   const f = await askFields('רישום בקשה של נושא מידע', [
-    { name: 'name', label: 'שם המבקש' }, { name: 'idNumber', label: 'מספר זהות (אם נמסר)' },
+    { name: 'name', label: 'שם המבקש' }, { name: 'idNumber', label: 'מספר זהות (אם נמסר)', optional: true },
     { name: 'receivedDate', label: 'תאריך קבלת הבקשה', type: 'date' }, { name: 'notes', label: 'פירוט הבקשה' }
   ], 'רישום', { receivedDate: today() });
   if (!f) return;
@@ -124,7 +124,7 @@ async function runPrivacyRequest() {
 async function runPrivacyClose(id, status) {
   const f = await askFields(status === 'rejected' ? 'דחיית הבקשה' : 'סימון הבקשה כמטופלת', [
     { name: 'handledDate', label: 'תאריך הטיפול', type: 'date' },
-    { name: 'notes', label: status === 'rejected' ? 'סיבת הדחייה (חובה)' : 'מה נעשה' }
+    { name: 'notes', label: status === 'rejected' ? 'סיבת הדחייה (חובה)' : 'מה נעשה (לא חובה)', optional: status !== 'rejected' }
   ], 'שמירה', { handledDate: today() });
   if (!f) return;
   try {
@@ -216,7 +216,8 @@ function renderSettings(d) {
             <td><select data-user-role="${esc(u.id)}"${st.me && st.me.id === u.id ? ' disabled' : ''}>${Object.keys(ROLE_LABELS).map(r => `<option value="${r}"${u.role === r ? ' selected' : ''}>${esc(ROLE_LABELS[r].split(' — ')[0])}</option>`).join('')}</select></td>
             <td>${u.active ? (u.locked ? 'נעול זמנית' : 'פעיל') : 'חסום'}</td>
             <td>${st.me && st.me.id === u.id ? '' : `<button class="secondary small" data-user-toggle="${esc(u.id)}" data-active="${u.active ? '1' : '0'}">${u.active ? 'חסימה' : 'הפעלה'}</button>`}
-              <button class="secondary small" data-user-reset="${esc(u.id)}">איפוס סיסמה</button></td>
+              <button class="secondary small" data-user-reset="${esc(u.id)}">איפוס סיסמה</button>${u.google && !(st.me && st.me.id === u.id) ? `
+              <button class="secondary small" data-user-unlink-google="${esc(u.id)}" title="ניתוק החשבון של ${esc(u.username)} מ-Google: הכניסה שלו תהיה בסיסמה בלבד">ניתוק Google</button>` : ''}</td>
           </tr>`).join('')}</tbody>
         </table></div>
       </div>
@@ -226,7 +227,7 @@ function renderSettings(d) {
       <div class="card">
         <div class="acct-header"><h3>יומן ביקורת</h3>
           <div class="acct-actions">
-            <select id="auditFilter">
+            <select id="auditFilter" aria-label="סינון יומן הפעולות לפי תחום">
               ${[['', 'הכל'], ['chesed.confidential', 'צפייה בחסויים'], ['acct', 'הנהלת חשבונות'], ['npo', 'עמותה'], ['gemach', 'גמ"ח'], ['chesed', 'חסד וחלוקות'], ['madv', 'ייעוץ משכנתאות'], ['realty', 'נדל"ן ותיווך'],['users', 'משתמשים'], ['ports', 'ייבוא/ייצוא'], ['data', 'גיבוי ושחזור'], ['settings', 'הגדרות']]
                 .map(([v, l]) => `<option value="${v}"${(state.auditFilter || '') === v ? ' selected' : ''}>${l}</option>`).join('')}
             </select>
@@ -256,6 +257,7 @@ function renderGoogleCard(st) {
           <div class="acct-row"><span>הכניסה הנוכחית</span><span>${g.via === 'google' ? 'עם Google' : 'בסיסמה'}</span></div>
           ${g.onlineRequiresGoogle ? '<p class="muted">ההודעות זמינות רק אחרי כניסה עם Google.</p>' : ''}
           <p class="muted">הכניסה נעשית בדפדפן של המחשב ודורשת אינטרנט. הכניסה בסיסמה נשארת תמיד.</p>
+          <p class="ss-hint">⚠ מחשב משותף: מי שיושב מול המחשב כשהדפדפן עדיין מחובר לחשבון ה-Google שלכם יכול להיכנס בשמכם, בלי סיסמה. במחשב משותף — התנתקו מ-Google בדפדפן בסוף העבודה, או אל תקשרו חשבון של מנהל. קוד השחזור (🔑), איפוס סיסמה וניתוק Google של משתמש אחר דורשים תמיד את הסיסמה.</p>
           <div class="acct-actions">
             <button class="secondary" id="googleLinkBtn">${link ? 'קישור לחשבון אחר' : 'קישור חשבון Google'}</button>
             ${link ? '<button class="secondary" id="googleUnlinkBtn">ביטול הקישור</button>' : ''}
@@ -313,6 +315,7 @@ function askGoogleSettings(cfg) {
       ? 'אין צורך להגדיר כלום: התוכנה כוללת מזהה מובנה. מזהה משלכם (מסוג "Desktop app" ב-Google Cloud Console) — רק לארגון שרוצה בכך. הכניסה בסיסמה נשארת לכל המשתמשים.'
       : 'יוצרים ב-Google Cloud Console מזהה לקוח מסוג "Desktop app". הכניסה בסיסמה נשארת לכל המשתמשים.';
     const err = document.createElement('div');
+    err.setAttribute('role', 'alert'); // שגיאה מוקראת מיד (r4 נגישות)
     err.style.color = 'var(--ss-danger)';
     err.style.fontSize = '0.9rem';
     const actions = document.createElement('div');
@@ -331,7 +334,7 @@ function askGoogleSettings(cfg) {
     cancel.addEventListener('click', () => finish(null));
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (enabled.checked && !clientId.value.trim() && !c.builtIn) { err.textContent = 'יש להזין מזהה לקוח'; clientId.focus(); return; }
+      if (enabled.checked && !clientId.value.trim() && !c.builtIn) { dialogFieldError(err, clientId, 'חסר מזהה הלקוח של Google. הדביקו אותו בשדה, או בטלו את הסימון "כניסה עם Google".'); return; }
       finish({ enabled: enabled.checked, clientId: clientId.value.trim(), clientSecret: secret.value.trim(), onlineRequiresGoogle: online.checked });
     });
     enabled.focus();
@@ -340,9 +343,11 @@ function askGoogleSettings(cfg) {
 
 async function googleLinkFlow() {
   showToast('המשיכו את הכניסה בדפדפן שנפתח…');
+  const seq = state.viewSeq;
   try { const r = await window.systemAPI.googleLink(); showToast('החשבון קושר: ' + (r && r.email || 'Google')); }
   catch (error) { showError('שגיאה בקישור: ' + errMsg(error)); }
-  await switchView('settings');
+  // הקישור נמשך עד 3 דקות בדפדפן: מי שעבר בינתיים למסך אחר (ואולי פתח שם טופס) — נשאר שם (סקירת קוד 2.11.2026)
+  if (state.viewSeq === seq && state.currentView === 'settings') await switchView('settings');
 }
 
 function attachSettingsHandlers() {
@@ -390,10 +395,25 @@ function attachSettingsHandlers() {
     try { await window.systemAPI.updateUser(b.dataset.userToggle, { active: activate }); showToast(activate ? 'המשתמש הופעל' : 'המשתמש נחסם'); await switchView('settings'); }
     catch (error) { showError('שגיאה: ' + errMsg(error)); }
   }));
+  // אחרי כניסה עם Google — הסיסמה של המנהל עצמו נדרשת בשרת (stepUp ב-ipc.js); השדה מוצג רק אז
+  const viaGoogle = !!(st.google && st.google.via === 'google');
+  const ownField = viaGoogle ? [{ name: 'own', label: 'הסיסמה שלך (נכנסת עם Google)', type: 'password' }] : [];
   document.querySelectorAll('[data-user-reset]').forEach(b => b.addEventListener('click', async () => {
-    const v = await askFields('איפוס סיסמה', [{ name: 'pass', label: 'סיסמה חדשה (לפחות 12 תווים)', type: 'password' }], 'איפוס');
+    const v = await askFields('איפוס סיסמה', [{ name: 'pass', label: 'סיסמה חדשה (לפחות 12 תווים)', type: 'password' }, ...ownField], 'איפוס');
     if (!v) return;
-    try { await window.systemAPI.resetUserPassword(b.dataset.userReset, v.pass); showToast('הסיסמה אופסה'); }
+    try { await window.systemAPI.resetUserPassword(b.dataset.userReset, v.pass, v.own); showToast('הסיסמה אופסה, והקישור של המשתמש ל-Google (אם היה) נותק'); }
     catch (error) { showError('שגיאה: ' + errMsg(error)); }
+    await switchView('settings');
+  }));
+  document.querySelectorAll('[data-user-unlink-google]').forEach(b => b.addEventListener('click', async () => {
+    let own;
+    if (viaGoogle) {
+      const v = await askFields('ניתוק Google של משתמש', ownField, 'ניתוק');
+      if (!v) return;
+      own = v.own;
+    } else if (!(await askConfirm('לנתק את המשתמש מ-Google? הכניסה שלו תהיה בסיסמה בלבד, עד שיקשר שוב.'))) return;
+    try { await window.systemAPI.unlinkUserGoogle(b.dataset.userUnlinkGoogle, own); showToast('הקישור ל-Google נותק'); }
+    catch (error) { showError('שגיאה: ' + errMsg(error)); }
+    await switchView('settings');
   }));
 }

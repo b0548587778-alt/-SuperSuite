@@ -1,0 +1,10 @@
+# סיסמאות בדויות בבדיקות (לא סודות) ב-commit שכבר נדחף — סקירת קוד 2.11.2026.
+# מאז הן מוגדרות בקבוע PASS בקובץ הבדיקה.
+73e4d3042573defad05d629a8f47e51f16951a69:tests/audit-r3-users.test.js:generic-api-key:58
+73e4d3042573defad05d629a8f47e51f16951a69:tests/audit-r3-users.test.js:generic-api-key:76
+73e4d3042573defad05d629a8f47e51f16951a69:tests/audit-r3-users.test.js:generic-api-key:95
+73e4d3042573defad05d629a8f47e51f16951a69:tests/audit-r3-users.test.js:generic-api-key:129
+73e4d3042573defad05d629a8f47e51f16951a69:tests/audit-r3-users.test.js:generic-api-key:143
+73e4d3042573defad05d629a8f47e51f16951a69:tests/audit-r3-users.test.js:generic-api-key:173
+73e4d3042573defad05d629a8f47e51f16951a69:tests/audit-r3-users.test.js:generic-api-key:174
+73e4d3042573defad05d629a8f47e51f16951a69:tests/audit-r3-users.test.js:generic-api-key:211

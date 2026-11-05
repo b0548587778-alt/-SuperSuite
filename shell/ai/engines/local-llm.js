@@ -54,6 +54,7 @@ function createLocalEngine({ modelStore, fork = electronFork, hasRuntime = runti
   const inflight = new Map(); // id ← { resolve, reject, onTool, timer }
   let loadWaiter = null;
   let installed = { present: false };
+  let gen = 0; // עולה בכל stop — טעינה שהתחילה לפני העצירה (למשל לפני התקנת מודל) לא ממשיכה לטעון את הישן
 
   async function refresh() {
     installed = modelStore ? await modelStore.current() : { present: false };
@@ -70,13 +71,14 @@ function createLocalEngine({ modelStore, fork = electronFork, hasRuntime = runti
   function status() {
     const m = installed.present ? installed.manifest : null;
     return {
-      mode: mode(), present: !!installed.present, running: !!child, loadMs,
+      mode: mode(), present: !!installed.present, changed: !!installed.changed, running: !!child, loadMs,
       model: m ? { id: m.id, name: m.name, size: m.size, license: m.license, quant: m.quant } : null,
       error: lastError || installed.error || null,
     };
   }
 
   function stop(reason) {
+    gen += 1;
     if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
     const c = child;
     child = null;
@@ -111,8 +113,11 @@ function createLocalEngine({ modelStore, fork = electronFork, hasRuntime = runti
 
   function ensureLoaded() {
     if (loaded) return loaded;
+    const g = gen;
     loaded = (async () => {
       const cur = await refresh();
+      // נעצר בזמן הקריאה (התקנה / הסרה של מודל) — לא טוענים את המודל שהיה (סקירת קוד 2.11.2026)
+      if (g !== gen) throw Object.assign(new Error('המודל המקומי נסגר'), { stopped: true });
       if (!cur.present) throw new Error(cur.error || 'המודל המקומי אינו מותקן');
       if (!hasRuntime()) throw new Error('רכיב המודל המקומי אינו כלול בהתקנה הזו');
       const c = fork();
@@ -130,7 +135,11 @@ function createLocalEngine({ modelStore, fork = electronFork, hasRuntime = runti
       armIdle();
       return true;
     })();
-    loaded.catch((e) => { lastError = e.message; onError('ai-local-load', e); stop(e.message); });
+    const mine = loaded;
+    loaded.catch((e) => {
+      if (e && e.stopped) { if (loaded === mine) loaded = null; return; }
+      lastError = e.message; onError('ai-local-load', e); stop(e.message);
+    });
     return loaded;
   }
 

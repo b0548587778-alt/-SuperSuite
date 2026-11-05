@@ -74,10 +74,11 @@ test('תיקון: אי אפשר לבטל רשומה של חשבונית ישיר
   const journal = await handlers['acct:getJournal'](ev(60), {});
   const invEntry = journal.find(e => e.id === inv.entryId);
   await assert.rejects(handlers['acct:reverseEntry'](ev(60), invEntry.id), /בטל את החשבונית במקום/);
-  // ביטול דרך החשבונית עובד ורושם היפוך אחד
-  await handlers['acct:cancelInvoice'](ev(60), inv.id);
+  // ביטול דרך החשבונית עובד ורושם חשבונית זיכוי אחת — היא ההיפוך, בלי היפוך נפרד (סקירת קוד 2.11.2026)
+  const cancelled = await handlers['acct:cancelInvoice'](ev(60), inv.id);
   const after = await handlers['acct:getJournal'](ev(60), {});
-  assert.equal(after.filter(e => e.reversalOf === invEntry.id).length, 1);
+  assert.equal(after.filter(e => e.reversalOf === invEntry.id).length, 0);
+  assert.equal(after.filter(e => e.description.startsWith(`חשבונית זיכוי ${cancelled.cancelCreditNumber} לחשבונית ${inv.number}`)).length, 1);
 });
 
 test('תיקון: אי אפשר לבטל גבייה ישירות, אבל ביטול תשלום דרך החשבונית מחזיר אותה לפתוחה', async () => {

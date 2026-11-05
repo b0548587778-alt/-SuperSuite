@@ -26,7 +26,7 @@ class ContactsService {
 
   async createContact(senderId, contactData) {
     if (!contactData || !contactData.name) {
-      throw new Error('שם איש הקשר חובה');
+      throw new Error('חסר שם — איך קוראים לאיש הקשר? כתבו שם.');
     }
     
     const contact = {

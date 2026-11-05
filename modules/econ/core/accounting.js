@@ -91,8 +91,8 @@ function computeInvoice(invoice, vatRate = DEFAULT_VAT_RATE) {
   let net = 0;
   const items = invoice.items.map((it, i) => {
     const qty = Number(it.quantity ?? 1), price = Number(it.unitPrice);
-    if (!Number.isFinite(qty) || qty <= 0) throw new Error(`פריט ${i + 1}: כמות לא תקינה`);
-    if (!Number.isFinite(price) || price < 0) throw new Error(`פריט ${i + 1}: מחיר לא תקין`);
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error(`פריט ${i + 1}: כמות לא תקינה — כתבו מספר גדול מאפס, למשל 1.`);
+    if (!Number.isFinite(price) || price < 0) throw new Error(`פריט ${i + 1}: מחיר לא תקין — כמה עולה הפריט? כתבו מספר, למשל 250.`);
     // עיגול אחד לשורה, אחרי ההכפלה: עיגול מחיר היחידה קודם מכפיל את הסטייה בכמות (1000 × 0.125 = 125, לא 130).
     // toPrecision מנקה את שארית הנקודה הצפה (1.005 × 100 = 100.4999…) לפני העיגול
     const lineNet = Math.round(Number((qty * price * 100).toPrecision(12)));

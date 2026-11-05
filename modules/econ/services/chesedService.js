@@ -4,6 +4,12 @@
 const crypto = require('crypto');
 const C = require('../core/chesed');
 
+// "ת"ז כפולה" רק מול נזקק שהמשתמש רואה: מי שאין לו users.manage לא יכול לברר דרך ההודעה שת"ז מסוימת
+// שייכת לנזקק חסוי (סקירת קוד 2.11.2026). ההתנגשות עם חסוי נשמרת — המנהל רואה את שתי הרשומות
+function sameIdVisible(b, canSeeConfidential) {
+  return canSeeConfidential || b.tier !== 'confidential';
+}
+
 class ChesedService {
   constructor(db) {
     this.db = db;
@@ -48,7 +54,7 @@ class ChesedService {
     const data = await this._load();
     if (data.chesed.beneficiaries.length >= C.MAX_BENEFICIARIES) throw new Error('הגעת למספר המקסימלי של נזקקים');
     const clean = C.validateBeneficiary(input);
-    if (clean.idNumber && data.chesed.beneficiaries.some(b => b.idNumber === clean.idNumber)) throw new Error('כבר קיים נזקק עם מספר זהות זה');
+    if (clean.idNumber && data.chesed.beneficiaries.some(b => b.idNumber === clean.idNumber && sameIdVisible(b, canSeeConfidential))) throw new Error('כבר קיים נזקק עם מספר זהות זה');
     const b = { id: crypto.randomUUID(), ...clean, createdAt: new Date().toISOString() };
     data.chesed.beneficiaries.push(b);
     await this.db.save(data);
@@ -63,7 +69,7 @@ class ChesedService {
     const cur = data.chesed.beneficiaries[i];
     if (cur.tier === 'confidential' && !canSeeConfidential) throw new Error('אין הרשאה לערוך נזקק חסוי');
     const clean = C.validateBeneficiary({ ...cur, ...input }, cur);
-    if (clean.idNumber && data.chesed.beneficiaries.some(b => b.id !== id && b.idNumber === clean.idNumber)) throw new Error('כבר קיים נזקק עם מספר זהות זה');
+    if (clean.idNumber && data.chesed.beneficiaries.some(b => b.id !== id && b.idNumber === clean.idNumber && sameIdVisible(b, canSeeConfidential))) throw new Error('כבר קיים נזקק עם מספר זהות זה');
     data.chesed.beneficiaries[i] = { ...cur, ...clean, updatedAt: new Date().toISOString() };
     await this.db.save(data);
     return C.maskBeneficiary(data.chesed.beneficiaries[i], canSeeConfidential);

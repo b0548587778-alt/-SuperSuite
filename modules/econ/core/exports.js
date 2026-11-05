@@ -16,10 +16,23 @@ function docTitle(doc) {
   return doc.vatExempt ? 'חשבונית עסקה' : doc.kind === 'tax-invoice-receipt' ? 'חשבונית מס/קבלה' : 'חשבונית מס';
 }
 
+// פרטי העסק להדפסה: מהמסמך (נשמרו בעת ההפקה — issuer), והלוגו מההגדרות. מסמך ישן בלי issuer — ההגדרות של היום
+function issuerBusiness(doc, business = {}) {
+  const base = { name: '', taxId: '', address: '', phone: '', email: '' };
+  if (doc && doc.issuer && typeof doc.issuer === 'object') return { ...base, ...doc.issuer, ...(business.logo ? { logo: business.logo } : {}) };
+  return { ...base, ...business };
+}
+
+// "מקור" / "העתק" (opts.copy: true / false; בלי — לא מודפס, למשל הצעת מחיר)
+const copyMark = (opts) => (opts && typeof opts.copy === 'boolean' ? `<div class="copy">${opts.copy ? 'העתק נאמן למקור' : 'מקור'}</div>` : '');
+
 // חשבונית מס, הצעת מחיר, הזמנה, תעודת משלוח וחשבונית זיכוי כ-HTML מוכן להדפסה / המרה ל-PDF.
-// מסמך שאינו חשבונית (kindLabel) — בלי מספר הקצאה ובלי הערת הסף
-function renderInvoiceHtml(invoice, business = {}) {
-  const b = { name: '', taxId: '', address: '', phone: '', email: '', ...business };
+// מסמך שאינו חשבונית (kindLabel) — בלי מספר הקצאה ובלי הערת הסף.
+// המסמך מודפס כפי שהונפק (סקירת קוד 2.11.2026): פרטי העסק מהמסמך, ובלי גבייה וזיכויים שנוספו אחריו —
+// פרטי התשלום רק בחשבונית מס/קבלה (שם הם חלק מהמסמך). חשבונית שבוטלה — מסומנת, עם מספר חשבונית הזיכוי
+function renderInvoiceHtml(invoice, business = {}, opts = {}) {
+  const b = issuerBusiness(invoice, business);
+  const withPayment = invoice.kind === 'tax-invoice-receipt' && !invoice.vatExempt && invoice.status === 'paid';
   const color = brandColor(b);
   const isInvoice = !invoice.kindLabel;
   const rows = invoice.items.map((it, i) => `
@@ -58,6 +71,7 @@ function renderInvoiceHtml(invoice, business = {}) {
   .alloc { margin-top: 12px; font-size: 14px; }
   .alloc b { font-size: 16px; letter-spacing: 1px; }
   .no-deduct { margin-top: 12px; padding: 8px 12px; border: 2px solid #b91c1c; color: #b91c1c; font-weight: 800; font-size: 15px; text-align: center; }
+  .copy { margin-top: 4px; font-weight: 800; }
   .notice { margin-top: 26px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
 </style>
 </head>
@@ -73,13 +87,15 @@ function renderInvoiceHtml(invoice, business = {}) {
   </div>
   <div class="meta">
     <h1>${esc(docTitle(invoice))}</h1>
+    ${copyMark(opts)}
     <div><strong>מספר:</strong> ${esc(invoice.number)}</div>
     <div><strong>תאריך:</strong> ${esc(invoice.date)}</div>
     ${invoice.validUntil ? `<div><strong>בתוקף עד:</strong> ${esc(invoice.validUntil)}</div>` : ''}
-    ${invoice.invoiceNumber ? `<div><strong>לחשבונית מס:</strong> ${esc(invoice.invoiceNumber)}</div>` : ''}
+    ${invoice.invoiceNumber ? `<div><strong>ל${esc(invoice.baseLabel || (invoice.vatExempt ? 'חשבונית עסקה' : 'חשבונית מס'))}:</strong> ${esc(invoice.invoiceNumber)}</div>` : ''}
     ${invoice.sourceDoc ? `<div><strong>על פי:</strong> ${esc(SOURCE_LABELS[invoice.sourceDoc.kind] || '')} ${esc(invoice.sourceDoc.number)}</div>` : ''}
   </div>
 </header>
+${isInvoice && invoice.status === 'cancelled' ? `<div class="no-deduct">${invoice.cancelCreditNumber ? `החשבונית בוטלה בחשבונית זיכוי מספר ${esc(invoice.cancelCreditNumber)} מתאריך ${esc(invoice.cancelledAt || '')}` : 'החשבונית בוטלה'}</div>` : ''}
 ${isInvoice ? allocationBlock(invoice) : ''}
 ${invoice.reason ? `<div class="customer"><strong>סיבת הזיכוי:</strong> ${esc(invoice.reason)}</div>` : ''}
 <div class="customer"><strong>לכבוד:</strong> ${esc(invoice.customer)}${invoice.customerTaxId ? ` · ע.מ / ח.פ: ${esc(invoice.customerTaxId)}` : ''}</div>
@@ -91,13 +107,12 @@ ${invoice.reason ? `<div class="customer"><strong>סיבת הזיכוי:</strong
 <div class="totals">
   <div><span>סה"כ לפני מע"מ</span><span>${money(invoice.net)}</span></div>
   <div><span>מע"מ ${invoice.vatExempt ? '(פטור)' : ''}</span><span>${money(invoice.vat)}</span></div>
-  <div class="grand"><span>${invoice.kind === 'credit' ? 'סה"כ זיכוי' : invoice.status === 'paid' ? 'סה"כ שולם' : 'סה"כ'}</span><span>${money(invoice.total)}</span></div>
-  ${isInvoice && invoice.credited > 0 ? `<div><span>זוכה</span><span>${money(invoice.credited)}</span></div><div><span>יתרה</span><span>${money(invoice.balance)}</span></div>` : ''}
+  <div class="grand"><span>${invoice.kind === 'credit' ? 'סה"כ זיכוי' : withPayment ? 'סה"כ שולם' : 'סה"כ'}</span><span>${money(invoice.total)}</span></div>
 </div>
 ${invoice.notes ? `<div class="customer">${esc(invoice.notes)}</div>` : ''}
-${isInvoice && invoice.status === 'paid' ? `<div class="customer"><strong>התקבל תשלום</strong> בתאריך ${esc(invoice.paidAt || invoice.date)}${invoice.paymentMethod ? ` · ${esc(PAY_LABELS[invoice.paymentMethod] || '')}` : ''}${invoice.paymentRef ? ` · אסמכתא: <span dir="ltr">${esc(invoice.paymentRef)}</span>` : ''}</div>` : ''}
+${isInvoice && withPayment ? `<div class="customer"><strong>התקבל תשלום</strong> בתאריך ${esc(invoice.paidAt || invoice.date)}${invoice.paymentMethod ? ` · ${esc(PAY_LABELS[invoice.paymentMethod] || '')}` : ''}${invoice.paymentRef ? ` · אסמכתא: <span dir="ltr">${esc(invoice.paymentRef)}</span>` : ''}</div>` : ''}
 ${b.signature ? `<div class="sign"><div>${esc(b.signature)}</div></div>` : ''}
-<div class="notice">מסמך זה הופק במערכת SuperSuite.${isInvoice ? ' חשבונית מס שסכומה לפני מע"מ גבוה מהסף שקבעה רשות המסים, ללקוח שהוא עוסק מורשה, דורשת הקצאת מספר מרשות המסים.' : invoice.kind === 'credit' ? '' : ' מסמך זה אינו חשבונית מס.'}</div>
+<div class="notice">מסמך זה הופק במערכת SuperSuite.${isInvoice && invoice.vatExempt ? '' : isInvoice ? ' חשבונית מס שסכומה לפני מע"מ גבוה מהסף שקבעה רשות המסים, ללקוח שהוא עוסק מורשה, דורשת הקצאת מספר מרשות המסים.' : invoice.kind === 'credit' ? '' : ' מסמך זה אינו חשבונית מס.'}</div>
 </body>
 </html>`;
 }
@@ -106,8 +121,8 @@ const SOURCE_LABELS = { quote: 'הצעת מחיר', order: 'הזמנה', deliver
 const PAY_LABELS = { cash: 'מזומן', check: 'המחאה', card: 'כרטיס אשראי', transfer: 'העברה בנקאית', other: 'אחר' };
 
 // קבלה לעסק (סוג 400): על תשלום של חשבונית מס, בלי פריטים ובלי מע"מ
-function renderReceiptHtml(r, business = {}) {
-  const b = { name: '', taxId: '', address: '', phone: '', email: '', ...business };
+function renderReceiptHtml(r, business = {}, opts = {}) {
+  const b = issuerBusiness(r, business);
   const color = brandColor(b);
   return `<!doctype html>
 <html lang="he" dir="rtl">
@@ -126,6 +141,7 @@ function renderReceiptHtml(r, business = {}) {
   .grand { font-size: 18px; font-weight: 800; margin-top: 12px; }
   .sign { margin-top: 40px; display: flex; justify-content: flex-end; }
   .sign div { border-top: 1px solid #94a3b8; padding-top: 4px; min-width: 200px; text-align: center; }
+  .copy { margin-top: 4px; font-weight: 800; }
   .notice { margin-top: 26px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px; }
 </style>
 </head>
@@ -140,13 +156,14 @@ function renderReceiptHtml(r, business = {}) {
   </div>
   <div class="meta">
     <h1>קבלה</h1>
+    ${copyMark(opts)}
     <div><strong>מספר:</strong> ${esc(r.number)}</div>
     <div><strong>תאריך:</strong> ${esc(r.date)}</div>
   </div>
 </header>
 <div class="box"><strong>התקבל מאת:</strong> ${esc(r.customer)}${r.customerTaxId ? ` · ע.מ / ח.פ: ${esc(r.customerTaxId)}` : ''}</div>
 <div class="box">
-  <div><strong>עבור:</strong> חשבונית מס ${esc(r.invoiceNumber)}</div>
+  <div><strong>עבור:</strong> ${esc(r.baseLabel || 'חשבונית מס')} ${esc(r.invoiceNumber)}</div>
   <div><strong>אמצעי תשלום:</strong> ${esc(PAY_LABELS[r.method] || 'אחר')}${r.reference ? ` · אסמכתא: <span dir="ltr">${esc(r.reference)}</span>` : ''}</div>
   <div class="grand">סה"כ התקבל: ${money(r.total)}</div>
 </div>

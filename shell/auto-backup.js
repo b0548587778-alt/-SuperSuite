@@ -57,6 +57,12 @@ const localStamp = (d) => `${localDay(d)} ${pad(d.getHours())}:${pad(d.getMinute
 const installTag = (key) => require('crypto').createHash('sha256').update('SuperSuite auto-backup name v1:' + String(key)).digest('hex').slice(0, 8);
 const autoBackupName = (day, tag) => (tag ? `auto-${day}-${tag}.ssbk` : `auto-${day}.ssbk`);
 
+// גיבוי שדולג ("כבר קיים היום") — הזמן של הקובץ הקיים, לא של הסבב: אחרת הוא הוצג כגיבוי חדש שהצליח
+// (סקירת קוד 2.11.2026)
+function fileTime(file, fallback) {
+  try { return fs.statSync(file).mtime.toISOString(); } catch { return fallback; }
+}
+
 // מריץ סבב גיבוי אחד ומחזיר סטטוס { ok, reason?, file?, at, target }.
 // customTarget: יעד שהמשתמש בחר (USB) — לעולם לא נוצר אם חסר (כונן לא מחובר).
 // defaultTarget: תיקיית המסמכים — נוצרת אם אינה קיימת (בהתקנה חדשה היא לא קיימת).
@@ -73,10 +79,10 @@ async function runAutoBackup({ encryptionAvailable, customTarget, defaultTarget,
   const tag = installTag(key);
   // אם הגיבוי של היום (של ההתקנה הזו) כבר קיים — לא אוספים נתונים בכלל (האיסוף טוען את כל המודולים)
   const name = autoBackupName(localDay(now), tag);
-  if (fs.existsSync(path.join(target, name))) return { ok: true, skipped: true, file: path.join(target, name), target, at };
+  if (fs.existsSync(path.join(target, name))) return { ok: true, skipped: true, file: path.join(target, name), target, at: fileTime(path.join(target, name), at) };
   const plainText = JSON.stringify(await collect());
   const r = write({ dir: target, plainText, key, keep: 14, today: localDay(now), tag });
-  return { ...r, target, at };
+  return { ...r, target, at: r && r.skipped && r.file ? fileTime(r.file, at) : at };
 }
 
 // טקסט למשתמש עבור סטטוס הגיבוי האחרון

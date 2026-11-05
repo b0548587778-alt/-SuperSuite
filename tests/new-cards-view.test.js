@@ -175,6 +175,6 @@ test('גמ"ח: בקשות, חפצים באיחור ופיגורים לפי ער�
 test('נתונים חסרים בכרטיסים החדשים לא מפילים את המסכים', async () => {
   for (const [view, r] of [['npo', { getNpoOverview: { ...NPO, campaigns: null }, getNpoMemorials: null }], ['people', { searchPeople: null }], ['gemach', { getGemachOverview: { settings: {}, overview: {} } }]]) {
     const { html } = await render(view, r);
-    assert.doesNotMatch(html, /^<div class="loading">/, view);
+    assert.doesNotMatch(html, /^<div class="loading"/, view);
   }
 });

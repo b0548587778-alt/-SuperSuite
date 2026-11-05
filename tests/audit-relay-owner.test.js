@@ -601,7 +601,8 @@ test('ממצא 26: נתוני הלקוחות מוצפנים במפתח השור�
   const req = T.request('ישיבת אור תורה — 050-1234567');
   o.addToInbox({ id: 'm1', from: L.keyId(req.publicKey), at: 1, body: JSON.stringify(req) });
   o.issue({ request: JSON.stringify(req), features: ['econ'], limits: { maxUsers: 2, maxChildren: 0, maxStorageMb: 10, maxDepth: 1 } });
-  for (const n of OC.SEALED_OWNER_FILES.filter(n => n !== 'signups.json')) {
+  // payment-provider.json נוצר רק כשמוגדרים פרטי Cardcom — נבדק ב-tests/r4-payments-cardcom.test.js
+  for (const n of OC.SEALED_OWNER_FILES.filter(n => n !== 'signups.json' && n !== 'payment-provider.json')) {
     assert.ok(onDisk(n).startsWith(OC.OWNER_SEAL_PREFIX), n + ' מוצפן');
     assert.ok(!onDisk(n).includes('050-1234567'), n + ' בלי טקסט גלוי');
   }

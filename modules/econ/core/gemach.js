@@ -40,7 +40,7 @@ function normalizeSettings(raw) {
 function validateGuarantor(g) {
   if (!g || typeof g !== 'object') throw new Error('פרטי ערב לא תקינים');
   const name = str(g.name, 200, 'שם הערב');
-  if (!name) throw new Error('שם הערב חובה');
+  if (!name) throw new Error('חסר שם של אחד הערבים — כתבו בכל שורה: שם, ת.ז, טלפון.');
   const id = str(g.id, 12, 'מספר הזהות של הערב');
   if (id && !/^\d{5,9}$/.test(id)) throw new Error('מספר זהות הערב חייב להכיל 5–9 ספרות');
   return { name, id, phone: str(g.phone, 30, 'טלפון הערב') };
@@ -85,14 +85,14 @@ function validateLoanInput(input, count = 0) {
   if (!input || typeof input !== 'object') throw new Error('בקשת הלוואה לא תקינה');
   if (count >= MAX_LOANS) throw new Error('הגעת למספר המקסימלי של הלוואות');
   const borrowerName = str(input.borrowerName, 200, 'שם הלווה');
-  if (!borrowerName) throw new Error('שם הלווה חובה');
+  if (!borrowerName) throw new Error('חסר שם הלווה — למי ההלוואה? כתבו את שם הלווה.');
   const borrowerId = str(input.borrowerId, 12, 'מספר הזהות של הלווה');
   assertIsraeliId(borrowerId, 'מספר הזהות של הלווה');
   const amount = Number(input.amount);
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 1e8) throw new Error('סכום ההלוואה אינו תקין');
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1e8) throw new Error('חסר סכום ההלוואה — כמה להלוות? כתבו מספר גדול מאפס, למשל 5000.');
   const installments = Number(input.installments);
   if (!Number.isInteger(installments) || installments < 1 || installments > MAX_INSTALLMENTS) {
-    throw new Error(`מספר התשלומים חייב להיות שלם בין 1 ל-${MAX_INSTALLMENTS}`);
+    throw new Error(`מספר התשלומים לא תקין — בכמה חודשים יוחזר החוב? כתבו מספר שלם בין 1 ל-${MAX_INSTALLMENTS}, למשל 10.`);
   }
   const issueDate = input.issueDate || localToday();
   if (!isDate(issueDate)) throw new Error('תאריך מתן ההלוואה אינו תקין (YYYY-MM-DD)');
@@ -155,8 +155,8 @@ function recordPayment(loan, seq, input = {}) {
   if (remaining <= 0) throw new Error('התשלום הזה כבר נפרע במלואו');
   const amount = input.amount === undefined || input.amount === '' ? fromAg(remaining) : Number(input.amount);
   const amountAg = toAg(amount);
-  if (!Number.isFinite(amountAg) || amountAg <= 0) throw new Error('סכום התשלום אינו תקין');
-  if (amountAg > remaining) throw new Error(`הסכום גבוה מהנותר לתשלום זה (${fromAg(remaining)} ₪)`);
+  if (!Number.isFinite(amountAg) || amountAg <= 0) throw new Error('סכום התשלום אינו תקין — כמה הוחזר? כתבו מספר גדול מאפס, או השאירו ריק לכל התשלום.');
+  if (amountAg > remaining) throw new Error(`הסכום גבוה מהנותר לתשלום זה (${fromAg(remaining)} ₪) — כתבו עד ${fromAg(remaining)} ₪, ואת היתרה רשמו בתשלום הבא.`);
   // תאריך שהוקלד ואינו תקין — שגיאה, ולא "היום" בשקט
   if (input.date && !isDate(input.date)) throw new Error('תאריך התשלום אינו תקין (YYYY-MM-DD)');
   const date = input.date || localToday();
@@ -165,6 +165,24 @@ function recordPayment(loan, seq, input = {}) {
     : s);
   const allPaid = updatedSchedule.every(s => s.paidAg >= s.amountAg);
   return { ...loan, schedule: updatedSchedule, status: allPaid ? 'closed' : loan.status };
+}
+
+// ביטול תשלום שנרשם הרגע ("טעיתי, לבטל"): paidAg חוזר מ-from ל-to — רק אם הוא עדיין from
+// (אם בינתיים נרשם תשלום נוסף או חיוב מס"ב, לא נוגעים — התיקון ידני)
+function reversePayment(loan, seq, input = {}) {
+  const item = (loan.schedule || []).find(s => s.seq === Number(seq));
+  if (!item) throw new Error('תשלום בלוח הסילוקין לא נמצא');
+  const from = Number(input.from);
+  const to = Number(input.to);
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || to < 0 || to >= from) throw new Error('פרטי הביטול אינם תקינים — אפשר לבטל רק תשלום שנרשם הרגע');
+  if (item.paidAg !== from) throw new Error('התשלום השתנה מאז שנרשם — לא ניתן לבטל אותו כאן. פנו למנהל הקופה לתיקון');
+  const updatedSchedule = loan.schedule.map(s => {
+    if (s.seq !== item.seq) return s;
+    const next = { ...s, paidAg: to, status: to <= 0 ? 'pending' : 'partial' };
+    if (to <= 0) next.paidDate = '';
+    return next;
+  });
+  return { ...loan, schedule: updatedSchedule, status: loan.status === 'closed' ? 'active' : loan.status };
 }
 
 const totalDueAg = (loan) => (loan.schedule || []).reduce((t, s) => t + s.amountAg, 0);
@@ -250,6 +268,6 @@ function exportTable(kind, loans, deposits, settings, asOf) {
 module.exports = {
   LOAN_STATUSES, DEFAULT_SETTINGS, MAX_LOANS, MAX_DEPOSITS, MAX_INSTALLMENTS, MAX_GUARANTORS,
   normalizeSettings, validateGuarantor, validateGuarantors, parseGuarantorsText, buildSchedule, validateLoanInput,
-  validateDepositInput, pledgedDeposits, assertCollateral, recordPayment, totalDueAg, totalPaidAg, outstandingAg, arrears,
+  validateDepositInput, pledgedDeposits, assertCollateral, recordPayment, reversePayment, totalDueAg, totalPaidAg, outstandingAg, arrears,
   loanSummary, overview, exportTable
 };

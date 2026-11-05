@@ -67,6 +67,8 @@ async function main() {
   try {
     const shell = session(await target('shell.html'));
     await wait(1500);
+    // שאלת הנגישות של ההפעלה הראשונה (חלון "♿ נגישות") — לא בצילומים
+    await shell.js(`(localStorage.setItem('suite.a11yAsked', 'shots'), document.getElementById('a11yAskNo') && document.getElementById('a11yAsk').open && document.getElementById('a11yAskNo').click(), 1)`);
     await shell.js(`window.resizeTo && 0`);
     await shell.shot('01-home');
 
