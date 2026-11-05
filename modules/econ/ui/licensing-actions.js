@@ -370,11 +370,24 @@ function attachLicensingHandlers() {
     const id = b.dataset.ownerSignupIssue;
     let r;
     const opts = {};
-    // שני אישורים אפשריים: הצעה שהוחלפה (ממצא 31), ואימות התשלום מול חברת הסליקה (סקירת קוד 2.11.2026)
+    let verified = false;
+    // הרשמה בתשלום שעוד לא אומתה, כשמוגדרים פרטי Cardcom — בודקים לפני ההנפקה (גם אחרי בדיקה קודמת שלא הושלמה)
+    if (b.dataset.ownerVerifyFirst === '1') {
+      verified = true;
+      const c = await window.systemAPI.ownerVerifySignupPayment(id);
+      showToast(c.message);
+    }
+    // שני אישורים אפשריים: הצעה שהוחלפה (ממצא 31), ואימות התשלום מול חברת הסליקה (סקירת קוד 2.11.2026).
+    // כשמוגדרים פרטי Cardcom — קודם אימות אוטומטי במחשב הזה (החלטת הבעלים 5.11.2026); לא ניתן לאמת ← אישור ידני
     for (;;) {
       try { r = await window.systemAPI.ownerSignupIssue(id, { ...opts }); break; } catch (e) {
         const m = errMsg(e);
-        if (/הוחלפה/.test(m) && !opts.force) {
+        if (/נדרש אימות מול Cardcom/.test(m) && !verified) {
+          verified = true;
+          const c = await window.systemAPI.ownerVerifySignupPayment(id);
+          showToast(c.message);
+          // לא תואם / לא שולם — הקריאה הבאה נחסמת בשרת עם ההסבר; לא נבדק — עוברים לאישור הידני
+        } else if (/הוחלפה/.test(m) && !opts.force) {
           if (!(await askConfirm(m + '\n\nלהנפיק בכל זאת, לפי התכנית שבהרשמה?'))) return;
           opts.force = true;
         } else if (/נדרש אימות התשלום/.test(m) && !opts.paymentConfirmed) {
@@ -384,6 +397,23 @@ function attachLicensingHandlers() {
       }
     }
     showToast(r.invoice ? `הרישיון של "${r.name}" נשלח, והופקה חשבונית מס/קבלה ${r.invoice.number}` : `הרישיון של "${r.name}" נשלח`);
+  });
+  each('data-owner-signup-verify', async (b) => {
+    const c = await window.systemAPI.ownerVerifySignupPayment(b.dataset.ownerSignupVerify);
+    showToast(c.message);
+  });
+  on('ownerCardcomBtn', async () => {
+    const v = await askFields('פרטי המסוף של Cardcom — לאימות תשלומי הרשמה', [
+      { name: 'terminal', label: 'מספר מסוף', hint: 'מממשק הניהול של Cardcom' },
+      { name: 'apiName', label: 'שם API (ApiName)', type: 'password', newPassword: true, hint: 'נשמר מוצפן במפתח מנהל-העל, במחשב הזה בלבד — לא נשלח לשרת הרישוי' }], 'שמירה');
+    if (!v) return;
+    await window.systemAPI.ownerSetCardcomCredentials({ terminal: v.terminal, apiName: v.apiName });
+    showToast('פרטי המסוף נשמרו — תשלומי הרשמה ייבדקו מול Cardcom לפני הנפקה');
+  });
+  on('ownerCardcomClearBtn', async () => {
+    if (!(await askConfirm('להסיר את פרטי המסוף של Cardcom? הנפקה בתשלום תחזור לאישור ידני.'))) return;
+    await window.systemAPI.ownerClearCardcomCredentials();
+    showToast('פרטי המסוף הוסרו');
   });
   each('data-owner-signup-invoice', async (b) => {
     const r = await window.systemAPI.exportInvoicePdf(b.dataset.ownerSignupInvoice);

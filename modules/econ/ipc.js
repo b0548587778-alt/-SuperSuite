@@ -53,6 +53,7 @@ const GOOGLE_CLIENT = require('../../shell/google-client');
 const LS = require('../../shell/licensing/store');
 const ROOT_KEYS = require('../../shell/licensing/root-keys');
 const OC = require('../../shell/licensing/owner-core');
+const OCC = require('../../shell/licensing/owner-cardcom');
 const { createLicenseSync } = require('../../shell/licensing/sync');
 const { validateUrl } = require('../../shell/licensing/remote');
 const { DEFAULT_RELAY_URL } = require('../../shell/licensing/default-relay');
@@ -71,6 +72,8 @@ const AI_MODS = require('../../shell/ai/module-context'); // טהור — נתו
 let db;
 let licenseStore = null;
 let ownerCore = null;
+// הפנייה של מנהל-העל ל-Cardcom (אימות תשלום הרשמה) — fetchImpl של התהליך הראשי (net.fetch)
+let ownerFetch = null;
 let licenseSync = null;
 let chatStore = null;
 let restTime = () => false; // מצב שבת (מוזרק מ-main.js)
@@ -239,6 +242,7 @@ async function initEcon(userDataPath, opts = {}) {
   lockOwner();
   // legacyCipher — קבצים שהוצפנו במפתח המסד בגרסת ביניים (SSDB1:) נקראים ומומרים למפתח השורש בפתיחה הבאה
   ownerCore = OC.createOwnerCore({ storage: ownerStorage || ad.owner, clock, legacyCipher: () => (db && db.cipher) || null });
+  ownerFetch = fetchImpl || globalThis.fetch;
   rootKeysInUse = rootKeys;
   // עבודה מרחוק דרך שרת הרישוי — כתובת ברירת מחדל ב-default-relay.js; המנהל יכול להחליף או למחוק (מחיקה: אופליין לגמרי)
   // קבצים מצורפים שמורים מקומית: באנדרואיד (localStorage מוגבל) — מעט מאוד
@@ -2613,9 +2617,10 @@ function registerIpcHandlers() {
       const x = ownerCore.signups().find(y => y.id === sid);
       if (!x) throw new Error('ההרשמה לא נמצאה');
       if (x.status === 'review' && !force) throw new Error(x.problem || 'ההרשמה ממתינה לבדיקה');
-      // אישור התשלום מהשרת אינו חתום — הנפקה בתשלום רק אחרי אישור מפורש של מנהל-העל (סקירת קוד 2.11.2026)
-      const payProblem = OC.signupPaymentProblem(x, { paymentConfirmed: !!(opts && opts.paymentConfirmed === true) });
-      if (payProblem) throw Object.assign(new Error(payProblem), { code: OC.PAYMENT_UNCONFIRMED });
+      // אישור התשלום מהשרת אינו חתום — הנפקה בתשלום רק אחרי אימות מול Cardcom במחשב הזה (כשהוגדרו פרטי המסוף),
+      // או אישור מפורש של מנהל-העל (סקירת קוד 2.11.2026; החלטת הבעלים 5.11.2026)
+      const pay = OC.signupPaymentCode(x, { paymentConfirmed: !!(opts && opts.paymentConfirmed === true), verifyConfigured: !!ownerCore.cardcomCredentials() });
+      if (pay) throw Object.assign(new Error(pay.message), { code: pay.code });
       // חשבונית קודם (אם שולם ועוד אין) — כך שלא יונפק רישיון בתשלום בלי מסמך חשבונאי
       let invoice = x.invoice || null;
       if (!invoice && x.payment && x.payment.amountAgorot > 0) {
@@ -2632,6 +2637,39 @@ function registerIpcHandlers() {
     record: async (event, sent, { sid, force, invoice, r }) => {
       await ownerAudit(event, 'signup.issue', { id: sid, tenant: r.id, name: r.name, invoice: invoice && invoice.number, ...(force ? { force: true } : {}) });
       return { name: r.name, invoice };
+    },
+  });
+  // ---------- אימות תשלום הרשמה מול Cardcom (החלטת הבעלים 5.11.2026) ----------
+  // פרטי המסוף נשמרים מוצפנים במפתח השורש; שם ה-API לא חוזר למסך ולא נשלח לשרת הרישוי
+  handle('owner:getPaymentProvider', async () => ownerCore.paymentProviderInfo());
+  handle('owner:setCardcomCredentials', async (event, input) => {
+    const r = ownerCore.setCardcomCredentials(input || {});
+    await ownerAudit(event, 'payment.cardcom.set', { terminal: r.cardcom.terminal });
+    return r;
+  });
+  handle('owner:clearCardcomCredentials', async (event) => {
+    const r = ownerCore.clearCardcomCredentials();
+    await ownerAudit(event, 'payment.cardcom.clear', {});
+    return r;
+  });
+  // הפנייה ל-Cardcom — מחוץ לתור (handleNet, בלי התור של שרת הרישוי); התוצאה נשמרת בהרשמה ונרשמת ביומן — בתור
+  const cardcomLock = { busy: false };
+  handleNet('owner:verifySignupPayment', {
+    lock: cardcomLock, busy: 'אימות תשלום מול Cardcom כבר מתבצע — המתינו לסיומו', relay: false,
+    before: async (event, id) => {
+      const sid = String(id || '');
+      const x = ownerCore.signups().find(y => y.id === sid);
+      if (!x) throw new Error('ההרשמה לא נמצאה');
+      if (!x.payment || !(x.payment.amountAgorot > 0)) throw new Error('ההרשמה אינה בתשלום — אין מה לאמת');
+      const creds = ownerCore.cardcomCredentials();
+      if (!creds) throw new Error('לא הוגדרו פרטי המסוף של Cardcom — יש להגדיר אותם במסך מנהל-העל, או לאשר את התשלום ידנית');
+      return { sid, creds, payment: x.payment };
+    },
+    work: async ({ creds, payment }) => OCC.verifyCardcomPayment({ creds, payment, fetchImpl: ownerFetch }),
+    record: async (event, r, { sid }) => {
+      const c = ownerCore.setSignupPaymentCheck(sid, r);
+      await ownerAudit(event, 'signup.payment.verify', { id: sid, status: c.status, tranzactionId: c.tranzactionId || undefined });
+      return c;
     },
   });
   handleSave('owner:signupDocument', async (event, id) => {

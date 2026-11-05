@@ -185,7 +185,7 @@ function renderLicensing(d) {
   // הרשמה: בלי רישוי — כמו קודם; בניסיון — רק אחרי שהתחילה (ההתחלה: "קניית רישיון" בכרטיס המצב)
   const showSignup = isAdmin && d.remote && d.remote.url && (st.mode !== 'licensed' || (st.trial && d.signup));
   const signupCard = showSignup ? renderSignupCard(d.signup, licOnAndroid(d)) : '';
-  const advanced = `${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote, d.releases, d.ownerOffer, d.signups) : ''}`;
+  const advanced = `${isAdmin ? renderRemoteCard(d.remote, st) : ''}${myCard}${childCard}${isAdmin ? renderOwnerPanel(d.owner, d.inbox, d.remote, d.releases, d.ownerOffer, d.signups, d.ownerPayment) : ''}`;
   const advOpen = st.mode === 'unlicensed' || !!(d.owner && d.owner.unlocked);
   return `<div class="settings">${renderStatusCard(st, d)}${licCertWarning(d)}${renderActivationCard(st.activation, d)}${signupCard}${renderUpdateCard(d.update, isAdmin)}
     <details class="lic-advanced"${advOpen ? ' open' : ''}><summary>הגדרות מתקדמות — פרטי הרישיון, שרת, מערכות בת</summary>${advanced}</details></div>`;
@@ -398,7 +398,7 @@ function licPayCell(pay) {
 }
 
 // מצב מנהל-העל: נפתח בסיסמה. ממנו מנפיקים ללקוחות ומאשרים מערכות בת
-function renderOwnerPanel(o, inbox, remote, releases, ownerOffer, signups) {
+function renderOwnerPanel(o, inbox, remote, releases, ownerOffer, signups, ownerPayment) {
   if (!o) return '';
   if (!o.initialized) {
     return `<div class="card"><h3>מצב מנהל-העל</h3>
@@ -466,25 +466,50 @@ function renderOwnerPanel(o, inbox, remote, releases, ownerOffer, signups) {
         </tr>`).join('')}`).join('') || '<tr><td colspan="6" class="muted">עדיין לא הונפקו רישיונות. לקוח חדש: "פתיחת בקשה מלקוח"</td></tr>'}</tbody>
     </table></div>
     <p class="muted">שינוי סטטוס נכנס לתוקף אצל הלקוח כשהוא מקבל "קובץ עדכון" (או בהתקנת רישיון מחודש). השבתה של לקוח משביתה גם את כל מערכות הבת שלו.</p>
-    ${renderOwnerSignups(ownerOffer, signups, remote)}
+    ${renderOwnerSignups(ownerOffer, signups, remote, ownerPayment)}
     ${renderOwnerReleases(releases, remote)}
   </div>`;
 }
 
-function renderOwnerSignups(offer, list, remote) {
+// אימות התשלום של הרשמה מול Cardcom (במחשב של מנהל-העל) — שורת מצב בטבלה
+const PAY_CHECK = { verified: ['ok', '✔ אומת מול Cardcom'], mismatch: ['bad', '✖ לא תואם'], unpaid: ['bad', '✖ לא שולם'], unavailable: ['muted', '⚠ לא נבדק'] };
+function signupPayCheckHtml(x) {
+  const c = x && x.paymentCheck;
+  if (!c || !PAY_CHECK[c.status]) return '';
+  const [cls, label] = PAY_CHECK[c.status];
+  return `<br><small class="${cls}" title="${esc(c.message || '')}">${label}</small>${c.status === 'verified' ? '' : '<br><small>' + esc(c.message || '') + '</small>'}`;
+}
+// הרשמה בתשלום, בלי חשבונית ובלי אימות מוצלח — נבדקת מול Cardcom לפני ההנפקה
+const signupNeedsCheck = (x, cardcomOn) => !!(cardcomOn && x && x.payment && x.payment.amountAgorot > 0 && !x.invoice
+  && !(x.paymentCheck && x.paymentCheck.status === 'verified'));
+// פרטי המסוף של Cardcom — רק "מוגדר" ומספר המסוף (שם ה-API לא יוצא מהתהליך הראשי)
+function renderOwnerCardcom(p) {
+  const c = p && p.cardcom;
+  if (!c) return '';
+  return `<div class="acct-row"><span>💳 אימות תשלומים מול Cardcom: ${c.configured
+    ? `<b>מוגדר</b> (מסוף <span dir="ltr">${esc(c.terminal)}</span>) — לפני הנפקה בתשלום התוכנה בודקת את העסקה ב-Cardcom`
+    : '<b>לא מוגדר</b> — לפני הנפקה בתשלום יש לבדוק את התשלום במערכת חברת הסליקה ולאשר ידנית'}</span>
+    <span><button class="secondary small" id="ownerCardcomBtn">${c.configured ? '✎ עדכון פרטי המסוף' : '＋ הגדרת פרטי המסוף'}</button>
+    ${c.configured ? '<button class="secondary small danger" id="ownerCardcomClearBtn">הסרה</button>' : ''}</span></div>`;
+}
+
+function renderOwnerSignups(offer, list, remote, payment) {
   if (!offer || !Array.isArray(offer.plans) || !offer.terms) offer = null;
   const rows = (Array.isArray(list) ? list : []).slice().reverse();
+  const cardcomOn = !!(payment && payment.cardcom && payment.cardcom.configured);
   return `<div class="acct-header"><h4>הרשמה, תכניות ותקנון</h4>
       <div class="acct-actions"><button class="secondary small" id="ownerOfferBtn">${offer ? '✎ עריכת תכניות ותקנון' : '＋ הגדרת תכניות ותקנון'}</button>
       ${offer && remote && remote.url ? '<button class="primary small" id="ownerOfferPublishBtn">📤 פרסום בשרת</button>' : ''}</div></div>
     ${offer ? `<p class="muted">תקנון גרסה ${esc(offer.terms.version)} · ${offer.plans.map(p => esc(p.name) + ' ' + esc(agorotText(p.priceAgorot))).join(' · ')}</p>` : '<p class="muted">עדיין לא הוגדרו תכניות. מערכות חדשות יוכלו להירשם ולשלם אחרי פרסום בשרת.</p>'}
+    ${renderOwnerCardcom(payment)}
     ${rows.length ? `<div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>התקבלה</th><th>לקוח</th><th>תכנית</th><th>תשלום</th><th>מצב</th><th></th></tr></thead>
       <tbody>${rows.map(x => `<tr><td><small>${esc(new Date(x.receivedAt).toLocaleString('he-IL'))}</small></td>
         <td><b>${esc(x.customer.org)}</b><br><small>${esc(x.customer.contact)} · <span dir="ltr">${esc(x.customer.phone)}</span></small></td>
-        <td>${esc(x.planName)}</td><td>${x.payment ? esc(agorotText(x.payment.amountAgorot)) + '<br><small dir="ltr">' + esc(x.payment.providerRef || '') + '</small>' : 'ללא תשלום'}</td>
+        <td>${esc(x.planName)}</td><td>${x.payment ? esc(agorotText(x.payment.amountAgorot)) + '<br><small dir="ltr">' + esc(x.payment.providerRef || '') + '</small>' + signupPayCheckHtml(x) : 'ללא תשלום'}</td>
         <td>${x.status === 'issued' ? '<span class="ok">הונפק</span>' : x.status === 'review' ? '<b>לבדיקה</b><br><small>' + esc(x.problem || '') + '</small>' : '<b>חדשה</b>'}${x.invoice ? `<br><small>חשבונית ${Number(x.invoice.number)}</small>` : ''}</td>
-        <td>${x.status === 'issued' ? '' : `<button class="primary small" data-owner-signup-issue="${esc(x.id)}">✔ הנפקה ושליחה</button>`}
+        <td>${x.status === 'issued' ? '' : `<button class="primary small" data-owner-signup-issue="${esc(x.id)}"${signupNeedsCheck(x, cardcomOn) ? ' data-owner-verify-first="1"' : ''}>✔ הנפקה ושליחה</button>`}
+          ${cardcomOn && x.status !== 'issued' && x.payment && x.payment.amountAgorot > 0 && !x.invoice ? `<button class="secondary small" data-owner-signup-verify="${esc(x.id)}">🔍 בדיקת התשלום ב-Cardcom</button>` : ''}
           <button class="secondary small" data-owner-signup-doc="${esc(x.id)}">📄 תקנון חתום (PDF)</button>
           ${x.invoice ? `<button class="secondary small" data-owner-signup-invoice="${esc(x.invoice.id)}">🧾 חשבונית (PDF)</button>` : ''}</td></tr>`).join('')}</tbody>
     </table></div>` : ''}`;

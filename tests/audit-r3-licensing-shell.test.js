@@ -137,7 +137,8 @@ test('אישור תשלום לא חתום: הנפקה בתשלום רק אחרי
   // הערוץ בודק לפני החשבונית וההנפקה, והמסך שואל ושולח paymentConfirmed
   const src = fs.readFileSync(path.join(ROOT, 'modules/econ/ipc.js'), 'utf8');
   const body = src.slice(src.indexOf("handleNet('owner:signupIssue'"), src.indexOf("handleSave('owner:signupDocument'"));
-  assert.ok(body.indexOf('signupPaymentProblem') > 0 && body.indexOf('signupPaymentProblem') < body.indexOf('createPaidInvoice'));
+  // מאז 5.11.2026 — signupPaymentCode (אותה בדיקה, עם אימות מול Cardcom כשמוגדר; tests/r4-payments-cardcom.test.js)
+  assert.ok(body.indexOf('signupPaymentCode') > 0 && body.indexOf('signupPaymentCode') < body.indexOf('createPaidInvoice'));
   const ui = fs.readFileSync(path.join(ROOT, 'modules/econ/ui/licensing-actions.js'), 'utf8');
   assert.match(ui, /opts\.paymentConfirmed = true/);
 });

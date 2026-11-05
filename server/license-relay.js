@@ -410,7 +410,9 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
       const signup = signupOf(x);
       if (signup == null) throw httpError(503, 'חבילת ההרשמה של התשלום חסרה בשרת');
       deliver(ownerBox(), 'signup', JSON.stringify({ type: 'supersuite-signup-delivery', signup,
-        payment: { id: x.id, amountAgorot: x.amountAgorot, provider: billing.provider.name, providerRef: ev.providerRef, paidAt: at } }));
+        payment: { id: x.id, amountAgorot: x.amountAgorot, provider: billing.provider.name, providerRef: ev.providerRef, paidAt: at,
+          // מזהה דף התשלום אצל הספק — מנהל-העל מאמת לפיו מול Cardcom במחשב שלו (owner-cardcom.js)
+          checkoutId: x.checkoutId } }));
     }
     x.status = ev.status;
     x.providerRef = ev.providerRef;
