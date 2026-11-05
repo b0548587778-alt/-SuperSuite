@@ -43,7 +43,7 @@ function validateDraft(kind, input, vatRate) {
   if (!DRAFT_KINDS.includes(kind)) throw new Error('סוג מסמך לא מוכר');
   if (!input || typeof input !== 'object') throw new Error('מסמך לא תקין');
   const customer = clip(input.customer, 200);
-  if (!customer) throw new Error('שם לקוח חובה');
+  if (!customer) throw new Error('חסר שם לקוח — למי המסמך? כתבו את שם הלקוח.');
   const date = String(input.date || '');
   if (!isDate(date)) throw new Error('תאריך לא תקין');
   const customerTaxId = clip(input.customerTaxId, 12);

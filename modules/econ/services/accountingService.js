@@ -226,7 +226,7 @@ class AccountingService {
     const inv = { number, date, customer: String(invoiceData.customer || '').trim(), items: invoiceData.items, vatExempt: !!invoiceData.vatExempt };
     // מחיר כולל מע"מ — רק לשורה אחת (מנוי), כדי שהמע"מ יחושב כהפרש
     if (Number.isSafeInteger(invoiceData.grossAgorot) && Array.isArray(inv.items) && inv.items.length === 1) inv.grossAgorot = invoiceData.grossAgorot;
-    if (!inv.customer) throw new Error('שם לקוח חובה בחשבונית');
+    if (!inv.customer) throw new Error('חסר שם הלקוח — למי החשבונית? כתבו את שם הלקוח.');
     if (inv.customer.length > 200) throw new Error('שם הלקוח ארוך מדי');
     if (!Array.isArray(inv.items) || inv.items.length > 200) throw new Error('מספר הפריטים בחשבונית חורג מהמותר (עד 200)');
     // מספר העוסק של הלקוח — נדרש בבקשה למספר הקצאה

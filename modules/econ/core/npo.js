@@ -113,20 +113,20 @@ function validateDonation(input, settings, count = 0) {
   if (!input || typeof input !== 'object') throw new Error('תרומה לא תקינה');
   if (count >= MAX_DONATIONS) throw new Error('הגעת למספר המקסימלי של תרומות');
   const date = input.date || localToday();
-  if (!isDate(date)) throw new Error('תאריך לא תקין (YYYY-MM-DD)');
+  if (!isDate(date)) throw new Error('תאריך התרומה אינו תקין — בחרו תאריך מהלוח (למשל היום).');
   const donorName = str(input.donorName, 200, 'שם התורם');
-  if (!donorName) throw new Error('שם התורם חובה');
+  if (!donorName) throw new Error('חסר שם התורם — ממי התרומה? כתבו את שם התורם.');
   const type = DONOR_TYPES[input.donorType] ? input.donorType : 'israeli';
   const donorId = str(input.donorId, 12, 'מספר הזהות');
   if (type !== 'israeli' && donorId) throw new Error(`לתורם ${DONOR_TYPES[type]} אין להזין ת.ז — בדיווח יירשם הקוד ${REPORT_IDS[type]}`);
   assertIsraeliId(donorId, 'מספר זהות / ח"פ של התורם');
   const foreign = parseForeign(input);
   const amount = foreign ? fromAg(foreign.ilsAg) : Number(input.amount);
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new Error('סכום התרומה אינו תקין');
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new Error('חסר סכום התרומה — כמה נתרם? כתבו מספר גדול מאפס, למשל 100.');
   const method = METHODS[input.method] ? input.method : 'transfer';
   const fundId = input.fundId || GENERAL_FUND.id;
   const fund = allFunds(settings).find(f => f.id === fundId && !f.archived);
-  if (!fund) throw new Error('הקרן שנבחרה אינה קיימת');
+  if (!fund) throw new Error('הקרן שנבחרה אינה קיימת (אולי הועברה לארכיון) — בחרו קרן אחרת, או "כללי".');
   return {
     date, donorName, donorId,
     ...(type !== 'israeli' ? { donorType: type } : {}),

@@ -28,8 +28,8 @@ function monthRanges(today) {
 
 const openAgOf = (data, inv) => (inv.status === 'open' ? Math.max(0, A.toAg(inv.total) - SD.creditedAg(data.salesDocs || [], inv.id)) : 0);
 
-function acctPart(data, today) {
-  const r = monthRanges(today);
+// חשבוניות פתוחות (יתרה אחרי זיכויים), ממוינות לפי מועד התשלום — גם לסדר היום (dashboard.agenda)
+function openInvoices(data, today) {
   const terms = BZ.normalizeSettings(data.settings && data.settings.reports).paymentTermsDays;
   const invoices = [];
   for (const inv of data.invoices || []) {
@@ -39,6 +39,12 @@ function acctPart(data, today) {
     invoices.push({ customer: String(inv.customer || ''), number: inv.number || null, amount, dueDate, late: dueDate < today });
   }
   invoices.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : b.amount - a.amount));
+  return invoices;
+}
+
+function acctPart(data, today) {
+  const r = monthRanges(today);
+  const invoices = openInvoices(data, today);
   return {
     kpis: {
       incomeMonth: BZ.turnoverAg(data, r.cur.from, r.cur.to),
@@ -91,4 +97,4 @@ function homeSummary(data, today, open = {}) {
   return out;
 }
 
-module.exports = { LIST_MAX, LOAN_DAYS, MEMORIAL_DAYS, monthRanges, homeSummary };
+module.exports = { LIST_MAX, LOAN_DAYS, MEMORIAL_DAYS, monthRanges, openInvoices, homeSummary };

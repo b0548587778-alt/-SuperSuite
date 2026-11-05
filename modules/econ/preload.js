@@ -223,6 +223,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   saveGemachSettings: (input) => ipcRenderer.invoke('gemach:saveSettings', input),
   addGemachLoan: (input) => ipcRenderer.invoke('gemach:addLoan', input),
   recordGemachPayment: (loanId, seq, input) => ipcRenderer.invoke('gemach:recordPayment', loanId, seq, input),
+  reverseGemachPayment: (loanId, seq, input) => ipcRenderer.invoke('gemach:reversePayment', loanId, seq, input),
   cancelGemachLoan: (loanId) => ipcRenderer.invoke('gemach:cancelLoan', loanId),
   addGemachDeposit: (input) => ipcRenderer.invoke('gemach:addDeposit', input),
   deleteGemachDeposit: (id) => ipcRenderer.invoke('gemach:deleteDeposit', id),

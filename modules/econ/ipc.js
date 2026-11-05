@@ -1584,6 +1584,12 @@ function registerIpcHandlers() {
     await auditEvent(event, 'gemach.loan.payment', { id: loanId, seq });
     return l;
   });
+  // "טעיתי, לבטל" מיד אחרי רישום תשלום (מצב פשוט): מחזיר את התשלום למצב שלפני, רק אם לא השתנה מאז. הרשאת מחיקה (reverse*)
+  handle('gemach:reversePayment', async (event, loanId, seq, input) => {
+    const l = await gemachService.reversePayment(loanId, seq, input || {});
+    await auditEvent(event, 'gemach.loan.payment.reverse', { id: loanId, seq });
+    return l;
+  });
   handle('gemach:cancelLoan', async (event, loanId) => {
     const l = await gemachService.cancelLoan(loanId);
     await auditEvent(event, 'gemach.loan.cancel', { id: loanId });
@@ -1670,10 +1676,16 @@ function registerIpcHandlers() {
     return c;
   });
   // לוח בוקר: מה דורש טיפול היום בעמותה, בגמ"ח ובחסד. מצרף כמה תחומים — ולכן רק הפתוחים ברישיון
+  // agenda — "מה יש לעשות היום" למצב הפשוט: אותם פריטים במילים פשוטות + חשבוניות פתוחות, עד 5, קריאה בלבד
+  const briefWithAgenda = (data, today, sources, acct) => {
+    const brief = MB.morningBrief(data, today, { sources, acct });
+    const inv = acct ? HS.openInvoices(data, today) : [];
+    return { ...brief, agenda: MB.agenda(brief, { openInvoices: acct ? { count: inv.length, late: inv.filter(i => i.late).length } : null }) };
+  };
   handle('dashboard:getMorningBrief', async () => {
     const sources = LG.peopleSources(licenseState());
     const acct = !LG.checkChannel(licenseState(), 'acct:getInvoices', 'data.view');
-    return MB.morningBrief(await db.load(), localDay(Date.now()), { sources: sources || MB.SOURCES, acct });
+    return briefWithAgenda(await db.load(), localDay(Date.now()), sources || MB.SOURCES, acct);
   });
   // מסך הבית של המעטפת: מדדים ומשימות להיום. קריאה בלבד, ורק תחומים שפתוחים ברישיון
   homeSummaryFn = async () => {
@@ -1684,7 +1696,12 @@ function registerIpcHandlers() {
       npo: sources.includes('npo'),
       gemach: sources.includes('gemach'),
     };
-    return HS.homeSummary(await db.load(), localDay(clockNow()), open);
+    const data = await db.load();
+    const today = localDay(clockNow());
+    const out = HS.homeSummary(data, today, open);
+    // סדר היום של המצב הפשוט במסך הבית — רק התחומים הפתוחים (כמו המדדים)
+    out.agenda = briefWithAgenda(data, today, sources, open.acct).agenda;
+    return out;
   };
   handle('dashboard:getHomeSummary', homeSummaryFn);
   handle('chesed:getOverview', async (event) => {

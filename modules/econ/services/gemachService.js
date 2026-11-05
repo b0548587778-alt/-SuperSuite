@@ -99,6 +99,18 @@ class GemachService {
     return loan;
   }
 
+  // ביטול מיידי של תשלום שנרשם בטעות: input = { from, to } באגורות (paidAg אחרי התשלום / לפניו)
+  async reversePayment(loanId, seq, input = {}) {
+    const data = await this._load();
+    const i = data.gemach.loans.findIndex(l => l.id === loanId);
+    if (i < 0) throw new Error('ההלוואה לא נמצאה');
+    if (data.gemach.loans[i].status === 'cancelled') throw new Error('ההלוואה בוטלה — אין תשלום לבטל');
+    data.gemach.loans[i] = G.reversePayment(data.gemach.loans[i], seq, input);
+    await this.db.save(data);
+    const { bankAccount, ...loan } = data.gemach.loans[i];
+    return loan;
+  }
+
   async cancelLoan(loanId) {
     const data = await this._load();
     const l = data.gemach.loans.find(x => x.id === loanId);
