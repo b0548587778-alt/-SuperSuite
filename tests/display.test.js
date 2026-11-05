@@ -15,12 +15,14 @@ test('sanitize: ערך לא מוכר ← ברירת המחדל; קלט לא או
   assert.deepEqual(D.sanitize(null), D.DEFAULTS);
   assert.deepEqual(D.sanitize('dark'), D.DEFAULTS);
   const s = D.sanitize({ theme: 'dark', accent: 'red', density: 'compact', text: 'huge', shape: 'square', contrast: 'high', motion: 'reduced', extra: 'x' });
-  assert.deepEqual(s, { theme: 'dark', accent: 'blue', density: 'compact', text: 'md', shape: 'square', contrast: 'high', motion: 'reduced' });
+  assert.deepEqual(s, { theme: 'dark', accent: 'blue', density: 'compact', text: 'md', shape: 'square', contrast: 'high', motion: 'reduced',
+    simple: 'off', targets: 'normal', links: 'normal', font: 'normal' });
   assert.equal(Object.keys(s).length, D.KEYS.length);
 });
 
 test('ברירת המחדל = המראה הקיים (בהיר, כחול, רגיל)', () => {
-  assert.deepEqual(D.DEFAULTS, { theme: 'light', accent: 'blue', density: 'comfortable', text: 'md', shape: 'rounded', contrast: 'normal', motion: 'normal' });
+  assert.deepEqual(D.DEFAULTS, { theme: 'light', accent: 'blue', density: 'comfortable', text: 'md', shape: 'rounded', contrast: 'normal', motion: 'normal',
+    simple: 'off', targets: 'normal', links: 'normal', font: 'normal' });
 });
 
 test('attrsFor: "לפי Windows" נפתר לפי המחשב; כל מאפיין data-ss-*', () => {

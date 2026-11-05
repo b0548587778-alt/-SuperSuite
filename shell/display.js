@@ -30,6 +30,7 @@
       { id: 'sm', name: 'קטן' },
       { id: 'lg', name: 'גדול' },
       { id: 'xl', name: 'גדול מאוד' },
+      { id: 'xxl', name: 'ענק' },
     ],
     shape: [
       { id: 'rounded', name: 'מעוגל' },
@@ -44,9 +45,33 @@
       { id: 'normal', name: 'רגילה' },
       { id: 'reduced', name: 'מופחתת', desc: 'בלי אנימציות ומעברים' },
     ],
+    // נגישות (סבב 4): מצב פשוט, מטרות לחיצה גדולות, קו תחתון לקישורים, גופן קריא.
+    // data-ss-simple="on" הוא חוזה משותף לכל המסכים (ui-kit.css: .ss-advanced מוסתר, .ss-simple-only מוצג, data-ss-help)
+    simple: [
+      { id: 'off', name: 'רגיל' },
+      { id: 'on', name: 'מצב פשוט', desc: 'רק הפעולות הנפוצות, כפתורים גדולים והסברים' },
+    ],
+    targets: [
+      { id: 'normal', name: 'רגילים' },
+      { id: 'large', name: 'גדולים', desc: 'כפתורים ושדות גדולים — קל ללחוץ' },
+    ],
+    links: [
+      { id: 'normal', name: 'רגילים' },
+      { id: 'underline', name: 'עם קו תחתון', desc: 'קל לראות מה אפשר ללחוץ' },
+    ],
+    font: [
+      { id: 'normal', name: 'רגיל' },
+      { id: 'readable', name: 'קריא במיוחד', desc: 'גופן פשוט ורווח גדול בין אותיות ושורות' },
+    ],
   };
   const KEYS = Object.keys(OPTIONS);
   const DEFAULTS = Object.freeze(Object.fromEntries(KEYS.map(k => [k, OPTIONS[k][0].id])));
+
+  // ההגדרות שחלון הנגישות (♿) מציג — והערכים של "הכול בבת אחת"
+  const A11Y_KEYS = ['simple', 'text', 'contrast', 'motion', 'targets', 'links', 'font', 'theme'];
+  const A11Y_FULL = Object.freeze({ simple: 'on', text: 'xl', contrast: 'high', motion: 'reduced', targets: 'large', links: 'underline', font: 'readable', density: 'spacious' });
+  // תשובת "כן" לשאלה בהפעלה הראשונה: פשוט וגדול, בלי לשנות צבעים
+  const A11Y_EASY = Object.freeze({ simple: 'on', text: 'lg', targets: 'large', links: 'underline' });
 
   // ערכות מוכנות — בחירה אחת שממלאת כמה הגדרות
   const PRESETS = [
@@ -55,6 +80,7 @@
     { id: 'office', name: 'משרד', desc: 'צפוף ופינות ישרות — הרבה נתונים במסך', set: { density: 'compact', shape: 'square', accent: 'navy' } },
     { id: 'easy', name: 'קריאה נוחה', desc: 'טקסט גדול, מרווח וניגודיות גבוהה', set: { text: 'lg', density: 'spacious', contrast: 'high' } },
     { id: 'calm', name: 'רגוע', desc: 'ירוק, עגול ובלי אנימציות', set: { accent: 'green', shape: 'round', motion: 'reduced' } },
+    { id: 'access', name: 'נגישות מלאה', desc: 'מצב פשוט, טקסט גדול מאוד, ניגודיות גבוהה, בלי אנימציות', set: { ...A11Y_FULL } },
   ];
 
   // קלט לא מהימן (מהמעטפת או מהקובץ) ← הגדרות תקינות בלבד; ערך לא מוכר ← ברירת המחדל
@@ -75,8 +101,22 @@
   function attrsFor(settings, systemDark) {
     const s = sanitize(settings);
     const theme = s.theme === 'system' ? (systemDark ? 'dark' : 'light') : s.theme;
-    return { 'data-ss-theme': theme, 'data-ss-accent': s.accent, 'data-ss-density': s.density, 'data-ss-text': s.text,
-      'data-ss-shape': s.shape, 'data-ss-contrast': s.contrast, 'data-ss-motion': s.motion };
+    const out = {};
+    for (const k of KEYS) out['data-ss-' + k] = k === 'theme' ? theme : s[k];
+    return out;
+  }
+
+  // כל הגדרות הנגישות בברירת המחדל? (השאלה בהפעלה הראשונה נשאלת רק אז)
+  function isPlain(settings) {
+    const s = sanitize(settings);
+    return A11Y_KEYS.every(k => k === 'theme' || s[k] === DEFAULTS[k]);
+  }
+  // חזרה למצב הרגיל — רק הגדרות הנגישות; ערכה וצבע הדגשה נשארים
+  function resetA11y(settings) {
+    const s = sanitize(settings);
+    for (const k of A11Y_KEYS) if (k !== 'theme') s[k] = DEFAULTS[k];
+    s.density = DEFAULTS.density;
+    return s;
   }
 
   // החלה על מסמך (במעטפת ובכל מודול)
@@ -87,7 +127,7 @@
     }
   }
 
-  const api = { OPTIONS, KEYS, DEFAULTS, PRESETS, sanitize, applyPreset, attrsFor, applyTo };
+  const api = { OPTIONS, KEYS, DEFAULTS, PRESETS, A11Y_KEYS, A11Y_FULL, A11Y_EASY, sanitize, applyPreset, attrsFor, applyTo, isPlain, resetA11y };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_DISPLAY = api;
 })(typeof window !== 'undefined' ? window : this);

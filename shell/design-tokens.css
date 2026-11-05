@@ -288,3 +288,33 @@
 :root[data-ss-motion="reduced"] *, :root[data-ss-motion="reduced"] *::before, :root[data-ss-motion="reduced"] *::after {
   animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important;
 }
+
+/* ===================================================================================================
+   נגישות (סבב 4 — חלון "♿ נגישות" במעטפת). כאן רק משתנים; ההתנהגות של הרכיבים (גודל מטרה, קו תחתון,
+   מצב פשוט, בועות עזרה) — ב-ui-kit.css, שנטען בכל מסך אחרי הקובץ הזה.
+   =================================================================================================== */
+:root {
+  --ss-target-min: 24px;            /* WCAG 2.2 — 2.5.8: גודל מטרה מינימלי */
+  --ss-check-size: 20px;            /* תיבת סימון ולחצן רדיו */
+  --ss-letter: normal;              /* ריווח אותיות (גופן קריא) */
+  --ss-word: normal;
+  --ss-line: 1.5;                   /* גובה שורה לטקסט רץ */
+  --ss-link-decoration: none;       /* קו תחתון לקישורים */
+  --ss-help-bg: var(--ss-info-soft);   /* בועת העזרה (data-ss-help) */
+  --ss-help-ink: var(--ss-info-ink);
+  --ss-help-line: var(--ss-info-line);
+}
+/* גודל טקסט "ענק" (שלב חמישי) */
+:root[data-ss-text="xxl"] { font-size: 23px; --ss-fs-xs: 17px; --ss-fs-sm: 19px; --ss-fs-md: 21px; --ss-fs-lg: 25px; --ss-fs-xl: 32px; --ss-fs-2xl: 40px; }
+/* מצב פשוט: פקדים גדולים כברירת מחדל (גם בלי "כפתורים גדולים") */
+:root[data-ss-simple="on"] { --ss-ctl-h: 48px; --ss-ctl-pad-x: 22px; --ss-target-min: 44px; --ss-check-size: 26px; }
+/* כפתורים ושדות גדולים: 44 פיקסלים לפחות לכל מטרה */
+:root[data-ss-targets="large"] { --ss-ctl-h: 48px; --ss-ctl-pad-x: 22px; --ss-target-min: 44px; --ss-check-size: 28px; }
+/* קישורים עם קו תחתון */
+:root[data-ss-links="underline"] { --ss-link-decoration: underline; }
+/* גופן קריא: בלי עיטורים, ריווח אותיות, מילים ושורות (WCAG 1.4.12) */
+:root[data-ss-font="readable"] {
+  --ss-font: Arial, "Segoe UI", system-ui, sans-serif;
+  --ss-font-title: Arial, "Segoe UI", system-ui, sans-serif;
+  --ss-letter: .03em; --ss-word: .14em; --ss-line: 1.75;
+}

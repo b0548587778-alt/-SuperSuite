@@ -97,6 +97,8 @@ function registerProtocol() {
     if (rel === '/screen-guard.js') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'screen-guard.js')).toString());
     if (rel === '/ui-kit.css') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'ui-kit.css')).toString());
     if (rel === '/ss-dialog.js') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'ss-dialog.js')).toString());
+    // בועות העזרה "?" (נגישות, סבב 4) — display-preload.js מוסיף את התג בכל מודול
+    if (rel === '/ss-help.js') return net.fetch(pathToFileURL(path.join(__dirname, 'shell', 'ss-help.js')).toString());
     const file = path.normalize(path.join(root, rel));
     if (!file.startsWith(root + path.sep)) return new Response('Forbidden', { status: 403 });
     return net.fetch(pathToFileURL(file).toString());
@@ -124,6 +126,12 @@ function handleShortcut(input, wc) {
     wc.executeJavaScript(EDITING_CHECK_JS)
       .then(editing => { if (!editing) switchTo(target); })
       .catch(() => {});
+    return true;
+  }
+  // חלון הנגישות (♿): Alt+0 או Ctrl+Alt+A — לפי המקש הפיזי, כך שעובד גם במקלדת עברית
+  if ((input.alt && !input.control && !input.shift && input.code === 'Digit0') || (input.control && input.alt && !input.shift && input.code === 'KeyA')) {
+    if (win && !win.isDestroyed()) win.webContents.focus();
+    sendCmd('a11y');
     return true;
   }
   if (input.control && (input.key === '=' || input.key === '+')) { setZoom(zoom + ZOOM_STEP); return true; }

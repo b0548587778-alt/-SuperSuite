@@ -165,6 +165,60 @@
 .ss-photo img { display: block; width: 100%; height: 130px; object-fit: cover; border: 1px solid var(--ss-border); border-radius: var(--ss-radius); }
 .ss-photo figcaption { font-size: var(--ss-fs-sm); color: var(--ss-text-2); }
 
+/* ===================================================================================================
+   נגישות ומצב פשוט (סבב 4). ההגדרות מגיעות כמאפיינים על <html> מחלון "♿ נגישות" במעטפת (display.js):
+   data-ss-simple / data-ss-targets / data-ss-links / data-ss-font. חוזה משותף לכל המודולים:
+     .ss-advanced     — מוסתר במצב פשוט (פעולות נדירות, הגדרות מתקדמות)
+     .ss-simple-only  — מוצג רק במצב פשוט (הסבר קצר, כפתור "חזרה למסך הבית")
+     data-ss-help="…" — כפתור "?" גלוי ובועה עם הסבר (shell/ss-help.js); בלי JavaScript:
+                         <details class="ss-help"><summary class="ss-help-btn" aria-label="הסבר">?</summary><span class="ss-help-tip">…</span></details>
+   =================================================================================================== */
+:root[data-ss-simple="on"] .ss-advanced { display: none !important; }
+:root:not([data-ss-simple="on"]) .ss-simple-only { display: none !important; }
+
+/* תיבת סימון ולחצן רדיו: 20 פיקסלים לפחות (גדולים יותר במצב פשוט ובכפתורים גדולים) */
+input[type="checkbox"], input[type="radio"] { min-width: var(--ss-check-size); min-height: var(--ss-check-size); accent-color: var(--ss-primary); }
+
+/* מטרות לחיצה גדולות: 44 פיקסלים לפחות לכל כפתור, שדה וקישור עצמאי */
+:root:is([data-ss-targets="large"], [data-ss-simple="on"]) :is(button, select, [role="button"], summary,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]):not([type="file"])) {
+  min-height: var(--ss-target-min);
+}
+:root:is([data-ss-targets="large"], [data-ss-simple="on"]) :is(button, [role="button"]) { min-width: var(--ss-target-min); }
+
+/* קישורים עם קו תחתון — גם כפתורים שנראים כמו קישור */
+:root[data-ss-links="underline"] :is(a[href], .link, button.link, .ss-link) {
+  text-decoration-line: var(--ss-link-decoration) !important; text-underline-offset: .2em; text-decoration-thickness: max(1px, .08em);
+}
+
+/* גופן קריא: ריווח אותיות, מילים ושורות, בלי נטוי */
+:root[data-ss-font="readable"] body { letter-spacing: var(--ss-letter); word-spacing: var(--ss-word); line-height: var(--ss-line); }
+:root[data-ss-font="readable"] :is(i, em, cite, address) { font-style: normal; }
+
+/* גודל הטקסט במסך שכתוב בפיקסלים (שמאות, ארגז הכלים): <body class="ss-zoom-text"> מגדיל את כל המסך.
+   מסך שבנוי על rem ועל --ss-fs-* (הכלכלי) — בלי המחלקה: שם design-tokens.css כבר מגדיל */
+:root[data-ss-text="sm"] body.ss-zoom-text { zoom: .94; }
+:root[data-ss-text="lg"] body.ss-zoom-text { zoom: 1.14; }
+:root[data-ss-text="xl"] body.ss-zoom-text { zoom: 1.28; }
+:root[data-ss-text="xxl"] body.ss-zoom-text { zoom: 1.45; }
+
+/* טקסט נסתר לעין ונקרא בקורא מסך (הודעות אזור חי) */
+.ss-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ---------- בועת עזרה "?" (data-ss-help, shell/ss-help.js) — גלויה תמיד; במצב פשוט גדולה יותר (--ss-target-min) ---------- */
+.ss-help { display: inline-flex; position: relative; vertical-align: middle; margin-inline-start: var(--ss-sp-1); }
+.ss-help-btn { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+  width: max(var(--ss-target-min), 1.6em); height: max(var(--ss-target-min), 1.6em); min-width: 0; padding: 0;
+  border: 1px solid var(--ss-help-line); border-radius: 50%; background: var(--ss-help-bg); color: var(--ss-help-ink);
+  font: 700 var(--ss-fs-md) / 1 var(--ss-font); cursor: pointer; list-style: none; }
+.ss-help-btn::-webkit-details-marker { display: none; }
+.ss-help-btn:hover, .ss-help-btn[aria-expanded="true"], .ss-help[open] > .ss-help-btn { background: var(--ss-help-ink); color: var(--ss-help-bg); }
+.ss-help-tip { position: absolute; inset-inline-start: 0; top: calc(100% + 6px); z-index: 1000; box-sizing: border-box;
+  width: max-content; max-width: min(340px, 86vw); padding: var(--ss-sp-2) var(--ss-sp-3);
+  background: var(--ss-surface); color: var(--ss-text); border: 1px solid var(--ss-help-line); border-radius: var(--ss-radius);
+  box-shadow: var(--ss-shadow-lg); font: 400 var(--ss-fs-md) / 1.55 var(--ss-font); white-space: normal; text-align: start; }
+.ss-help-tip[hidden] { display: none; }
+
 /* ---------- מסך צר (חלון קטן או מסך שהוקטן): עמודה אחת, פעולות בשורה משלהן, שורות ערך שנשברות ---------- */
 @media (max-width: 720px) {
   .ss-page-head { flex-direction: column; align-items: stretch; }
