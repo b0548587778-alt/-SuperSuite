@@ -403,7 +403,7 @@ function renderMortgageLab(o) {
   return `
     <div class="mortgage-lab">
       ${demo || unverified ? `<div class="card warn-banner">⚠ ${demo ? 'התחזית היא נתוני הדגמה. ' : ''}${unverified ? `${unverified} כללים רגולטוריים טרם אומתו. ` : ''}<button class="secondary" data-lab-tab="settings">לתחזית ולכללים</button></div>` : ''}
-      <div class="lab-tabs">${LAB_TABS.map(([k, l]) => `<button class="${lab.tab === k ? 'primary' : 'secondary'}" data-lab-tab="${k}">${l}</button>`).join('')}</div>
+      <div class="lab-tabs" role="group" aria-label="בחירת כלי">${LAB_TABS.map(([k, l]) => `<button class="${lab.tab === k ? 'primary' : 'secondary'}" data-lab-tab="${k}" aria-pressed="${lab.tab === k}">${l}</button>`).join('')}</div>
       ${(tabs[lab.tab] || labTabMix)(o, lab)}
     </div>`;
 }
@@ -423,9 +423,10 @@ async function labRun(key, fn) {
 async function labAskNote(title) {
   if (typeof openDialog !== 'function') return null;
   return openDialog((box, done) => {
-    box.innerHTML = `<h3>${esc(title)}</h3><p class="muted">ציין את שם ההוראה, הסעיף ותאריך הנוסח שמולו בדקת.</p>
+    // כותרת חלון ברמה 2, ותווית לשדה (r4 נגישות)
+    box.innerHTML = `<h2>${esc(title)}</h2><label for="labNote" class="muted" style="display:block;padding:0 1.5rem">ציין את שם ההוראה, הסעיף ותאריך הנוסח שמולו בדקת.</label>
       <textarea id="labNote" rows="3" style="width:100%"></textarea>
-      <div class="modal-actions"><button class="secondary" id="labNoteCancel">ביטול</button><button class="primary" id="labNoteOk">אישור</button></div>`;
+      <div class="modal-actions"><button type="button" class="secondary" id="labNoteCancel">ביטול</button><button type="button" class="primary" id="labNoteOk">אישור</button></div>`;
     box.querySelector('#labNoteOk').addEventListener('click', () => done(box.querySelector('#labNote').value.trim() || null));
     box.querySelector('#labNoteCancel').addEventListener('click', () => done(null));
   });

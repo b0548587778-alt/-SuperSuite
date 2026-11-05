@@ -190,7 +190,7 @@ formSchemas['realty'] = {
 
 function rltyTabsHtml(o) {
   const count = { properties: (o.properties || []).length, clients: (o.clients || []).length, deals: (o.deals || []).length, orders: (o.orders || []).length, invest: (o.analyses || []).length, project: (o.projects || []).length };
-  return `<div class="lab-tabs" role="tablist">${RLTY_TABS.map(([id, label]) => `<button class="${rltyUi.tab === id ? '' : 'secondary'}" data-rlty-tab="${id}" aria-pressed="${rltyUi.tab === id}">${label} (${count[id]})</button>`).join('')}</div>`;
+  return `<div class="lab-tabs" role="group" aria-label="בחירת רשימה">${RLTY_TABS.map(([id, label]) => `<button class="${rltyUi.tab === id ? '' : 'secondary'}" data-rlty-tab="${id}" aria-pressed="${rltyUi.tab === id}">${label} (${count[id]})</button>`).join('')}</div>`;
 }
 
 function rltyMatchesHtml() {
@@ -370,6 +370,7 @@ function rltyAskPayment(deal) {
     method.innerHTML = Object.entries(o.payMethods || {}).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
     const note = field('הערה (לא חובה)', mk('text', ''));
     const err = document.createElement('div');
+    err.setAttribute('role', 'alert'); // שגיאה מוקראת מיד (r4 נגישות)
     err.style.color = 'var(--ss-danger)';
     const actions = document.createElement('div');
     actions.className = 'modal-actions';
@@ -383,8 +384,8 @@ function rltyAskPayment(deal) {
     cancel.addEventListener('click', () => finish(null));
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (!date.value) { err.textContent = 'יש לבחור תאריך'; return; }
-      if (!(Number(amount.value) > 0)) { err.textContent = 'יש להזין סכום חיובי'; amount.focus(); return; }
+      if (!date.value) { dialogFieldError(err, date, 'חסר תאריך התשלום. בחרו תאריך ונסו שוב.'); return; }
+      if (!(Number(amount.value) > 0)) { dialogFieldError(err, amount, 'הסכום חסר או אינו נכון. כתבו סכום גדול מאפס (למשל 1500).'); return; }
       finish({ side: side.value, date: date.value, amount: Number(amount.value), method: method.value, note: note.value.trim() });
     });
     amount.focus();
@@ -641,7 +642,7 @@ function rltyBalanceChart(rows) {
   const width = 20 + rows.length * (w + gap);
   return `<svg class="biz-chart rlty-chart" viewBox="0 0 ${width} ${total + 20}" role="img" aria-label="יתרה מצטברת לפי חודש">
     <line x1="5" y1="${top + 10}" x2="${width - 5}" y2="${top + 10}" class="biz-axis"/>${bars}</svg>
-    <div class="biz-legend"><span class="biz-dot biz-in"></span>יתרה חיובית <span class="biz-dot rlty-neg"></span>גירעון</div>`;
+    <div class="biz-legend"><span class="biz-dot biz-in" aria-hidden="true"></span>יתרה חיובית <span class="biz-dot rlty-neg" aria-hidden="true"></span>גירעון</div>`;
 }
 
 function rltyProjectResultHtml(r) {

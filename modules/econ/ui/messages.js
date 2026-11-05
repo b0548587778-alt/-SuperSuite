@@ -254,8 +254,12 @@ function chatTextDialog(title, value, okText, hint) {
     h.textContent = title;
     const form = document.createElement('form');
     form.className = 'modal-form';
-    if (hint) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = hint; form.appendChild(p); }
+    let hintEl = null;
+    if (hint) { hintEl = document.createElement('p'); hintEl.className = 'muted'; hintEl.textContent = hint; hintEl.id = 'chatTextHint'; form.appendChild(hintEl); }
     const ta = document.createElement('textarea');
+    // שם לשדה מכותרת החלון, וההסבר מקושר אליו (r4 נגישות)
+    ta.setAttribute('aria-label', title);
+    if (hintEl) ta.setAttribute('aria-describedby', hintEl.id);
     ta.rows = 5;
     ta.maxLength = 4000;
     ta.value = value || '';

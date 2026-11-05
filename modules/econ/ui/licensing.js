@@ -230,6 +230,7 @@ function signupWizard(offerResp) {
       steps.textContent = 'שלב ' + (n + 1) + ' מתוך 3';
       card.append(h, steps);
       const err = document.createElement('div');
+      err.setAttribute('role', 'alert'); // שגיאה מוקראת מיד (r4 נגישות)
       err.className = 'bad';
       const actions = document.createElement('div');
       actions.className = 'modal-actions';
@@ -570,7 +571,7 @@ function offerEditor(cur) {
       const tt = mk('כותרת התקנון', cur && cur.terms ? cur.terms.title : 'תקנון ותנאי שימוש');
       const tx = mk('נוסח התקנון המלא', cur && cur.terms ? cur.terms.text : '', 'textarea');
       tx.rows = 12;
-      const err = document.createElement('div'); err.className = 'bad';
+      const err = document.createElement('div'); err.className = 'bad'; err.setAttribute('role', 'alert');
       const actions = document.createElement('div'); actions.className = 'modal-actions';
       const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'ביטול'; cancel.onclick = () => finish(null);
       const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'primary'; ok.textContent = 'חתימה ושמירה';

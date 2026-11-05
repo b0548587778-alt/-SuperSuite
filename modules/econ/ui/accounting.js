@@ -27,7 +27,7 @@ const formSchemas = {
         { value: 'in-progress', label: 'בתהליך' },
         { value: 'done', label: 'הושלם' }
       ]},
-      { name: 'dueDate', label: 'תאריך יעד', type: 'date' }
+      { name: 'dueDate', label: 'תאריך יעד', type: 'date', essential: true }
     ],
     create: (data) => window.systemAPI.createTask(data),
     update: (id, data) => window.systemAPI.updateTask(id, data),
@@ -381,7 +381,7 @@ function renderAcctInvoices(d) {
     <div class="card">
       <label>חיפוש בכל המסמכים (מספר, לקוח, ע.מ או פריט) <input id="acctDocSearch" type="search" autocomplete="off"></label>
       <div id="acctDocResults"></div>
-      <small class="muted">קיצורים: Alt+N — חשבונית חדשה · Ctrl+Enter — שמירה בטופס · / — חיפוש</small>
+      <small class="muted ss-advanced">קיצורים: Alt+N — חשבונית חדשה · Ctrl+Enter — שמירה בטופס · / — חיפוש</small>
     </div>
     ${renderRecurring(d?.recurring)}
     ${renderSalesDocs(docs)}
@@ -836,6 +836,8 @@ function askDocFields(title, fields, submitText) {
     for (const f of fields) {
       const label = document.createElement('label');
       label.textContent = f.label;
+      // שדה חובה מסומן במילים, לא בכוכבית בלבד (r4 נגישות)
+      if (f.required) { const req = document.createElement('span'); req.className = 'req'; req.textContent = ' (חובה)'; label.appendChild(req); }
       let input;
       if (f.options) {
         input = document.createElement('select');
@@ -851,11 +853,13 @@ function askDocFields(title, fields, submitText) {
       }
       input.name = f.name;
       input.value = f.value || (f.options ? f.options[0][0] : '');
+      if (f.required) input.setAttribute('aria-required', 'true');
       label.appendChild(input);
       form.appendChild(label);
       inputs[f.name] = input;
     }
     const err = document.createElement('div');
+    err.setAttribute('role', 'alert'); // שגיאה מוקראת מיד (r4 נגישות)
     err.style.color = 'var(--ss-danger)';
     err.style.fontSize = '0.9rem';
     const actions = document.createElement('div');
@@ -878,8 +882,7 @@ function askDocFields(title, fields, submitText) {
       for (const f of fields) {
         const v = inputs[f.name].value.trim();
         if (f.required && !v) {
-          err.textContent = 'יש למלא את השדה: ' + f.label;
-          inputs[f.name].focus();
+          dialogFieldError(err, inputs[f.name], `חסר: ${f.label}. מלאו את השדה ולחצו שוב "${submitText}".`);
           return;
         }
         values[f.name] = v;
@@ -1163,8 +1166,10 @@ const acctFormSchemas = {
     fields: [
       { name: 'date', label: 'תאריך', type: 'date', required: true },
       { name: 'description', label: 'תיאור', type: 'text', required: true },
-      { name: 'debitAccount', label: 'חשבון חובה', type: 'select', required: true, optionsFrom: 'chart', options: [] },
-      { name: 'creditAccount', label: 'חשבון זכות', type: 'select', required: true, optionsFrom: 'chart', options: [] },
+      { name: 'debitAccount', label: 'חשבון חובה', type: 'select', required: true, optionsFrom: 'chart', options: [],
+        hint: 'לאן הכסף הלך — למשל "הוצאות משרד".', help: 'בהנהלת חשבונות כל תנועה נרשמת פעמיים. "חובה" הוא המקום שאליו הכסף הלך (הוצאה, ציוד, לקוח).' },
+      { name: 'creditAccount', label: 'חשבון זכות', type: 'select', required: true, optionsFrom: 'chart', options: [],
+        hint: 'מאיפה הכסף בא — למשל "קופה ובנק".', help: '"זכות" הוא המקום שממנו הכסף יצא (הקופה, הבנק, ספק שעוד לא שולם).' },
       { name: 'amount', label: 'סכום (₪) — לפני מע"מ, אם יש מע"מ תשומות', type: 'number', required: true },
       { name: 'inputVat', label: 'מע"מ תשומות (₪, אופציונלי — הוצאה עם חשבונית מס)', type: 'number' },
       { name: 'supplierTaxId', label: 'ע.מ / ח.פ של הספק (לדוח המע"מ המפורט)', type: 'text' },
@@ -1220,14 +1225,16 @@ const acctFormSchemas = {
     fields: [
       { name: 'productId', label: 'בחר מהמחירון (אופציונלי)', type: 'select', options: [] },
       { name: 'customer', label: 'שם לקוח', type: 'text', required: true },
-      { name: 'customerTaxId', label: 'ע.מ / ח.פ של הלקוח (לבקשת מספר הקצאה)', type: 'text' },
+      { name: 'customerTaxId', label: 'ע.מ / ח.פ של הלקוח (לבקשת מספר הקצאה)', type: 'text', advanced: true,
+        help: 'מספר העוסק או החברה של הלקוח. נדרש רק כשהלקוח הוא עסק שרוצה לקזז מע"מ על חשבונית גדולה.' },
       { name: 'date', label: 'תאריך', type: 'date', required: true },
       { name: 'description', label: 'תיאור פריט', type: 'text', required: true },
-      { name: 'quantity', label: 'כמות', type: 'number' },
+      { name: 'quantity', label: 'כמות', type: 'number', essential: true, hint: 'ריק = 1' },
       { name: 'unitPrice', label: 'מחיר ליחידה לפני מע"מ (₪)', type: 'number', required: true },
       { name: 'kind', label: 'סוג', type: 'select', options: [{ value: 'goods', label: 'מוצר' }, { value: 'service', label: 'שירות' }] },
-      { name: 'vatExempt', label: 'מע"מ', type: 'select', options: [{ value: 'no', label: 'כולל מע"מ' }, { value: 'yes', label: 'פטור ממע"מ' }] },
-      { name: 'paidNow', label: 'תשלום', type: 'select', options: [{ value: '', label: 'טרם שולמה' }, ...DOC_PAY_METHODS.map(([value, label]) => ({ value, label: 'שולמה עכשיו — ' + label }))] },
+      { name: 'vatExempt', label: 'מע"מ', type: 'select', options: [{ value: 'no', label: 'כולל מע"מ' }, { value: 'yes', label: 'פטור ממע"מ' }],
+        help: 'רוב המכירות כוללות מע"מ. "פטור" — רק כשהחוק פוטר את העסקה (למשל עוסק פטור או יצוא).' },
+      { name: 'paidNow', label: 'תשלום', type: 'select', essential: true, help: 'אם הלקוח כבר שילם — בחרו איך. תופק "חשבונית מס/קבלה" אחת במקום שני מסמכים.', options: [{ value: '', label: 'טרם שולמה' }, ...DOC_PAY_METHODS.map(([value, label]) => ({ value, label: 'שולמה עכשיו — ' + label }))] },
       { name: 'paymentRef', label: 'אסמכתא לתשלום (אופציונלי)', type: 'text' }
     ],
     create: (d) => window.systemAPI.createInvoice({

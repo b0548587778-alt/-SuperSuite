@@ -34,7 +34,7 @@ formSchemas['gemach'] = {
     { name: 'amount', label: 'סכום ההלוואה (₪)', type: 'number', required: true },
     { name: 'installments', label: 'מספר תשלומים חודשיים', type: 'number', required: true },
     { name: 'issueDate', label: 'תאריך מתן ההלוואה', type: 'date', required: true },
-    { name: 'guarantorsText', label: 'ערבים — שורה לכל ערב: שם, ת.ז, טלפון', type: 'textarea' },
+    { name: 'guarantorsText', label: 'ערבים — שורה לכל ערב: שם, ת.ז, טלפון', type: 'textarea', essential: true },
     { name: 'collateralDepositId', label: 'הלוואה כנגד פיקדון (במקום ערבים או בנוסף)', type: 'select', options: [] },
     { name: 'purpose', label: 'מטרת ההלוואה', type: 'text' },
     { name: 'notes', label: 'הערות', type: 'textarea' }
@@ -98,7 +98,7 @@ const gemachAppSchema = {
     { name: 'amount', label: 'סכום מבוקש (₪)', type: 'number', required: true },
     { name: 'installments', label: 'מספר תשלומים חודשיים', type: 'number', required: true },
     { name: 'requestDate', label: 'תאריך הבקשה', type: 'date' },
-    { name: 'guarantorsText', label: 'ערבים — שורה לכל ערב: שם, ת.ז, טלפון', type: 'textarea' },
+    { name: 'guarantorsText', label: 'ערבים — שורה לכל ערב: שם, ת.ז, טלפון', type: 'textarea', essential: true },
     { name: 'collateralDepositId', label: 'כנגד פיקדון (במקום ערבים או בנוסף)', type: 'select', options: [] },
     { name: 'purpose', label: 'מטרת ההלוואה', type: 'text' },
     { name: 'interviewNotes', label: 'סיכום הראיון', type: 'textarea' },
@@ -164,7 +164,7 @@ function renderGemachItems(ov) {
       <div class="kpi${ov.overdueCount ? ' neg' : ''}"><small>באיחור</small><strong>${Number(ov.overdueCount) || 0}</strong></div>
       <div class="kpi"><small>פיקדונות מוחזקים</small><strong>${money(ov.depositsHeld)}</strong></div>
     </div>
-    ${ov.rows.length === 0 ? renderEmpty('אין פריטים. מיטות, עגלות, ציוד רפואי — כל פריט עם מצב ופיקדון.') : `<div class="acct-scroll"><table class="acct-table">
+    ${ov.rows.length === 0 ? renderEmpty('אין פריטים להשאלה עדיין — לחצו "＋ פריט" כדי להוסיף פריט (מיטה, עגלה, ציוד רפואי), עם מצבו והפיקדון') : `<div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>פריט</th><th>מצב</th><th>פיקדון</th><th>מושאל ל</th><th>להחזרה עד</th><th></th></tr></thead>
       <tbody>${ov.rows.map(r => `<tr class="${r.condition === 'retired' ? 'muted' : ''}">
         <td>${esc(r.name)} <small class="muted">${esc([r.category, r.code, r.location].filter(Boolean).join(' · '))}</small></td>
@@ -227,14 +227,14 @@ function attachGemachExtraHandlers() {
     const values = await openDialog((card, finish) => {
       card.innerHTML = `<h2>השאלת ${esc(it.name)}</h2>
         <form class="modal-form" novalidate>
-          <label>שם השואל *<input name="borrowerName"></label>
+          <label>שם השואל <span class="req">(חובה)</span><input name="borrowerName" aria-required="true"></label>
           <label>טלפון<input name="borrowerPhone" type="tel"></label>
           <label>ת.ז<input name="borrowerId"></label>
           <label>תאריך השאלה<input name="date" type="date" value="${esc(today())}"></label>
           <label>להחזרה עד<input name="dueDate" type="date"></label>
           <label>פיקדון שהתקבל (₪)<input name="depositHeld" type="number" value="${esc(it.deposit || 0)}"></label>
           <label>הערות<input name="notes"></label>
-          <div class="gx-err" style="color:var(--ss-danger);font-size:.9rem"></div>
+          <div class="gx-err" role="alert" style="color:var(--ss-danger);font-size:.9rem"></div>
           <div class="modal-actions"><button type="button" class="secondary" data-act="cancel">ביטול</button><button type="submit" class="primary">השאלה</button></div>
         </form>`;
       const form = card.querySelector('form');
@@ -242,7 +242,7 @@ function attachGemachExtraHandlers() {
       form.addEventListener('submit', (e) => {
         e.preventDefault();
         const v = Object.fromEntries(new FormData(form).entries());
-        if (!String(v.borrowerName).trim()) { card.querySelector('.gx-err').textContent = 'יש למלא את שם השואל'; return; }
+        if (!String(v.borrowerName).trim()) { dialogFieldError(card.querySelector('.gx-err'), form.elements.borrowerName, 'חסר שם השואל. כתבו את שמו ולחצו שוב "השאלה".'); return; }
         finish(v);
       });
       form.elements.borrowerName.focus();

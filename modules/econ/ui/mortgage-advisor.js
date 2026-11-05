@@ -157,6 +157,7 @@ function madvShowMessage(title, text) {
     h.textContent = title;
     const ta = document.createElement('textarea');
     ta.rows = 12; ta.readOnly = true; ta.value = text; ta.className = 'ss-input';
+    ta.setAttribute('aria-label', 'נוסח ההודעה להעתקה'); // r4 נגישות
     const actions = document.createElement('div');
     actions.className = 'modal-actions';
     const close = document.createElement('button');
@@ -461,6 +462,7 @@ function madvAskPayment(c) {
     method.innerHTML = Object.entries(methods).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
     const note = field('הערה (לא חובה)', mk('text', ''));
     const err = document.createElement('div');
+    err.setAttribute('role', 'alert'); // שגיאה מוקראת מיד (r4 נגישות)
     err.style.color = 'var(--ss-danger)';
     const actions = document.createElement('div');
     actions.className = 'modal-actions';
@@ -474,8 +476,8 @@ function madvAskPayment(c) {
     cancel.addEventListener('click', () => finish(null));
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (!date.value) { err.textContent = 'יש לבחור תאריך'; date.focus(); return; }
-      if (!(Number(amount.value) > 0)) { err.textContent = 'יש להזין סכום חיובי'; amount.focus(); return; }
+      if (!date.value) { dialogFieldError(err, date, 'חסר תאריך התשלום. בחרו תאריך ונסו שוב.'); return; }
+      if (!(Number(amount.value) > 0)) { dialogFieldError(err, amount, 'הסכום חסר או אינו נכון. כתבו סכום גדול מאפס (למשל 1500).'); return; }
       finish({ date: date.value, amount: Number(amount.value), method: method.value, note: note.value.trim() });
     });
     amount.focus();

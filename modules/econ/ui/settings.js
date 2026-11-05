@@ -227,7 +227,7 @@ function renderSettings(d) {
       <div class="card">
         <div class="acct-header"><h3>יומן ביקורת</h3>
           <div class="acct-actions">
-            <select id="auditFilter">
+            <select id="auditFilter" aria-label="סינון יומן הפעולות לפי תחום">
               ${[['', 'הכל'], ['chesed.confidential', 'צפייה בחסויים'], ['acct', 'הנהלת חשבונות'], ['npo', 'עמותה'], ['gemach', 'גמ"ח'], ['chesed', 'חסד וחלוקות'], ['madv', 'ייעוץ משכנתאות'], ['realty', 'נדל"ן ותיווך'],['users', 'משתמשים'], ['ports', 'ייבוא/ייצוא'], ['data', 'גיבוי ושחזור'], ['settings', 'הגדרות']]
                 .map(([v, l]) => `<option value="${v}"${(state.auditFilter || '') === v ? ' selected' : ''}>${l}</option>`).join('')}
             </select>
@@ -315,6 +315,7 @@ function askGoogleSettings(cfg) {
       ? 'אין צורך להגדיר כלום: התוכנה כוללת מזהה מובנה. מזהה משלכם (מסוג "Desktop app" ב-Google Cloud Console) — רק לארגון שרוצה בכך. הכניסה בסיסמה נשארת לכל המשתמשים.'
       : 'יוצרים ב-Google Cloud Console מזהה לקוח מסוג "Desktop app". הכניסה בסיסמה נשארת לכל המשתמשים.';
     const err = document.createElement('div');
+    err.setAttribute('role', 'alert'); // שגיאה מוקראת מיד (r4 נגישות)
     err.style.color = 'var(--ss-danger)';
     err.style.fontSize = '0.9rem';
     const actions = document.createElement('div');
@@ -333,7 +334,7 @@ function askGoogleSettings(cfg) {
     cancel.addEventListener('click', () => finish(null));
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (enabled.checked && !clientId.value.trim() && !c.builtIn) { err.textContent = 'יש להזין מזהה לקוח'; clientId.focus(); return; }
+      if (enabled.checked && !clientId.value.trim() && !c.builtIn) { dialogFieldError(err, clientId, 'חסר מזהה הלקוח של Google. הדביקו אותו בשדה, או בטלו את הסימון "כניסה עם Google".'); return; }
       finish({ enabled: enabled.checked, clientId: clientId.value.trim(), clientSecret: secret.value.trim(), onlineRequiresGoogle: online.checked });
     });
     enabled.focus();

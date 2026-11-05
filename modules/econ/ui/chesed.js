@@ -17,7 +17,7 @@ const chesedBeneficiaryFields = [
   { name: 'headName', label: 'שם ראש המשפחה', type: 'text' },
   { name: 'idNumber', label: 'ת.ז', type: 'text' },
   { name: 'familySize', label: 'מספר נפשות', type: 'number' },
-  { name: 'phone', label: 'טלפון', type: 'tel' },
+  { name: 'phone', label: 'טלפון', type: 'tel', essential: true },
   { name: 'address', label: 'כתובת', type: 'text' },
   { name: 'area', label: 'אזור / שכונה (לחלוקה לפי מסלולים)', type: 'text' },
   { name: 'tier', label: 'רמת חיסיון', type: 'select', options: opts(CHESED_TIERS) },
