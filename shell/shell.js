@@ -85,6 +85,7 @@ const IC = (function () {
     lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
     pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    access: '<circle cx="12" cy="4.5" r="1.8"/><path d="M5 8.5l7 1.5 7-1.5M12 10v4.5M12 14.5 8.5 21M12 14.5l3.5 6.5"/>',
   };
 
   // פריט בקטלוג ← אייקון. פריט חדש בלי מיפוי מקבל את האייקון של התחום שלו
@@ -126,6 +127,10 @@ if (IC && document.querySelectorAll) IC.hydrate(document);
 
 // views — התצוגה הפעילה בכל מודול שיש לו מסכים בסרגל (הכלכלי)
 const ui = { active: null, views: {}, query: '' };
+// מצב פשוט (נגישות, סבב 4): simple — מההגדרות (display.simple); simpleAll — "הצגת כל המסכים" במסך הבית;
+// navMore — "עוד מסכים" בסרגל. מוגדר כאן (לפני הרינדור הראשון), ומתעדכן ב-applyA11yState
+ui.simple = false; ui.simpleAll = false; ui.navMore = false;
+const SIMPLE = window.SUITE_SIMPLE || null;
 const VIEW_MODS = ['econ'];
 // מצב הרישוי מ-main.js: level ok / limited (קריאה בלבד) / blocked (נעול), ואילו מודולים פתוחים
 let lic = { level: 'ok', message: '', modules: {} };
@@ -170,12 +175,24 @@ function toggleGroup(id) {
   renderNav();
 }
 
+// משימות מצב פשוט שפתוחות למשתמש הזה (רישיון ומנהל)
+function simpleTasks() {
+  if (!SIMPLE) return [];
+  return SIMPLE.tasksFor({ has: k => BY_KEY.has(k), open: k => itemOpen(BY_KEY.get(k)), admin: shellAdmin });
+}
 function renderNav() {
   const q = ui.query.trim();
   let html = q ? '' : `<button class="it home" data-key="home"><span class="ic">${IC ? svg('home') : '⌂'}</span><span class="nm">מסך הבית</span></button>`;
   let found = 0;
   const activeIt = BY_KEY.get(currentKey());
-  for (const g of GROUPS) {
+  // מצב פשוט: רק המסכים של המשימות והאחרונים; כל השאר מאחורי "עוד מסכים"
+  const simpleNav = ui.simple && !q && SIMPLE;
+  if (simpleNav) {
+    const common = SIMPLE.sidebarKeys(simpleTasks(), getRecent()).map(k => BY_KEY.get(k)).filter(Boolean);
+    html += `<div class="grp"><div class="grp-b">${common.map(navItem).join('')}</div></div>` +
+      `<button type="button" class="it more" data-more aria-expanded="${ui.navMore}">${ui.navMore ? 'פחות מסכים' : 'עוד מסכים'}</button>`;
+  }
+  for (const g of (simpleNav && !ui.navMore ? [] : GROUPS)) {
     const items = ITEMS.filter(it => it.group === g.id && matches(it, q));
     if (!items.length) continue;
     found += items.length;
@@ -192,6 +209,8 @@ function renderNav() {
 function mark() {
   const key = currentKey();
   $('nav').querySelectorAll('.it').forEach(b => b.classList.toggle('on', b.dataset.key === key));
+  // "חזרה למסך הבית" בראש הסרגל — כשמסך פתוח (מוצג רק במצב פשוט: .ss-simple-only)
+  $('simpleHome').hidden = !ui.active;
 }
 
 function open(key) {
@@ -215,6 +234,14 @@ function goHome() {
 }
 
 $('nav').onclick = e => {
+  const more = e.target.closest('[data-more]');
+  if (more && more.dataset && more.dataset.more !== undefined) {
+    ui.navMore = !ui.navMore;
+    renderNav();
+    const b = $('nav').querySelector('[data-more]');
+    if (b) b.focus();
+    return;
+  }
   const t = e.target.closest('.grp-t');
   if (t && t.dataset && t.dataset.grp) { toggleGroup(t.dataset.grp); return; }
   const b = e.target.closest('.it');
@@ -374,6 +401,7 @@ function renderHome() {
   $('recentSec').hidden = !recent.length;
   $('recent').innerHTML = recent.map(card).join('');
 
+  renderSimpleHome();
   $('groups').innerHTML = GROUPS.map(g =>
     `<section class="sec hue-${g.hue}"><h2>${esc(g.title)}</h2><div class="cards">` +
     ITEMS.filter(it => it.group === g.id).map(card).join('') + '</div></section>').join('');
@@ -382,6 +410,29 @@ $('home').onclick = e => {
   const c = e.target.closest('.card, .lic-go, .kpi, .t-item');
   if (c) open(c.dataset.key);
 };
+
+/* ---------- מצב פשוט: משימות גדולות בפעלים (נגישות, סבב 4) ---------- */
+function renderSimpleHome() {
+  // במצב פשוט רשימת כל המסכים מוסתרת (ss-advanced) עד "הצגת כל המסכים"
+  $('groups').classList.toggle('ss-advanced', !ui.simpleAll);
+  $('simpleAll').setAttribute('aria-expanded', String(ui.simpleAll));
+  $('simpleAll').textContent = ui.simpleAll ? 'הסתרת שאר המסכים' : 'הצגת כל המסכים';
+  if (!ui.simple) { $('simpleTasks').innerHTML = ''; return; }
+  $('simpleTasks').innerHTML = simpleTasks().map(t => `<button type="button" class="task" data-task="${esc(t.id)}">` +
+    `<span class="t-ic" aria-hidden="true">${IC ? svg(t.icon) : ''}</span><span><b>${esc(t.verb)}</b><small>${esc(t.hint)}</small></span></button>`).join('');
+}
+$('simpleTasks').onclick = e => {
+  const b = e.target.closest('[data-task]');
+  const t = b && SIMPLE ? SIMPLE.TASKS.find(x => x.id === b.dataset.task) : null;
+  if (!t) return;
+  if (t.action === 'search') focusSearch();
+  else if (t.action === 'backup') runBackup();
+  else if (t.action === 'help') showGuide();
+  else if (t.key) open(t.key);
+};
+$('simpleAll').onclick = () => { ui.simpleAll = !ui.simpleAll; renderSimpleHome(); };
+$('simpleOff').onclick = () => saveA11y({ simple: 'off' }, 'מצב פשוט: כבוי');
+$('simpleHome').onclick = () => goHome();
 
 /* ---------- מסך הבית: מדדים ו"היום" (יארצייטים, הלוואות לפירעון, חשבוניות פתוחות) ----------
    הנתונים מגיעים מ-shellAPI.getHomeSummary (קריאה בלבד, לפי הרשאות ורישיון — main.js). כשאין ערוץ או שאין כניסה
@@ -653,12 +704,17 @@ if (window.shellAPI.onActiveView) {
 
 /* ---------- דיאלוגים ----------
    תצוגת המודול מצוירת מעל המעטפת, ולכן בזמן שדיאלוג פתוח מסתירים אותה (shell:overlay) */
+// המיקוד חוזר בסגירה לרכיב שפתח את החלון (גם כשהחלון נסגר בקוד ולא ב-Esc)
 function showDialog(dlg) {
   if (window.shellAPI.setOverlay) window.shellAPI.setOverlay(true);
+  dlg.__ssReturn = document.activeElement || null;
   dlg.showModal();
 }
 function closeDialog(dlg) {
   dlg.close();
+  const back = dlg.__ssReturn;
+  dlg.__ssReturn = null;
+  if (back && back.isConnected && typeof back.focus === 'function' && !document.querySelector('dialog[open]')) back.focus();
   // במצב שבת מסך המנוחה נשאר מעל הכול — לא מחזירים את המודול
   if (window.shellAPI.setOverlay && !shabbatOn) window.shellAPI.setOverlay(false);
 }
@@ -906,6 +962,7 @@ window.shellAPI.onCmd(cmd => {
   if (cmd === 'search') focusSearch();
   if (cmd === 'backup') runBackup();
   if (cmd === 'restore') runRestore();
+  if (cmd === 'a11y') openA11y();
 });
 
 /* ---------- לוח עברי, זמני היום ושבת ---------- */
@@ -987,14 +1044,122 @@ loadCalendar();
    ההגדרות נשמרות בתהליך הראשי ומגיעות לכל המסכים דרך display-preload.js. כאן — החלון, עם תצוגה מקדימה במעטפת */
 const DSP = window.SUITE_DISPLAY;
 let display = DSP ? { ...DSP.DEFAULTS } : null;
-const DS_LABELS = { theme: 'ערכת צבע', accent: 'צבע הדגשה', density: 'צפיפות', text: 'גודל טקסט', shape: 'פינות', contrast: 'ניגודיות', motion: 'אנימציות ותנועה' };
-const DS_ICONS = IC ? { classic: svg('building'), night: svg('moon'), office: svg('chart-bar'), easy: svg('search'), calm: svg('leaf') }
-  : { classic: '🏛', night: '🌙', office: '📊', easy: '🔍', calm: '🌿' };
+const DS_LABELS = { theme: 'ערכת צבע', accent: 'צבע הדגשה', density: 'צפיפות', text: 'גודל טקסט', shape: 'פינות', contrast: 'ניגודיות', motion: 'אנימציות ותנועה',
+  simple: 'מצב פשוט', targets: 'גודל כפתורים', links: 'קישורים', font: 'גופן' };
+const DS_ICONS = IC ? { classic: svg('building'), night: svg('moon'), office: svg('chart-bar'), easy: svg('search'), calm: svg('leaf'), access: svg('access') }
+  : { classic: '🏛', night: '🌙', office: '📊', easy: '🔍', calm: '🌿', access: '♿' };
 // צבע הנקודה ליד כל צבע הדגשה — מתוך שפת העיצוב, דרך המאפיין עצמו
-const dsPreview = (s) => DSP.applyTo(document, DSP.attrsFor(s, matchMedia('(prefers-color-scheme: dark)').matches));
+const dsPreview = (s) => DSP.applyTo(document, DSP.attrsFor(s, systemDark()));
 async function loadDisplay() {
-  if (!DSP || !window.shellAPI.getDisplay) { const b = $('ds'); if (b) b.hidden = true; return; }
+  if (!DSP || !window.shellAPI.getDisplay) { for (const id of ['ds', 'a11yBtn']) { const b = $(id); if (b) b.hidden = true; } return; }
   try { display = DSP.sanitize(await window.shellAPI.getDisplay()); } catch { /* נשאר ברירת המחדל */ }
+  applyA11yState();
+  maybeAskA11y();
+}
+// מצב פשוט: הסרגל ומסך הבית נבנים מחדש לפי ההגדרות
+function applyA11yState() {
+  const simple = !!(display && display.simple === 'on');
+  if (simple !== ui.simple) { ui.simple = simple; ui.simpleAll = false; ui.navMore = false; }
+  renderNav();
+  if (!ui.active) renderHome();
+}
+
+/* ---------- חלון "♿ נגישות" (סבב 4): מתגים גדולים, כל שינוי נשמר מיד ופועל בכל המסכים ---------- */
+const A11Y_SWITCHES = [
+  { k: 'simple', on: 'on', off: 'off', name: 'מצב פשוט', desc: 'רק הפעולות הנפוצות, משימות גדולות במסך הבית וכפתורים גדולים' },
+  { k: 'contrast', on: 'high', off: 'normal', name: 'ניגודיות גבוהה', desc: 'טקסט וקווים כהים וחזקים יותר' },
+  { k: 'motion', on: 'reduced', off: 'normal', name: 'עצירת אנימציות', desc: 'בלי תנועה ומעברים במסך' },
+  { k: 'targets', on: 'large', off: 'normal', name: 'כפתורים גדולים', desc: 'קל יותר ללחוץ — גם במסך מגע' },
+  { k: 'links', on: 'underline', off: 'normal', name: 'קו תחתון לקישורים', desc: 'רואים מיד מה אפשר ללחוץ' },
+  { k: 'font', on: 'readable', off: 'normal', name: 'גופן קריא', desc: 'אותיות פשוטות ורווחים גדולים בין אותיות ושורות' },
+  { k: 'theme', on: 'dark', off: 'light', name: 'רקע כהה', desc: 'נוח לעיניים בערב ובתאורה חלשה' },
+];
+const A11Y_SIZES = ['sm', 'md', 'lg', 'xl', 'xxl'];
+function a11yAnnounce(text) {
+  const live = $('a11yLive');
+  live.textContent = '';
+  setTimeout(() => { live.textContent = text; }, 50);
+}
+async function saveA11y(patch, announce) {
+  if (!DSP || !window.shellAPI.saveDisplay) return;
+  const next = DSP.sanitize({ ...display, ...patch });
+  try { display = DSP.sanitize(await window.shellAPI.saveDisplay(next)); } catch { display = next; }
+  dsPreview(display);
+  applyA11yState();
+  if (announce) a11yAnnounce(announce);
+}
+const systemDark = () => { try { return matchMedia('(prefers-color-scheme: dark)').matches; } catch { return false; } };
+function renderA11y() {
+  const sizeName = (id) => (DSP.OPTIONS.text.find(o => o.id === id) || {}).name || id;
+  const sw = A11Y_SWITCHES.map(o => {
+    const on = display[o.k] === o.on || (o.k === 'theme' && display.theme === 'system' && systemDark());
+    return `<div class="a11y-row"><span><b id="a11y-${o.k}">${esc(o.name)}</b><small id="a11y-${o.k}-d">${esc(o.desc)}</small></span>` +
+      `<button type="button" class="a11y-sw" role="switch" aria-checked="${on}" aria-labelledby="a11y-${o.k}" aria-describedby="a11y-${o.k}-d" data-a11y="${o.k}">${on ? 'פועל' : 'כבוי'}</button></div>`;
+  });
+  const sizes = '<div class="a11y-row"><span><b id="a11y-text">גודל הטקסט</b><small>חמישה גדלים — מהקטן ועד הענק</small></span>' +
+    `<div class="a11y-sizes" role="group" aria-labelledby="a11y-text">${A11Y_SIZES.map(id =>
+      `<button type="button" data-size="${id}" aria-pressed="${display.text === id}" aria-label="א — ${esc(sizeName(id))}" title="${esc(sizeName(id))}">א</button>`).join('')}</div></div>`;
+  $('a11yOpts').innerHTML = sw[0] + sizes + sw.slice(1).join('');
+}
+function openA11y() {
+  if (!DSP || !display) return;
+  const dlg = $('a11yDlg');
+  if (dlg.open) return;
+  renderA11y();
+  const done = () => { dlg.oncancel = null; closeDialog(dlg); };
+  $('a11yOpts').onclick = async (e) => {
+    const b = e.target.closest('[data-a11y], [data-size]');
+    if (!b) return;
+    let patch, msg;
+    if (b.dataset.size) {
+      patch = { text: b.dataset.size };
+      msg = 'גודל הטקסט: ' + ((DSP.OPTIONS.text.find(o => o.id === b.dataset.size) || {}).name || '');
+    } else {
+      const o = A11Y_SWITCHES.find(x => x.k === b.dataset.a11y);
+      if (!o) return;
+      const turnOn = b.getAttribute('aria-checked') !== 'true';
+      patch = { [o.k]: turnOn ? o.on : o.off };
+      msg = o.name + ': ' + (turnOn ? 'פועל' : 'כבוי');
+    }
+    const focusKey = b.dataset.size ? `[data-size="${b.dataset.size}"]` : `[data-a11y="${b.dataset.a11y}"]`;
+    await saveA11y(patch, msg);
+    renderA11y();
+    const again = $('a11yOpts').querySelector(focusKey);
+    if (again) again.focus();
+  };
+  $('a11yDone').onclick = done;
+  $('a11yAll').onclick = async () => { await saveA11y({ ...DSP.A11Y_FULL }, 'כל הגדרות הנגישות פועלות'); renderA11y(); };
+  $('a11yReset').onclick = async () => { await saveA11y(DSP.resetA11y(display), 'חזרה למצב הרגיל'); renderA11y(); };
+  dlg.oncancel = (e) => { e.preventDefault(); done(); };
+  showDialog(dlg);
+  const first = $('a11yOpts').querySelector('button');
+  if (first) first.focus();
+}
+if ($('a11yBtn')) $('a11yBtn').onclick = openA11y;
+
+// שאלה אחת בהפעלה הראשונה: "רוצה שהתוכנה תהיה פשוטה יותר וגדולה יותר?" — רק כשכל הגדרות הנגישות רגילות,
+// לא במצב שבת, ופעם אחת (התשובה נשמרת ב-localStorage של המעטפת)
+const A11Y_ASKED_KEY = 'suite.a11yAsked';
+function maybeAskA11y() {
+  let asked = true;
+  try { asked = !!localStorage.getItem(A11Y_ASKED_KEY); } catch { /* אין אחסון — לא שואלים */ }
+  if (asked || shabbatOn || !DSP.isPlain(display)) return;
+  const dlg = $('a11yAsk');
+  if (dlg.open || document.querySelector('dialog[open]')) return;
+  const answer = async (what) => {
+    try { localStorage.setItem(A11Y_ASKED_KEY, what); } catch { /* בפעם הבאה נשאל שוב */ }
+    $('a11yAskYes').onclick = $('a11yAskNo').onclick = $('a11yAskPick').onclick = null;
+    dlg.oncancel = null;
+    closeDialog(dlg);
+    if (what === 'yes') await saveA11y({ ...DSP.A11Y_EASY }, 'מצב פשוט וטקסט גדול — פועלים');
+    if (what === 'pick') openA11y();
+  };
+  $('a11yAskYes').onclick = () => answer('yes');
+  $('a11yAskNo').onclick = () => answer('no');
+  $('a11yAskPick').onclick = () => answer('pick');
+  dlg.oncancel = (e) => { e.preventDefault(); answer('no'); };
+  showDialog(dlg);
+  $('a11yAskYes').focus();
 }
 function openDisplaySettings() {
   const dlg = $('dsDlg');
