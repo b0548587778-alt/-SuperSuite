@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('shellAPI', {
   getBackupStatus: () => ipcRenderer.invoke('shell:get-backup-status'),
   getHomeSummary: () => ipcRenderer.invoke('shell:get-home-summary'),
   aiAsk: (question) => ipcRenderer.invoke('shell:ai-ask', question),
+  // "מה תרצה לעשות?": אילו משימות מותרות, ופתיחת טופס מלא מראש (לא נשמר — המשתמש שומר בטופס)
+  taskAccess: () => ipcRenderer.invoke('shell:task-access'),
+  startTask: (id, prefill) => ipcRenderer.invoke('shell:start-task', id, prefill),
   // הסיסמה של המנהל המחובר — נבדקת בתהליך הראשי לפני כל הצגה של הקוד
   getRecoveryCode: (password) => ipcRenderer.invoke('shell:get-recovery-code', password),
   recoveryCodeSaved: () => ipcRenderer.invoke('shell:recovery-code-saved'),

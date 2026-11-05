@@ -25,6 +25,7 @@ const Layout = require('./shell/layout');
 const SyncService = require('./shell/sync/service');
 const LG = require('./shell/licensing/gate');
 const LoginGate = require('./shell/login-gate');
+const Tasks = require('./shell/tasks');
 const { createLogger } = require('./shell/logger');
 const { createCrashGuard, MODULE_NAMES } = require('./shell/crash');
 // יומן תקלות ורשת ביטחון לקריסות (PLAN.md 2.1–2.2) — מותקנים לפני כל דבר אחר, כדי לתפוס גם תקלה בעלייה
@@ -315,15 +316,32 @@ function goHome() {
   recordNav({ mod: null, view: null });
 }
 
-// פתיחת תצוגה פנימית במודול הכלכלי. נשלח אחרי הטעינה; ה-preload שומר את הבקשה עד שהממשק מוכן
-function openEconView(view) {
+// פתיחת תצוגה פנימית במודול הכלכלי. נשלח אחרי הטעינה; ה-preload שומר את הבקשה עד שהממשק מוכן.
+// task — משימה מתיבת "מה תרצה לעשות?" שכבר עברה validateTask: נשלח { view, task, prefill } (הטופס נפתח מלא, לא נשמר)
+function openEconView(view, task = null) {
   if (!ECON_VIEWS.includes(view)) return false;
-  if (!LG.viewAllowed(licenseNow(), 'econ', view)) view = 'licensing';
+  if (!LG.viewAllowed(licenseNow(), 'econ', view)) { view = 'licensing'; task = null; }
   const v = ensureView('econ');
+  const msg = task ? { view, task: task.task.id, prefill: { ...task.prefill } } : view;
   waitLoaded(v.webContents).then(() => {
-    if (!v.webContents.isDestroyed()) v.webContents.send('econ:goto', view);
+    if (!v.webContents.isDestroyed()) v.webContents.send('econ:goto', msg);
   });
   return true;
+}
+
+// המשימות שהמשתמש רשאי להתחיל מתיבת הפקודה: רישיון (המסך והתחום) ותפקיד — בדיקה שקטה בלבד.
+// לפני כניסה — לפי הרישיון בלבד (הטופס דורש כניסה, וההרשאה נבדקת שוב בשמירה). גיבוי — מנהל מחובר בלבד
+function taskAccess() {
+  const sid = econSenderId();
+  const lic = licenseNow();
+  const logged = !!(econ && econ.hasSession && econ.hasSession(sid));
+  const can = (perm) => !!(econ && econ.sessionCan && econ.sessionCan(sid, perm));
+  return Tasks.TASKS.filter(t => {
+    if (t.admin) return logged && can('users.manage');
+    if (!ECON_VIEWS.includes(t.view) || !LG.viewAllowed(lic, 'econ', t.view)) return false;
+    if (LG.checkChannel(lic, `${t.domain}:startTask`, t.perm)) return false;
+    return !logged || can(t.perm);
+  }).map(t => t.id);
 }
 
 function openModuleView(id, view) {
@@ -1262,6 +1280,21 @@ app.whenReady().then(async () => {
     switchTo(id);
     if (view) openModuleView(id, view);
     return true;
+  });
+  // "מה תרצה לעשות?": פתיחת טופס מלא מראש. המטען מהמעטפת עובר אימות מלא (משימה מוכרת, רק השדות שלה, כל ערך
+  // מהסוג שלו) ובדיקת רישיון והרשאה. **לא נשמר כלום** — המודול רק ממלא את הטופס, והמשתמש שומר בעצמו
+  ipcMain.handle('shell:task-access', (e) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return [];
+    return taskAccess();
+  });
+  ipcMain.handle('shell:start-task', (e, id, prefill) => {
+    if (!win || win.isDestroyed() || !canShellNavigate(e.sender.id, win.webContents.id)) return { ok: false, reason: 'sender' };
+    const t = Tasks.validateTask(id, prefill);
+    if (!t || !t.task.view) return { ok: false, reason: 'invalid' };
+    if (!taskAccess().includes(t.task.id)) return { ok: false, reason: 'not-allowed' };
+    switchTo('econ');
+    openEconView(t.task.view, t);
+    return { ok: true };
   });
   // תצוגות חדשות במודול הכלכלי שעוד לא נכנסו לקטלוג — המעטפת מציגה אותן תחת "נוספו לאחרונה"
   ipcMain.handle('shell:catalog-extras', (e) => {

@@ -16,6 +16,7 @@ const Chat = require('../../shell/licensing/chat');
 const UsersBk = require('../../modules/econ/core/usersBackup'); // משתמשים ויומן הפעולות בגיבוי המלא
 const LG = require('../../shell/licensing/gate');
 const Display = require('../../shell/display'); // תצוגה ונגישות (data-ss-*), כמו main.js
+const Tasks = require('../../shell/tasks'); // "מה תרצה לעשות?" — אימות המטען, כמו main.js
 const { issuedAfter } = require('../../modules/econ/core/database');
 const { createRelayFetch } = require('./relay-fetch');
 
@@ -200,11 +201,13 @@ function start(ctx) {
     recordNav({ mod: null, view: null });
   }
   // תצוגה במודול הכלכלי שאינה ברישיון ← מסך הרישוי
-  function openEconView(view) {
+  // task — משימה מתיבת "מה תרצה לעשות?" שכבר עברה validateTask (כמו main.js): { view, task, prefill }
+  function openEconView(view, task = null) {
     if (!ECON_VIEWS.includes(view)) return false;
-    if (!LG.viewAllowed(licenseNow(), 'econ', view)) view = 'licensing';
+    if (!LG.viewAllowed(licenseNow(), 'econ', view)) { view = 'licensing'; task = null; }
+    const msg = task ? { view, task: task.task.id, prefill: { ...task.prefill } } : view;
     frames.ensure('econ', ENTRY.econ);
-    frames.whenReady('econ').then(() => frames.send('econ', 'econ:goto', view));
+    frames.whenReady('econ').then(() => frames.send('econ', 'econ:goto', msg));
     return true;
   }
   function openModuleView(id, view) {
@@ -418,6 +421,29 @@ function start(ctx) {
     return true;
   });
   ipcMain.handle('shell:catalog-extras', e => (isShell(e) ? ECON_EXTRAS.map(x => ({ ...x })) : []));
+  // "מה תרצה לעשות?" — אותם כללים כמו main.js: רישיון ותפקיד (בדיקה שקטה), ומטען מאומת. לא נשמר כלום
+  const taskAccess = () => {
+    const sid = econSenderId();
+    const lic = licenseNow();
+    const logged = frames.exists('econ') && !!(econ.hasSession && econ.hasSession(sid));
+    const can = perm => !!(econ.sessionCan && econ.sessionCan(sid, perm));
+    return Tasks.TASKS.filter(t => {
+      if (t.admin) return logged && can('users.manage');
+      if (!ECON_VIEWS.includes(t.view) || !LG.viewAllowed(lic, 'econ', t.view)) return false;
+      if (LG.checkChannel(lic, `${t.domain}:startTask`, t.perm)) return false;
+      return !logged || can(t.perm);
+    }).map(t => t.id);
+  };
+  ipcMain.handle('shell:task-access', e => (isShell(e) ? taskAccess() : []));
+  ipcMain.handle('shell:start-task', (e, id, prefill) => {
+    if (!isShell(e)) return { ok: false, reason: 'sender' };
+    const t = Tasks.validateTask(id, prefill);
+    if (!t || !t.task.view) return { ok: false, reason: 'invalid' };
+    if (!taskAccess().includes(t.task.id)) return { ok: false, reason: 'not-allowed' };
+    switchTo('econ');
+    openEconView(t.task.view, t);
+    return { ok: true };
+  });
   ipcMain.handle('shell:get-calendar', e => {
     if (!isShell(e)) return null;
     const { cityObj, ...s } = calendarSettings();

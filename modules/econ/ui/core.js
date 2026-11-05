@@ -109,6 +109,13 @@ const VIEW_HELP = {
   'messages': 'כאן קוראים ושולחים הודעות בין המערכות של הארגון.'
 };
 
+// בקשה מהמעטפת: תצוגה, או משימה מתיבת "מה תרצה לעשות?" ({ view, task, prefill } — shell/tasks.js).
+// econStartTask (אם קיים) פותח את הטופס מלא מראש ו**לא שומר** — המשתמש בודק ושומר בעצמו; אחרת — התצוגה בלבד
+function openShellRequest(req) {
+  if (req.task && typeof window.econStartTask === 'function') return window.econStartTask(req.task, req.prefill || {}, req.view);
+  return switchView(req.view, { focus: true });
+}
+
 // Initialize application
 async function init() {
   try {
@@ -118,9 +125,11 @@ async function init() {
     }
     // בקשת מעבר מהסרגל האחיד. לפני כניסה — נשמרת ונפתחת מיד אחרי הכניסה
     if (typeof window.systemAPI.onGoto === 'function') {
-      window.systemAPI.onGoto(view => {
-        if (!Object.prototype.hasOwnProperty.call(viewTitles, view)) return;
-        if (state.user) switchView(view, { focus: true }); else state.requestedView = view;
+      window.systemAPI.onGoto(msg => {
+        const req = typeof msg === 'string' ? { view: msg } : msg;
+        if (!req || !Object.prototype.hasOwnProperty.call(viewTitles, req.view)) return;
+        if (state.user) openShellRequest(req);
+        else { state.requestedView = req.view; state.requestedTask = req.task ? req : null; }
       });
     }
     // פגישה שפגה בשקט: הממשק עוד "מחובר" — מציגים שוב את מסך הכניסה
@@ -171,7 +180,10 @@ async function init() {
     try { const adv = await window.systemAPI.getAdvancedSettings(); if (adv && adv.startView) start = adv.startView; } catch { /* ברירת מחדל */ }
     // תצוגה שנבחרה בסרגל האחיד לפני הכניסה גוברת על מסך הפתיחה
     if (state.requestedView) { start = state.requestedView; state.requestedView = null; }
+    const task = state.requestedTask && state.requestedTask.view === start ? state.requestedTask : null;
+    state.requestedTask = null;
     await switchView(start);
+    if (task) await openShellRequest(task);
     showToast('מערכת מאוחדת נטענה בהצלחה');
   } catch (error) {
     showError('שגיאה באתחול המערכת: ' + errMsg(error));

@@ -4,8 +4,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 // בקשת ניווט מהסרגל האחיד של המעטפת. אם הגיעה לפני שהממשק נרשם — נשמרת ונמסרת ברישום
 let pendingGoto = null;
 let gotoListener = null;
+// מחרוזת = תצוגה; { view, task, prefill } = משימה מתיבת "מה תרצה לעשות?" (main.js אימת את המטען — shell/tasks.js)
 ipcRenderer.on('econ:goto', (_e, view) => {
-  if (typeof view !== 'string') return;
+  const ok = typeof view === 'string' || (!!view && typeof view === 'object' && typeof view.view === 'string');
+  if (!ok) return;
   if (gotoListener) gotoListener(view); else pendingGoto = view;
 });
 
