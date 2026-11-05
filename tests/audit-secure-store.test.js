@@ -308,7 +308,9 @@ test('ממצא 3 (שמאי): תמונה ישנה נמחקת מ-IndexedDB רק א
   assert.equal(await s.run(`ImageDB.migrateAll(['opp_disk', 'opp_view'])`), 1, 'opp_disk כבר במחסן; opp_view מועברת עכשיו');
   await sleep(5);
   assert.equal(idb.store.size, 0, 'אחרי שהקובץ נכתב — העותקים הישנים נמחקו');
-  assert.equal(JSON.parse(ipcSync(modView('shamai'), 'secure-store:load', 'shamai').data.shamai_v2_img_opp_disk), PNG);
+  // תמונות בקבצים נפרדים (סקירת קוד 2.11.2026): בטעינה רק הרשימה, והערך — לפי דרישה
+  assert.ok(ipcSync(modView('shamai'), 'secure-store:load', 'shamai').blobKeys.includes('shamai_v2_img_opp_disk'));
+  assert.equal(JSON.parse(ipcSync(modView('shamai'), 'secure-store:get', 'shamai', 'shamai_v2_img_opp_disk')), PNG);
 });
 
 // localStorage שדוחה כתיבה רק למפתח אחד (למשל רשימה שגדלה מעבר למקום)

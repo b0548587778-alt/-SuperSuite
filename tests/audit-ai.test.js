@@ -452,7 +452,7 @@ test('main.js: נתוני השמאות לעוזר — רק לתצוגת המוד
   assert.match(body, /fromView\(\{ sender: \{ id: senderId \} \}, 'econ'\)/);
   assert.match(body, /LG\.moduleAllowed\(licenseNow\(\), 'shamai'\)/);
   assert.match(body, /s\.state !== 'encrypted'/);
-  assert.match(body, /snapshot\(\)/);
+  assert.match(body, /[sS]napshot\(\)/);
   assert.doesNotMatch(body, /\.set\(|\.remove\(|\.clear\(/, 'קריאה בלבד');
   assert.equal((MAIN.match(/shamaiData: shamaiDataForEcon/g) || []).length, 1, 'מוגדר במקום אחד — econInitOptions');
   assert.doesNotMatch(MAIN, /trainerData|trainerDataForEcon/, 'מודול האימונים עבר למוצר נפרד');

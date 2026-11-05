@@ -662,7 +662,8 @@ function shamaiDataForEcon(senderId) {
   if (!LG.moduleAllowed(licenseNow(), 'shamai')) throw new Error('מודול השמאות אינו כלול ברישיון');
   const s = secureStore('shamai');
   if (s.state !== 'encrypted') throw new Error('נתוני השמאות אינם זמינים (המחסן המוצפן של המודול לא נפתח)');
-  return s.snapshot();
+  // בלי התמונות (קבצים נפרדים) — ההקשר צריך רק את התיקים
+  return s.dataSnapshot();
 }
 /* ---------- הגדרות תצוגה (PLAN.md 7.4) ----------
    נשמרות ב-ui-settings.json → display. shell/display-preload.js מציב אותן כמאפייני data-ss-* בכל מסך,
@@ -712,7 +713,15 @@ function wireSecureStore() {
     // בלי כניסה (PLAN.md 3.3): העמוד מקבל אחסון ריק לקריאה בלבד — נטען מחדש עם הנתונים אחרי הכניסה.
     // גם במצב plain (אין הצפנת Windows): ה-preload מחליף שם את localStorage באותו אופן
     if (s.state !== 'locked' && !econSessionAlive()) { e.returnValue = { state: 'no-session', migrated: true, data: {} }; return; }
-    e.returnValue = { state: s.state, migrated: s.migrated, data: s.state === 'plain' ? {} : s.snapshot() };
+    // התמונות (קבצים נפרדים, סקירת קוד 2.11.2026) — רק הרשימה; העמוד מבקש כל תמונה כשהוא קורא אותה (secure-store:get)
+    if (s.state === 'plain') { e.returnValue = { state: s.state, migrated: s.migrated, data: {} }; return; }
+    e.returnValue = { state: s.state, migrated: s.migrated, data: s.dataSnapshot(), blobKeys: s.blobKeys(), blobPrefixes: SecureStore.blobPrefixes(mod) };
+  });
+  // תמונה אחת לפי דרישה — באותם תנאים כמו הטעינה: רק מתצוגת המודול ורק בכניסה פעילה. null — אין
+  ipcMain.on('secure-store:get', (e, mod, k) => {
+    if (!fromModuleView(e, mod) || !econSessionAlive()) { e.returnValue = null; return; }
+    try { e.returnValue = secureStore(mod).get(String(k)); }
+    catch (err) { logger.error('secure-store', err); e.returnValue = null; }
   });
   // גיבוי מוצפן של הנתונים הישנים לפני ההעברה. בלי גיבוי — אין העברה
   ipcMain.on('secure-store:migrate', (e, mod, items) => {

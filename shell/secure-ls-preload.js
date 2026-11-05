@@ -37,6 +37,10 @@ if (MOD && window === window.top) {
       // זורקת בעמוד כמו localStorage אמיתי, והעותק בזיכרון לא משתנה — כך "נשמר?" שקורא ממנו מקבל תשובה נכונה
       let send = (op, k, v) => { try { return ipcRenderer.sendSync('secure-store:write', MOD, op, k, v); } catch { return null; } };
       let data = init.data || {};
+      // תמונות בקבצים נפרדים (סקירת קוד 2.11.2026, תכנית ב): בעמוד רק רשימת המפתחות; הערך נקרא בעת הצורך
+      const blobKeys = Array.isArray(init.blobKeys) ? init.blobKeys.filter(k => typeof k === 'string') : [];
+      const blobPrefixes = Array.isArray(init.blobPrefixes) ? init.blobPrefixes.filter(k => typeof k === 'string') : [];
+      const getBlob = (k) => { try { const v = ipcRenderer.sendSync('secure-store:get', MOD, k); return typeof v === 'string' ? v : null; } catch { return null; } };
       if (init.state === 'plain') {
         // אין הצפנת Windows: הנתונים נשארים ב-localStorage של הדפדפן (גלוי, כמו קודם), אבל גם כאן כל כתיבה נבדקת קודם
         // בתהליך הראשי — כניסה, הרשאת עריכה ורישיון (ממצא 24) — ורק אחרי אישור נכתבת, מכאן (בעולם המבודד)
@@ -65,8 +69,16 @@ if (MOD && window === window.top) {
           : 'השינוי לא נשמר: הנתונים המוצפנים של המודול לא נפתחו — פנו לתמיכה עם דוח תקלה (F1)';
       // הפונקציה רצה בעולם של העמוד (מועתקת כטקסט): בלי משתנים מבחוץ — הכול עובר ב-args
       contextBridge.executeInMainWorld({
-        func: (data, readOnlyMessage, send) => {
+        func: (data, readOnlyMessage, send, blobKeys, blobPrefixes, getBlob) => {
           const m = new Map(Object.entries(data));
+          // תמונות: רק המפתחות כאן; הערך — מהתהליך הראשי (קובץ מוצפן משלה), בלי עותק בזיכרון של העמוד
+          const blobs = new Set(blobKeys);
+          const isBlob = (k) => blobPrefixes.some(p => k.startsWith(p));
+          const has = (k) => m.has(k) || blobs.has(k);
+          const read = (k) => (m.has(k) ? m.get(k) : blobs.has(k) ? getBlob(k) : null);
+          // רשימת המפתחות נשמרת עד השינוי הבא: לולאה על key(i) לא בונה אותה מחדש בכל צעד
+          let keyCache = null;
+          const keys = () => keyCache || (keyCache = [...m.keys(), ...[...blobs].filter(k => !m.has(k))]);
           const str = (x) => String(x);
           const commit = (op, k, v) => {
             const r = readOnlyMessage ? null : send(op, k, v);
@@ -75,8 +87,13 @@ if (MOD && window === window.top) {
             throw new DOMException((r && typeof r.message === 'string' && r.message) || readOnlyMessage || 'השינוי לא נשמר', name);
           };
           const api = {
-            getItem: (k) => (m.has(str(k)) ? m.get(str(k)) : null),
-            setItem: (k, v) => { const key = str(k), val = str(v); commit('set', key, val); m.set(key, val); },
+            getItem: (k) => read(str(k)),
+            setItem: (k, v) => {
+              const key = str(k), val = str(v);
+              commit('set', key, val);
+              keyCache = null;
+              if (isBlob(key)) { blobs.add(key); m.delete(key); } else m.set(key, val);
+            },
             // גם מחיקה של מפתח שאינו קיים עוברת לאישור: מי שאינו רשאי לכתוב מקבל שגיאה, והעמוד לא מוחק בעקבותיה עותק
             // אחר (למשל תמונה ישנה ב-IndexedDB) כאילו המחיקה הצליחה.
             // מפתח שמור (לא נשמר לעולם): כתיבת המחסן לדיסק עכשיו, וזריקה אם נכשלה — כך השמאי מוחק עותק ישן רק
@@ -84,23 +101,26 @@ if (MOD && window === window.top) {
             removeItem: (k) => {
               const key = str(k);
               if (key === '\u0000ss-flush') { commit('flush'); return; }
-              commit('remove', key); m.delete(key);
+              commit('remove', key); m.delete(key); blobs.delete(key); keyCache = null;
             },
-            clear: () => { commit('clear'); m.clear(); },
-            key: (i) => { const keys = [...m.keys()]; return i >= 0 && i < keys.length ? keys[i] : null; },
-            get length() { return m.size; }
+            clear: () => { commit('clear'); m.clear(); blobs.clear(); keyCache = null; },
+            key: (i) => { const all = keys(); return i >= 0 && i < all.length ? all[i] : null; },
+            get length() { return keys().length; }
           };
           const ls = new Proxy(api, {
-            get: (o, k) => (k in o ? o[k] : (typeof k === 'string' && m.has(k) ? m.get(k) : undefined)),
+            get: (o, k) => (k in o ? o[k] : (typeof k === 'string' && has(k) ? read(k) : undefined)),
             set: (o, k, v) => { if (typeof k === 'string') api.setItem(k, v); return true; },
-            has: (o, k) => k in o || (typeof k === 'string' && m.has(k)),
-            deleteProperty: (o, k) => { if (typeof k === 'string' && m.has(k)) api.removeItem(k); return true; },
-            ownKeys: () => [...m.keys()],
-            getOwnPropertyDescriptor: (o, k) => (typeof k === 'string' && m.has(k) ? { value: m.get(k), enumerable: true, configurable: true, writable: true } : undefined)
+            has: (o, k) => k in o || (typeof k === 'string' && has(k)),
+            deleteProperty: (o, k) => { if (typeof k === 'string' && has(k)) api.removeItem(k); return true; },
+            ownKeys: () => keys(),
+            // תמונה — מאפיין עם getter: Object.keys (למשל Storage.clear) לא קורא את כל התמונות מהדיסק
+            getOwnPropertyDescriptor: (o, k) => (typeof k !== 'string' || !has(k) ? undefined
+              : m.has(k) ? { value: m.get(k), enumerable: true, configurable: true, writable: true }
+                : { get: () => read(k), set: (v) => api.setItem(k, v), enumerable: true, configurable: true })
           });
           Object.defineProperty(window, 'localStorage', { value: ls, configurable: false, enumerable: true });
         },
-        args: [data, readOnlyMessage, send]
+        args: [data, readOnlyMessage, send, blobKeys, blobPrefixes, getBlob]
       });
     }
   }
