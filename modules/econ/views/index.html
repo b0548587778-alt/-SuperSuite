@@ -70,9 +70,12 @@
             <div class="header-actions">
                 <span class="status ss-advanced"><span aria-hidden="true">● </span>מערכת פעילה</span>
                 <button class="primary" id="addBtn"><span aria-hidden="true">＋ </span>הוספת רשומה</button>
+                <button class="secondary ss-advanced" id="wizardBtn" type="button" hidden>צעד אחר צעד</button>
+                <button class="secondary" id="helpBtn" type="button" aria-expanded="false" aria-controls="helpPanel"><span aria-hidden="true">❓ </span>עזרה</button>
                 <button class="secondary" id="userBtn"><span aria-hidden="true">👤 </span>החלפת משתמש</button>
             </div>
         </header>
+        <div id="helpPanel" class="help-panel" role="region" aria-labelledby="helpPanelTitle" hidden></div>
         <section id="view" aria-labelledby="pageTitle" aria-describedby="pageHelp" tabindex="-1"></section>
     </main>
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
@@ -115,6 +118,7 @@
     <script src="../ui/dialogs.js"></script>
     <script src="../ui/ai.js"></script>
     <script src="../ui/sample.js"></script>
+    <script src="../ui/wizards.js"></script>
     <script src="../ui/boot.js"></script>
 </body>
 </html>

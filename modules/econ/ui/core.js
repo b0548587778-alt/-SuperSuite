@@ -22,6 +22,9 @@ const elements = {
   announcer: document.getElementById('srAnnounce'),
   today: document.getElementById('today'),
   addBtn: document.getElementById('addBtn'),
+  wizardBtn: document.getElementById('wizardBtn'),
+  helpBtn: document.getElementById('helpBtn'),
+  helpPanel: document.getElementById('helpPanel'),
   userBtn: document.getElementById('userBtn'),
   backupBtn: document.getElementById('backupBtn'),
   restoreBtn: document.getElementById('restoreBtn'),
@@ -132,6 +135,8 @@ async function init() {
         else { state.requestedView = req.view; state.requestedTask = req.task ? req : null; }
       });
     }
+    // אשף "צעד אחר צעד" לבקשה מהמעטפת (openShellRequest) — הקלט לא מהימן ונבדק שוב ב-sanitizePrefill (ui/wizards.js)
+    window.econStartTask = econStartTask;
     // פגישה שפגה בשקט: הממשק עוד "מחובר" — מציגים שוב את מסך הכניסה
     if (typeof window.systemAPI.onAuthCheck === 'function') {
       window.systemAPI.onAuthCheck(async () => {
@@ -154,6 +159,8 @@ async function init() {
       btn.addEventListener('click', () => switchView(btn.dataset.view, { focus: true }));
     });
     elements.addBtn.addEventListener('click', () => handleAdd());
+    if (elements.wizardBtn) elements.wizardBtn.addEventListener('click', () => { if (elements.wizardBtn.dataset.task) econStartTask(elements.wizardBtn.dataset.task); });
+    attachHelpButton();
     elements.userBtn.addEventListener('click', () => handleUser());
     elements.backupBtn.addEventListener('click', () => handleBackup());
     elements.restoreBtn.addEventListener('click', () => handleRestore());
@@ -205,6 +212,8 @@ async function switchView(viewName, opts = {}) {
     state.currentView = viewName;
     state.loading = true;
     state.error = null;
+    // חלון העזרה שייך למסך הקודם
+    toggleHelp(false);
 
     // Update navigation
     elements.navButtons.forEach(btn => {
@@ -534,7 +543,8 @@ function renderView(viewName) {
 
   switch (viewName) {
     case 'dashboard':
-      html = renderSampleOffer() + renderDashboard(data);
+      // מצב פשוט: המסך מתחיל ב"מה יש לעשות היום" (ui/wizards.js)
+      html = (isSimpleMode() && data && data.brief && data.brief.agenda ? renderAgenda(data.brief.agenda) : '') + renderSampleOffer() + renderDashboard(data);
       break;
     case 'finance':
       html = renderFinance(data);

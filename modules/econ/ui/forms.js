@@ -121,7 +121,10 @@ function attachViewHandlers(viewName) {
   if (viewName === 'acct-invoices') attachInvoiceViewHandlers();
   if (viewName === 'acct-bank') attachBankHandlers();
   if (viewName === 'biz-reports') attachBizHandlers();
-  if (viewName === 'dashboard') attachBizDashHandlers();
+  if (viewName === 'dashboard') { attachBizDashHandlers(); attachAgendaHandlers(); }
+  // "צעד אחר צעד" בראש המסך — לפי ההרשאה מיד, ולפי הרישיון כשנטען
+  updateWizardBtn(viewName);
+  if (VIEW_TASKS[viewName] && state.wizLicense === undefined) ensureWizLicense().then(() => { if (state.currentView === viewName) updateWizardBtn(viewName); });
   if (viewName === 'npo') attachNpoHandlers();
   if (viewName === 'gemach') attachGemachHandlers();
   if (viewName === 'chesed') attachChesedHandlers();
@@ -149,8 +152,14 @@ function attachViewHandlers(viewName) {
   }
 }
 
-// Handle add action — פותח את הטופס המתאים לתצוגה
-async function handleAdd() {
+// Handle add action — פותח את הטופס המתאים לתצוגה.
+// מצב פשוט: במסכים שיש להם אשף — האשף (שאלה אחת בכל פעם) במקום הטופס הארוך; opts.form — הטופס המלא בכל זאת
+async function handleAdd(opts = {}) {
+  const task = (VIEW_TASKS[state.currentView] || [])[0];
+  if (!opts.form && task && isSimpleMode() && wizardAllowedSync(task)) {
+    await econStartTask(task);
+    return;
+  }
   const schema = formSchemas[state.currentView];
   if (!schema) {
     showToast('בתצוגה זו אין טופס הוספה');
@@ -397,6 +406,9 @@ async function handleSubmit() {
   // שליחה אחת בכל פעם: הכפתור המושבת לא חוסם את Ctrl+Enter, ושליחה כפולה הפיקה שתי חשבוניות מס (סקירת קוד 2.11.2026)
   if (state.submitting) return;
   const schema = currentSchema();
+  // הטופס הראשי של המסך (לא טופס משני) — רק לו יש "טעיתי, לבטל" (FORM_UNDO ב-ui/wizards.js)
+  const mainForm = !state.subForm;
+  const view = state.currentView;
   if (!schema) {
     closeModal();
     return;
@@ -419,8 +431,9 @@ async function handleSubmit() {
       await schema.update(state.editingId, data);
       showToast('הרשומה עודכנה בהצלחה');
     } else {
-      await schema.create(data);
-      showToast('הרשומה נשמרה בהצלחה');
+      const created = await schema.create(data);
+      const undo = mainForm ? formUndoSpec(view, created) : null;
+      if (undo) showUndoToast('הרשומה נשמרה בהצלחה ✓', undo); else showToast('הרשומה נשמרה בהצלחה');
     }
     state.editingId = null;
     closeModal();

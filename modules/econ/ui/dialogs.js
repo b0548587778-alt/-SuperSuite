@@ -508,6 +508,9 @@ function relogin() {
 const UI_KEEP_ON_LOGOUT = ['currentView', 'acctKeysBound', 'viewSeq', 'searchSeq'];
 function resetUiForLogout() {
   if (elements.modal && !elements.modal.classList.contains('hidden')) closeModal();
+  // אשף פתוח — מה שהוקלד בו לא נשאר למשתמש הבא
+  if (wizActive) wizClose();
+  toggleHelp(false);
   for (const k of Object.keys(state)) if (!UI_KEEP_ON_LOGOUT.includes(k)) delete state[k];
   Object.assign(state, { user: null, data: {}, loading: false, error: null, editingId: null, fieldValuesBackup: null, subForm: null });
   // טעינה או חיפוש שעוד בדרך לא יתרנדרו מעל מסך הכניסה

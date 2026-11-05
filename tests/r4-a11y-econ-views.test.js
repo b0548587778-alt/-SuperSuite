@@ -243,7 +243,8 @@ test('מצב פשוט: כלל ה-CSS קיים, שדות מתקדמים מוסת�
   assert.match(STYLES, /html\[data-ss-simple="on"\] \.ss-advanced \{ display:none !important; \}/);
   const s = await H.boot({ real: DIR, simple: true });
   await s.go('npo');
-  s.doc.getElementById('addBtn').click();
+  // מצב פשוט (סבב 5): "הוספת רשומה" פותח את האשף; הטופס המלא — ב"לטופס המלא" (handleAdd({ form: true }))
+  s.run('handleAdd({ form: true })');
   await s.settle();
   const form = s.doc.getElementById('modalForm');
   const fields = form.querySelectorAll('input, select, textarea');
@@ -280,13 +281,19 @@ test('מצב פשוט: מסכים נדירים, ייבוא/ייצוא וקיצו
   const keys = s.view().descendants().find(e => /^קיצורים:/.test(textOf(e)) && !e.children.length);
   assert.ok(keys && hiddenInSimple(s.doc, keys), 'קיצורי מקלדת');
   // פעולה נפוצה בשתי לחיצות: מסך ← "הוספת רשומה"
+  // במסכים שיש להם אשף (סבב 5) — האשף נפתח במקום הטופס הארוך
+  // (אשף התרומה נפתח רק כשפרטי העמותה מולאו — בלעדיהם אין קבלה)
+  await s.run('window.systemAPI').saveNpoSettings({ orgName: 'עמותת חסד' });
   for (const v of ['acct-invoices', 'npo', 'tasks', 'contacts']) {
     await s.go(v);
     s.doc.getElementById('addBtn').click();
     await s.settle();
-    assert.equal(s.doc.getElementById('modal').classList.contains('hidden'), false, v);
+    const wiz = s.doc.querySelector('.modal.wiz');
+    if (v === 'tasks') assert.equal(s.doc.getElementById('modal').classList.contains('hidden'), false, v);
+    else assert.ok(wiz, v + ': אשף');
     s.key(s.doc.activeElement, 'Escape');
     await s.settle();
+    assert.equal(s.doc.querySelector('.modal.wiz'), null, v + ': Escape בלי הקלדה סוגר');
   }
   // במצב רגיל — אין הסתרה, וכל השדות במעגל ה-Tab
   await h.go('npo');

@@ -1184,3 +1184,47 @@ html[data-ss-simple="on"] .ss-more-toggle { display:inline-flex; justify-self:st
 .toast.danger { display:flex; align-items:flex-start; gap:10px; }
 .toast-close { background:none; border:0; color:inherit; font-size:1.3rem; line-height:1; cursor:pointer; padding:0 4px; margin-inline-start:auto; min-width:28px; min-height:28px; }
 @media (prefers-reduced-motion: reduce) { .toast { animation:none; } }
+
+/* ===== צעד אחר צעד (סבב 5): אשף של שאלה אחת, סדר היום, "טעיתי, לבטל" ועזרה — רק משתני --ss-* ===== */
+#wizardBtn[hidden], .help-panel[hidden] { display:none; }
+.wiz .wiz-card { max-width:620px; width:calc(100% - 2rem); position:relative; }
+.wiz-progress { margin:0 1.5rem; color:var(--ss-text-2); font-size:var(--ss-fs-md); font-weight:600; }
+.wiz-body { padding:12px 1.5rem 4px; display:grid; gap:10px; }
+.wiz-q { display:block; font:700 1.5rem/1.35 var(--ss-font-title); color:var(--ss-text); margin:0 0 4px; }
+.wiz-q:focus { outline:none; }
+.wiz-q:focus-visible { outline:3px solid var(--ss-focus-ring); }
+.wiz-input { font-size:1.35rem; min-height:56px; }
+textarea.wiz-input { min-height:120px; }
+.wiz-hint { font-size:var(--ss-fs-md); margin:0; }
+.wiz-choices { border:0; margin:0; padding:0; display:grid; gap:10px; max-height:50vh; overflow:auto; }
+.wiz-choice { display:flex; align-items:center; gap:12px; min-height:56px; padding:10px 14px; border:2px solid var(--ss-border-strong); border-radius:var(--ss-radius); background:var(--ss-surface); color:var(--ss-text); font-size:1.2rem; cursor:pointer; }
+.wiz-choice:has(input:checked) { border-color:var(--ss-primary); background:var(--ss-surface-2); }
+.wiz-choice input { width:24px; height:24px; flex:none; }
+.wiz-error { margin:0 1.5rem; font-size:var(--ss-fs-md); }
+.wiz-actions { padding:12px 1.5rem; }
+.wiz-btn { min-height:56px; min-width:140px; font-size:1.2rem; }
+.wiz-btn[hidden] { display:none; }
+.wiz-exit { margin:0 1.5rem 1rem; font-size:var(--ss-fs-md); }
+.wiz-summary { margin:0; display:grid; gap:6px; font-size:1.2rem; }
+.wiz-sum-row { display:flex; gap:12px; border-bottom:1px solid var(--ss-border); padding:6px 0; }
+.wiz-sum-row dt { min-width:9ch; color:var(--ss-text-2); font-weight:600; }
+.wiz-sum-row dd { margin:0; color:var(--ss-text); font-weight:700; }
+.undo-toast { display:flex; align-items:center; gap:12px; }
+.undo-btn { background:var(--ss-surface); color:var(--ss-text); border:2px solid var(--ss-surface); border-radius:var(--ss-radius); font:700 var(--ss-fs-md) var(--ss-font); min-height:40px; padding:4px 14px; cursor:pointer; }
+.agenda { margin-bottom:1rem; }
+.agenda-title { font:700 1.5rem/1.3 var(--ss-font-title); color:var(--ss-text); margin:0 0 10px; }
+.agenda-list { list-style:none; margin:0; padding:0; display:grid; gap:10px; }
+.agenda-item { display:flex; align-items:center; gap:14px; justify-content:space-between; padding:12px 14px; border:1px solid var(--ss-border); border-radius:var(--ss-radius); background:var(--ss-surface); }
+.agenda-urgent { border-inline-start:6px solid var(--ss-danger); }
+.agenda-soon { border-inline-start:6px solid var(--ss-warning); }
+.agenda-text { display:grid; gap:2px; font-size:1.15rem; color:var(--ss-text); }
+.agenda-text small { font-size:var(--ss-fs-md); color:var(--ss-text-2); }
+.agenda-go { min-height:52px; min-width:120px; font-size:1.15rem; }
+.help-panel { margin:0 0 1rem; padding:14px 18px; border:2px solid var(--ss-primary); border-radius:var(--ss-radius); background:var(--ss-surface); color:var(--ss-text); }
+.help-title { font:700 1.25rem var(--ss-font-title); margin:0 0 6px; }
+.help-title:focus { outline:none; }
+.help-title:focus-visible { outline:3px solid var(--ss-focus-ring); }
+.help-text { font-size:1.1rem; margin:0 0 8px; }
+.help-actions { display:flex; flex-wrap:wrap; gap:10px; margin:6px 0; }
+.help-actions button { min-height:48px; font-size:1.05rem; }
+@media (max-width: 720px) { .agenda-item { flex-direction:column; align-items:stretch; } .wiz-btn { min-width:0; flex:1; } }
