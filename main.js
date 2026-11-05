@@ -46,6 +46,8 @@ const ECON_EXTRAS = (() => {
   catch { return []; }
 })();
 const ECON_VIEWS = [...Catalog.ECON_VIEWS, ...ECON_EXTRAS.map(x => x.view)];
+// כל מסכי הקטלוג, גם של מהדורות אחרות (shell/edition.js) — כדי לזהות מסך שאינו במהדורה הזו
+const ALL_ECON_VIEWS = new Set(Catalog.ALL_GROUPS.flatMap(g => g.items).filter(it => it.mod === 'econ').map(it => it.view));
 // האם מותר לפתוח תצוגה פנימית במודול (רק במודול הכלכלי יש תצוגות בסרגל)
 const moduleHasView = (id, view) => id === 'econ' && ECON_VIEWS.includes(view);
 
@@ -1323,7 +1325,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('shell:econ-view', (e, view) => {
     const v = views.econ;
     if (!v || v.webContents.isDestroyed() || e.sender.id !== v.webContents.id) return false;
-    if (!ECON_VIEWS.includes(view)) return false;
+    // מסך של מהדורה אחרת (קישור פנימי במודול) — חזרה ללוח הבקרה; הערוצים שלו נחסמים ממילא (gate.js)
+    if (!ECON_VIEWS.includes(view)) { if (ALL_ECON_VIEWS.has(view)) openEconView('dashboard'); return false; }
     econView = view;
     if (!LG.viewAllowed(licenseNow(), 'econ', view)) { openEconView('licensing'); return false; }
     if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view, 'econ');

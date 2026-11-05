@@ -1,5 +1,7 @@
 // שער הרישוי: האם ערוץ IPC / מודול מותרים לפי מצב הרישיון (docs/LICENSING-DESIGN.md, שלב 2).
 // פונקציות טהורות — בלי Electron ובלי קבצים. ההרשאה בפועל = חיתוך של RBAC (ipc.js) עם השער הזה.
+// המהדורה (shell/edition.js) נבדקת כאן לפני הרישיון — גם בהתקנה בלי רישוי: ההרשאה = מהדורה ∩ רישיון ∩ תפקיד
+const Edition = require('../edition');
 
 // מודולי התוכנה — כל אחד הוא תכונה ברישיון.
 // תכונה שאינה כאן (למשל 'trainer' ברישיון ישן — המודול עבר למוצר החינוכי הנפרד) לא פותחת דבר ולא פוסלת את הרישיון
@@ -48,9 +50,10 @@ const PEOPLE_SOURCES = { npo: 'econ.npo', gemach: 'econ.gemach', chesed: 'econ.c
 
 // התחומים שמותר לבנות מהם את מאגר האנשים. null = בלי רישוי (הכול)
 function peopleSources(state) {
-  if (!state || state.mode === 'unlicensed') return null;
+  const inEdition = Object.keys(PEOPLE_SOURCES).filter(s => Edition.featureAllowed(PEOPLE_SOURCES[s]));
+  if (!state || state.mode === 'unlicensed') return Edition.isFull() ? null : inEdition;
   const have = new Set(state.features || []);
-  return Object.keys(PEOPLE_SOURCES).filter(s => have.has(PEOPLE_SOURCES[s]));
+  return inEdition.filter(s => have.has(PEOPLE_SOURCES[s]));
 }
 
 // 'ai.local' (מודל שפה במחשב) ו-'ai.cloud' הם שדרוגים על 'ai' — רישיון עם שדרוג בלבד פותח גם את העוזר הבסיסי (הכללים)
@@ -60,6 +63,8 @@ const satisfies = (have, feature) => have.has(feature) || (feature === 'ai' && A
 function featuresForChannel(channel) {
   // עוזר ה-AI הוא תחום רישוי בפני עצמו — לא תלוי בקיום econ
   if (String(channel).startsWith('ai:')) return ['ai'];
+  // מנוע החשבוניות מאחורי הקלעים (עמותות, נדל"ן) — חלק מ-'econ' של המהדורה, בלי econ.accounting
+  if (Edition.isBackstageChannel(channel)) return ['econ'];
   const prefix = String(channel).split(':')[0];
   const sub = ECON_SUB_FEATURES[prefix];
   return sub ? ['econ', sub] : ['econ'];
@@ -74,6 +79,8 @@ function statusMessage(state) {
 // state = תוצאת store.current(): { mode: 'unlicensed' } או { mode: 'licensed', status, features, ... }.
 // permission = ההרשאה שנגזרה ב-permissionFor (או null). מחזיר null אם מותר, אחרת הודעה בעברית
 function checkChannel(state, channel, permission) {
+  const notInEdition = Edition.channelDenied(channel);
+  if (notInEdition) return notInEdition;
   if (!state || state.mode === 'unlicensed') return null;
   if (ALWAYS_OPEN.test(channel)) return null;
   if (state.status !== 'active') {
@@ -88,12 +95,14 @@ function checkChannel(state, channel, permission) {
 
 // תחום כלכלי נפרד (econ.npo, econ.accounting...) — פתוח אם הרישיון כולל אותו או את 'econ' עצמו
 function featureOpen(state, feature) {
+  if (!Edition.featureAllowed(feature)) return false;
   if (!state || state.mode === 'unlicensed') return true;
   const have = new Set(state.features || []);
   return have.has(feature) || have.has('econ');
 }
 
 function moduleAllowed(state, mod) {
+  if (!Edition.modAllowed(mod)) return false;
   if (!state || state.mode === 'unlicensed') return true;
   if (state.status === 'locked' || (state.status === 'terminated' && !isReadOnly(state))) return false;
   const f = MODULE_FEATURES[mod];
@@ -104,6 +113,7 @@ function moduleAllowed(state, mod) {
 const ALWAYS_VIEWS = new Set(['licensing', 'messages']);
 function viewAllowed(state, mod, view) {
   if (mod === 'econ' && ALWAYS_VIEWS.has(view)) return true;
+  if (mod === 'econ' && view && !Edition.viewAllowed(view)) return false;
   return moduleAllowed(state, mod);
 }
 

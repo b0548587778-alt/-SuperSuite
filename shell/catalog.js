@@ -2,7 +2,7 @@
 // המשתמש רואה "תוכנה אחת" עם תחומים; החלוקה הפנימית למודולים (econ/shamai/tools) נשארת שקופה.
 // כל פריט: mod = המודול שמארח אותו, view = תצוגה פנימית (במודול הכלכלי בלבד).
 (function (root) {
-  const GROUPS = [
+  const ALL_GROUPS = [
     {
       id: 'money', title: 'כספים והנהלת חשבונות', hue: 'blue',
       items: [
@@ -65,6 +65,12 @@
   ];
 
   const keyOf = (it) => it.view ? it.mod + ':' + it.view : it.mod;
+  // המהדורה (shell/edition.js): רק הפריטים שלה מוצגים בסרגל, במסך הבית ובחיפוש, ורק הם מאומתים ב-main.js.
+  // תחום שכל פריטיו מחוץ למהדורה — לא מוצג
+  const Edition = (typeof module !== 'undefined' && module.exports) ? require('./edition') : root.SUITE_EDITION;
+  const inEdition = (it) => !Edition || Edition.keyAllowed(keyOf(it));
+  const GROUPS = ALL_GROUPS.map(g => ({ ...g, items: g.items.filter(inEdition) })).filter(g => g.items.length);
+  const ALL_VIEWS = ALL_GROUPS.flatMap(g => g.items).filter(it => it.mod === 'econ').map(it => it.view);
   const ITEMS = GROUPS.flatMap(g => g.items.map(it => ({ ...it, key: keyOf(it), group: g.id, hue: g.hue })));
   // תצוגות פנימיות שמותר לפתוח במודול הכלכלי (main.js מאמת מולן)
   const ECON_VIEWS = ITEMS.filter(it => it.mod === 'econ').map(it => it.view);
@@ -76,7 +82,9 @@
     const out = [];
     for (const m of String(html).matchAll(NAV_RE)) {
       const [, view, icon, name] = m;
-      if (ECON_VIEWS.includes(view) || out.some(x => x.view === view)) continue;
+      // מסך של מהדורה אחרת אינו "חדש"; ובמהדורה חלקית רשימת המסכים סגורה — מסך שלא בה לא מוצג
+      if (ALL_VIEWS.includes(view) || out.some(x => x.view === view)) continue;
+      if (Edition && !Edition.isFull()) continue;
       out.push({ mod: 'econ', view, icon: icon.trim() || '•', name: name.trim(), desc: 'מסך חדש',
         key: 'econ:' + view, group: 'new', hue: 'gold' });
     }
@@ -84,7 +92,7 @@
   }
   const NEW_GROUP = { id: 'new', title: 'נוספו לאחרונה', hue: 'gold' };
 
-  const api = { GROUPS, ITEMS, ECON_VIEWS, keyOf, extrasFromHtml, NEW_GROUP };
+  const api = { GROUPS, ALL_GROUPS, ITEMS, ECON_VIEWS, keyOf, extrasFromHtml, NEW_GROUP };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_CATALOG = api;
 })(typeof window !== 'undefined' ? window : this);

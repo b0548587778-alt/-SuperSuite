@@ -91,7 +91,7 @@ const KINDS = {
     dupKey: (r) => `${r.title.trim().toLowerCase()}|${r.dueDate || ''}`
   },
   businessPlans: {
-    label: 'תוכניות עסקיות', store: listIn('businessPlans'),
+    label: 'תוכניות עסקיות', domain: 'business', store: listIn('businessPlans'),
     columns: [
       ['name', 'שם התוכנית', required(text(200), 'שם התוכנית')], ['description', 'תיאור', text(2000)], ['industry', 'תעשייה', text(200)],
       ['targetMarket', 'שוק יעד', text(300)], ['startupCost', 'עלות הקמה', money('עלות הקמה')], ['projectedRevenue', 'הכנסה צפויה', money('הכנסה צפויה')]
@@ -100,7 +100,7 @@ const KINDS = {
     extra: () => ({ goals: [], financialProjections: [] })
   },
   marketIntel: {
-    label: 'מודיעין שוק', store: listIn('marketIntel', 'entries'),
+    label: 'מודיעין שוק', domain: 'marketIntel', store: listIn('marketIntel', 'entries'),
     columns: [
       ['title', 'כותרת', required(text(300), 'כותרת')], ['description', 'תיאור', text(2000)],
       ['sourceType', 'סוג מקור', oneOf(INTEL.sourceType, 'other'), INTEL.sourceType], ['credibility', 'אמינות', oneOf(INTEL.credibility, 'medium'), INTEL.credibility],
@@ -110,7 +110,7 @@ const KINDS = {
     extra: () => ({ tags: [], potentialImpact: '', date: new Date().toISOString(), updatedAt: new Date().toISOString() })
   },
   personal: {
-    label: 'הוצאות אישיות ומשפחה', adminOnly: true, store: listIn('personal'),
+    label: 'הוצאות אישיות ומשפחה', domain: 'personal', adminOnly: true, store: listIn('personal'),
     columns: [
       ['date', 'תאריך'], ['kind', 'סוג', null, KIND], ['category', 'קטגוריה'], ['amount', 'סכום'], ['note', 'הערה']
     ],
@@ -119,7 +119,7 @@ const KINDS = {
     dupKey: (r) => `${r.date}|${r.kind}|${r.category}|${r.amount}`
   },
   financeIncomes: {
-    label: 'הכנסות בתוכנית הפיננסית', adminOnly: true, store: listIn('personalFinance', 'incomes'),
+    label: 'הכנסות בתוכנית הפיננסית', domain: 'personalFinance', adminOnly: true, store: listIn('personalFinance', 'incomes'),
     columns: [
       ['source', 'מקור', required(text(200), 'מקור ההכנסה')], ['category', 'קטגוריה', text(100)],
       ['amount', 'סכום', money('סכום', { allowZero: false })], ['frequency', 'תדירות', oneOf(FREQ, 'monthly'), FREQ], ['notes', 'הערות', text(1000)]
@@ -127,7 +127,7 @@ const KINDS = {
     dupKey: (r) => `${r.source}|${r.amount}|${r.frequency}`
   },
   financeExpenses: {
-    label: 'הוצאות בתוכנית הפיננסית', adminOnly: true, store: listIn('personalFinance', 'expenses'),
+    label: 'הוצאות בתוכנית הפיננסית', domain: 'personalFinance', adminOnly: true, store: listIn('personalFinance', 'expenses'),
     columns: [
       ['category', 'קטגוריה', required(text(100), 'קטגוריה')], ['description', 'תיאור', text(300)],
       ['amount', 'סכום', money('סכום', { allowZero: false })], ['frequency', 'תדירות', oneOf(FREQ, 'monthly'), FREQ],

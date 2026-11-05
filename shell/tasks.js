@@ -20,7 +20,7 @@
   // id — מזהה בחוזה; verb — פועל קצר לכפתור; label — שם הפעולה לאישור; key — פריט בקטלוג (shell/catalog.js);
   // view — התצוגה במודול הכלכלי; domain — תחילית הערוצים של התחום (בדיקת הרישיון ב-gate.checkChannel); perm — ההרשאה שנדרשת כדי לשמור; action — פעולה של המעטפת (בלי טופס);
   // words — מילים לזיהוי ולהצעות "התכוונת ל...?"; fields — השדות שמותר למלא מראש
-  const TASKS = Object.freeze([
+  const ALL_TASKS = Object.freeze([
     { id: 'donation', verb: 'לרשום תרומה', label: 'רישום תרומה (עם קבלה)', key: 'econ:npo', view: 'npo', domain: 'npo', perm: 'data.edit',
       words: ['תרומה', 'תרומות', 'נדבה', 'צדקה', 'תורם'], fields: ['name', 'amount', 'date', 'note'] },
     { id: 'receipt', verb: 'להוציא קבלה', label: 'הוצאת קבלה', key: 'econ:acct-invoices', view: 'acct-invoices', domain: 'acct', perm: 'data.edit',
@@ -38,6 +38,10 @@
     { id: 'backup', verb: 'לשמור גיבוי', label: 'גיבוי של כל הנתונים', action: 'backup', admin: true,
       words: ['גיבוי', 'לגבות', 'גבה'], fields: [] },
   ]);
+  // המהדורה (shell/edition.js): משימה שהמסך שלה אינו במהדורה לא קיימת בה — לא מוצעת, לא מזוהה בתיבת הפקודה
+  // ונדחית ב-validateTask (main.js / main-android.js)
+  const Edition = (typeof module !== 'undefined' && module.exports) ? require('./edition') : root.SUITE_EDITION;
+  const TASKS = Object.freeze(ALL_TASKS.filter(t => !Edition || Edition.taskAllowed(t)));
   const BY_ID = new Map(TASKS.map(t => [t.id, t]));
   const getTask = (id) => (typeof id === 'string' && BY_ID.has(id) ? BY_ID.get(id) : null);
 
@@ -121,7 +125,7 @@
       && (!allowed || allowed.includes(t.id)));
   }
 
-  const api = { FIELDS, TASKS, getTask, validateTask, describe, tasksFor, amountToAg, formatAg, isDay };
+  const api = { FIELDS, TASKS, ALL_TASKS, getTask, validateTask, describe, tasksFor, amountToAg, formatAg, isDay };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_TASKS = api;
 })(typeof window !== 'undefined' ? window : this);

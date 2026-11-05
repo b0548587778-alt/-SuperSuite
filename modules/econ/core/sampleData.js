@@ -28,10 +28,12 @@ function addMonths(ymd, months) {
 }
 
 // התחומים שאפשר להכניס להם דוגמה: בלי רישוי — כולם; ברישוי — רק תחום שנפתח
-function availableKinds(license) {
-  if (!license || license.mode === 'unlicensed') return Object.keys(KINDS);
+// inEdition(feature) — התכונה קיימת במהדורה (shell/edition.js); בלי — כל התכונות (המהדורה המלאה)
+function availableKinds(license, inEdition = () => true) {
+  const kinds = Object.keys(KINDS).filter(k => inEdition(KINDS[k].feature));
+  if (!license || license.mode === 'unlicensed') return kinds;
   const have = new Set(license.features || []);
-  return Object.keys(KINDS).filter(k => have.has(KINDS[k].feature));
+  return kinds.filter(k => have.has(KINDS[k].feature));
 }
 
 function contactsList(data) {

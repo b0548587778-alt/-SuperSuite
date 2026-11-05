@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const L = require('../shell/licensing/license');
 const BK = require('../modules/econ/core/backupCrypto');
+const LG = require('../shell/licensing/gate');
 const DP = require('../modules/econ/core/dataPorts');
 const { fileStorage } = require('../shell/licensing/store');
 const { markActivated } = require('./helpers/activation');
@@ -57,7 +58,12 @@ test('dataPorts: לכל סוג שנשמר באוסף של תחום ברישיו�
   assert.equal(DP.kindDomain('products'), 'acct');
   assert.equal(DP.kindDomain('mortgageClients'), 'madv');
   assert.equal(DP.kindDomain('npoGrants'), 'npo');
-  for (const k of ['contacts', 'tasks', 'businessPlans', 'marketIntel', 'personal', 'financeIncomes', 'financeExpenses']) assert.equal(DP.kindDomain(k), null, k);
+  for (const k of ['contacts', 'tasks']) assert.equal(DP.kindDomain(k), null, k);
+  // תחום לצורך המהדורה (shell/edition.js) בלבד — ברישיון התחילית הזו דורשת רק 'econ', כמו קודם
+  for (const [k, d] of [['businessPlans', 'business'], ['marketIntel', 'marketIntel'], ['personal', 'personal'], ['financeIncomes', 'personalFinance'], ['financeExpenses', 'personalFinance']]) {
+    assert.equal(DP.kindDomain(k), d, k);
+    assert.deepEqual(LG.featuresForChannel(d + ':x'), ['econ'], k);
+  }
   assert.equal(DP.kindDomain('constructor'), null);
   assert.throws(() => DP.templateTable('constructor'), /לא נתמך/);
   const ids = DP.listKinds(() => false).map(k => k.id);

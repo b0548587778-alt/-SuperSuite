@@ -9,6 +9,15 @@ const GROUPS = [...CAT.GROUPS];
 const ITEMS = [...CAT.ITEMS];
 const BY_KEY = new Map(ITEMS.map(it => [it.key, it]));
 const $ = id => document.getElementById(id);
+// המהדורה (shell/edition.js): השם בסרגל, בכותרת החלון ובברכה — רק טקסט קבוע מהקובץ, דרך textContent
+const EDITION = (window.SUITE_EDITION && window.SUITE_EDITION.current()) || { name: 'SuperSuite כלכלה', short: 'כלכלה', tagline: '' };
+(function applyEditionLabels() {
+  if (!document.getElementById) return;
+  document.title = EDITION.name;
+  const sh = $('edShort'); if (sh) sh.textContent = EDITION.short;
+  const tg = $('edTagline'); if (tg && EDITION.tagline) tg.textContent = EDITION.tagline;
+  if (document.querySelectorAll) for (const el of document.querySelectorAll('.ed-name')) el.textContent = EDITION.name;
+})();
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 /* ---------- סט אייקונים אחד למעטפת: קווי, 24×24, עובי אחיד (.ss-icon ב-ui-kit.css). ציור מקורי, בלי רכיב צד שלישי.
    הקטלוג שומר אמוג'י לכל פריט; כאן המיפוי מפריט/תחום/פרופיל לאייקון ---------- */
@@ -966,7 +975,7 @@ $('noticesBtn').onclick = () => showDoc('notices');
 $('userGuideBtn').onclick = () => { if (window.shellAPI.openUserGuide) window.shellAPI.openUserGuide().catch(() => {}); };
 $('userGuidePdfBtn').onclick = () => { if (window.shellAPI.saveUserGuidePdf) window.shellAPI.saveUserGuidePdf().catch(() => {}); };
 if (!window.shellAPI.getAbout) for (const id of ['eulaBtn', 'noticesBtn', 'userGuideBtn', 'userGuidePdfBtn']) $(id).hidden = true;
-aboutData().then(a => { if (a) $('aboutText').textContent = 'SuperSuite כלכלה גרסה ' + a.version + ' · © 2026 Bunim Seller. כל הזכויות שמורות. הנתונים נשמרים במחשב שלך בלבד.'; });
+aboutData().then(a => { if (a) $('aboutText').textContent = EDITION.name + ' גרסה ' + a.version + ' · © 2026 Bunim Seller. כל הזכויות שמורות. הנתונים נשמרים במחשב שלך בלבד.'; });
 $('crashReportBtn').onclick = () => { if (window.shellAPI.saveCrashReport) window.shellAPI.saveCrashReport().catch(() => {}); };
 $('hm').onclick = goHome;
 

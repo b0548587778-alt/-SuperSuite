@@ -20,8 +20,11 @@
   ];
 
   // has(key) — הפריט קיים בקטלוג; open(key) — פתוח ברישיון; admin — המשתמש מנהל
+  // המהדורה (shell/edition.js) — משימה שהפריט שלה אינו במהדורה לא מוצגת, גם אם has() לא יודע עליה
+  const Edition = (typeof module !== 'undefined' && module.exports) ? require('./edition') : root.SUITE_EDITION;
   function tasksFor({ has = () => true, open = () => true, admin = false } = {}) {
-    return TASKS.filter(t => (t.admin ? admin : true) && (!t.key || (has(t.key) && open(t.key))));
+    return TASKS.filter(t => (t.admin ? admin : true) && (!Edition || Edition.taskAllowed(t))
+      && (!t.key || (has(t.key) && open(t.key))));
   }
 
   // תחומים בסרגל שמוצגים תמיד במצב פשוט: הפריטים של המשימות + האחרונים. כל השאר — מאחורי "עוד מסכים"
