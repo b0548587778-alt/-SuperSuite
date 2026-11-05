@@ -1153,3 +1153,34 @@ header h1, .hub-head h2 { font: 700 var(--ss-fs-xl) / 1.2 var(--ss-font-title); 
 .tag.expense { background: var(--ss-danger-soft); color: var(--ss-danger-ink); }
 .tag.client { background: var(--ss-info-soft); color: var(--ss-info-ink); }
 
+
+/* ===== נגישות ושפה פשוטה (r4) — רק משתני --ss-* ===== */
+/* טקסט לקורא מסך בלבד */
+.sr-only { position:absolute !important; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+/* דילוג לתוכן — מופיע רק במיקוד מקלדת */
+.skip-link { position:absolute; inset-inline-start:8px; top:-60px; z-index:2000; background:var(--ss-surface); color:var(--ss-text); border:2px solid var(--ss-primary); border-radius:var(--ss-radius); padding:8px 14px; font-weight:600; }
+.skip-link:focus { top:8px; }
+/* "מה עושים כאן" מתחת לכותרת המסך */
+header .page-help { color:var(--ss-muted); font-size:var(--ss-fs-md); max-width:70ch; margin-top:2px; }
+header .page-help[hidden] { display:none; }
+#pageTitle:focus { outline:none; }
+#pageTitle:focus-visible { outline:3px solid var(--ss-focus-ring) !important; }
+/* שדות הטופס: תווית מעל השדה, "(חובה)" במילים, הסבר ושגיאה ליד השדה */
+#modalForm .field > label { font-size:var(--ss-fs-md); font-weight:600; color:var(--ss-text); }
+#modalForm .field .req { font-weight:600; color:var(--ss-danger-ink); }
+.form-required-note { margin:0 0 4px; }
+.field-error, .form-error { color:var(--ss-danger-ink); background:var(--ss-danger-soft); border:1px solid var(--ss-danger-line); border-radius:var(--ss-radius); padding:6px 10px; font-weight:600; }
+.field-error[hidden], .form-error[hidden], .form-error:empty { display:none; }
+#modalError { margin:0 1.5rem; }
+[aria-invalid="true"] { border-color:var(--ss-danger) !important; border-width:2px !important; }
+/* מצב פשוט: שדות מתקדמים מוסתרים, וכפתור "עוד אפשרויות" מופיע רק בו */
+html[data-ss-simple="on"] .ss-advanced { display:none !important; }
+.ss-more-toggle { display:none; }
+html[data-ss-simple="on"] .ss-more-toggle { display:inline-flex; justify-self:start; margin-top:4px; }
+/* כפתור "הצגת הסיסמה" בחלון הכניסה */
+.pw-toggle { justify-self:start; background:none; border:0; color:var(--ss-info-ink); text-decoration:underline; cursor:pointer; font:inherit; padding:2px 0; margin-top:-6px; }
+/* הודעות שגיאה: נשארות עד שסוגרים, עם כפתור × */
+.toast-stack { position:fixed; top:1rem; left:1rem; z-index:1001; display:flex; flex-direction:column; gap:.5rem; max-width:min(480px, calc(100vw - 2rem)); }
+.toast.danger { display:flex; align-items:flex-start; gap:10px; }
+.toast-close { background:none; border:0; color:inherit; font-size:1.3rem; line-height:1; cursor:pointer; padding:0 4px; margin-inline-start:auto; min-width:28px; min-height:28px; }
+@media (prefers-reduced-motion: reduce) { .toast { animation:none; } }

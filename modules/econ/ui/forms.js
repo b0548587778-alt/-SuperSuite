@@ -190,49 +190,82 @@ function attachDynamicFields(schema) {
       const el = document.getElementById('f_' + f.name);
       if (el && f.name !== kindName) prev[f.name] = el.value;
     }
-    fieldsWrap.innerHTML = buildFormHtml(activeFields(schema).filter(f => f.name !== kindName));
+    fieldsWrap.innerHTML = buildFormHtml(activeFields(schema).filter(f => f.name !== kindName), true);
     // שחזור ערכים תואמים
     for (const [name, value] of Object.entries(prev)) {
       const el = document.getElementById('f_' + name);
       if (el) el.value = value;
+    }
+    // מצב פשוט: כפתור "עוד אפשרויות" לשדות החדשים, והצגה שכבר נפתחה נשארת פתוחה
+    const form = elements.modalForm;
+    if (form && typeof form.querySelector === 'function') {
+      const t = form.querySelector('.ss-more-toggle');
+      if (!t) setupAdvancedToggle(form);
+      else if (typeof t.getAttribute === 'function' && t.getAttribute('aria-expanded') === 'true') revealAdvanced(form, true);
     }
   };
   kindEl.addEventListener('change', refresh);
   refresh();
 }
 
-// בניית HTML של טופס לפי סכימה
-function buildFormHtml(fields) {
+// בניית HTML של טופס לפי סכימה. inner — רק השדות (מילוי מחדש של #formFields בטופס דינמי, בלי עטיפה כפולה)
+function buildFormHtml(fields, inner = false) {
   // טופס דינמי: שדה הסוג נשאר בחוץ, שאר השדות נעטפים ב-wrapper שמתחלף
   const schema = currentSchema();
-  if (!schema || !schema.dynamic) return fields.map(renderField).join('');
+  const tiers = fieldTiers(fields);
+  const render = (f) => renderField(f, tiers.get(f));
+  if (inner || !schema || !schema.dynamic) return fields.map(render).join('');
 
   const kindName = schema.fields[0].name;
   const isKind = (f) => f.name === kindName;
-  const head = fields.filter(isKind).map(renderField).join('');
+  const head = fields.filter(isKind).map(render).join('');
   const rest = fields.filter(f => !isKind(f));
-  return head + `<div id="formFields">${rest.map(renderField).join('')}</div>`;
+  return head + `<div id="formFields">${rest.map(render).join('')}</div>`;
 }
 
-// רינדור שדה בודד
-function renderField(f) {
-  const req = f.required ? 'required' : '';
+// מצב פשוט (r4): אילו שדות מוסתרים מאחורי "עוד אפשרויות". שדה חובה תמיד גלוי;
+// f.essential — תמיד גלוי, f.advanced — תמיד מתקדם; אחרת ארבעת השדות הראשונים גלויים (החשובים מופיעים ראשונים)
+const SIMPLE_VISIBLE = 4;
+function fieldTiers(fields) {
+  const tiers = new Map();
+  let shown = 0;
+  for (const f of fields) {
+    const advanced = !f.required && !f.essential && (f.advanced || shown >= SIMPLE_VISIBLE);
+    tiers.set(f, advanced);
+    if (!advanced) shown++;
+  }
+  return tiers;
+}
+
+// רינדור שדה בודד — תווית מקושרת (for), "(חובה)" במילים, הסבר מקושר (aria-describedby),
+// מקום להודעת שגיאה ליד השדה, ו-data-ss-help כשיש הסבר מורחב (f.help)
+function renderField(f, advanced = false) {
+  const id = 'f_' + esc(f.name);
+  const req = f.required ? 'required aria-required="true"' : '';
+  const described = [f.hint ? `h_${esc(f.name)}` : '', f.help ? `x_${esc(f.name)}` : '', `e_${esc(f.name)}`].filter(Boolean).join(' ');
+  const aria = ` aria-describedby="${described}"`;
   let input;
   if (f.type === 'textarea') {
-    input = `<textarea id="f_${esc(f.name)}" name="${esc(f.name)}" rows="3" ${req}>${esc(f.value ?? '')}</textarea>`;
+    input = `<textarea id="${id}" name="${esc(f.name)}" rows="3" ${req}${aria}>${esc(f.value ?? '')}</textarea>`;
   } else if (f.type === 'select') {
     const opts = (f.options || [])
       .map(o => `<option value="${esc(o.value)}"${String(o.value) === String(f.value ?? '') ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
-    input = `<select id="f_${esc(f.name)}" name="${esc(f.name)}" ${req}>${opts}</select>`;
+    input = `<select id="${id}" name="${esc(f.name)}" ${req}${aria}>${opts}</select>`;
   } else {
     const val = f.value !== undefined && f.value !== null ? ` value="${esc(f.value)}"` : '';
-    input = `<input id="f_${esc(f.name)}" name="${esc(f.name)}" type="${esc(f.type)}"${val} ${req}>`;
+    const mode = f.type === 'number' ? ' inputmode="decimal" step="any"' : '';
+    input = `<input id="${id}" name="${esc(f.name)}" type="${esc(f.type)}"${val}${mode} ${req}${aria}>`;
   }
+  const cls = 'field' + (advanced ? ' ss-advanced' : '');
+  // f.help — הסבר מורחב: בועת "?" של המעטפת (data-ss-help על התווית) וגם טקסט לקורא המסך (x_<שם>)
+  const help = f.help ? ` data-ss-help="${esc(f.help)}" data-ss-help-linked="1"` : '';
+  const helpSr = f.help ? `<span class="sr-only" id="x_${esc(f.name)}">${esc(f.help)}</span>` : '';
   // f.hint — הסבר קצר מתחת לשדה (טקסט בלבד)
-  return `<label class="field">
-    <span>${esc(f.label)}${f.required ? ' *' : ''}</span>
-    ${input}${f.hint ? `\n    <small class="ss-hint">${esc(f.hint)}</small>` : ''}
-  </label>`;
+  return `<div class="${cls}">
+    <label for="${id}"${help}>${esc(f.label)}${f.required ? ' <span class="req">(חובה)</span>' : ''}</label>
+    ${input}${helpSr}${f.hint ? `\n    <small class="ss-hint" id="h_${esc(f.name)}">${esc(f.hint)}</small>` : ''}
+    <small class="field-error" id="e_${esc(f.name)}" hidden></small>
+  </div>`;
 }
 
 // איסוף ערכי הטופס — בטופס דינמי נאספים רק השדות הפעילים לסוג הנבחר.
@@ -250,17 +283,32 @@ function collectFormData(fields) {
     if (editing && el.tagName === 'SELECT' && el.selectedIndex < 0) continue;
     let value = el.value.trim();
     if (f.required && !value) {
-      throw new Error(`השדה "${f.label}" הוא שדה חובה`);
+      throw fieldErr(f, `חסר: "${f.label}". זה שדה חובה — מלאו אותו ולחצו שוב "שמירה".`);
     }
     if (f.type === 'number' && value !== '') {
-      value = Number(value);
+      // פסיק עשרוני או מפריד אלפים שהוקלדו — מספר רגיל (1,500 / 12,5)
+      value = Number(normalizeNumberText(value));
       if (Number.isNaN(value)) {
-        throw new Error(`השדה "${f.label}" חייב להיות מספר`);
+        throw fieldErr(f, `ב"${f.label}" צריך לכתוב מספר בלבד (למשל 1500), בלי אותיות.`);
       }
     }
     if (value !== '' || editing) data[f.name] = value;
   }
   return data;
+}
+
+// שגיאה שקשורה לשדה מסוים — handleSubmit מציג אותה ליד השדה
+function fieldErr(f, message) {
+  const e = new Error(message);
+  e.field = f.name;
+  return e;
+}
+// "1,500" → "1500"; "12,5" → "12.5" (פסיק יחיד עם 1–2 ספרות אחריו = עשרוני)
+function normalizeNumberText(v) {
+  const s = String(v).replace(/[\s₪%]/g, '');
+  if (/^-?\d+,\d{1,2}$/.test(s)) return s.replace(',', '.');
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) return s.replace(/,/g, '');
+  return s;
 }
 
 // Handle user action
@@ -316,7 +364,7 @@ async function handleRestore() {
       if (!file) return;
       try {
         const text = await file.text();
-        if (!(await askConfirm('השחזור יחליף את כל הנתונים הכלכליים הקיימים. להמשיך?'))) return;
+        if (!(await askConfirm('השחזור יחליף את כל הנתונים הכלכליים הקיימים. להמשיך?', { danger: true, okText: 'כן, לשחזר ולהחליף' }))) return;
         let run;
         if (text.startsWith('SSBK1:')) {
           const f = await askFields('שחזור מגיבוי מוצפן', [{ name: 'pass', label: 'סיסמת הגיבוי', type: 'password' }], 'שחזר');
@@ -358,6 +406,8 @@ async function handleSubmit() {
   try {
     data = collectFormData(schema.fields);
   } catch (error) {
+    // ליד השדה (ומוקרא), בלי טוסט שנעלם — המשתמש רואה בדיוק מה לתקן
+    if (error && error.field) { showFormError(errMsg(error), error.field); return; }
     showError(errMsg(error));
     return;
   }

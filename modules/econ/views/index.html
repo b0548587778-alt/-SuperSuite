@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="../styles.css">
 </head>
 <body>
+    <a class="skip-link" href="#view">דילוג לתוכן המסך</a>
     <aside>
         <div class="brand">
             <span class="logo">✦</span>
@@ -18,7 +19,7 @@
                 <small>ניהול פיננסי ועסקי חכם ופשוט</small>
             </div>
         </div>
-        <nav>
+        <nav aria-label="מסכי המערכת הכלכלית">
             <button class="nav active" data-view="dashboard">⌂ <span>לוח בקרה</span></button>
             <button class="nav" data-view="ai">🤖 <span>שאל את התוכנה</span></button>
             <button class="nav" data-view="finance">₪ <span>תכנון פיננסי</span></button>
@@ -30,14 +31,14 @@
             <button class="nav" data-view="collect">💳 <span>גבייה וקישורי תשלום</span></button>
             <button class="nav" data-view="acct-invoices">🧾 <span>חשבוניות מס</span></button>
             <button class="nav" data-view="acct-bank">🏦 <span>התאמת בנק</span></button>
-            <button class="nav" data-view="acct-chart">🗂 <span>תוכנית חשבונות</span></button>
+            <button class="nav ss-advanced" data-view="acct-chart">🗂 <span>תוכנית חשבונות</span></button>
             <button class="nav" data-view="acct-settings">🏢 <span>הגדרות עסק ומע"מ</span></button>
             <button class="nav" data-view="acct-pricing">🏷 <span>מחירון ותמחור</span></button>
             <button class="nav" data-view="acct-personal">🏠 <span>הוצאות אישיות ומשפחה</span></button>
-            <button class="nav" data-view="market-intel">📊 <span>מודיעין שוק</span></button>
+            <button class="nav ss-advanced" data-view="market-intel">📊 <span>מודיעין שוק</span></button>
             <button class="nav" data-view="mortgage">🏠 <span>משכנתאות והלוואות</span></button>
             <button class="nav" data-view="mortgage-advisor">🏦 <span>ייעוץ משכנתאות</span></button>
-            <button class="nav" data-view="mortgage-lab">🧮 <span>מעבדת תמהיל</span></button>
+            <button class="nav ss-advanced" data-view="mortgage-lab">🧮 <span>מעבדת תמהיל</span></button>
             <button class="nav" data-view="realty">🏘 <span>נדל"ן ותיווך</span></button>
             <button class="nav" data-view="realestate">📐 <span>שמאות מקרקעין</span></button>
             <button class="nav" data-view="npo">🤝 <span>עמותה ותרומות</span></button>
@@ -47,10 +48,10 @@
             <button class="nav" data-view="personal-finance">💰 <span>התוכנית הפיננסית</span></button>
             <button class="nav" data-view="tasks">📋 <span>משימות</span></button>
             <button class="nav" data-view="contacts">👥 <span>אנשי קשר</span></button>
-            <button class="nav" data-view="voice-notes">🎤 <span>הערות קוליות</span></button>
-            <button class="nav" data-view="canvas">🎨 <span>לוח לבן</span></button>
+            <button class="nav ss-advanced" data-view="voice-notes">🎤 <span>הערות קוליות</span></button>
+            <button class="nav ss-advanced" data-view="canvas">🎨 <span>לוח לבן</span></button>
             <button class="nav" data-view="settings">⚙ <span>הגדרות ומשתמשים</span></button>
-            <button class="nav" data-view="licensing">🔑 <span>רישוי ומערכות</span></button>
+            <button class="nav ss-advanced" data-view="licensing">🔑 <span>רישוי ומערכות</span></button>
             <button class="nav" data-view="messages">💬 <span>הודעות</span></button>
         </nav>
         <div class="side-bottom">
@@ -62,29 +63,33 @@
     <main>
         <header>
             <div>
-                <h1 id="pageTitle">לוח בקרה</h1>
+                <h1 id="pageTitle" tabindex="-1">לוח בקרה</h1>
+                <p id="pageHelp" class="page-help"></p>
                 <p id="today"></p>
             </div>
             <div class="header-actions">
-                <span class="status">● מערכת פעילה</span>
-                <button class="primary" id="addBtn">＋ הוספת רשומה</button>
-                <button class="secondary" id="userBtn">👤 משתמש</button>
+                <span class="status ss-advanced"><span aria-hidden="true">● </span>מערכת פעילה</span>
+                <button class="primary" id="addBtn"><span aria-hidden="true">＋ </span>הוספת רשומה</button>
+                <button class="secondary" id="userBtn"><span aria-hidden="true">👤 </span>החלפת משתמש</button>
             </div>
         </header>
-        <section id="view"></section>
+        <section id="view" aria-labelledby="pageTitle" aria-describedby="pageHelp" tabindex="-1"></section>
     </main>
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal-card">
-            <button class="close" id="closeModal" aria-label="סגירה">×</button>
+            <button type="button" class="close" id="closeModal" aria-label="סגירת החלון בלי לשמור">×</button>
             <h2 id="modalTitle"></h2>
             <form id="modalForm"></form>
+            <div id="modalError" class="form-error" role="alert" aria-live="assertive" hidden></div>
             <div class="modal-actions">
-                <button class="secondary" id="cancelBtn">ביטול</button>
-                <button class="primary" id="submitBtn">שמירה</button>
+                <button type="button" class="secondary" id="cancelBtn">ביטול</button>
+                <button type="button" class="primary" id="submitBtn">שמירה</button>
             </div>
         </div>
     </div>
     <div id="toastContainer" role="status" aria-live="polite"></div>
+    <div id="alertContainer" class="toast-stack" role="alert" aria-live="assertive"></div>
+    <div id="srAnnounce" class="sr-only" aria-live="polite"></div>
     <!-- ממשק המודול: סקריפטים רגילים בטווח שמות משותף — הסדר מחייב, boot.js אחרון -->
     <script src="../ui/core.js"></script>
     <script src="../ui/views-general.js"></script>
