@@ -14,7 +14,8 @@ const G = require('../modules/econ/core/gemach');
 const H = require('./helpers/econ-a11y-harness');
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'r5-guided-agenda-'));
-test.after(() => { fs.rmSync(DIR, { recursive: true, force: true }); });
+// ב-Windows קובץ מסד שעוד פתוח לא נמחק (EBUSY); tools/run-tests.js מוחק את כל התיקייה הזמנית בסוף
+test.after(() => { try { fs.rmSync(DIR, { recursive: true, force: true }); } catch { /* EBUSY ב-Windows */ } });
 const textOf = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');
 const TODAY = '2026-11-05';
 

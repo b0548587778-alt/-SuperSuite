@@ -7,7 +7,8 @@ const path = require('path');
 const { initializeDatabase } = require('../modules/econ/core/database');
 
 const dirs = [];
-test.after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
+// ב-Windows קובץ מסד שעוד פתוח לא נמחק (EBUSY); tools/run-tests.js מוחק את כל התיקייה הזמנית בסוף
+test.after(() => { for (const d of dirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* EBUSY ב-Windows */ } } });
 
 async function services() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-r3-import-'));

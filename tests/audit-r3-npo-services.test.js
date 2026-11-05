@@ -24,7 +24,8 @@ const ipc = require('../modules/econ/ipc');
 const ev = (id) => ({ sender: { id } });
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-r3-npo-'));
-test.after(() => fs.rmSync(TMP, { recursive: true, force: true }));
+// ב-Windows קובץ מסד שעוד פתוח לא נמחק (EBUSY); tools/run-tests.js מוחק את כל התיקייה הזמנית בסוף
+test.after(() => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* EBUSY ב-Windows */ } });
 let dirSeq = 0;
 async function svc(name, file) {
   const { initializeDatabase } = require('../modules/econ/core/database');

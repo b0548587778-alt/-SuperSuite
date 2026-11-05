@@ -149,9 +149,9 @@ test('main.js: רישיון — רק התחומים שברישיון; קריאה
 });
 
 test('המודול הכלכלי: preload מעביר גם אובייקט; core.js — econStartTask אם קיים, אחרת התצוגה; אחרי כניסה — המשימה', () => {
-  const pre = fs.readFileSync(path.join(ROOT, 'modules/econ/preload.js'), 'utf8');
+  const pre = fs.readFileSync(path.join(ROOT, 'modules/econ/preload.js'), 'utf8').replace(/\r\n/g, '\n');
   assert.match(pre, /typeof view === 'string' \|\| \(!!view && typeof view === 'object' && typeof view\.view === 'string'\)/);
-  const core = fs.readFileSync(path.join(ROOT, 'modules/econ/ui/core.js'), 'utf8');
+  const core = fs.readFileSync(path.join(ROOT, 'modules/econ/ui/core.js'), 'utf8').replace(/\r\n/g, '\n');
   assert.match(core, /function openShellRequest\(req\) \{\n\s+if \(req\.task && typeof window\.econStartTask === 'function'\) return window\.econStartTask\(req\.task, req\.prefill \|\| \{\}, req\.view\);\n\s+return switchView\(req\.view, \{ focus: true \}\);/);
   assert.match(core, /state\.requestedTask = req\.task \? req : null/);
   assert.match(core, /if \(task\) await openShellRequest\(task\);/);
@@ -214,9 +214,9 @@ test('אנדרואיד: shell:start-task / shell:task-access — אותו אימ
   await new Promise(r => realSetTimeout(r, 5));
   assert.deepEqual(sent.at(-1), ['econ', 'econ:goto', { view: 'acct-journal', task: 'expense', prefill: { amount: '200', note: 'חשמל' } }]);
   // הקבצים נארזים לאנדרואיד ונטענים לפני shell.js
-  const apk = fs.readFileSync(path.join(ROOT, 'android/build-apk.js'), 'utf8');
+  const apk = fs.readFileSync(path.join(ROOT, 'android/build-apk.js'), 'utf8').replace(/\r\n/g, '\n');
   assert.match(apk, /'simple-mode\.js', 'tasks\.js', 'intents\.js'\]/);
-  const html = fs.readFileSync(path.join(ROOT, 'shell/shell.html'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'shell/shell.html'), 'utf8').replace(/\r\n/g, '\n');
   for (const f of ['tasks.js', 'intents.js']) assert.ok(html.indexOf(`src="${f}"`) > 0 && html.indexOf(`src="${f}"`) < html.indexOf('src="shell.js"'), f);
   assert.ok(html.indexOf('src="tasks.js"') < html.indexOf('src="intents.js"'));
 });
