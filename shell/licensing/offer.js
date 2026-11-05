@@ -1,6 +1,7 @@
 // הצעת מנהל-העל: תכניות (מחיר באגורות, תקופה, תחומים, מכסות) + תקנון בגרסה — חתומים במפתח השורש.
 // הלקוח רואה רק הצעה שחתימתה תקינה; השרת גובה רק לפי המחיר שבהצעה החתומה (לא לפי מה שהלקוח שלח).
 const L = require('./license');
+const Edition = require('../edition');
 
 const OFFER_TYPE = 'supersuite-offer';
 const MAX_PLANS = 20;
@@ -32,7 +33,17 @@ function cleanPlan(p, i, { legacy = false } = {}) {
   const limits = { maxUsers: int(lim.maxUsers, 3, 10000), maxChildren: int(lim.maxChildren, 0, 10000),
     maxStorageMb: int(lim.maxStorageMb, 1024, 1000000), maxDepth: int(lim.maxDepth, lim.maxChildren > 0 ? 2 : 1, 8) };
   if (limits.maxDepth < 1) limits.maxDepth = 1;
-  return { id, name, desc: clean(p.desc, 300), priceAgorot, currency: 'ILS', months, features, limits };
+  const out = { id, name, desc: clean(p.desc, 300), priceAgorot, currency: 'ILS', months, features, limits };
+  // מהדורה (shell/edition.js, תכנית אחת לכל מוצר — החלטת הבעלים 5.11.2026). בלי — תכנית לכל המהדורות (הצעה ישנה).
+  // התחומים חייבים להיות של אותה מהדורה: תכנית "עמותות" לא פותחת נדל"ן גם אם תותקן במהדורה המלאה
+  if (p.edition != null && p.edition !== '') {
+    const ed = Edition.get(String(p.edition));
+    if (!ed) throw new Error(`המהדורה בתכנית "${name}" אינה מוכרת`);
+    const extra = features.filter(f => !Edition.featureAllowed(f, ed) && !(legacy && LEGACY_FEATURES.includes(f)));
+    if (extra.length) throw new Error(`בתכנית "${name}" יש תחומים שאינם חלק מ-${ed.name}`);
+    out.edition = ed.id;
+  }
+  return out;
 }
 
 function cleanOffer(input, opts) {
@@ -64,6 +75,19 @@ function verifyOffer(text, rootKeys) {
   return o.payload;
 }
 
+// התכניות שמוצעות במהדורה הזו: של המהדורה, או בלי מהדורה (הצעה ישנה / תכנית כללית)
+const planInEdition = (plan, editionId = Edition.current().id) => !plan.edition || plan.edition === editionId;
+const plansForEdition = (offer, editionId) => (offer && Array.isArray(offer.plans) ? offer.plans.filter(p => planInEdition(p, editionId)) : []);
+// תבנית לעורך התכניות: תכנית אחת לכל מוצר עם התחומים של המהדורה. המחיר ריק — הבעלים קובע (העורך לא שומר בלי מחיר)
+function editionPlanTemplates() {
+  return Edition.PARTIAL_IDS.map(id => {
+    const ed = Edition.get(id);
+    return { id: id, name: ed.name, desc: '', edition: id, priceAgorot: null, months: 12,
+      features: [...ed.features, 'ai'], limits: { maxUsers: 3, maxChildren: 0 } };
+  });
+}
+const editionChoices = () => Edition.IDS.map(id => ({ id, name: Edition.get(id).name }));
+
 const planOf = (offer, planId) => {
   const p = offer.plans.find(x => x.id === planId);
   if (!p) throw new Error('התכנית שנבחרה אינה קיימת');
@@ -72,4 +96,5 @@ const planOf = (offer, planId) => {
 
 const formatAgorot = (a) => '₪' + (Math.round(a) / 100).toLocaleString('he-IL', { minimumFractionDigits: a % 100 ? 2 : 0, maximumFractionDigits: 2 });
 
-module.exports = { OFFER_TYPE, FEATURES, LEGACY_FEATURES, createOffer, verifyOffer, planOf, formatAgorot };
+module.exports = { OFFER_TYPE, FEATURES, LEGACY_FEATURES, createOffer, verifyOffer, planOf, formatAgorot,
+  planInEdition, plansForEdition, editionPlanTemplates, editionChoices };

@@ -2552,11 +2552,19 @@ function registerIpcHandlers() {
   handleNet('license:getOffer', {
     work: async () => {
       const r = await licenseSync.getOffer();
-      return { text: r.text, offer: r.offer };
+      // רק התכניות של המהדורה הזו (shell/edition.js). הטקסט החתום נשאר כמו שהוא — הוא נשלח בהרשמה ונבדק בחתימה
+      const plans = OF.plansForEdition(r.offer);
+      if (!plans.length) throw new Error('עדיין אין תכנית רישיון לתוכנה הזו — אפשר לפנות לספק');
+      return { text: r.text, offer: { ...r.offer, plans } };
     },
   });
   handleNet('license:signup', {
-    work: (pre, input = {}) => licenseSync.signup(input || {}),
+    work: (pre, input = {}) => {
+      // תכנית של מהדורה אחרת נדחית לפני הפנייה לשרת (ההצעה עצמה נבדקת בחתימה ב-createSignup)
+      const plan = (() => { try { return JSON.parse(String((input || {}).offerText)).payload.plans.find(p => p.id === input.planId); } catch { return null; } })();
+      if (plan && !OF.planInEdition(plan)) throw new Error('התכנית שנבחרה מיועדת לתוכנה אחרת של SuperSuite');
+      return licenseSync.signup(input || {});
+    },
     record: async (event, r, pre, input = {}) => {
       await auditEvent(event, 'license.signup', { id: r.id, planId: (input || {}).planId, free: r.free });
       return r;
@@ -2614,6 +2622,8 @@ function registerIpcHandlers() {
   });
 
   handle('owner:getOffer', async () => { const o = ownerCore.offer(); return o ? o.offer : null; });
+  // המהדורות לעורך התכניות: בחירת מהדורה לכל תכנית, ותבנית "תכנית אחת לכל מוצר" (המחיר — של הבעלים)
+  handle('owner:offerEditions', async () => ({ choices: OF.editionChoices(), templates: OF.editionPlanTemplates() }));
   handle('owner:setOffer', async (event, input) => {
     const r = ownerCore.setOffer(input || {});
     await ownerAudit(event, 'offer.set', { plans: r.offer.plans.map(p => ({ id: p.id, priceAgorot: p.priceAgorot })), terms: r.offer.terms.version });
