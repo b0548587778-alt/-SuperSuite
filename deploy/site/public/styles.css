@@ -270,3 +270,14 @@ main.sec-soft { padding: 1px 16px; }
 /* התפריט הוא details — בלי העיצוב של השאלות הנפוצות */
 .top .mnav, .top .mnav[open] { background: none; border: 0; padding: 0; margin-bottom: 0; box-shadow: none; }
 .top .mnav summary { padding: 6px 12px; font-weight: 400; }
+
+/* שלוש התוכנות (shell/edition.js): צבע מוביל לכל אחת — פס עליון ואייקון. הטקסט נשאר בצבעי האתר (ניגודיות) */
+.prod-npo { --prod: #1f7a4d; }
+.prod-realty { --prod: #1f5fa8; }
+.prod-acct { --prod: #6b3fa0; }
+.prod-npo, .prod-realty, .prod-acct { border-top: 5px solid var(--prod); }
+.prod .mod-ic { color: var(--prod); }
+.prod { display: flex; flex-direction: column; }
+.prod ul { flex: 1; }
+.prod .btn { align-self: flex-start; }
+#download .g3 { margin-bottom: 20px; }
