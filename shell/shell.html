@@ -527,7 +527,7 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 <div class="side">
   <div class="brand">
     <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 20h16v-2H4zM5 16h3V10H5zm5.5 0h3V6h-3zM16 16h3V3h-3z" fill="currentColor"/></svg></div>
-    <div><b>SuperSuite <span class="ed">כלכלה</span></b><small>כספים, עסק וקהילה — במקום אחד</small></div>
+    <div><b>SuperSuite <span class="ed" id="edShort">כלכלה</span></b><small id="edTagline">כספים, עסק וקהילה — במקום אחד</small></div>
     <span class="hd" id="sideDate"></span>
   </div>
   <!-- נגישות (סבב 4): תמיד בראש הסרגל. קיצור: Alt+0 או Ctrl+Alt+A -->
@@ -615,7 +615,7 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
     </div>
     <section class="ob-invite" id="obInvite" hidden>
       <span class="ob-ic" data-icon="sparkles" aria-hidden="true"></span>
-      <span class="ob-msg"><b>ברוכים הבאים ל-SuperSuite כלכלה</b>כמה שאלות קצרות, ומסך הבית יותאם לעבודה שלכם.</span>
+      <span class="ob-msg"><b>ברוכים הבאים ל-<span class="ed-name">SuperSuite כלכלה</span></b>כמה שאלות קצרות, ומסך הבית יותאם לעבודה שלכם.</span>
       <button type="button" class="primary" id="obStart">התחלה</button>
       <button type="button" id="obLater">לא עכשיו</button>
     </section>
@@ -835,6 +835,8 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 <script src="ss-dialog.js"></script>
 <script src="ss-help.js"></script>
 <script src="display.js"></script>
+<script src="edition-id.js"></script>
+<script src="edition.js"></script>
 <script src="simple-mode.js"></script>
 <script src="tasks.js"></script>
 <script src="intents.js"></script>

@@ -10,6 +10,7 @@
 (function (root) {
   'use strict';
   const T = (typeof module !== 'undefined' && module.exports) ? require('./tasks') : root.SUITE_TASKS;
+  const Edition = (typeof module !== 'undefined' && module.exports) ? require('./edition') : root.SUITE_EDITION;
 
   // ---------- נרמול ----------
   function normalize(text) {
@@ -266,6 +267,10 @@
     const words = s.split(' ').filter(Boolean);
     const verb = words.some(w => VERBS.has(bare(w)));
     const { sc, used } = score(words);
+    // המהדורה (shell/edition.js): משימה או מסך שאינם בה — לא מזוהים (tasks.js כבר מסנן את המשימות)
+    for (const k of Object.keys(sc)) {
+      if (k.startsWith('screen:') ? (Edition && !Edition.keyAllowed(k.slice(7))) : !T.getTask(k)) delete sc[k];
+    }
     const ranked = Object.entries(sc).sort((a, b) => b[1] - a[1]);
     const best = ranked.length ? ranked[0][1] : 0;
 

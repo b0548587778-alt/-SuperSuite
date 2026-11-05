@@ -2,6 +2,7 @@
 'use strict';
 const crypto = require('crypto');
 const SD = require('../core/sampleData');
+const Edition = require('../../../shell/edition');
 
 class SampleService {
   constructor(db) { this.db = db; }
@@ -9,7 +10,7 @@ class SampleService {
 
   async getStatus(license) {
     const data = await this.db.load();
-    const allowed = SD.availableKinds(license);
+    const allowed = SD.availableKinds(license, Edition.featureAllowed);
     return {
       counts: SD.counts(data),
       kinds: allowed.map(k => ({ id: k, label: SD.KINDS[k].label })),
@@ -18,7 +19,7 @@ class SampleService {
 
   async add(kinds, license, today) {
     const data = await this.db.load();
-    const added = SD.apply(data, kinds, { today, uuid: () => crypto.randomUUID(), allowed: SD.availableKinds(license) });
+    const added = SD.apply(data, kinds, { today, uuid: () => crypto.randomUUID(), allowed: SD.availableKinds(license, Edition.featureAllowed) });
     await this.db.save(data);
     return { added, counts: SD.counts(data) };
   }

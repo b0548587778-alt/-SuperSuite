@@ -2,7 +2,7 @@
 // "המסכים שלי" וצעדים ראשונים. רק בחירת מסכים והמלצות; שום נתון לא נוצר או נמחק.
 // כמו catalog.js: נטען גם בדפדפן (window.SUITE_ONBOARDING) וגם ב-Node (בדיקות).
 (function (root) {
-  const PROFILES = [
+  const ALL_PROFILES = [
     { id: 'npo', icon: '🤝', name: 'עמותה / מוסד תורני', desc: 'תרומות, קבלות סעיף 46, תמיכות והנצחות',
       screens: ['econ:npo', 'econ:people'],
       steps: [
@@ -31,6 +31,9 @@
     { id: 'appraiser', icon: '🏢', name: 'שמאות נכסים', desc: 'הערכות שווי ודוחות',
       screens: ['shamai'], steps: [] },
   ];
+  // המהדורה (shell/edition.js): רק הפרופילים שלה מוצעים, ופרופיל של מהדורה אחרת שנשמר — מסונן בטעינה
+  const Edition = (typeof module !== 'undefined' && module.exports) ? require('./edition') : root.SUITE_EDITION;
+  const PROFILES = ALL_PROFILES.filter(p => !Edition || Edition.profileAllowed(p.id));
   const BY_ID = new Map(PROFILES.map(p => [p.id, p]));
 
   // צעדים שמתאימים לכולם — בסוף, כי הם חשובים אבל לא דחופים ביום הראשון.
@@ -77,7 +80,7 @@
     };
   }
 
-  const api = { PROFILES, COMMON_STEPS, MAX_SCREENS, ADMIN_KEYS, TOUR, plan, normalizeState };
+  const api = { PROFILES, ALL_PROFILES, COMMON_STEPS, MAX_SCREENS, ADMIN_KEYS, TOUR, plan, normalizeState };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_ONBOARDING = api;
 })(typeof window !== 'undefined' ? window : this);
