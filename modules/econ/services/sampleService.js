@@ -25,9 +25,10 @@ class SampleService {
 
   async removeAll() {
     const data = await this.db.load();
-    const removed = SD.remove(data);
+    const info = {};
+    const removed = SD.remove(data, info);
     if (removed) await this.db.save(data);
-    return { removed, counts: SD.counts(data) };
+    return { removed, kept: info.kept || 0, counts: SD.counts(data) };
   }
 }
 

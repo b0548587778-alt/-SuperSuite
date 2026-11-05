@@ -328,7 +328,8 @@ test('שירות: חבילת המחאות — קבלה לכל שנה בשמיר�
   assert.equal(o26.settings.receiptSeq, 3);
   assert.equal(o26.tax.counts.pending, 3, 'כל קבלה ממתינה לדיווח בנפרד');
   // נשמר כמו שהוא — בלי מספר חשבון, אגורות שלמות
-  const stored = o26.donations.find(d => d.reference === '102–103');
+  // המחאות 2027 — בסקירה של 2027 (הסקירה מחזירה רק את תרומות השנה; סקירת קוד 2.11.2026)
+  const stored = o27.donations.find(d => d.reference === '102–103');
   assert.deepEqual(stored.cheques.map(c => c.amountAg), [40000, 40000]);
 });
 

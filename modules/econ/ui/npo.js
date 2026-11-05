@@ -869,6 +869,8 @@ async function masavBankForm(title, current, save) {
   if (!v) return false;
   const empty = !v.bank && !v.branch && !v.account;
   if (empty && !current) return false;
+  // הטופס נפתח ריק: "שמירה" בלי שינוי מחקה בשקט את החשבון השמור (סקירת קוד 2.11.2026) — רק באישור מפורש
+  if (empty && !(await askConfirm(`להסיר את החשבון השמור (${current})? ההוראה לא תיכלל בקובץ החיוב הבא.`))) return false;
   await save(empty ? null : v);
   showToast(empty ? 'פרטי החשבון הוסרו' : 'פרטי החשבון נשמרו');
   return true;

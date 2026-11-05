@@ -234,6 +234,12 @@ class GemachService {
       if (amountAg > 0) data.gemach.loans[i] = G.recordPayment(data.gemach.loans[i], seq, { amount: amountAg / 100, date: b.chargeDate });
       it.status = 'paid';
       paid++;
+      // הלווה שילם (ידנית) בזמן שהחיוב היה באצווה — הבנק גבה את כל הסכום: גבייה כפולה, לטיפול ידני (סקירת קוד 2.11.2026)
+      if (amountAg < it.amountAg) {
+        const extra = it.amountAg - Math.max(0, amountAg);
+        it.manual = `התשלום נרשם ידנית בזמן שהחיוב היה באצווה — הבנק גבה גם ${(extra / 100).toFixed(2)} ₪ שלא נרשמו. יש להחזיר אותם ללווה או לרשום אותם ידנית`;
+        manual.push({ label: it.label, amountAg: extra, why: it.manual });
+      }
     }
     b.status = 'closed';
     b.closedAt = new Date().toISOString();

@@ -1802,7 +1802,12 @@ function registerIpcHandlers() {
     await auditEvent(event, 'madv.client.delete', { id });
     return true;
   });
-  handle('madv:toggleDoc', async (event, id, key, docState) => mortgageAdvisorService.toggleDoc(id, key, madvActor(event), docState));
+  // פעולות כתיבה שלא נרשמו ביומן הפעולות (סקירת קוד 2.11.2026): מסמכי משכנתא, תיק שומה, צילומים והגדרות שמאות
+  handle('madv:toggleDoc', async (event, id, key, docState) => {
+    const r = await mortgageAdvisorService.toggleDoc(id, key, madvActor(event), docState);
+    await auditEvent(event, 'madv.doc.toggle', { id, key: String(key || '').slice(0, 60), state: docState ? String(docState).slice(0, 20) : null });
+    return r;
+  });
   handle('madv:getMissingDocsMessage', async (event, id) => mortgageAdvisorService.getMissingDocsMessage(id, madvActor(event)));
   // אישורים עקרוניים: נשמרים בתיק, ומושווים במנוע של מעבדת התמהיל (אותה תחזית, אותו חישוב)
   handle('madv:saveApprovals', async (event, id, list) => {
@@ -2057,7 +2062,11 @@ function registerIpcHandlers() {
     await auditEvent(event, 'realestate.case.create', { id: c.id, no: c.no });
     return c;
   });
-  handle('realestate:updateCase', async (event, id, input) => realEstateService.updateCase(String(id || ''), input || {}));
+  handle('realestate:updateCase', async (event, id, input) => {
+    const c = await realEstateService.updateCase(String(id || ''), input || {});
+    await auditEvent(event, 'realestate.case.update', { id: String(id || '') });
+    return c;
+  });
   handle('realestate:deleteCase', async (event, id) => {
     await realEstateService.deleteCase(String(id || ''));
     await auditEvent(event, 'realestate.case.delete', { id });
@@ -2079,9 +2088,21 @@ function registerIpcHandlers() {
     await auditEvent(event, 'realestate.case.reopen', { id: s.id, reportNo: s.reportNo });
     return s;
   });
-  handle('realestate:addPhoto', async (event, id, input) => realEstateService.addPhoto(String(id || ''), input || {}));
-  handle('realestate:deletePhoto', async (event, id, photoId) => realEstateService.deletePhoto(String(id || ''), String(photoId || '')));
-  handle('realestate:saveSettings', async (event, input) => realEstateService.saveSettings(input || {}));
+  handle('realestate:addPhoto', async (event, id, input) => {
+    const r = await realEstateService.addPhoto(String(id || ''), input || {});
+    await auditEvent(event, 'realestate.photo.add', { id: String(id || ''), photoId: r.id });
+    return r;
+  });
+  handle('realestate:deletePhoto', async (event, id, photoId) => {
+    const r = await realEstateService.deletePhoto(String(id || ''), String(photoId || ''));
+    await auditEvent(event, 'realestate.photo.delete', { id: String(id || ''), photoId: String(photoId || '') });
+    return r;
+  });
+  handle('realestate:saveSettings', async (event, input) => {
+    const r = await realEstateService.saveSettings(input || {});
+    await auditEvent(event, 'realestate.settings.save', {});
+    return r;
+  });
   handle('realestate:getReportHtml', async (event, id) => realEstateService.getReportHtml(String(id || '')));
   handleSave('realestate:exportRegister', async () => csvSpec(await realEstateService.getRegisterExport()),
     (event, spec) => auditEvent(event, 'realestate.register.export', { rows: spec.rows }));

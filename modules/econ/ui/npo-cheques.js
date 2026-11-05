@@ -44,6 +44,11 @@ function npoChequeInput(form, mode, rowCount) {
 // אזהרה (אישור סעיף 46 שפג) — ההפקה רק אחרי סימון האישור (confirmWarnings: true)
 async function openNpoChequesDialog() {
   const o = (state.data && state.data.npo) || {};
+  // בזמן ההפקה Escape לא סוגר את החלון: הקבלות כבר מופקות בשרת, ושליחה חוזרת הפיקה סט נוסף (סקירת קוד 2.11.2026).
+  // המאזין על window (שלב הלכידה) רץ לפני המאזין של openDialog על document
+  let sending = false;
+  const blockEscape = (e) => { if (sending && e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); } };
+  window.addEventListener('keydown', blockEscape, true);
   const done = await openDialog((card, finish) => {
     card.style.maxWidth = '720px';
     const titleId = 'dlgTitle' + (++dialogSeq);
@@ -118,14 +123,17 @@ async function openNpoChequesDialog() {
       e.preventDefault();
       if (!preview) return;
       if (preview.warnings && !form.elements.confirmWarnings.checked) { err.textContent = 'יש לסמן שקראת את האזהרה'; return; }
+      if (sending) return;
       submit.disabled = true;
+      sending = true;
       try {
         const r = await window.systemAPI.addNpoChequeDonation({ ...preview.input, confirmWarnings: preview.warnings ? true : undefined });
         finish(r);
-      } catch (error) { submit.disabled = false; err.textContent = errMsg(error); }
+      } catch (error) { submit.disabled = false; err.textContent = errMsg(error); } finally { sending = false; }
     });
     form.elements.donorName.focus();
   });
+  window.removeEventListener('keydown', blockEscape, true);
   if (!done) return;
   showToast(`הופקו ${done.donations.length} קבלות: ${done.donations.map(d => d.receipt.number).join(', ')}`);
   await switchView('npo');

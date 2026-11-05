@@ -441,7 +441,9 @@ function attachRealEstateHandlers() {
     await reOpenCase(re.caseId);
   }));
   on('reExport', guard('שגיאה ביצירת הדוח', async () => {
-    if (re.current.case.status !== 'final') await reSaveCase({ quiet: true });
+    // בלי הרשאת עריכה (רואה חשבון, צופה) — הייצוא בלי שמירה קודמת; השמירה נכשלה וחסמה את הייצוא (סקירת קוד 2.11.2026)
+    const canEdit = !!(state.user && Array.isArray(state.user.permissions) && state.user.permissions.includes('data.edit'));
+    if (re.current.case.status !== 'final' && canEdit) await reSaveCase({ quiet: true });
     const r = await api.exportRealEstateReport(re.caseId);
     if (r && r.ok) showToast('הדוח נשמר');
     renderView('realestate');
