@@ -506,9 +506,10 @@ function attachMadvFeeHandlers() {
   document.querySelectorAll('[data-madv-invoice]').forEach(btn => btn.addEventListener('click', async () => {
     // מעמד המע"מ שננעל בתיק בתשלום הראשון (לא ההגדרה הנוכחית של המשרד)
     const exempt = !!(madvClient(btn.dataset.madvInvoice) || {}).feeExempt;
-    // ע.מ של הלקוח — רק כשהוא עוסק (לא חובה); בלעדיו חשבונית מעל הסף מודפסת "אין לנכות" (סקירת קוד 2.11.2026)
+    // מספר עוסק / ת"ז של הלקוח (לא חובה) — בתיק הייעוץ אין שדה ת"ז, ולכן אין מה למלא מראש (החלטת הבעלים 5.11.2026);
+    // בלעדיו חשבונית מעל הסף מודפסת "אין לנכות" (סקירת קוד 2.11.2026)
     const v = await askDocFields(`להפיק ${exempt ? 'חשבונית עסקה וקבלה' : 'חשבונית מס/קבלה'} על התשלום? היא תירשם בהנהלת החשבונות ותקבל מספר`, [
-      { name: 'customerTaxId', label: 'ע.מ / ח.פ של הלקוח — רק אם הוא עוסק (לא חובה)' }], 'הפקת החשבונית');
+      { name: 'customerTaxId', label: RLTY_TAX_ID_LABEL }], 'הפקת החשבונית');
     if (!v) return;
     try {
       const r = await window.systemAPI.issueMortgageFeeInvoice(btn.dataset.madvInvoice, btn.dataset.pay, { confirmed: true, customerTaxId: v.customerTaxId || '' });

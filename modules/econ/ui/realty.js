@@ -391,6 +391,17 @@ function rltyAskPayment(deal) {
   });
 }
 
+// שדה הלקוח בחלון הפקת חשבונית העמלה (גם בייעוץ המשכנתאות)
+const RLTY_TAX_ID_LABEL = 'מספר עוסק / ת"ז של הלקוח (לבדוק)';
+// ת"ז / ע.מ מכרטיס הלקוח של הצד ששילם (קונה / מוכר) — כמו commissionPaymentForInvoice בשרת; אין — ריק
+function rltyInvoiceTaxId(o, deal, paymentId) {
+  const p = ((deal && deal.commissionPayments) || []).find(x => x.id === paymentId);
+  if (!p) return '';
+  const clientId = p.side === 'buyer' ? deal.buyerClientId : deal.sellerClientId;
+  const c = ((o && o.clients) || []).find(x => x.id === clientId);
+  return c && c.idNumber ? String(c.idNumber) : '';
+}
+
 function attachRealtyCommissionHandlers() {
   const o = rltyData();
   document.querySelectorAll('[data-rlty-deal]').forEach(b => b.addEventListener('click', () => { rltyUi.deal = b.dataset.rltyDeal; renderView('realty'); }));
@@ -419,9 +430,9 @@ function attachRealtyCommissionHandlers() {
     catch (error) { showError('שגיאה במחיקה: ' + errMsg(error)); }
   }));
   document.querySelectorAll('[data-rlty-invoice]').forEach(b => b.addEventListener('click', async () => {
-    // ע.מ של הלקוח — רק כשהוא עוסק (ת"ז של לקוח פרטי אינה מספר עוסק, ולכן לא נלקחת מהכרטיס); סקירת קוד 2.11.2026
+    // מספר עוסק / ת"ז של הלקוח — ממולא מכרטיס הלקוח של הצד ששילם, וניתן לעריכה ולמחיקה (החלטת הבעלים 5.11.2026)
     const v = await askDocFields('להפיק חשבונית על התשלום? היא תירשם בהנהלת החשבונות ותקבל מספר', [
-      { name: 'customerTaxId', label: 'ע.מ / ח.פ של הלקוח — רק אם הוא עוסק (לא חובה)' }], 'הפקת החשבונית');
+      { name: 'customerTaxId', label: RLTY_TAX_ID_LABEL, value: rltyInvoiceTaxId(o, deal, b.dataset.rltyInvoice) }], 'הפקת החשבונית');
     if (!v) return;
     try { const r = await window.systemAPI.issueRealtyCommissionInvoice(deal.id, b.dataset.rltyInvoice, { confirmed: true, customerTaxId: v.customerTaxId || '' }); showToast(`הופקה חשבונית מספר ${r.number}`); await switchView('realty'); }
     catch (error) { showError('שגיאה בהפקת החשבונית: ' + errMsg(error)); }
