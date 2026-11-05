@@ -170,6 +170,7 @@ function buildWeb() {
   const mobileCss = fs.readFileSync(path.join(AND, 'web', 'mobile.css'), 'utf8');
   // webview-check.js — לפני כל סקריפט אחר (בראש העמוד): WebView ישן מדי ← הודעה בעברית במקום מסך שבור
   // (סקירת קוד 2.11.2026)
+  // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- mobileCss נקרא בזמן הבנייה מקובץ במאגר (android/web/mobile.css), לא קלט חיצוני
   html = html.replace(/<\/head>/i, `<style>\n${mobileCss}</style>\n<script src="webview-check.js"></script>\n</head>`);
   const firstScript = '<script src="hebcal.js"></script>';
   if (!html.includes(firstScript)) throw new Error('shell.html: לא נמצא ' + firstScript);

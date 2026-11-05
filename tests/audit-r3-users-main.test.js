@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { createMainHarness } = require('./helpers/secure-store-main');
 const BK = require('../modules/econ/core/backupCrypto');
+const ZMANI_PASS = 'zmani-pass-long-1';
 
 const H = createMainHarness();
 const { handlers, boot, loginAs, econView, shellSender, econ, ADMIN, dialogPlan, userData, ROOT } = H;
@@ -63,7 +64,7 @@ const usernames = async () => (await handlers['users:list'](econ())).map(u => u.
 
 test('גיבוי מלא: כולל משתמשים, תפקידים ויומן — מוצפן; שחזור ממזג ומשאיר את המנהל המחובר', async () => {
   await loginAs(ADMIN[0]);
-  await handlers['users:create'](econ(), { username: 'zmani', password: 'zmani-pass-long-1', role: 'viewer' });
+  await handlers['users:create'](econ(), { username: 'zmani', password: ZMANI_PASS, role: 'viewer' });
   const { file, data } = await fullBackup();
   assert.ok(fs.readFileSync(file, 'utf8').startsWith('SSBK1:'), 'הגיבוי מוצפן');
   assert.equal(data.users.v, 1);
@@ -86,7 +87,7 @@ test('גיבוי מלא: כולל משתמשים, תפקידים ויומן — 
 
 test('גיבוי ישן בלי users: השחזור לא נוגע במשתמשים; users פגום — נדחה לפני האישור', async () => {
   await loginAs(ADMIN[0]);
-  if (!(await usernames()).includes('zmani')) await handlers['users:create'](econ(), { username: 'zmani', password: 'zmani-pass-long-1', role: 'viewer' });
+  if (!(await usernames()).includes('zmani')) await handlers['users:create'](econ(), { username: 'zmani', password: ZMANI_PASS, role: 'viewer' });
   const { data } = await fullBackup();
   const before = await usernames();
   const old = { ...data };

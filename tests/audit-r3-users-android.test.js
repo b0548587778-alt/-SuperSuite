@@ -9,6 +9,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { bundle } = require('../android/lib/bundle');
 const { createNodeShims, createElectronShims } = require('../android/web/node-shims');
 const BK = require('../modules/econ/core/backupCrypto');
+const ZMANI_PASS = 'zmani-pass-long-1';
 
 const ROOT = path.join(__dirname, '..');
 const PASS = 'סיסמה-חזקה-123';
@@ -120,7 +121,7 @@ test('אנדרואיד: ניתוק אוטומטי כשהמסך הכלכלי פע
 
 test('אנדרואיד: הגיבוי המלא כולל משתמשים ויומן; השחזור ממזג, וגיבוי ישן בלעדיהם לא נוגע במשתמשים', async () => {
   await A.call(2, 'auth:login', 'admin', PASS);
-  await A.call(2, 'users:create', { username: 'zmani', password: 'zmani-pass-long-1', role: 'viewer' });
+  await A.call(2, 'users:create', { username: 'zmani', password: ZMANI_PASS, role: 'viewer' });
   assert.deepEqual(await A.call(1, 'shell:backup-all', BPASS, 'all'), { ok: true });
   const data = JSON.parse(BK.decryptBackup(A.io.saved, BPASS));
   assert.ok(data.users.users.some(u => u.username === 'zmani'));

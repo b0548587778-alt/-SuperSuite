@@ -11,6 +11,8 @@ const Module = require('module');
 const EconUI = require('./helpers/econ-ui');
 const UB = require('../modules/econ/core/usersBackup');
 const { ROLES } = require('../modules/econ/core/database');
+// סיסמאות הבדיקה — מקום אחד (כמו ב-audit-permissions.test.js)
+const PASS = { orech: 'orech-pass-long-12', tzofe: 'tzofe-pass-long-12', roeh: 'roeh-pass-long-123' };
 
 const handlers = {};
 let saveTo = null; // הנתיב שחלון השמירה המדומה מחזיר
@@ -55,7 +57,7 @@ test('Google במחשב משותף: אחרי כניסה עם Google — איפו
   await setupAdminWithGoogle(await boot('stepup'));
   google.identity = { sub: 'g-admin', email: 'admin@example.org' };
   await handlers['auth:google-link'](ev(1));
-  const ed = await handlers['users:create'](ev(1), { username: 'orech', password: 'orech-pass-long-12', role: 'editor' });
+  const ed = await handlers['users:create'](ev(1), { username: 'orech', password: PASS.orech, role: 'editor' });
   // "אורח" ליד המחשב: הדפדפן עדיין מחובר לחשבון של המנהל
   const guest = await handlers['auth:google-login'](ev(2));
   assert.equal(guest.username, 'menahel');
@@ -73,7 +75,7 @@ test('Google במחשב משותף: אחרי כניסה עם Google — איפו
 // ---------- טבלה: קישור Google נקשר למי שהתחיל ----------
 test('קישור Google: החלפת משתמש בזמן ההמתנה לדפדפן ← הקישור נדחה ולא נקשר למחובר החדש', async () => {
   await setupAdminWithGoogle(await boot('link-swap'));
-  await handlers['users:create'](ev(1), { username: 'tzofe', password: 'tzofe-pass-long-12', role: 'viewer' });
+  await handlers['users:create'](ev(1), { username: 'tzofe', password: PASS.tzofe, role: 'viewer' });
   google.identity = { sub: 'g-swap', email: 'swap@example.org' };
   let release;
   google.gate = new Promise(r => { release = r; });
@@ -92,7 +94,7 @@ test('קישור Google: החלפת משתמש בזמן ההמתנה לדפדפ�
 // ---------- טבלה: איפוס / חסימה מנתקים Google, וניתוק בידי המנהל ----------
 test('איפוס סיסמה וחסימה מנתקים את Google; המנהל מנתק Google של משתמש אחר ונרשם ביומן', async () => {
   await setupAdminWithGoogle(await boot('unlink'));
-  const ed = await handlers['users:create'](ev(1), { username: 'orech', password: 'orech-pass-long-12', role: 'editor' });
+  const ed = await handlers['users:create'](ev(1), { username: 'orech', password: PASS.orech, role: 'editor' });
   let pass = 'orech-pass-long-12';
   const link = async (sub) => {
     await handlers['auth:login'](ev(2), 'orech', pass);
@@ -126,7 +128,7 @@ test('איפוס סיסמה וחסימה מנתקים את Google; המנהל מ
 test('ת"ז כפולה: עורך לא מגלה שת"ז שייכת לנזקק חסוי; מול נזקק רגיל — ההודעה נשארת', async () => {
   await boot('chesed');
   await handlers['auth:setup'](ev(1), ...ADMIN);
-  await handlers['users:create'](ev(1), { username: 'orech', password: 'orech-pass-long-12', role: 'editor' });
+  await handlers['users:create'](ev(1), { username: 'orech', password: PASS.orech, role: 'editor' });
   await handlers['auth:login'](ev(2), 'orech', 'orech-pass-long-12');
   await handlers['chesed:addBeneficiary'](ev(1), { familyName: 'חסוי', headName: 'ראובן', idNumber: '000000018', tier: 'confidential', familySize: 3 });
   await handlers['chesed:addBeneficiary'](ev(1), { familyName: 'רגיל', headName: 'שמעון', idNumber: '000000026', familySize: 2 });
@@ -140,7 +142,7 @@ test('ת"ז כפולה: עורך לא מגלה שת"ז שייכת לנזקק ח�
 test('מאגר אנשים: חיפוש שמציג נזקק חסוי למנהל נרשם ביומן; עורך לא רואה ולא נרשם', async () => {
   await boot('people');
   await handlers['auth:setup'](ev(1), ...ADMIN);
-  await handlers['users:create'](ev(1), { username: 'orech', password: 'orech-pass-long-12', role: 'editor' });
+  await handlers['users:create'](ev(1), { username: 'orech', password: PASS.orech, role: 'editor' });
   await handlers['auth:login'](ev(2), 'orech', 'orech-pass-long-12');
   await handlers['chesed:addBeneficiary'](ev(1), { familyName: 'נסתר', headName: 'זבולון', idNumber: '000000034', tier: 'confidential', familySize: 3 });
   const views = async () => (await handlers['audit:list'](ev(1), { action: 'chesed.confidential.view' })).filter(a => /people-search/.test(a.details));
@@ -170,8 +172,8 @@ test('שחזור: זמן הניתוק ומדיניות Google מהגיבוי ח�
 test('גיבוי המשתמשים: מיזוג — משתמש קיים לא משתנה, חסר נוסף עם הסיסמה והתפקיד, היומן מתווסף ומוצפן במסד', async () => {
   await setupAdminWithGoogle(await boot('users-src'));
   google.identity = { sub: 'g-src', email: 'src@example.org' };
-  await handlers['users:create'](ev(1), { username: 'orech', password: 'orech-pass-long-12', role: 'editor' });
-  await handlers['users:create'](ev(1), { username: 'roeh', password: 'roeh-pass-long-123', role: 'accountant' });
+  await handlers['users:create'](ev(1), { username: 'orech', password: PASS.orech, role: 'editor' });
+  await handlers['users:create'](ev(1), { username: 'roeh', password: PASS.roeh, role: 'accountant' });
   await handlers['auth:login'](ev(2), 'orech', 'orech-pass-long-12');
   await handlers['auth:google-link'](ev(2));
   const snap = await ipc.usersBackup();
@@ -208,7 +210,7 @@ test('גיבוי המשתמשים: מיזוג — משתמש קיים לא מש�
 test('גיבוי המשתמשים: משתמש שנחסם כאן לא חוזר לפעול, ומעבר למכסת הרישיון — נוסף חסום', async () => {
   await boot('users-block');
   await handlers['auth:setup'](ev(1), ...ADMIN);
-  const ed = await handlers['users:create'](ev(1), { username: 'orech', password: 'orech-pass-long-12', role: 'editor' });
+  const ed = await handlers['users:create'](ev(1), { username: 'orech', password: PASS.orech, role: 'editor' });
   const snap = UB.usersFromBackup(await ipc.usersBackup());
   await handlers['users:update'](ev(1), ed.id, { active: false });
   await ipc.usersRestore(snap);
