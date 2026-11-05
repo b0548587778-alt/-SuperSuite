@@ -3160,6 +3160,15 @@ function registerIpcHandlers() {
         const row = (d) => ({ name: d.name, count: d.count, total: d.total });
         ctx.npo = { year: ov.year, donors: (ov.yearDonors || []).map(row), names: (ov.donors || []).map(d => d.name) };
       } catch { ctx.npo = null; }
+      // „מתי היארצייט של…?” — המועד הקרוב לכל נפטר, רק שדות התצוגה (בלי טלפון ואיש קשר)
+      if (opts.memorials) {
+        try {
+          const m = await npoService.getMemorials(today, 400);
+          const seen = new Set();
+          ctx.memorials = (m.rows || []).filter(r => !seen.has(r.id) && seen.add(r.id)).slice(0, 500).map(r => ({
+            name: r.name, parentName: r.parentName || '', date: r.date, hebrew: r.hebrew || '', uncertain: !!r.uncertain, daysLeft: r.daysLeft }));
+        } catch { ctx.memorials = null; }
+      }
     }
     // הקשר הזמני שהועבר בערוץ ai:context — נשרף אחרי השימוש, ונוצל רק באותה פגישה שבה נשלח
     const held = aiContextBySender.get(event.sender.id);
@@ -3252,7 +3261,7 @@ function registerIpcHandlers() {
       const hint = (wantsRange && acctOpen && (!domain || domain === 'acct')) ? cleanAiRange(extra.range) : null;
       // הרמז מתקבל רק כשהוא מסכים עם הטווח שהכללים גזרו מהשאלה (ראו rangeAgrees) — אחרת השאלה קובעת
       const range = hint && AI_RULES.rangeAgrees(hint, fallback) ? hint : fallback;
-      const ctx = await aiRulesContext(event, today, range, { npoYear: AI_RULES.donorYear(q, today), modules: true });
+      const ctx = await aiRulesContext(event, today, range, { npoYear: AI_RULES.donorYear(q, today), modules: true, memorials: domain === 'memorial' });
       if (ctx.opened.acct) ctx.range = range;
       // קשר השמאות נשרף בכל שאלה — גם כשהוא לא נוצל (בלי כשירות לאימות/canRead) — והוא לא נשמר.
       // כאן ולא אחרי התשובה: הקשר חדש שנשלח בזמן שהמודל עונה שייך לשאלה הבאה
