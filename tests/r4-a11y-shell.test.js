@@ -478,7 +478,7 @@ test('אנדרואיד: host.js שולח את ההגדרות לכל מסגרת �
   assert.match(host, /if \(m\.ss === 'ready'\) \{ f\.loaded = true; postWriteBlock\(id\); postDisplay\(id\);/);
   assert.match(host, /setDisplay\(attrs\) \{/);
   const apk = read('android/build-apk.js');
-  assert.match(apk, /'ss-help\.js', 'simple-mode\.js'\]/);
+  assert.match(apk, /'ss-help\.js', 'simple-mode\.js'[,\]]/);
   assert.match(apk, /path\.join\(ROOT, 'shell', 'ss-help\.js'\), path\.join\(dst, 'ss-help\.js'\)/);
   const mobile = read('android/web/mobile.js');
   assert.doesNotMatch(mobile, /\['ds', /, 'חלון "תצוגה" עובד באנדרואיד');

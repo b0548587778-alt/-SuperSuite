@@ -428,6 +428,7 @@ $('simpleTasks').onclick = e => {
   if (t.action === 'search') focusSearch();
   else if (t.action === 'backup') runBackup();
   else if (t.action === 'help') showGuide();
+  else if (t.task && window.shellAPI.startTask && taskAllowed(t.task)) runCommandTask({ id: t.task, prefill: {} });
   else if (t.key) open(t.key);
 };
 $('simpleAll').onclick = () => { ui.simpleAll = !ui.simpleAll; renderSimpleHome(); };
@@ -512,6 +513,7 @@ function renderToday(now) {
   }).join('');
 }
 async function loadHome() {
+  loadTaskAccess();
   if (!window.shellAPI.getHomeSummary) return;
   try {
     const d = await window.shellAPI.getHomeSummary();
@@ -544,6 +546,11 @@ let askSeq = 0;
 async function ask(raw) {
   const q = String(raw || '').trim().slice(0, 500);
   if (!q) { $('askQ').focus(); return; }
+  // "מה תרצה לעשות?": בקשה (משימה / מסך) ← אישור או "התכוונת ל...?"; רק שאלה ממשיכה לעוזר
+  if (CMD_INTENTS && CMD_TASKS) {
+    const r = CMD_INTENTS.parse(q, { today: localToday() });
+    if (r.kind !== 'question') { askSeq++; $('askGo').disabled = false; showCommand(r, q); return; }
+  }
   const head = (label) => `<div class="a-head"><span class="ss-badge">${svg('sparkles')} ${esc(label)}</span>` +
     `<button type="button" class="ss-btn-ghost ss-btn-sm" data-ask-close aria-label="סגירת התשובה">${svg('x')}</button></div><p class="a-q">${esc(q)}</p>`;
   if (!window.shellAPI.aiAsk) {
@@ -565,11 +572,129 @@ async function ask(raw) {
     askOut(head('לא נענה') + `<p class="a-text">${esc(msg || 'העוזר אינו זמין כרגע')}</p>`);
   } finally { if (seq === askSeq) $('askGo').disabled = false; }
 }
+/* ---------- "מה תרצה לעשות?" — בקשה במילים פשוטות (תיבת הפקודה) ----------
+   shell/intents.js מבין את הבקשה (בלי רשת ובלי מודל), shell/tasks.js — רשימת המשימות והאימות.
+   כלל הבטיחות: **לא נשמר כלום מכאן**. מוצג מה הובן (שם, סכום, תאריך) ← "כן" ← הטופס נפתח מלא במסך שלו,
+   והמשתמש בודק ושומר בעצמו. לא הובן — עד 3 הצעות "התכוונת ל...?", בלי הודעת שגיאה. */
+const CMD_TASKS = window.SUITE_TASKS || null;
+const CMD_INTENTS = window.SUITE_INTENTS || null;
+// המשימות שהתהליך הראשי מתיר (רישיון ותפקיד, shell:task-access); null — לא ידוע (בלי ערוץ)
+let taskAccess = null;
+async function loadTaskAccess() {
+  if (!window.shellAPI.taskAccess) return;
+  try { const r = await window.shellAPI.taskAccess(); taskAccess = Array.isArray(r) ? r.filter(x => typeof x === 'string') : null; }
+  catch { taskAccess = null; }
+}
+function allowedTasks() {
+  if (!CMD_TASKS) return [];
+  return CMD_TASKS.tasksFor({ has: k => BY_KEY.has(k), open: k => itemOpen(BY_KEY.get(k)), admin: shellAdmin, allowed: taskAccess });
+}
+const taskAllowed = (id) => allowedTasks().some(t => t.id === id);
+function localToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+let cmdPending = null;   // המשימה שמחכה ל"כן"
+let cmdOptions = [];     // ההצעות שעל המסך
+function cmdHead(label, q) {
+  return `<div class="a-head"><span class="ss-badge">${svg('sparkles')} ${esc(label)}</span>` +
+    `<button type="button" class="ss-btn-ghost ss-btn-sm" data-ask-close aria-label="סגירה">${svg('x')}</button></div><p class="a-q">${esc(q)}</p>`;
+}
+function optionLabel(o) {
+  if (o.type === 'task') { const t = CMD_TASKS.getTask(o.id); return t ? t.verb : ''; }
+  const it = BY_KEY.get(o.key);
+  return it ? 'לפתוח את המסך: ' + it.name : '';
+}
+// הצעות: רק משימות ומסכים שפתוחים למשתמש
+function choicesHtml(list) {
+  cmdOptions = list.filter(o => (o.type === 'task' ? taskAllowed(o.id) : BY_KEY.has(o.key) && itemOpen(BY_KEY.get(o.key)))).slice(0, 3);
+  return `<div class="cmd-choices" role="group" aria-label="התכוונת ל...?">` + cmdOptions.map((o, i) =>
+    `<button type="button" class="ss-btn ss-btn-secondary" data-cmd-opt="${i}">${esc(optionLabel(o))}</button>`).join('') + '</div>';
+}
+function suggestionsFor(q) {
+  return CMD_INTENTS.suggest(q, { tasks: allowedTasks(), items: ITEMS.filter(itemOpen), limit: 3 });
+}
+function showCommand(r, q) {
+  cmdPending = null;
+  if (r.kind === 'task') {
+    const t = CMD_TASKS.getTask(r.task);
+    if (!t) return showCommand({ kind: 'unknown' }, q);
+    if (!taskAllowed(t.id)) {
+      const sg = suggestionsFor(q);
+      askOut(cmdHead('אי אפשר כאן', q) + `<p class="a-text">את הפעולה „${esc(t.label)}” אי אפשר לעשות כאן — היא אינה כלולה ברישיון או בהרשאה שלכם.</p>` +
+        (sg.list.length ? '<p class="a-text">אפשר לבחור:</p>' + choicesHtml(sg.list) : ''));
+      return;
+    }
+    cmdPending = { id: t.id, prefill: r.prefill || {} };
+    const rows = CMD_TASKS.describe(t.id, cmdPending.prefill);
+    const labels = (r.missing || []).map(k => CMD_TASKS.FIELDS[k] && CMD_TASKS.FIELDS[k].label).filter(Boolean);
+    const unclear = (r.unclear || []).includes('amount') ? '<p class="a-text">לא הבנתי איזה סכום — ממלאים אותו בטופס.</p>' : '';
+    const isBackup = t.action === 'backup';
+    askOut(cmdHead('הבנתי', q) + `<p class="a-text"><b>${esc(t.label)}</b></p>` +
+      (rows.length ? '<dl class="cmd-fields">' + rows.map(x => `<div style="display:contents"><dt>${esc(x.label)}</dt><dd>${esc(x.value)}</dd></div>`).join('') + '</dl>' : '') +
+      unclear + (labels.length ? `<p class="a-text">את ה${esc(labels.join(' ואת ה'))} ממלאים בטופס.</p>` : '') +
+      `<p class="a-text ask-small">${isBackup ? 'הגיבוי מתחיל רק אחרי שבוחרים סיסמה ומקום לשמירה.' : 'שום דבר עוד לא נשמר. הטופס ייפתח מלא — בודקים ולוחצים „שמירה”.'}</p>` +
+      `<div class="cmd-actions"><button type="button" class="ss-btn ss-btn-primary" data-cmd-yes>${isBackup ? 'כן, לגבות' : 'כן, לפתוח את הטופס'}</button>` +
+      '<button type="button" class="ss-btn ss-btn-secondary" data-cmd-no>לא, לתקן</button></div>');
+    return;
+  }
+  if (r.kind === 'screen') {
+    askOut(cmdHead('הבנתי', q) + '<p class="a-text">נראה שמחפשים את המסך הזה:</p>' + choicesHtml([{ type: 'screen', key: r.key }]));
+    return;
+  }
+  if (r.kind === 'choose') {
+    const list = r.options || [];
+    askOut(cmdHead('התכוונת ל...?', q) + '<p class="a-text">יש כאן כמה אפשרויות. מה מתאים?</p>' + choicesHtml(list));
+    if (cmdOptions.length) return;
+  }
+  // לא הובן — הצעות קרובות, או המשימות הנפוצות. בלי הודעת שגיאה
+  const sg = suggestionsFor(q);
+  askOut(cmdHead('התכוונת ל...?', q) + `<p class="a-text">${sg.guess ? 'לא בטוח שהבנתי. אפשר לכתוב במילים אחרות, למשל „לרשום תרומה”, או לבחור כאן:' : 'אולי התכוונתם לאחד מאלה:'}</p>` +
+    choicesHtml(sg.list));
+}
+async function runCommandTask(p) {
+  const t = p && CMD_TASKS.getTask(p.id);
+  if (!t) return;
+  if (t.action === 'backup') { askOut(''); runBackup(); return; }
+  if (!window.shellAPI.startTask) { askOut(''); open(t.key); return; }
+  try {
+    const r = await window.shellAPI.startTask(t.id, p.prefill || {});
+    if (r && r.ok) {
+      askOut('');
+      $('askQ').value = '';
+      ui.active = 'econ'; ui.views.econ = t.view; mark(); pushRecent(t.key);
+      return;
+    }
+    askOut(cmdHead('לא נפתח', t.label) + `<p class="a-text">${r && r.reason === 'not-allowed'
+      ? 'הפעולה הזו אינה כלולה ברישיון או בהרשאה שלכם.' : 'לא הצלחתי לפתוח את הטופס עם הפרטים האלה. אפשר לפתוח אותו בלעדיהם:'}</p>` +
+      choicesHtml([{ type: 'screen', key: t.key }]));
+  } catch { askOut(''); open(t.key); }
+}
+$('askOut').addEventListener('click', (e) => {
+  const yes = e.target.closest('[data-cmd-yes]');
+  if (yes) { const p = cmdPending; cmdPending = null; runCommandTask(p); return; }
+  if (e.target.closest('[data-cmd-no]')) { cmdPending = null; askOut(''); $('askQ').focus(); if ($('askQ').select) $('askQ').select(); return; }
+  const opt = e.target.closest('[data-cmd-opt]');
+  const o = opt ? cmdOptions[Number(opt.dataset.cmdOpt)] : null;
+  if (!o) return;
+  if (o.type === 'screen') { askOut(''); open(o.key); return; }
+  showCommand({ kind: 'task', task: o.id, prefill: o.prefill || {}, missing: [] }, $('askQ').value || optionLabel(o));
+});
+// דיבור: רק ההכתבה של מערכת ההפעלה (Win+H / מיקרופון במקלדת) — הטקסט נכנס לתיבה כרגיל. אין זיהוי דיבור
+// בתוכנה: זיהוי הדיבור של הדפדפן שולח את הקול לשרת חיצוני (כלל ברזל 6)
+if (window.__ssBuildInfo) { $('voiceWin').hidden = true; $('voiceAndroid').hidden = false; }
+$('askMic').onclick = () => {
+  const show = $('askVoice').hidden;
+  $('askVoice').hidden = !show;
+  $('askMic').setAttribute('aria-expanded', String(show));
+  $('askQ').focus();
+};
 // סוף פגישה (יציאה או ניתוק שקט): התשובה ונתוני מסך הבית של המשתמש הקודם לא נשארים גלויים
 if (window.shellAPI.onSession) {
   window.shellAPI.onSession((on) => {
     if (on) { loadHome(); return; }
     askSeq++;
+    cmdPending = null; taskAccess = null; loadTaskAccess();
     askOut('');
     $('askQ').value = '';
     $('askGo').disabled = false;

@@ -76,77 +76,10 @@ function setupPullToRefresh() {
 //  VOICE INPUT
 // ─────────────────────────────────────────────────────────────────────────────
 
-function setupVoiceInput() {
-  const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Speech) return;
-
-  // Add voice button next to text inputs we care about
-  const targets = [
-    '#opp-search',
-    '#no-name',
-    '#no-notes',
-    '#no-seller',
-    '#a-name',
-    '#b-name',
-    '#cn-name',
-    '#ph-model',
-    '#ar-artist',
-    '#nft-name',
-    '#veh-model',
-    '#w-model',
-  ];
-
-  targets.forEach(sel => {
-    const el = document.querySelector(sel);
-    if (!el || el.dataset.voiceWired) return;
-    el.dataset.voiceWired = '1';
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'voice-btn';
-    btn.innerHTML = '🎤';
-    btn.title = 'הקלטה קולית';
-    btn.setAttribute('aria-label', 'הקלטה קולית');
-
-    // Wrap input + button in a flex container
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'display:flex;gap:6px;align-items:stretch';
-    el.parentNode.insertBefore(wrapper, el);
-    wrapper.appendChild(el);
-    wrapper.appendChild(btn);
-
-    btn.addEventListener('click', () => {
-      const recognition = new Speech();
-      recognition.lang = 'he-IL';
-      recognition.continuous = false;
-      recognition.interimResults = false;
-
-      btn.classList.add('recording');
-      btn.innerHTML = '⏺';
-
-      recognition.onresult = (e) => {
-        const text = e.results[0][0].transcript;
-        // Append rather than replace
-        if (el.value && el.tagName === 'TEXTAREA') {
-          el.value += '\n' + text;
-        } else {
-          el.value = text;
-        }
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        toast(`✓ "${text.substring(0, 40)}..."`, 'success');
-      };
-      recognition.onerror = (e) => {
-        toast('הקלטה נכשלה: ' + e.error, 'error');
-      };
-      recognition.onend = () => {
-        btn.classList.remove('recording');
-        btn.innerHTML = '🎤';
-      };
-
-      recognition.start();
-    });
-  });
-}
+// הקלדה בקול — רק ההכתבה של מערכת ההפעלה (Windows: Win+H; טלפון: המיקרופון במקלדת), שמקלידה לתוך כל שדה.
+// זיהוי הדיבור שמובנה בדפדפן שולח את הקול לשרת חיצוני — אסור (כלל ברזל 6: אפס רשת) ולא עובד במחשב מסונן,
+// ולכן הוסר (סבב 5, תיבת הפקודה). הפונקציה נשארת כי navigation.js קורא לה
+function setupVoiceInput() {}
 
 
 // ─────────────────────────────────────────────────────────────────────────────

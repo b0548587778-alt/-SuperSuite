@@ -1,13 +1,14 @@
 // מצב פשוט (נגישות, סבב 4): מסך הבית מציג משימות גדולות בפעלים פשוטים, והסרגל — רק את המסכים הנפוצים
 // (שאר התחומים מאחורי "עוד מסכים"). קובץ טהור, משותף למעטפת במחשב ובאנדרואיד.
-// כל משימה מפנה לפריט בקטלוג (key) או לפעולה של המעטפת (action). מוצגות רק משימות שהפריט שלהן קיים
+// כל משימה מפנה לפריט בקטלוג (key) או לפעולה של המעטפת (action); task — משימה ב-shell/tasks.js (הטופס נפתח מיד,
+// ריק, דרך shell:start-task — כמו בתיבת "מה תרצה לעשות?"). מוצגות רק משימות שהפריט שלהן קיים
 // ופתוח ברישיון; משימה של מנהל (admin) — רק למנהל.
 (function (root) {
   'use strict';
 
   const TASKS = [
-    { id: 'invoice', key: 'econ:acct-invoices', icon: 'invoice', verb: 'להוציא חשבונית או קבלה', hint: 'ללקוח של העסק' },
-    { id: 'donation', key: 'econ:npo', icon: 'heart', verb: 'לרשום תרומה ולתת קבלה', hint: 'לתורם של העמותה' },
+    { id: 'invoice', key: 'econ:acct-invoices', task: 'invoice', icon: 'invoice', verb: 'להוציא חשבונית או קבלה', hint: 'ללקוח של העסק' },
+    { id: 'donation', key: 'econ:npo', task: 'donation', icon: 'heart', verb: 'לרשום תרומה ולתת קבלה', hint: 'לתורם של העמותה' },
     { id: 'income', key: 'econ:dashboard', icon: 'chart-bar', verb: 'לראות כמה כסף נכנס החודש', hint: 'תמונת מצב במבט אחד' },
     { id: 'collect', key: 'econ:collect', icon: 'card', verb: 'לבקש תשלום (לגבות)', hint: 'קישור תשלום ללקוח או לתורם' },
     { id: 'loan', key: 'econ:gemach', icon: 'hand-coin', verb: 'לרשום הלוואה או החזר בגמ"ח', hint: 'הלוואות, ערבים והפקדות' },

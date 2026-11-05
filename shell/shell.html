@@ -143,6 +143,26 @@ nav::-webkit-scrollbar{width:6px} nav::-webkit-scrollbar-thumb{background:var(--
 .cta:hover{background:var(--ss-veil-2);border-color:var(--gold)}
 .cta .ss-icon{width:14px;height:14px}
 .cta kbd{font:600 10.5px var(--ss-font);border:1px solid var(--ss-veil-3);border-radius:6px;padding:1px 6px;color:var(--ss-on-dark);direction:ltr}
+/* "מה תרצה לעשות?": כותרת גלויה, כפתור "בצע" עם מילה, מיקרופון; בטלפון / טקסט גדול — הכפתורים יורדים לשורה */
+.ask-title{display:block;margin-top:22px;font:800 var(--ss-fs-xl) var(--ss-font-title);color:inherit}
+.ask-title + .ask{margin-top:10px}
+.ask{flex-wrap:wrap}
+.ask input{flex:1 1 12em}
+.ask-mic{width:44px;height:44px;flex:0 0 44px;border:1px solid var(--ss-border);border-radius:14px;display:grid;place-items:center;cursor:pointer;
+     background:var(--ss-surface);color:var(--ss-text)}
+.ask-mic[aria-expanded="true"]{background:var(--ss-violet-soft);color:var(--ss-violet-ink)}
+.ask-mic .ss-icon{width:20px;height:20px}
+.ask .ask-go{width:auto;min-width:44px;padding:0 16px;gap:8px;display:inline-flex;align-items:center;font:700 16px var(--ss-font)}
+.ask-hint{margin:10px 0 0;max-width:760px;font-size:14px;color:var(--ink-2)}
+.ask-small{font-size:13px}
+.ask-voice{margin-top:12px}
+.cmd-fields{margin:8px 0;display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:15px}
+.cmd-fields dt{color:var(--ss-muted);font-weight:600}
+.cmd-fields dd{margin:0;font-weight:700;color:var(--ss-text)}
+.cmd-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.cmd-actions .ss-btn{min-height:48px;font-size:16px}
+.cmd-choices{display:grid;gap:10px;margin-top:10px}
+.cmd-choices button{min-height:52px;justify-content:flex-start;font-size:16px;text-align:start}
 /* התשובה של העוזר */
 .ask-out{margin-top:16px;max-width:760px;padding:16px 18px;border-radius:var(--ss-radius-lg);background:var(--ss-surface);color:var(--ss-text);box-shadow:var(--ss-shadow-lg);
      border:1px solid var(--ss-border);animation:ss-rise var(--ss-dur-slow) var(--ss-ease) both}
@@ -538,12 +558,22 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
     <div class="hero-in">
       <h1 id="greet">שלום</h1>
       <div class="dates" id="dates"></div>
-      <form class="ask" id="askForm" role="search" aria-label="שאל את התוכנה" autocomplete="off">
+      <!-- "מה תרצה לעשות?" (תיבת הפקודה): שאלה ← תשובה מהנתונים; בקשה ← הטופס נפתח מלא לאישור (shell/intents.js,
+           shell/tasks.js). שום דבר לא נשמר מכאן. דיבור — רק ההכתבה של מערכת ההפעלה (Win+H / מיקרופון במקלדת), בלי רשת -->
+      <label for="askQ" class="ask-title" id="askTitle">מה תרצה לעשות?</label>
+      <form class="ask" id="askForm" aria-labelledby="askTitle" autocomplete="off">
         <span class="ask-ic" data-icon="sparkles" aria-hidden="true"></span>
-        <label for="askQ" class="sr-only">שאלה לעוזר של התוכנה</label>
-        <input id="askQ" type="text" maxlength="500" enterkeyhint="send" placeholder="שאלו את התוכנה — למשל: מי לא שילם החודש?">
-        <button type="submit" class="ask-go" id="askGo" aria-label="שליחת השאלה" title="שליחה (Enter)"><span data-icon="send"></span></button>
+        <input id="askQ" type="text" maxlength="500" enterkeyhint="go" aria-describedby="askHint" placeholder="כתבו כאן במילים פשוטות">
+        <button type="button" class="ask-mic" id="askMic" aria-label="לדבר במקום להקליד" aria-expanded="false" aria-controls="askVoice" title="לדבר במקום להקליד"><span data-icon="mic"></span></button>
+        <button type="submit" class="ask-go" id="askGo" title="ביצוע (Enter)"><span data-icon="send" aria-hidden="true"></span><span class="ask-go-t">בצע</span></button>
       </form>
+      <p class="ask-hint" id="askHint">לדוגמה: „כמה נכנס החודש?” · „תרשום תרומה ממשה כהן 500 שקל” · „הוצאה 200 על חשמל”</p>
+      <div class="ask-out ask-voice" id="askVoice" hidden>
+        <p class="a-text" id="voiceWin"><b>לדבר במקום להקליד:</b> לחצו יחד על מקש Windows ועל האות H (<bdi dir="ltr">Win+H</bdi>), דברו, ובסוף לחצו „בצע”.
+          ההכתבה בעברית עובדת רק אם במחשב מותקנת שפת הכתבה עברית (הגדרות Windows ← שעה ושפה).</p>
+        <p class="a-text" id="voiceAndroid" hidden><b>לדבר במקום להקליד:</b> לחצו על סמל המיקרופון במקלדת של הטלפון, דברו, ובסוף לחצו „בצע”.</p>
+        <p class="a-text ask-small">הדיבור מתורגם לטקסט על ידי מערכת ההפעלה. התוכנה עצמה לא מקליטה ולא שולחת דבר לרשת.</p>
+      </div>
       <div class="ask-sugg ss-advanced" id="askSugg" role="group" aria-label="שאלות לדוגמה"></div>
       <div class="ask-meta ss-advanced">
         <span><span data-icon="lock" aria-hidden="true"></span>העוזר עונה במחשב שלך, בלי רשת</span>
@@ -790,6 +820,8 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 <script src="ss-help.js"></script>
 <script src="display.js"></script>
 <script src="simple-mode.js"></script>
+<script src="tasks.js"></script>
+<script src="intents.js"></script>
 <script src="hebcal.js"></script>
 <script src="catalog.js"></script>
 <script src="onboarding.js"></script>
