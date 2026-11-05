@@ -33,15 +33,11 @@ const caseStatusName = (c) => (c.status === 'final' ? 'סופי' : 'טיוטה')
 
 function currentCase() {
   if (CASE_UI.pending && CASE_UI.pending.id === CASE_UI.editId) return CASE_UI.pending;
-  return CASE_UI.editId ? loadCases().find(c => c.id === CASE_UI.editId) || null : null;
+  return CASE_UI.editId ? findCase(CASE_UI.editId) : null;
 }
 
-function storeCase(c) {
-  const list = loadCases();
-  const i = list.findIndex(x => x.id === c.id);
-  if (i >= 0) list[i] = c; else list.unshift(c);
-  return saveCases(list);
-}
+// מפתח לכל תיק (src/casefile.js → saveCase): שמירה של תיק אחד לא כותבת מחדש את כל התיקים
+function storeCase(c) { return saveCase(c); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  רשימת התיקים והלקוחות
@@ -109,14 +105,14 @@ function openNewCase(client) {
 }
 
 async function deleteCase(id) {
-  const c = loadCases().find(x => x.id === id);
+  const c = findCase(id);
   if (!c) return;
   const msg = c.status === 'final'
     ? `תיק ${caseReportNo(c)} הוא דוח סופי שהופק ללקוח. למחוק אותו ואת התמונות שלו? אי אפשר לבטל.`
     : `למחוק את הטיוטה של תיק ${caseReportNo(c)} ואת התמונות שלה?`;
   if (!(await ssDialog.confirm(msg, { danger: true, okText: 'מחיקה' }))) return;
   // קודם התיק ואחר כך התמונות: מחיקה שנדחתה לא משאירה תיק בלי התמונות שלו
-  if (!saveCases(loadCases().filter(x => x.id !== id))) return;
+  if (!removeCase(id)) return;
   deleteCasePhotos([...new Set([...(c.items || []).flatMap(i => i.photos || []), ...caseHistoryPhotoIds(c)])]);
   toast('התיק נמחק', 'success');
   renderCasesView();

@@ -528,6 +528,10 @@ function clearAllShamaiData() {
   const keep = new Set(KEEP_ON_CLEAR.map(Storage.k));
   const keys = [];
   for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+  // אינדקס התיקים אחרון (מפתח לכל תיק, src/casefile.js): מחיקה שנעצרה באמצע משאירה אינדקס שמפנה למפתחות חסרים —
+  // הטעינה מנקה אותו — ולא תיקים שהאינדקס כבר לא מכיר, שהטעינה הייתה מחזירה אליו
+  const last = Storage.k('casesIndex');
+  keys.sort((a, b) => (a === last) - (b === last));
   try {
     for (const k of keys) {
       if (typeof k === 'string' && k.startsWith('shamai_') && !keep.has(k)) localStorage.removeItem(k);
@@ -664,6 +668,8 @@ function loadSavedState() {
 
 async function init() {
   loadSavedState();
+  // תיקי השמאות: העברה למפתח לכל תיק ותיקון האינדקס — בעליית המסך, לא רק בפתיחת מסך התיקים (src/casefile.js)
+  try { if (typeof ensureCasesLayout === 'function') ensureCasesLayout(); } catch (e) { console.error('cases layout', e); }
 
   // Render
   renderHeader();

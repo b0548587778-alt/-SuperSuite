@@ -25,15 +25,33 @@ function parse(items, key) {
 }
 
 // ---------- שמאות ----------
-const SHAMAI_CASES = 'shamai_v2_cases'; // Storage.prefix + 'cases' (modules/shamai/src/core.js, casefile.js)
+const SHAMAI_CASES = 'shamai_v2_cases'; // Storage.prefix + 'cases' (modules/shamai/src/core.js, casefile.js) — המבנה הישן
+// מפתח לכל תיק (סקירת קוד 2.11.2026): Storage.prefix + 'case_' + id
+const SHAMAI_CASE_PREFIX = 'shamai_v2_case_';
 const BASIS_HE = { market: 'שווי שוק', replacement: 'שווי החלפה', liquidation: 'שווי מימוש', melt: 'ערך התכה' };
 
 // הערכת השווי האחרונה = תיק השמאות האחרון שננעל (finalizeCase: frozen.totalAg בשקלים, באגורות).
 // בלי שם הלקוח ובלי ת״ז — רק מספר התיק, התאריך, מספר הפריטים ובסיס השווי. אין תיק סופי — null
+// כל התיקים: מהמפתחות של כל תיק, ומהמבנה הישן רק תיקים שעוד לא הועברו (אותו מזהה — המבנה החדש גובר)
+function shamaiCases(items) {
+  const out = [];
+  const seen = new Set();
+  for (const k of Object.keys(items)) {
+    if (!k.startsWith(SHAMAI_CASE_PREFIX)) continue;
+    const c = parse(items, k);
+    if (!c || typeof c !== 'object' || Array.isArray(c) || String(c.id) !== k.slice(SHAMAI_CASE_PREFIX.length)) continue;
+    out.push(c);
+    seen.add(String(c.id));
+  }
+  const legacy = parse(items, SHAMAI_CASES);
+  if (Array.isArray(legacy)) for (const c of legacy) if (c && typeof c === 'object' && !seen.has(String(c.id))) out.push(c);
+  return out;
+}
+
 function shamaiContext(items) {
   if (!items || typeof items !== 'object') return null;
-  const list = parse(items, SHAMAI_CASES);
-  if (!Array.isArray(list)) return null;
+  const list = shamaiCases(items);
+  if (!list.length) return null;
   const when = (c) => String(c.finalizedAt || c.reportDate || '');
   const finals = list.filter(c => c && typeof c === 'object' && c.status === 'final' && c.frozen && typeof c.frozen === 'object' && okAg(c.frozen.totalAg));
   if (!finals.length) return null;
@@ -53,4 +71,4 @@ function shamaiContext(items) {
   return { label: `${parts.join(' ')}, ${details.join(', ')}`, valueAg: c.frozen.totalAg, confidence: null, factors: [], warnings };
 }
 
-module.exports = { shamaiContext, SHAMAI_CASES };
+module.exports = { shamaiContext, shamaiCases, SHAMAI_CASES, SHAMAI_CASE_PREFIX };
