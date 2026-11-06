@@ -33,7 +33,9 @@ test('פרסום למאגר נפרד בטוקן ייעודי — לא GITHUB_TOK
 test('גרסה קיימת לא נדרסת, ותגית שלא תואמת את package.json לא מפורסמת', () => {
   assert.match(publish, /gh release view "v\$V"/);
   assert.match(publish, /GITHUB_REF_NAME\}" != "v\$V"/);
-  assert.match(publish, /SuperSuite-Setup\.exe/);
+  // במאגר של מוצר אחד — מתקין המוצר (tools/split-product.js)
+  const lock = require('../tools/edition-build').productLock();
+  assert.ok(publish.includes(lock ? require('path').basename(require('../tools/edition-build').files(lock[0])[0]) : 'SuperSuite-Setup.exe'));
 });
 
 test('electron-builder עצמו לא מפרסם, והתוצאה מגיעה ל-ci-status', () => {

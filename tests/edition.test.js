@@ -57,7 +57,9 @@ test('הגדרות המהדורות: מודולים, מסכים, תכונות ו
   }
   for (const v of Edition.COMMON_VIEWS) assert.ok(allViews.has(v), v);
   // המלאה שומרת על המזהה ותיקיית הנתונים של היום — לקוח קיים לא מרגיש שינוי
-  assert.equal(Edition.get('full').appId, require('../package.json').build.appId);
+  // (במאגר של מוצר אחד — ה-appId של המוצר, tools/split-product.js)
+  const lock = require('../tools/edition-build').productLock();
+  assert.equal(Edition.get(lock ? lock[0] : 'full').appId, require('../package.json').build.appId);
 });
 
 test('החלוקה שאישר הבעלים: כל תחום במהדורה הנכונה, וכל מסך בקטלוג שייך לפחות למהדורה חלקית אחת', () => {

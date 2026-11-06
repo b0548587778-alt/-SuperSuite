@@ -77,10 +77,21 @@ function app(id) {
   const ed = need(id);
   return { dir: `${outDir(ed)}/win-unpacked`, exe: exeName(ed) };
 }
+// מאגר של מוצר אחד (tools/split-product.js, שלב 6): edition-product.json בשורש קובע מה נבנה בו —
+// רק המהדורה שלו, גם כברירת המחדל של build-local.js וגם בלולאה של ה-CI. בלי הקובץ (המאגר הזה) — ארבעתן
+function productLock(root = ROOT) {
+  const file = path.join(root, 'edition-product.json');
+  if (!fs.existsSync(file)) return null;
+  let v;
+  try { v = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { throw new Error('edition-product.json פגום'); }
+  const list = Array.isArray(v && v.products) ? v.products : [];
+  if (!list.length || list.some(id => !Edition.get(id))) throw new Error('edition-product.json: מהדורה לא מוכרת');
+  return list;
+}
 // המלאה ראשונה: אם בנייה של מהדורה חלקית נכשלת, המתקין של היום כבר קיים
-const ORDER = ['full', ...Edition.PARTIAL_IDS];
+const ORDER = productLock() || ['full', ...Edition.PARTIAL_IDS];
 
-module.exports = { editionIdSource, setEdition, builderArgs, files, app, ORDER, setupName, portableName, exeName, outDir };
+module.exports = { editionIdSource, setEdition, builderArgs, files, app, ORDER, productLock, setupName, portableName, exeName, outDir };
 
 if (require.main === module) {
   const [cmd, id] = process.argv.slice(2);
