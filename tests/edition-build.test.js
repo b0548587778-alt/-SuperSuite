@@ -40,7 +40,9 @@ test('הגדרות electron-builder: המלאה בלי שינוי; לכל מהד
   assert.deepEqual(EB.files('full'), ['dist/SuperSuite-Setup.exe', 'dist/SuperSuite-Portable.exe'], 'קישורי ההורדה של היום');
   assert.deepEqual(EB.app('full'), { dir: 'dist/win-unpacked', exe: 'SuperSuite.exe' });
   const pkg = require('../package.json');
-  assert.equal(pkg.build.nsis.artifactName, 'SuperSuite-Setup.${ext}');
+  // במאגר של מוצר אחד (tools/split-product.js) — השם של המוצר
+  const lock = EB.productLock();
+  assert.equal(pkg.build.nsis.artifactName, lock ? `${Edition.get(lock[0]).artifact}-Setup.\${ext}` : 'SuperSuite-Setup.${ext}');
   const seen = new Set();
   for (const id of Edition.PARTIAL_IDS) {
     const ed = Edition.get(id);
@@ -53,7 +55,7 @@ test('הגדרות electron-builder: המלאה בלי שינוי; לכל מהד
     for (const f of [...EB.files(id), EB.app(id).dir]) { assert.ok(!seen.has(f), f); seen.add(f); }
     assert.match(ed.product, /^SuperSuite [A-Za-z]+$/, 'שם הקובץ באנגלית (נתיב ההתקנה ב-Windows)');
   }
-  assert.deepEqual(EB.ORDER, ['full', 'npo', 'realty', 'acct'], 'המלאה ראשונה');
+  assert.deepEqual(EB.ORDER, EB.productLock() || ['full', 'npo', 'realty', 'acct'], 'המלאה ראשונה; במאגר מוצר — רק הוא');
 });
 
 test('תיקיית הנתונים: המלאה — של היום; כל מהדורה — משלה; --user-data-dir גובר', () => {
@@ -104,7 +106,7 @@ test('build-local.js --product ו-build-exe.bat: מהדורה אחת, כמה, א
   assert.match(r.stderr, /מהדורה לא מוכרת: xyz/);
   const src = read('build-local.js');
   assert.match(src, /finally \{\n\s+EB\.setEdition\('full'\);/, 'edition-id.js חוזר ל-full גם אחרי כישלון');
-  assert.match(src, /if \(i < 0\) return \['full'\];/, 'בלי --product — המלאה, כמו קודם');
+  assert.match(src, /if \(i < 0\) return require\('\.\/tools\/edition-build'\)\.productLock\(\) \|\| \['full'\];/, 'בלי --product — המלאה, כמו קודם (במאגר מוצר — המוצר)');
   const bat = read('build-exe.bat');
   assert.match(bat, /if "%PRODUCT%"=="" set "PRODUCT=all"/);
   assert.match(bat, /node build-local\.js --product=%PRODUCT%/);

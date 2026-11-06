@@ -8,7 +8,9 @@ test('קובץ ה-EXE נושא את שם התוכנה והאייקון שלה, �
   // לדילוג על חתימה בלבד: signExecutable:false (העריכה נעשית ב-resedit מקומי, בלי הורדות).
   assert.notEqual(pkg.build.win.signAndEditExecutable, false);
   assert.equal(pkg.build.win.signExecutable, false, 'אין תעודת חתימה — מדלגים על החתימה בלבד');
-  assert.equal(pkg.build.productName, 'SuperSuite');
+  // במאגר של מוצר אחד (tools/split-product.js) — שם המוצר
+  const lock = require('../tools/edition-build').productLock();
+  assert.equal(pkg.build.productName, lock ? require('../shell/edition').get(lock[0]).product : 'SuperSuite');
   assert.ok(pkg.build.copyright, 'זכויות יוצרים בפרטי הקובץ');
   assert.ok(pkg.build.win.icon);
 });

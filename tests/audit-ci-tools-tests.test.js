@@ -192,9 +192,12 @@ test('ממצא 34: צעד Build כמו שהוא — electron-builder מקובץ 
   assert.equal(runs.length, EB.ORDER.length, 'מהדורה אחת בכל הרצה');
   EB.ORDER.forEach((id, i) => assert.deepEqual(runs[i], ['--win', 'nsis', 'portable', '--publish', 'never', ...signingArgs(AZURE).args, ...EB.builderArgs(id)], id));
   const argv = runs[0];
-  assert.deepEqual(argv, ['--win', 'nsis', 'portable', '--publish', 'never', ...signingArgs(AZURE).args], 'המלאה — כמו היום');
   assert.ok(argv.includes('-c.win.azureSignOptions.publisherName=Bunim Seller'));
-  assert.ok(runs[1].includes('-c.productName=SuperSuite Amutot'), 'ערך עם רווח — ארגומנט אחד');
+  // במאגר המשותף: המלאה ראשונה כמו היום, ואחריה עמותות. במאגר של מוצר אחד (edition-product.json) — רק הוא
+  if (!EB.productLock()) {
+    assert.deepEqual(argv, ['--win', 'nsis', 'portable', '--publish', 'never', ...signingArgs(AZURE).args], 'המלאה — כמו היום');
+    assert.ok(runs[1].includes('-c.productName=SuperSuite Amutot'), 'ערך עם רווח — ארגומנט אחד');
+  }
   // בסוף הצעד המהדורה חוזרת ל-full (trap), ו-edition-id.js שבמאגר לא נגע
   assert.equal(fs.readFileSync(dir + '/edition-id.js', 'utf8'), EB.editionIdSource('full'));
   assert.equal(fs.readFileSync(path.join(ROOT, 'shell', 'edition-id.js'), 'utf8').replace(/\r\n/g, '\n'), EB.editionIdSource('full'));

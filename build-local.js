@@ -27,7 +27,8 @@ const CHECK_ONLY = process.argv.includes('--check');
 function parseProducts(argv) {
   const ids = require('./shell/edition').IDS;
   const i = argv.findIndex(a => a === '--product' || a.startsWith('--product='));
-  if (i < 0) return ['full'];
+  // מאגר של מוצר אחד (edition-product.json) — המוצר שלו; אחרת המלאה, כמו קודם
+  if (i < 0) return require('./tools/edition-build').productLock() || ['full'];
   const v = argv[i].includes('=') ? argv[i].split('=')[1] : argv[i + 1];
   if (v === 'all') return require('./tools/edition-build').ORDER;
   const list = String(v || '').split(',').filter(Boolean);
