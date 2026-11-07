@@ -75,7 +75,15 @@ test('החלוקה שאישר הבעלים: כל תחום במהדורה הנכ�
   // מנוע החשבוניות בכל מהדורה (החלטת הבעלים) — מסך החשבוניות והגדרות העסק קיימים בשלוש
   for (const id of Edition.PARTIAL_IDS) for (const v of ['acct-invoices', 'acct-settings']) assert.ok(has(id, v), id + ' ' + v);
   const CAT = require('../shell/catalog');
-  const orphan = CAT.ALL_GROUPS.flatMap(g => g.items).filter(it => !Edition.PARTIAL_IDS.some(id => Edition.keyAllowed(CAT.keyOf(it), Edition.get(id))));
+  // מודולי הלימוד — רק במהדורה המלאה (החלטת הבעלים 7.11.2026; המוצר החינוכי הנפרד — SuperSuite לימוד)
+  const LEARN = ['trainer', 'english', 'math', 'school'];
+  const items = CAT.ALL_GROUPS.flatMap(g => g.items);
+  for (const it of items.filter(i => LEARN.includes(i.mod))) {
+    assert.ok(Edition.keyAllowed(CAT.keyOf(it), Edition.get('full')), CAT.keyOf(it));
+    assert.ok(!Edition.PARTIAL_IDS.some(id => Edition.keyAllowed(CAT.keyOf(it), Edition.get(id))), 'לימוד רק במלאה: ' + CAT.keyOf(it));
+  }
+  for (const m of LEARN) for (const id of Edition.PARTIAL_IDS) assert.ok(!Edition.modAllowed(m, Edition.get(id)), id + ' ' + m);
+  const orphan = items.filter(it => !LEARN.includes(it.mod) && !Edition.PARTIAL_IDS.some(id => Edition.keyAllowed(CAT.keyOf(it), Edition.get(id))));
   assert.deepEqual(orphan.map(i => CAT.keyOf(i)), [], 'מסך שלא שויך לאף מהדורה');
 });
 
@@ -260,4 +268,14 @@ test('main.js ו-shell: המהדורה נאכפת במעבר למסך, ושם ה
     assert.ok(i('edition-id.js') > 0 && i('edition-id.js') < i('edition.js') && i('edition.js') < i(f), f);
   }
   assert.match(fs.readFileSync(path.join(ROOT, 'shell/shell.js'), 'utf8'), /document\.title = EDITION\.name/);
+});
+
+test('גיבוי של מודול בודד: אפשרות לכל מודול, והמעטפת מסתירה מודול שאינו במהדורה', () => {
+  const fs = require('fs'), path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'shell', 'shell.html'), 'utf8');
+  const sel = html.slice(html.indexOf('<select id="ppScope"'), html.indexOf('</select>', html.indexOf('<select id="ppScope"')));
+  const mods = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8').match(/const MODS = (\[[^\]]*\]);/)[1].replace(/'/g, '"'));
+  for (const m of mods) assert.ok(sel.includes(`<option value="${m}">`), m);
+  const js = fs.readFileSync(path.join(__dirname, '..', 'shell', 'shell.js'), 'utf8');
+  assert.match(js, /o\.hidden = !!\(EDITION\.mods && !EDITION\.mods\.includes\(o\.value\)\)/);
 });

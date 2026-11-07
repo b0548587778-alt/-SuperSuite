@@ -7,10 +7,13 @@ const OFFER_TYPE = 'supersuite-offer';
 const MAX_PLANS = 20;
 const MAX_TERMS = 100000;
 const FEATURES = ['econ', 'econ.accounting', 'econ.npo', 'econ.gemach', 'econ.chesed', 'econ.mortgage', 'econ.mortgage-advisor', 'econ.mortgage-lab', 'econ.realestate',
-  'shamai', 'tools', 'ai', 'ai.local', 'ai.cloud'];
+  'shamai', 'tools', 'ai', 'ai.local', 'ai.cloud',
+  // מודולי הלימוד — במהדורה המלאה (shell/edition.js; החלטת הבעלים 7.11.2026). לפני כן 'trainer' היה תכונה ישנה בלבד
+  'trainer', 'english', 'math', 'school'];
 // תחומים שהיו במוצר ועברו למוצר אחר: לא מוצעים בהצעה חדשה, אבל הצעה חתומה ישנה שכוללת אותם עדיין מאומתת
 // (בלעדי זה תכנית שכל תחומיה ישנים הייתה "בלי אף תחום", וכל ההצעה נפסלת). 'trainer' — המוצר החינוכי הנפרד
-const LEGACY_FEATURES = ['trainer'];
+// (ריק מאז שהאימונים חזרו למהדורה המלאה — 'trainer' שוב תכונה רגילה, ורישיון ישן שכולל אותו פותח אותה שם)
+const LEGACY_FEATURES = [];
 
 const clean = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, max);
 

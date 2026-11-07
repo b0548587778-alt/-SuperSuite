@@ -1,11 +1,12 @@
-// מודול האימונים (trainer) עבר למוצר החינוכי הנפרד. תאימות לאחור במוצר הכלכלי:
-// רישיון חתום והצעה חתומה מגרסה קודמת שכוללים את התכונה 'trainer' — עדיין מאומתים ונטענים; התכונה פשוט לא פותחת דבר.
-// הצעה חדשה לא מציעה אותה. (שחזור גיבוי ישן עם localStorage.trainer — ב-tests/audit-backup-startup.test.js)
+// מודול האימונים (trainer) — במוצר החינוכי הנפרד, וגם במהדורה המלאה (החלטת הבעלים 7.11.2026: "המלאה כוללת גם לימוד").
+// רישיון חתום והצעה חתומה מגרסה קודמת שכוללים את התכונה 'trainer' — מאומתים, ובמהדורה המלאה התכונה פותחת את המודול;
+// במהדורה חלקית — סגור (השער של המהדורה). (שחזור גיבוי עם localStorage.trainer — ב-tests/audit-backup-startup.test.js)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const L = require('../shell/licensing/license');
 const OF = require('../shell/licensing/offer');
 const G = require('../shell/licensing/gate');
+const Edition = require('../shell/edition');
 
 const DAY = L.DAY_MS;
 const T0 = Date.UTC(2026, 9, 1);
@@ -36,17 +37,17 @@ test('הצעה חתומה ישנה עם התחום trainer — מאומתת, ג�
   assert.throws(() => OF.verifyOffer(JSON.stringify(t), [root.publicJwk]), /חתימת/);
 });
 
-test('הצעה חדשה: trainer אינו תחום מוצע — מסונן, ותכנית שזה כל מה שבה נדחית', () => {
+test('הצעה חדשה: trainer ומודולי הלימוד הם תחומים מוצעים (מהדורה מלאה)', () => {
   const root = L.generateKeyPair();
-  assert.ok(!OF.FEATURES.includes('trainer'));
-  assert.deepEqual(OF.LEGACY_FEATURES, ['trainer']);
+  for (const f of ['trainer', 'english', 'math', 'school']) assert.ok(OF.FEATURES.includes(f), f);
+  assert.deepEqual(OF.LEGACY_FEATURES, []);
   const base = { seller: { name: 'בונים סלר' }, terms: { version: '1.0', text: TERMS } };
   const text = OF.createOffer(root.privateJwk, { ...base, plans: [{ id: 'pro', name: 'מקצועי', priceAgorot: 100, months: 12, features: ['econ', 'trainer'] }] });
-  assert.deepEqual(OF.verifyOffer(text, [root.publicJwk]).plans[0].features, ['econ']);
-  assert.throws(() => OF.createOffer(root.privateJwk, { ...base, plans: [{ id: 'x', name: 'מאמנים', priceAgorot: 100, months: 12, features: ['trainer'] }] }), /לא נבחר אף תחום/);
+  assert.deepEqual(OF.verifyOffer(text, [root.publicJwk]).plans[0].features, ['econ', 'trainer']);
 });
 
-test('רישיון חתום ישן עם trainer — השרשרת מאומתת, והשער מתעלם מהתכונה', () => {
+test('רישיון חתום ישן עם trainer — השרשרת מאומתת; במלאה פותח את המודול, במהדורה חלקית סגור', (t) => {
+  t.after(() => Edition._setForTests('full'));
   const root = L.generateKeyPair();
   const keys = L.generateKeyPair();
   const license = L.issueLicense({ privateJwk: root.privateJwk }, {
@@ -55,20 +56,14 @@ test('רישיון חתום ישן עם trainer — השרשרת מאומתת, �
     limits: { maxChildren: 0, maxUsers: 5, maxStorageMb: 1000, maxDepth: 1 },
     issuedAt: T0, expiresAt: T0 + 365 * DAY, graceDays: 7,
   });
-  const chain = L.verifyChain([license], [root.publicJwk]);
-  assert.ok(chain, 'השרשרת מאומתת');
-  const payload = license.payload;
-  assert.ok(payload.features.includes('trainer'));
-  const state = { mode: 'licensed', status: 'active', features: payload.features, limits: payload.limits, reasons: [] };
-  assert.equal(G.moduleAllowed(state, 'econ'), true);
-  assert.equal(G.moduleAllowed(state, 'tools'), true);
+  assert.ok(L.verifyChain([license], [root.publicJwk]), 'השרשרת מאומתת');
+  const state = { mode: 'licensed', status: 'active', features: license.payload.features, limits: license.payload.limits, reasons: [] };
+  Edition._setForTests('full');
+  assert.equal(G.moduleAllowed(state, 'trainer'), true);
   assert.equal(G.moduleAllowed(state, 'shamai'), false);
-  assert.equal(G.moduleAllowed(state, 'trainer'), false, 'אין מודול כזה במוצר');
-  assert.deepEqual(G.shellState(state).modules, { econ: true, shamai: false, tools: true });
-  assert.deepEqual(G.peopleSources(state), ['npo'], 'מאגר האנשים בלי מתאמנים');
+  assert.equal(G.moduleAllowed(state, 'school'), false, 'לא ברישיון');
   assert.equal(G.checkChannel(state, 'npo:getOverview', 'data.view'), null);
-  // רישיון של אימונים בלבד: שום מודול לא נפתח — וגם לא קריסה
-  const only = { ...state, features: ['trainer'] };
-  assert.deepEqual(G.shellState(only).modules, { econ: false, shamai: false, tools: false });
-  assert.match(G.checkChannel(only, 'people:search', 'data.view'), /אינו כלול ברישיון/);
+  Edition._setForTests('npo');
+  assert.equal(G.moduleAllowed(state, 'trainer'), false, 'לימוד רק במלאה');
+  assert.equal(G.moduleAllowed(state, 'econ'), true);
 });

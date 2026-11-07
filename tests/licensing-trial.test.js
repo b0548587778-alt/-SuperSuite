@@ -38,8 +38,8 @@ test('יום 1: הכול פתוח, נותרו 30 יום, בלי אזהרה; הה
   assert.equal(st.trial.warn, false);
   assert.equal(st.trial.startedAt, T0);
   assert.equal(st.trial.endsAt, T0 + 30 * DAY);
-  for (const m of ['econ', 'shamai', 'tools']) assert.equal(G.moduleAllowed(st, m), true, m);
-  assert.ok(!st.features.includes('trainer'), 'תקופת הניסיון לא כוללת את מודול האימונים (מוצר נפרד)');
+  // במהדורה המלאה הניסיון כולל גם את מודולי הלימוד (החלטת הבעלים 7.11.2026)
+  for (const m of ['econ', 'shamai', 'tools', 'trainer', 'english', 'math', 'school']) assert.equal(G.moduleAllowed(st, m), true, m);
   assert.equal(G.checkChannel(st, 'npo:addDonation', 'data.edit'), null);
   assert.equal(G.checkChannel(st, 'acct:createInvoice', 'data.edit'), null);
   assert.equal(JSON.parse(storage.peek()).trialStart, T0);

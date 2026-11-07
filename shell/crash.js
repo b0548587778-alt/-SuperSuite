@@ -3,7 +3,8 @@
 // ההודעות לא נערמות: כל עוד דיאלוג פתוח, אירוע נוסף נרשם ביומן בלבד.
 'use strict';
 
-const MODULE_NAMES = { shell: 'המסך הראשי', econ: 'המערכת הכלכלית', shamai: 'השמאות', tools: 'ארגז הכלים' };
+const MODULE_NAMES = { shell: 'המסך הראשי', econ: 'המערכת הכלכלית', shamai: 'השמאות', tools: 'ארגז הכלים',
+  trainer: 'האימונים', english: 'האנגלית', math: 'החשבון', school: 'ניהול המוסד' };
 const pad = (n) => String(n).padStart(2, '0');
 const localDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 

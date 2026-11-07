@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ניהול מוסד</title>
+<link rel="stylesheet" href="/design-tokens.css">
+<link rel="stylesheet" href="/ui-kit.css">
+<script src="/screen-guard.js"></script>
+<script src="/ss-dialog.js"></script>
+<link rel="stylesheet" href="school.css">
+</head>
+<body>
+<div id="app">
+  <header class="ss-page-head sc-head">
+    <div>
+      <h1 id="instName">ניהול מוסד</h1>
+      <p class="ss-muted sc-sub" id="instSub">תלמוד תורה · בית ספר · סמינר · כולל</p>
+    </div>
+    <div class="ss-actions" id="headActions"></div>
+  </header>
+  <nav class="ss-tabs" id="tabs" role="tablist" aria-label="מסכי המודול"></nav>
+  <main id="view" class="ss-stack" role="tabpanel" tabindex="-1"></main>
+</div>
+
+<dialog id="dlg" class="sc-dialog" aria-labelledby="dlgTitle">
+  <div class="sc-dialog-head">
+    <h2 id="dlgTitle"></h2>
+    <button type="button" class="ss-btn-ghost ss-btn-icon" id="dlgClose" aria-label="סגירה">✕</button>
+  </div>
+  <div id="dlgBody" class="sc-dialog-body"></div>
+  <div id="dlgFoot" class="sc-dialog-foot"></div>
+</dialog>
+
+<div id="printArea" class="sc-print" aria-hidden="true"></div>
+<div class="sc-toast" id="toast" role="status" aria-live="polite"></div>
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -5,7 +5,8 @@ const Edition = require('../edition');
 
 // מודולי התוכנה — כל אחד הוא תכונה ברישיון.
 // תכונה שאינה כאן (למשל 'trainer' ברישיון ישן — המודול עבר למוצר החינוכי הנפרד) לא פותחת דבר ולא פוסלת את הרישיון
-const MODULE_FEATURES = { econ: 'econ', shamai: 'shamai', tools: 'tools' };
+// מודולי הלימוד — רק במהדורה המלאה (shell/edition.js); בשאר המהדורות moduleAllowed סוגר אותם לפני הרישיון
+const MODULE_FEATURES = { econ: 'econ', shamai: 'shamai', tools: 'tools', trainer: 'trainer', english: 'english', math: 'math', school: 'school' };
 
 // תחומים במערכת הכלכלית שנפתחים בנפרד. תחילית ערוץ שאינה כאן דורשת רק 'econ'
 const ECON_SUB_FEATURES = {

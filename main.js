@@ -12,7 +12,7 @@ const DbRecovery = require('./shell/db-recovery');
 const DbKey = require('./shell/db-key');
 const SecureStore = require('./shell/secure-store');
 const ModCounters = require('./shell/module-counters');
-const Legacy = require('./shell/legacy-modules');
+const TrainerCheck = require('./shell/trainer-backup-check');
 const Chat = require('./shell/licensing/chat');
 const UsersBk = require('./modules/econ/core/usersBackup'); // משתמשים ויומן הפעולות בגיבוי המלא
 const { issuedAfter } = require('./modules/econ/core/database');
@@ -52,24 +52,29 @@ const ECON_VIEWS = [...Catalog.ECON_VIEWS, ...ECON_EXTRAS.map(x => x.view)];
 // כל מסכי הקטלוג, גם של מהדורות אחרות (shell/edition.js) — כדי לזהות מסך שאינו במהדורה הזו
 const ALL_ECON_VIEWS = new Set(Catalog.ALL_GROUPS.flatMap(g => g.items).filter(it => it.mod === 'econ').map(it => it.view));
 // האם מותר לפתוח תצוגה פנימית במודול (רק במודול הכלכלי יש תצוגות בסרגל)
-const moduleHasView = (id, view) => id === 'econ' && ECON_VIEWS.includes(view);
+const moduleHasView = (id, view) => (id === 'econ' && ECON_VIEWS.includes(view)) || (id === 'trainer' && Catalog.TRAINER_VIEWS.includes(view));
 
 const SIDEBAR = 264;
 // היסטוריית ניווט (אחורה/קדימה). replaying: מעבר שמקורו בהיסטוריה עצמה לא נרשם כצעד חדש
 const history = NavHistory.create();
 let replaying = false;
-// מודול האימונים (trainer) עבר למוצר החינוכי הנפרד — גיבוי ישן שכולל אותו משוחזר בלי החלק הזה (restoreAllRun)
-const MODS = ['econ', 'shamai', 'tools'];
+// מודולי הלימוד (אימונים, אנגלית, חשבון, ניהול מוסד) — רק במהדורה המלאה (shell/edition.js, החלטת הבעלים 7.11.2026);
+// המוצר הנפרד SuperSuite לימוד ממשיך במאגר שלו. בשאר המהדורות הם לא מוגשים, והנתונים שלהם נשמרים בגיבוי
+const MODS = ['econ', 'shamai', 'tools', 'trainer', 'english', 'math', 'school'];
 // המודולים של המהדורה (shell/edition.js): רק הם מוגשים ונטענים. הגיבוי והשחזור — לפי MODS (כל המודולים),
 // כדי שנתונים של מודול מחוץ למהדורה יישמרו ולא יאבדו במעבר בין מהדורות
 const ACTIVE_MODS = MODS.filter(m => Edition.modAllowed(m));
-const LS_MODS = ['shamai', 'tools'];
+const LS_MODS = ['shamai', 'tools', 'trainer', 'english', 'math', 'school'];
 const BACKUP_SCOPES = ['all', ...MODS];
 const ENTRY = {
   // embedded=1: הסרגל הפנימי של המודול מוסתר — הניווט כולו בסרגל האחיד של המעטפת
   econ: 'app://econ/views/index.html?embedded=1',
   shamai: 'app://shamai/index.html',
-  tools: 'app://tools/index.html'
+  tools: 'app://tools/index.html',
+  trainer: 'app://trainer/index.html',
+  english: 'app://english/index.html',
+  math: 'app://math/index.html',
+  school: 'app://school/index.html'
 };
 const ZOOM_MIN = 0.8, ZOOM_MAX = 1.6, ZOOM_STEP = 0.1;
 // תקרת גודל לערך בודד ב-localStorage בזמן שחזור גיבוי (5MB — מגן מפני קובץ גיבוי נפוח/זדוני)
@@ -129,9 +134,10 @@ function handleShortcut(input, wc) {
   if (input.type !== 'keyDown') return false;
   // חזרות אוטומטיות (החזקת מקש) לא מפעילות ניווט/זום — מונע "הצפה" בשינויי מצב
   if (input.isAutoRepeat) return false;
-  if (input.control && !input.shift && /^[1-3]$/.test(input.key)) {
-    // מבטלים את הקיצור תמיד (Ctrl+ספרה לא מכניס תו), ומעבירים מודול רק אם לא מקלידים בשדה
-    const target = MODS[+input.key - 1];
+  if (input.control && !input.shift && /^[1-9]$/.test(input.key) && +input.key <= ACTIVE_MODS.length) {
+    // מבטלים את הקיצור תמיד (Ctrl+ספרה לא מכניס תו), ומעבירים מודול רק אם לא מקלידים בשדה.
+    // הסדר — המודולים של המהדורה (Ctrl+1..3 כמו תמיד: כלכלה, שמאי, ארגז כלים; במלאה גם הלימוד)
+    const target = ACTIVE_MODS[+input.key - 1];
     wc.executeJavaScript(EDITING_CHECK_JS)
       .then(editing => { if (!editing) switchTo(target); })
       .catch(() => {});
@@ -227,6 +233,8 @@ function ensureView(id) {
   if (views[id]) return views[id];
   const prefs = { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true };
   if (id === 'econ') prefs.preload = path.join(modulesRoot(), 'econ', 'preload.js');
+  // מודול האימונים: preload בלי חשיפה לעמוד — ניווט מהסרגל האחיד ודיווח המסך הפעיל
+  if (id === 'trainer') prefs.preload = path.join(modulesRoot(), 'trainer', 'preload.js');
   const v = new WebContentsView({ webPreferences: CodeGuard.guardPrefs(prefs, app.isPackaged) });
   views[id] = v;
   v.setVisible(false); // תצוגות מוסתרות לא מציירות ולא קולטות קלט
@@ -352,8 +360,21 @@ function taskAccess() {
   }).map(t => t.id);
 }
 
+// פתיחת תצוגה במודול האימונים: ה-preload לוחץ על הכפתור המתאים בסרגל הפנימי (ושומר את הבקשה עד שהוא קיים)
+function openTrainerView(view) {
+  if (!Catalog.TRAINER_VIEWS.includes(view) || !ACTIVE_MODS.includes('trainer')) return false;
+  // לפני כניסה — התצוגה נשמרת עם המודול הממתין ונפתחת אחרי הכניסה
+  if (loginGate.pending && loginGate.pending.id === 'trainer') { loginGate.setPendingView('trainer', view); return true; }
+  const v = ensureView('trainer');
+  waitLoaded(v.webContents).then(() => {
+    if (!v.webContents.isDestroyed()) v.webContents.send('trainer:goto', Catalog.TRAINER_LABELS[view]);
+  });
+  return true;
+}
+
 function openModuleView(id, view) {
   if (id === 'econ') return openEconView(view);
+  if (id === 'trainer') return openTrainerView(view);
   return false;
 }
 
@@ -739,27 +760,45 @@ function wireDisplay() {
     return saveDisplay({ ...displaySettings(), theme });
   });
 }
+// הרשאות הפגישה למודול נעול של הלימוד (ניהול מוסד, אימונים) — נמסרות לעמוד עם הנתונים (window.ssModulePerms),
+// כדי שהממשק יסתיר ייצוא (data.export) ומחיקה (data.delete) ממי שאין לו הרשאה. בדיקה שקטה. שמאי — לא צריך
+const PERMS_MODS = ['trainer', 'school'];
+const EXPORT_GUARDED_MODS = ['school'];
+function modulePerms(mod) {
+  if (!PERMS_MODS.includes(mod) || !econSessionAlive() || !econ.sessionCan) return null;
+  const id = econSenderId();
+  return { export: !!econ.sessionCan(id, 'data.export'), delete: !!econ.sessionCan(id, 'data.delete'), user: econ.sessionUserName ? econ.sessionUserName(id) : '' };
+}
 function wireSecureStore() {
+  // ייצוא מניהול המוסד — רק עם הרשאת data.export: הורדה בלי הרשאה נחסמת
+  const ses = session.defaultSession;
+  if (ses && typeof ses.on === 'function') {
+    ses.on('will-download', (e, item, wc) => {
+      const mod = EXPORT_GUARDED_MODS.find(id => views[id] && !views[id].webContents.isDestroyed() && wc && wc.id === views[id].webContents.id);
+      if (mod && !(modulePerms(mod) || {}).export) e.preventDefault();
+    });
+  }
   session.defaultSession.registerPreloadScript({ type: 'frame', filePath: path.join(__dirname, 'shell', 'secure-ls-preload.js') });
   ipcMain.on('secure-store:load', (e, mod) => {
     if (!fromModuleView(e, mod)) { e.returnValue = null; return; }
     const s = secureStore(mod);
     // בלי כניסה (PLAN.md 3.3): העמוד מקבל אחסון ריק לקריאה בלבד — נטען מחדש עם הנתונים אחרי הכניסה.
     // גם במצב plain (אין הצפנת Windows): ה-preload מחליף שם את localStorage באותו אופן
-    if (s.state !== 'locked' && !econSessionAlive()) { e.returnValue = { state: 'no-session', migrated: true, data: {} }; return; }
+    // אנגלית וחשבון (לא ב-LOCKED_MODS) — נטענים גם בלי כניסה
+    if (s.state !== 'locked' && LoginGate.LOCKED_MODS.includes(mod) && !econSessionAlive()) { e.returnValue = { state: 'no-session', migrated: true, data: {} }; return; }
     // התמונות (קבצים נפרדים, סקירת קוד 2.11.2026) — רק הרשימה; העמוד מבקש כל תמונה כשהוא קורא אותה (secure-store:get)
-    if (s.state === 'plain') { e.returnValue = { state: s.state, migrated: s.migrated, data: {} }; return; }
-    e.returnValue = { state: s.state, migrated: s.migrated, data: s.dataSnapshot(), blobKeys: s.blobKeys(), blobPrefixes: SecureStore.blobPrefixes(mod) };
+    if (s.state === 'plain') { e.returnValue = { state: s.state, migrated: s.migrated, data: {}, perms: modulePerms(mod) }; return; }
+    e.returnValue = { state: s.state, migrated: s.migrated, data: s.dataSnapshot(), blobKeys: s.blobKeys(), blobPrefixes: SecureStore.blobPrefixes(mod), perms: modulePerms(mod) };
   });
   // תמונה אחת לפי דרישה — באותם תנאים כמו הטעינה: רק מתצוגת המודול ורק בכניסה פעילה. null — אין
   ipcMain.on('secure-store:get', (e, mod, k) => {
-    if (!fromModuleView(e, mod) || !econSessionAlive()) { e.returnValue = null; return; }
+    if (!fromModuleView(e, mod) || (LoginGate.LOCKED_MODS.includes(mod) && !econSessionAlive())) { e.returnValue = null; return; }
     try { e.returnValue = secureStore(mod).get(String(k)); }
     catch (err) { logger.error('secure-store', err); e.returnValue = null; }
   });
   // גיבוי מוצפן של הנתונים הישנים לפני ההעברה. בלי גיבוי — אין העברה
   ipcMain.on('secure-store:migrate', (e, mod, items) => {
-    if (!fromModuleView(e, mod) || !econSessionAlive()) { e.returnValue = { ok: false }; return; }
+    if (!fromModuleView(e, mod) || (LoginGate.LOCKED_MODS.includes(mod) && !econSessionAlive())) { e.returnValue = { ok: false }; return; }
     e.returnValue = secureStore(mod).migrate(items, (plain) => {
       const dir = loadJson(backupSettingsFile()).targetDir || defaultBackupDir();
       fs.mkdirSync(dir, { recursive: true });
@@ -790,9 +829,14 @@ function wireSecureStore() {
 // מי רשאי לשנות נתונים בשמאי (ממצא 24): כניסה פעילה עם data.edit — צופה ורואה חשבון קוראים בלבד —
 // ורישיון שמאפשר עבודה (סוף תקופת ניסיון / ממתין לתשלום — קריאה בלבד, כמו במודול הכלכלי).
 // בדיקה שקטה: כתיבה אינה "פעילות" (שמירה אוטומטית לא תמנע ניתוק). null = מותר, אחרת תשובת דחייה לעמוד
+// מודול שאינו דורש כניסה (אנגלית, חשבון — לא ב-LoginGate.LOCKED_MODS) נשמר מוצפן גם בלי כניסה: רק בדיקת הרישיון
 function secureWriteBlock(mod) {
+  if (!LoginGate.LOCKED_MODS.includes(mod)) return licenseWriteBlock(mod);
   if (!econSessionAlive()) return SecureStore.rejectWrite('no-session', 'השינוי לא נשמר: הכניסה למערכת פגה — יש להיכנס שוב');
   if (!(econ.sessionCan && econ.sessionCan(econSenderId(), 'data.edit'))) return SecureStore.rejectWrite('forbidden', 'השינוי לא נשמר: לתפקיד שלך יש הרשאת צפייה בלבד');
+  return licenseWriteBlock(mod);
+}
+function licenseWriteBlock(mod) {
   const lic = licenseNow();
   if (lic && lic.mode !== 'unlicensed') {
     if (!LG.moduleAllowed(lic, mod)) return SecureStore.rejectWrite('license', 'השינוי לא נשמר: המודול אינו כלול ברישיון');
@@ -1062,10 +1106,16 @@ async function restoreAllRun(passphrase) {
     dialog.showErrorBox('שגיאה', e.message || 'הקובץ אינו גיבוי תקין');
     return { ok: false };
   }
+  // קובץ JSON ישן מכפתור הייצוא של מודול האימונים — מומר לגיבוי של המודול (shell/trainer-backup-check.js)
+  data = TrainerCheck.legacyTrainerBackup(data) || data;
   if (!data || data.suite !== 'SuperSuite') { dialog.showErrorBox('שגיאה', 'הקובץ אינו גיבוי של SuperSuite'); return { ok: false }; }
-  // גיבוי מגרסה שכללה את מודול האימונים (עבר למוצר החינוכי הנפרד): localStorage.trainer לא נקרא ולא נבדק —
-  // LS_MODS בלעדיו — ושאר הגיבוי משוחזר כרגיל. ההודעה בחלון האישור אומרת שהחלק הזה לא שוחזר
-  const legacyData = Legacy.hasLegacyModuleData(data);
+  // נתוני האימונים (מודולי הלימוד חזרו למהדורה המלאה; גם במהדורה אחרת הם נשמרים במחסן ולא נמחקים) — נבדקים לפני
+  // האישור ולפני כל מחיקה: קובץ פגום לא נוגע בשום דבר. גיבוי מלא בלי נתוני אימונים (trainer = {}) — אין מה לבדוק
+  if (data.localStorage && TrainerCheck.hasTrainerItems(data.localStorage.trainer)) {
+    const t = TrainerCheck.checkTrainerItems(data.localStorage.trainer);
+    if (!t.ok) { dialog.showErrorBox('שגיאה', t.error + '. לא שוחזר דבר, והנתונים הקיימים לא השתנו.'); return { ok: false }; }
+    data.localStorage.trainer = t.clean;
+  }
   // תיבת ההודעות (גיבוי מלא מגרסה שכוללת אותה) — נבדקת כאן, לפני האישור ולפני כל מחיקה. גיבוי ישן בלי chat לא נוגע בתיבה
   let chatData = null;
   if (data.chat != null) {
@@ -1082,7 +1132,7 @@ async function restoreAllRun(passphrase) {
   const mods = LS_MODS.filter(id => restoreItems(data, id));
   // אין מה לשחזר (למשל גיבוי של מודול האימונים בלבד): לא מציגים "השחזור הושלם" כשלא שוחזר דבר
   if (!data.econ && !mods.length && !chatData) {
-    dialog.showErrorBox('שגיאה', (legacyData ? Legacy.LEGACY_ONLY : '') + 'אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו');
+    dialog.showErrorBox('שגיאה', 'אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו');
     return { ok: false };
   }
   // גיבוי ישן מהמסמך האחרון שהופק — אזהרה בחלון האישור (בדיקת קוד 22.10.2026, ממצא 5). קריאה בלבד; כשל — בלי אזהרה
@@ -1096,7 +1146,7 @@ async function restoreAllRun(passphrase) {
   } catch (e) { logger.error('restore-missing-docs', e); }
   const chatNote = chatData ? 'תיבת ההודעות תשוחזר מהגיבוי; הודעות שהתקבלו או נשלחו אחרי הגיבוי יישארו בה.\n\n' : '';
   const usersNote = usersData ? UsersBk.restoreNote(usersData) + '\n\n' : '';
-  const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: (missing ? '⚠ ' + missing + '\n\n' : '') + chatNote + usersNote + (legacyData ? Legacy.LEGACY_NOTE + '\n\n' : '') + 'מומלץ לבצע גיבוי לפני כן.' });
+  const c = await dialog.showMessageBox(win, { type: 'warning', buttons: ['שחזר', 'ביטול'], defaultId: 1, cancelId: 1, message: 'השחזור יחליף את הנתונים הקיימים ' + scopeText, detail: (missing ? '⚠ ' + missing + '\n\n' : '') + chatNote + usersNote + 'מומלץ לבצע גיבוי לפני כן.' });
   if (c.response !== 0) return { ok: false };
   // מה שהשחזור יחליף נשמר קודם בזיכרון: כשל באמצע (למשל הכספים שוחזרו ומודול אחר נכשל) מחזיר הכול למצב שלפני
   let before;
@@ -1328,6 +1378,26 @@ app.whenReady().then(async () => {
     return true;
   });
   // המודול הכלכלי מדווח על התצוגה הפעילה, כדי שהסרגל האחיד יסמן אותה
+  // מודול האימונים מדווח על המסך הפעיל (לפי הטקסט בסרגל הפנימי) — רק מתצוגת המודול עצמה
+  ipcMain.handle('shell:trainer-view', (e, label) => {
+    const v = views.trainer;
+    if (!v || v.webContents.isDestroyed() || e.sender.id !== v.webContents.id) return false;
+    const view = typeof label === 'string' ? Catalog.TRAINER_BY_LABEL[label] : undefined;
+    if (!view) return false;
+    if (win && !win.isDestroyed()) win.webContents.send('shell:active-view', view, 'trainer');
+    if (active === 'trainer') recordNav({ mod: 'trainer', view });
+    return true;
+  });
+  // מודול האימונים: שמירת המסך המוצג כ-PDF (תוכנית, תזונה, דוח למתאמן) — רק מתצוגת המודול עצמה
+  ipcMain.handle('trainer:save-pdf', async (e, name) => {
+    if (!fromView(e, 'trainer')) return { ok: false };
+    try {
+      return await PrintPdf.savePagePdf({ dialog, fs, win, wc: e.sender, name, dir: documentsDir() });
+    } catch (err) {
+      logger.error('trainer:save-pdf', err);
+      return { ok: false, error: 'שמירת הקובץ נכשלה. אפשר לנסות שוב, או לבחור תיקייה אחרת.' };
+    }
+  });
   ipcMain.handle('shell:econ-view', (e, view) => {
     const v = views.econ;
     if (!v || v.webContents.isDestroyed() || e.sender.id !== v.webContents.id) return false;

@@ -20,10 +20,12 @@ const LIC_FEATURES = [
   ['econ', 'מערכת כלכלית (בסיס)'], ['econ.accounting', 'הנהלת חשבונות'], ['econ.npo', 'עמותה ותרומות'], ['econ.gemach', 'גמ"ח'],
   ['econ.chesed', 'חסד וחלוקות'], ['econ.mortgage', 'משכנתאות'], ['econ.mortgage-advisor', 'ייעוץ משכנתאות'], ['econ.mortgage-lab', 'מעבדת תמהיל'], ['econ.realestate', 'נדל"ן (שמאות מקרקעין, תיווך ויזמים)'],
   ['shamai', 'שמאות'], ['tools', 'ארגז כלים'],
-  ['ai', 'עוזר חכם — כללים'], ['ai.local', 'עוזר חכם — מודל במחשב'], ['ai.cloud', 'עוזר חכם — שדרוג ענן']
+  ['ai', 'עוזר חכם — כללים'], ['ai.local', 'עוזר חכם — מודל במחשב'], ['ai.cloud', 'עוזר חכם — שדרוג ענן'],
+  // מודולי הלימוד — במהדורה המלאה
+  ['trainer', 'ניהול אימונים'], ['english', 'אנגלית'], ['math', 'חשבון'], ['school', 'ניהול מוסד']
 ];
-// תחומים מרישיונות ישנים שאינם במוצר הזה — מוצגים בשם קריא, ולא מוצעים בהנפקה (trainer: עבר למוצר החינוכי הנפרד)
-const LIC_LEGACY_FEATURES = { trainer: 'ניהול אימונים (מוצר נפרד)' };
+// תחומים מרישיונות ישנים שאינם במוצר הזה — מוצגים בשם קריא, ולא מוצעים בהנפקה (כרגע אין)
+const LIC_LEGACY_FEATURES = {};
 const licFeatureLabel = (f) => (LIC_FEATURES.find(x => x[0] === f) || [f, LIC_LEGACY_FEATURES[f] || f])[1];
 const licDate = (ms) => (ms ? new Date(ms).toLocaleDateString('he-IL') : '');
 const licBadge = (st) => `<span class="${st === 'active' ? 'good' : 'bad'}">${esc(LIC_STATUS[st] || st)}</span>`;

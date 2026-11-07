@@ -140,7 +140,7 @@ const ui = { active: null, views: {}, query: '' };
 // navMore — "עוד מסכים" בסרגל. מוגדר כאן (לפני הרינדור הראשון), ומתעדכן ב-applyA11yState
 ui.simple = false; ui.simpleAll = false; ui.navMore = false;
 const SIMPLE = window.SUITE_SIMPLE || null;
-const VIEW_MODS = ['econ'];
+const VIEW_MODS = ['econ', 'trainer'];
 // מצב הרישוי מ-main.js: level ok / limited (קריאה בלבד) / blocked (נעול), ואילו מודולים פתוחים
 let lic = { level: 'ok', message: '', modules: {} };
 const ALWAYS_OPEN_VIEWS = ['licensing', 'messages'];
@@ -910,6 +910,8 @@ function askPassphrase({ title, text, optional, scopes }) {
   input.value = ''; err.textContent = '';
   input.required = !optional;
   scopeSel.hidden = !scopes;
+  // גיבוי של מודול בודד — רק מודולים שבמהדורה (EDITION.mods ריק = המלאה, הכול)
+  for (const o of Array.from(scopeSel.options || [])) if (o.value !== 'all' && o.value !== 'econ') o.hidden = !!(EDITION.mods && !EDITION.mods.includes(o.value));
   scopeSel.value = 'all';
   return new Promise(resolve => {
     const form = $('ppForm');
