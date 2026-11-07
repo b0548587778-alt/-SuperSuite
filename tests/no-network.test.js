@@ -27,11 +27,16 @@ const ALLOWED_IN = {
   // אימות תשלום הרשמה אצל מנהל-העל (GetLpResult) — פנייה שמנהל-העל מפעיל בלחיצה, דרך fetchImpl של התהליך הראשי;
   // פרטי המסוף מוצפנים במפתח השורש ולא נשלחים לשרת הרישוי (החלטת הבעלים 5.11.2026)
   'shell/licensing/owner-cardcom.js': ['secure.cardcom.solutions'],
-  'modules/shamai/lib/qrcode.js': ['stackoverflow.com', 'www.d-project.com', 'www.denso-wave.com', 'www.opensource.org']
+  'modules/shamai/lib/qrcode.js': ['stackoverflow.com', 'www.d-project.com', 'www.denso-wave.com', 'www.opensource.org'],
+  // חבילת האימונים (נבנית ב-SuperSuite לימוד, מהדורה מלאה): הודעות שגיאה של React ושל workbox — טקסט, לא פנייה
+  'modules/trainer/workbox-9c191d2f.js': ['bit.ly'],
+  'modules/trainer/assets/': ['reactjs.org', 'fb.me']
 };
 // קבצים שמותר להם לפנות לרשת בפועל (fetch וכדומה)
 const FETCH_ALLOWED = [
-  'shell/google-signin.js', 'shell/licensing/', 'modules/shamai/sw.js'
+  'shell/google-signin.js', 'shell/licensing/', 'modules/shamai/sw.js',
+  // service worker של חבילת האימונים — מטמון מקומי של קבצי המודול עצמו (כמו שמאי)
+  'modules/trainer/sw.js', 'modules/trainer/workbox-', 'modules/trainer/assets/'
 ];
 
 function files() {

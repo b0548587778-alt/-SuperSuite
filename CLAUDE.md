@@ -6,7 +6,7 @@
 
 ## מה זה הפרויקט
 
-**SuperSuite** — תוכנה שולחנית (Electron). למשתמש היא נראית כתוכנה אחת עם סרגל אחד; בפנים היא מורכבת משלושה מודולים. זהו **המוצר הכלכלי**; מודול האימונים (TrainerPro) הוא מוצר חינוכי נפרד, במאגר משלו — אין להחזיר לכאן קוד שלו:
+**SuperSuite** — תוכנה שולחנית (Electron). למשתמש היא נראית כתוכנה אחת עם סרגל אחד; בפנים היא מורכבת משלושה מודולים כלכליים, ובמהדורה המלאה גם ממודולי הלימוד. זהו **המוצר הכלכלי**; מודולי הלימוד (אימונים, אנגלית, חשבון, ניהול מוסד) מפותחים במוצר החינוכי הנפרד (SuperSuite לימוד, מאגר `supersuite-edu`) — **כאן רק עותק בנוי שלהם, למהדורה המלאה בלבד** (ראו "מודולי הלימוד במהדורה המלאה" למטה); אין לפתח אותם כאן:
 
 | מזהה | מודול | תיאור |
 |------|-------|--------|
@@ -82,11 +82,11 @@ python -m unittest test_encryption -v
 - **`shell/catalog.js`** — מקור אמת יחיד לכל פריטי הסרגל (תחום → פריט → מודול/תצוגה). `ECON_VIEWS` נגזר ממנו ו-`main.js` מאמת מולו. **תצוגה חדשה במודול הכלכלי חייבת להתווסף גם לקטלוג** (נבדק ב-`tests/catalog.test.js`).
 - **`shell:open`** (מעטפת בלבד) — פותח מודול ובמודול הכלכלי גם תצוגה (`econ:goto`). **`shell:overlay`** — מסתיר את המודול בזמן דיאלוג במעטפת. **`shell:econ-view`** — המודול הכלכלי מדווח על התצוגה הפעילה לסימון בסרגל.
 - המודול הכלכלי נטען עם `?embedded=1` ומסתיר את הסרגל הפנימי שלו (`.embedded aside`).
-- **מודולים שעברו למוצר אחר** (`shell/legacy-modules.js`): מודול האימונים (`trainer`) עבר למוצר החינוכי הנפרד. גיבוי ישן שכולל `localStorage.trainer` משוחזר בלי החלק הזה, עם הערה בחלון האישור; קובץ גלוי כזה בתיקיית הגיבוי מזוהה ב-`plain-backups.js` (הצעה להצפין או למחוק) (גיבוי של האימונים בלבד ← "אין מה לשחזר"); רישיון או הצעה חתומים עם התכונה `trainer` נטענים כרגיל והתכונה לא פותחת דבר (`LEGACY_FEATURES` ב-`offer.js`); `secure-trainer.bin` של משתמשים קיימים לא נפתח ולא נמחק (`tests/legacy-trainer-compat.test.js`, `tests/audit-backup-startup.test.js`). גם יומן הכושר (`fitness`) הוסר מהממשק; האוסף `fitnessData` נשאר במסד כדי שנתונים קיימים וגיבויים לא יאבדו.
+- **מודולי הלימוד במהדורה המלאה** (החלטת הבעלים 7.11.2026: "המלאה כוללת גם לימוד"): `trainer`, `english`, `math`, `school` ב-`MODS` / `ENTRY` / `LS_MODS` של `main.js`, במחסן המוצפן (`secure-store.js` `MODULES`, `secure-ls-preload.js`), בשער (`MODULE_FEATURES`, `offer.FEATURES`) ובקטלוג (תחומי לימוד / ניהול מוסד / אימונים, `TRAINER_VIEWS` / `TRAINER_LABELS`) — **רק במהדורה `full`** (`edition.js`: אין להם מקום ב-`mods` של מהדורה חלקית; `tests/edition.test.js`). `LOCKED_MODS` = שמאות, אימונים וניהול מוסד; אנגלית וחשבון כותבים בלי כניסה (רק הרישיון — `licenseWriteBlock`). הרשאות ייצוא / מחיקה למודול נעול — `modulePerms` (`PERMS_MODS`, `EXPORT_GUARDED_MODS`, `will-download`). מונה הקבלות של ניהול מוסד — `shell/module-counters.js`. **הקוד מגיע בנוי מ-`supersuite-edu`** (`modules/trainer` — החבילה המהודרת, בלי `modules-src`; `modules/english|math|school` כמו שהם): עדכון = העתקה מחדש משם והרצת `npm test` (הבדיקות שהועברו: `english-logic`, `math-logic`, `school-logic`, `review-2026-11-*`, `ux-*`, `learn-*`, `trainer-nav`, `trainer-backup`; בדיקות קוד המקור של האימונים — רק שם). **שחזור:** נתוני אימונים עוברים `shell/trainer-backup-check.js` לפני האישור (פגום ← שום דבר לא משתנה); קובץ JSON ישן של כפתור הייצוא של האימונים — `legacyTrainerBackup`. רישיון / הצעה עם `trainer` פותחים את המודול במלאה (`LEGACY_FEATURES` ריק; `tests/legacy-trainer-compat.test.js`). **אנדרואיד — עדיין בלי מודולי הלימוד** (`shell/legacy-modules.js` נשאר שם וב-`plain-backups.js`) 🔧. גם יומן הכושר (`fitness`) הוסר מהממשק; האוסף `fitnessData` נשאר במסד כדי שנתונים קיימים וגיבויים לא יאבדו.
 - **`registerProtocol()`** — מגיש קבצים מ-`modules/<mod>/` בלבד. חוסם path traversal אחרי `path.normalize` (נבדק התנהגותית ב-`tests/audit-backup-startup.test.js`).
 - **`ensureView(id)`** — יוצר `WebContentsView` עצלן עם `contextIsolation:true, nodeIntegration:false, sandbox:true`.
 - **`switchTo` / `goHome`** — ניווט בין מודולים. `goHome` מסתיר את כולם ומחזיר למסך הראשי.
-- **`handleShortcut()`** — Ctrl+1..3 (ניווט: econ, shamai, tools), Ctrl+K (חיפוש), Ctrl+=/-/0 (זום), F1 (מדריך), Ctrl+Shift+B/R (גיבוי/שחזור), Alt+0 / Ctrl+Alt+A (חלון הנגישות, לפי `input.code`).
+- **`handleShortcut()`** — Ctrl+1..9 (ניווט לפי `ACTIVE_MODS` של המהדורה: econ, shamai, tools, ובמלאה גם trainer, english, math, school), Ctrl+K (חיפוש), Ctrl+=/-/0 (זום), F1 (מדריך), Ctrl+Shift+B/R (גיבוי/שחזור), Alt+0 / Ctrl+Alt+A (חלון הנגישות, לפי `input.code`).
 
 ### מעטפת — `shell/`
 | קובץ | תפקיד |

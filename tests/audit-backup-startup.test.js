@@ -413,8 +413,9 @@ test('app://: אין יציאה מתיקיית המודול (path traversal), ק
   assert.equal((await get('app://evil/index.html')).status, 404);
   // קבצי המעטפת המשותפים — רק הנתיב המדויק
   assert.equal(fileURLToPath((await get('app://tools/design-tokens.css')).fetched), path.join(ROOT, 'shell', 'design-tokens.css'));
-  // מודול האימונים עבר למוצר נפרד — אין לו תיקייה ואין לו כתובת
-  assert.equal((await get('app://trainer/index.html')).status, 404);
+  // מודולי הלימוד — במהדורה המלאה (7.11.2026): מוגשים מהתיקייה שלהם
+  inside(await get('app://trainer/index.html'), 'trainer');
+  inside(await get('app://school/index.html'), 'school');
 });
 
 test('ממצא 36: אחרי שדרוג, הגיבוי האוטומטי כולל את נתוני השמאות שעוד לא הועברו למחסן', async () => {
@@ -425,7 +426,7 @@ test('ממצא 36: אחרי שדרוג, הגיבוי האוטומטי כולל �
   const data = JSON.parse(BK.decryptBackup(fs.readFileSync(status.file, 'utf8'), KEY));
   assert.equal(data.localStorage.shamai.shamai_v2_props, '["מהמחסן"]', 'מה שכבר במחסן גובר (כמו בהעברה)');
   assert.equal(data.localStorage.shamai.shamai_v2_purchaseSeq, '4', 'הנתונים הישנים בגיבוי');
-  assert.equal(data.localStorage.trainer, undefined, 'מודול האימונים (עבר למוצר נפרד) אינו בגיבוי');
+  assert.deepEqual(data.localStorage.trainer, {}, 'מודול האימונים (מהדורה מלאה) בגיבוי — עדיין בלי נתונים');
   assert.deepEqual(data.econ.donors.map(x => x.name), ['אהרן לוי']);
   // נקרא בעולם מבודד משלנו — לא בעולם של העמוד (שם ה-preload מחליף את localStorage) ולא בעולם של ה-preload
   const worlds = viewOf('shamai').isolated;
@@ -489,11 +490,11 @@ test('ממצא 1 (main.js): גיבוי של מודול האימונים בלבד
   assert.deepEqual((await db.load()).donors.map(x => x.name), donorsBefore, 'הכספים לא השתנו');
 });
 
-// גיבוי מלא מגרסה שכללה את מודול האימונים (עבר למוצר החינוכי הנפרד): שאר הנתונים משוחזרים, האימונים — לא,
-// בלי שגיאה ובלי לבדוק את המבנה שלהם (גם נתוני אימונים פגומים לא עוצרים את השחזור)
-const OLD_TRAINER = { 'trainer:profile': JSON.stringify({ name: 'משה כהן' }), 'clients:index': 'לא JSON', 'client:c_1': JSON.stringify({ id: 'c_1', name: 'יעקב לוי' }) };
+// מודול האימונים חזר למהדורה המלאה (החלטת הבעלים 7.11.2026): גיבוי עם נתוני אימונים משוחזר במלואו, אחרי בדיקת
+// המבנה (shell/trainer-backup-check.js); נתוני אימונים פגומים עוצרים את השחזור לפני האישור — בלי לגעת בשום דבר
+const OLD_TRAINER = { 'trainer:profile': JSON.stringify({ name: 'משה כהן' }), 'clients:index': JSON.stringify(['c_1']), 'client:c_1': JSON.stringify({ id: 'c_1', name: 'יעקב לוי' }) };
 
-test('גיבוי ישן עם נתוני אימונים (main.js): הכספים והשמאות משוחזרים, האימונים מדולגים עם הודעה — בלי שגיאה', async () => {
+test('גיבוי מלא עם נתוני אימונים (main.js): הכספים, השמאות והאימונים משוחזרים', async () => {
   await boot();
   const db = econDb();
   const incoming = await db.backup();
@@ -508,29 +509,26 @@ test('גיבוי ישן עם נתוני אימונים (main.js): הכספים �
     assert.deepEqual(await handlers['shell:restore-all'](shell(), PASS), { ok: true }, JSON.stringify(dialogLog));
   } finally { dialogPlan.open = { canceled: true, filePaths: [] }; dialogPlan.box = 1; }
   assert.ok(!dialogLog.some(x => x[0] === 'error'), JSON.stringify(dialogLog));
-  const confirm = dialogLog.find(x => x[0] === 'box' && /השחזור יחליף/.test(x[1]));
-  assert.ok(confirm && confirm[2].includes(Legacy.LEGACY_NOTE), 'חלון האישור אומר שהאימונים לא ישוחזרו');
   assert.ok(dialogLog.some(x => x[1] === 'השחזור הושלם'));
   assert.deepEqual((await db.load()).donors.map(x => x.name), ['ראובן שטרן']);
-  assert.equal(SecureStore.MODULES.includes('trainer'), false);
-  assert.ok(!fs.existsSync(path.join(userData, 'secure-trainer.bin')), 'לא נוצר מחסן לאימונים');
-  assert.ok(!created.views.some(v => /^app:\/\/trainer\//.test(v.url || '')), 'לא נפתחה תצוגה למודול האימונים');
+  assert.ok(SecureStore.MODULES.includes('trainer'));
+  assert.ok(fs.existsSync(path.join(userData, 'secure-trainer.bin')), 'נתוני האימונים במחסן המוצפן');
 });
 
-test('גיבוי ישן של מודול האימונים בלבד, עם נתונים (main.js): הודעה ברורה, ושום דבר לא משתנה', async () => {
+test('גיבוי עם נתוני אימונים פגומים (main.js): נעצר לפני האישור, ושום דבר לא משתנה', async () => {
   await boot();
   const db = econDb();
   const donorsBefore = (await db.load()).donors.map(x => x.name);
-  const file = path.join(userData, 'trainer-only.ssbk');
-  fs.writeFileSync(file, BK.encryptBackup(JSON.stringify({ suite: 'SuperSuite', version: 2, scope: 'trainer', econ: null,
-    localStorage: { trainer: OLD_TRAINER } }), PASS));
+  const file = path.join(userData, 'trainer-broken.ssbk');
+  fs.writeFileSync(file, BK.encryptBackup(JSON.stringify({ suite: 'SuperSuite', version: 2, scope: 'all', econ: await db.backup(),
+    localStorage: { trainer: { ...OLD_TRAINER, 'clients:index': 'לא JSON' } } }), PASS));
   dialogPlan.open = { canceled: false, filePaths: [file] };
   dialogPlan.box = 0;
   dialogLog.length = 0;
   try {
     assert.deepEqual(await handlers['shell:restore-all'](shell(), PASS), { ok: false }, JSON.stringify(dialogLog));
   } finally { dialogPlan.open = { canceled: true, filePaths: [] }; dialogPlan.box = 1; }
-  assert.deepEqual(dialogLog, [['error', Legacy.LEGACY_ONLY + 'אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו']]);
+  assert.deepEqual(dialogLog, [['error', 'הקובץ פגום: הערך של clients:index אינו תקין. לא שוחזר דבר, והנתונים הקיימים לא השתנו.']]);
   assert.deepEqual((await db.load()).donors.map(x => x.name), donorsBefore, 'הכספים לא השתנו');
 });
 

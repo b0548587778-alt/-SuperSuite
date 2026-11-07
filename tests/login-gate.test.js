@@ -5,8 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const { createLoginGate, LOCKED_MODS } = require('../shell/login-gate');
 
-test('המודולים הנעולים: שמאי בלבד', () => {
-  assert.deepEqual(LOCKED_MODS, ['shamai']);
+// אנגלית, חשבון וארגז הכלים — פתוחים (מודולי לימוד במהדורה המלאה)
+test('המודולים הנעולים: שמאי, אימונים וניהול מוסד', () => {
+  assert.deepEqual(LOCKED_MODS, ['shamai', 'trainer', 'school']);
 });
 
 test('בלי כניסה: מודול נעול מנותב למסך הכניסה ונשמר; אחרי כניסה — נפתח פעם אחת', () => {

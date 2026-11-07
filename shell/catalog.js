@@ -43,6 +43,39 @@
         { mod: 'shamai',                         icon: '💎', name: 'שמאות נכסים',          desc: 'הערכת שווי נכסים' }
       ]
     },
+    // לימוד ואימונים — רק במהדורה המלאה (shell/edition.js); המוצר הנפרד SuperSuite לימוד ממשיך במאגר שלו
+    {
+      id: 'learn', title: 'לימוד', hue: 'blue',
+      items: [
+        { mod: 'english',                        icon: '🔤', name: 'אנגלית',               desc: 'לימוד אנגלית לדוברי עברית: מילים, קריאה ותרגול' },
+        { mod: 'math',                           icon: '➗', name: 'חשבון',                desc: 'תרגול חשבון לילדים: חיבור, חיסור, כפל וחילוק' }
+      ]
+    },
+    {
+      id: 'school', title: 'ניהול מוסד', hue: 'gold',
+      items: [
+        { mod: 'school',                         icon: '🏫', name: 'ניהול מוסד',           desc: 'כיתות, תלמידים, נוכחות, ציונים ושכר לימוד — לת"ת, כולל וסמינר' }
+      ]
+    },
+    {
+      // label — הטקסט של הכפתור בסרגל הפנימי של חבילת האימונים (מפתח ניווט, modules/trainer/preload.js)
+      id: 'trainer', title: 'ניהול אימונים (למאמנים)', hue: 'teal',
+      items: [
+        { mod: 'trainer', view: 'dashboard',   label: 'לוח בקרה',        icon: '🏋', name: 'לוח בקרת אימונים',  desc: 'מתאמנים פעילים, אימונים ומי שדורש תשומת לב' },
+        { mod: 'trainer', view: 'clients',     label: 'מתאמנים',         icon: '🧑', name: 'מתאמנים',            desc: 'רשימה, כרטיס מתאמן ומעקב התקדמות' },
+        { mod: 'trainer', view: 'schedule',    label: 'יומן אימונים',    icon: '📅', name: 'יומן אימונים',       desc: 'אימונים אישיים ושיעורים, נוכחות וסדרות שבועיות' },
+        { mod: 'trainer', view: 'memberships', label: 'מנויים וגבייה',   icon: '🎟', name: 'מנויים וגבייה',      desc: 'כרטיסיות, מנויים, יתרות ותשלומים' },
+        { mod: 'trainer', view: 'reminders',   label: 'תזכורות',         icon: '🔔', name: 'תזכורות למתאמנים',   desc: 'חידוש מנוי, יתרה, אימון מחר — עם הודעה מוכנה' },
+        { mod: 'trainer', view: 'programs',    label: 'תוכניות מוכנות',  icon: '📋', name: 'תוכניות מוכנות',     desc: 'תוכניות כוח מוכנות לפי רמה' },
+        { mod: 'trainer', view: 'exercises',   label: 'ספריית תרגילים',  icon: '≣',  name: 'ספריית תרגילים',     desc: 'תרגילים לפי שריר וציוד' },
+        { mod: 'trainer', view: 'nutrition',   label: 'תזונה',           icon: '🥗', name: 'תזונה למתאמנים',     desc: 'מחשבון קלוריות, מאגר מאכלים ותפריטים' },
+        { mod: 'trainer', view: 'flexibility', label: 'גמישות ומתיחות',  icon: '🤸', name: 'גמישות ומתיחות',     desc: 'שגרות גמישות והתאוששות' },
+        { mod: 'trainer', view: 'cardio',      label: 'קרדיו',           icon: '🏃', name: 'קרדיו',              desc: 'אימוני ריצה ואינטרוולים, ואזורי דופק' },
+        { mod: 'trainer', view: 'knowledge',   label: 'ידע מקצועי',      icon: '📚', name: 'ידע מקצועי',         desc: 'פציעות, עקרונות אימון ומקורות' },
+        { mod: 'trainer', view: 'tools',       label: 'כלים',            icon: '🛠', name: 'כלי מאמן',           desc: 'חישוב משקל מרבי, טיימר, הערכת תנועה ושאלון בריאות' },
+        { mod: 'trainer', view: 'settings',    label: 'הגדרות',          icon: '⚙',  name: 'הגדרות אימונים',     desc: 'פרופיל המאמן' }
+      ]
+    },
     {
       id: 'org', title: 'ארגון ועבודה', hue: 'purple',
       items: [
@@ -74,6 +107,11 @@
   const ITEMS = GROUPS.flatMap(g => g.items.map(it => ({ ...it, key: keyOf(it), group: g.id, hue: g.hue })));
   // תצוגות פנימיות שמותר לפתוח במודול הכלכלי (main.js מאמת מולן)
   const ECON_VIEWS = ITEMS.filter(it => it.mod === 'econ').map(it => it.view);
+  // מודול האימונים: תצוגה ← הטקסט של הכפתור בסרגל הפנימי (הניווט נעשה ב-preload שלו)
+  const ALL_TRAINER = ALL_GROUPS.flatMap(g => g.items).filter(it => it.mod === 'trainer' && it.view);
+  const TRAINER_VIEWS = ALL_TRAINER.map(it => it.view);
+  const TRAINER_LABELS = Object.fromEntries(ALL_TRAINER.map(it => [it.view, it.label]));
+  const TRAINER_BY_LABEL = Object.fromEntries(ALL_TRAINER.map(it => [it.label, it.view]));
 
   // סנכרון אוטומטי: תצוגה שנוספה לסרגל הפנימי של המודול הכלכלי (views/index.html) ועדיין לא לקטלוג —
   // מזוהה כאן ומוצגת בסרגל האחיד תחת "נוספו לאחרונה", כדי שלא תיעלם. main.js מריץ זאת בעלייה.
@@ -92,7 +130,7 @@
   }
   const NEW_GROUP = { id: 'new', title: 'נוספו לאחרונה', hue: 'gold' };
 
-  const api = { GROUPS, ALL_GROUPS, ITEMS, ECON_VIEWS, keyOf, extrasFromHtml, NEW_GROUP };
+  const api = { GROUPS, ALL_GROUPS, ITEMS, ECON_VIEWS, TRAINER_VIEWS, TRAINER_LABELS, TRAINER_BY_LABEL, keyOf, extrasFromHtml, NEW_GROUP };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_CATALOG = api;
 })(typeof window !== 'undefined' ? window : this);
