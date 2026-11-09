@@ -64,8 +64,11 @@ const banner = (id) => {
     `הבנייה וה-CI בונים רק את התוכנה הזו (\`edition-product.json\`). תיקון בקוד המשותף — לעשות גם בשאר המאגרים.\n\n`;
 };
 function withBanner(md, id) {
+  // קובץ עם CRLF (checkout ב-Windows) — הכותרת באותם סופי שורה, אחרת הקובץ מעורב
+  const eol = md.includes('\r\n') ? '\r\n' : '\n';
+  const b = banner(id).replace(/\n/g, eol);
   const i = md.indexOf('\n');
-  return i < 0 ? banner(id) + md : md.slice(0, i + 1) + '\n' + banner(id) + md.slice(i + 1);
+  return i < 0 ? b + md : md.slice(0, i + 1) + eol + b + md.slice(i + 1);
 }
 
 function split(id, dest, { root = ROOT } = {}) {
