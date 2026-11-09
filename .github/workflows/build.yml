@@ -140,6 +140,16 @@ jobs:
             dist/acct/SuperSuite-Heshbonaut-Portable.exe
           key: installer-${{ github.run_id }}-${{ github.run_attempt }}
           enableCrossOsArchive: true
+      # עותק להורדה ישירה (ענף build/exe-download-npo בלבד): מתקיני עמותות ל-cache עבור משימת download למטה
+      - name: installer for download
+        if: ${{ github.ref == 'refs/heads/build/exe-download-npo' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            dist/npo/SuperSuite-Amutot-Setup.exe
+            dist/npo/SuperSuite-Amutot-Portable.exe
+          key: installer-dl-${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: true
       # רכיב ההרצה של המודל המקומי — למחשב, דרך ci-status: node tools/llm-runtime.js fetch.
       # אחרי ה-Build ובדיקת העלייה (סקירת קוד 2.11.2026): מקובץ הנעילה הייעודי (tools/llm-runtime-deps) ב-npm ci
       # --ignore-scripts, כך ששום קוד של התלויות לא רץ לפני האריזה; SHA-256 של העץ ב-llm-runtime.json וביומן.
@@ -279,3 +289,27 @@ jobs:
           git add -A
           git commit -qm "CI #$GITHUB_RUN_NUMBER $GITHUB_SHA"
           git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-status
+
+  # הורדה ישירה (ענף build/exe-download-npo בלבד): גרסת בדיקה של עמותות כ-release במאגר הזה, להורדה דרך ה-API
+  download:
+    needs: build
+    if: ${{ github.ref == 'refs/heads/build/exe-download-npo' && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            dist/npo/SuperSuite-Amutot-Setup.exe
+            dist/npo/SuperSuite-Amutot-Portable.exe
+          key: installer-dl-${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eo pipefail
+          TAG="exe-download-npo-${{ github.run_number }}"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" --title "גרסת בדיקה עמותות $TAG" --notes "בנייה להורדה ישירה של SuperSuite עמותות (לא גרסה להפצה)" dist/npo/SuperSuite-Amutot-Setup.exe dist/npo/SuperSuite-Amutot-Portable.exe
