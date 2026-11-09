@@ -140,14 +140,20 @@ jobs:
             dist/acct/SuperSuite-Heshbonaut-Portable.exe
           key: installer-${{ github.run_id }}-${{ github.run_attempt }}
           enableCrossOsArchive: true
-      # עותק להורדה ישירה (ענף build/exe-download-npo בלבד): מתקיני עמותות ל-cache עבור משימת download למטה
+      # עותק להורדה ישירה (ענף build/exe-download-npo בלבד): כל שמונת המתקינים ל-cache עבור משימת download למטה
       - name: installer for download
         if: ${{ github.ref == 'refs/heads/build/exe-download-npo' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
+            dist/SuperSuite-Setup.exe
+            dist/SuperSuite-Portable.exe
             dist/npo/SuperSuite-Amutot-Setup.exe
             dist/npo/SuperSuite-Amutot-Portable.exe
+            dist/realty/SuperSuite-Nadlan-Setup.exe
+            dist/realty/SuperSuite-Nadlan-Portable.exe
+            dist/acct/SuperSuite-Heshbonaut-Setup.exe
+            dist/acct/SuperSuite-Heshbonaut-Portable.exe
           key: installer-dl-${{ github.run_id }}-${{ github.run_attempt }}
           enableCrossOsArchive: true
       # רכיב ההרצה של המודל המקומי — למחשב, דרך ci-status: node tools/llm-runtime.js fetch.
@@ -290,7 +296,7 @@ jobs:
           git commit -qm "CI #$GITHUB_RUN_NUMBER $GITHUB_SHA"
           git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-status
 
-  # הורדה ישירה (ענף build/exe-download-npo בלבד): גרסת בדיקה של עמותות כ-release במאגר הזה, להורדה דרך ה-API
+  # הורדה ישירה (ענף build/exe-download-npo בלבד): גרסת בדיקה של כל המהדורות כ-release במאגר הזה, להורדה דרך ה-API
   download:
     needs: build
     if: ${{ github.ref == 'refs/heads/build/exe-download-npo' && needs.build.result == 'success' }}
@@ -302,8 +308,14 @@ jobs:
       - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
+            dist/SuperSuite-Setup.exe
+            dist/SuperSuite-Portable.exe
             dist/npo/SuperSuite-Amutot-Setup.exe
             dist/npo/SuperSuite-Amutot-Portable.exe
+            dist/realty/SuperSuite-Nadlan-Setup.exe
+            dist/realty/SuperSuite-Nadlan-Portable.exe
+            dist/acct/SuperSuite-Heshbonaut-Setup.exe
+            dist/acct/SuperSuite-Heshbonaut-Portable.exe
           key: installer-dl-${{ github.run_id }}-${{ github.run_attempt }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
@@ -312,4 +324,8 @@ jobs:
         run: |
           set -eo pipefail
           TAG="exe-download-npo-${{ github.run_number }}"
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" --title "גרסת בדיקה עמותות $TAG" --notes "בנייה להורדה ישירה של SuperSuite עמותות (לא גרסה להפצה)" dist/npo/SuperSuite-Amutot-Setup.exe dist/npo/SuperSuite-Amutot-Portable.exe
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" --title "גרסת בדיקה (כל המהדורות) $TAG" --notes "בנייה להורדה ישירה של כל המהדורות (לא גרסה להפצה)" \
+            dist/SuperSuite-Setup.exe dist/SuperSuite-Portable.exe \
+            dist/npo/SuperSuite-Amutot-Setup.exe dist/npo/SuperSuite-Amutot-Portable.exe \
+            dist/realty/SuperSuite-Nadlan-Setup.exe dist/realty/SuperSuite-Nadlan-Portable.exe \
+            dist/acct/SuperSuite-Heshbonaut-Setup.exe dist/acct/SuperSuite-Heshbonaut-Portable.exe
