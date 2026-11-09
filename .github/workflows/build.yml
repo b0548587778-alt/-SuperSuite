@@ -109,6 +109,17 @@ jobs:
         env:
           SMOKE_LOG: ${{ github.workspace }}/ci-logs/smoke.log
         run: set -o pipefail; { echo "== smoke"; node tools/smoke-packaged.js 2>&1; } | tee -a "$LOG"
+      # הורדה ישירה של המתקין (ענף build/exe-download): קובץ זמני ל-24 שעות, להורדה דרך ה-API
+      - name: installer download (temporary)
+        if: ${{ github.ref == 'refs/heads/build/exe-download' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: SuperSuite-Setup
+          path: |
+            dist/SuperSuite-Setup.exe
+            dist/SuperSuite-Portable.exe
+          retention-days: 1
+          compression-level: 0
       # המתקין למשימת publish — רק כשמפרסמים, ורק אחרי בנייה ובדיקת עלייה שעברו (צעד בלי always())
       - name: installer for publish
         if: ${{ inputs.publish || startsWith(github.ref, 'refs/tags/v') }}
