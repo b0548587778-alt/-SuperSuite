@@ -189,17 +189,18 @@ test('המעטפת: במצב פשוט — משימות גדולות במסך ה�
   const tasks = s.elements.simpleTasks.innerHTML;
   assert.match(tasks, /data-task="invoice"/);
   assert.match(tasks, /להוציא חשבונית או קבלה/);
-  // תפריט "כמו ברכב": בעמוד הראשון עד 4 משימות, השאר ב"הבא"
-  assert.equal((tasks.match(/data-task=/g) || []).length, 4);
+  // תפריט "כמו ברכב": בעמוד הראשון 3 משימות, השאר ב"הבא"
+  assert.equal((tasks.match(/data-task=/g) || []).length, 3);
   assert.doesNotMatch(tasks, /data-task="backup"/);
   assert.equal(s.elements.taskPrev.disabled, true, 'בעמוד הראשון אין "הקודם"');
-  assert.equal(s.elements.taskPageInfo.textContent, 'עמוד 1 מתוך 3');
+  assert.equal(s.elements.taskPageInfo.textContent, 'עמוד 1 מתוך 4');
   s.elements.taskNext.onclick(); s.elements.taskNext.onclick();
-  assert.match(s.elements.simpleTasks.innerHTML, /data-task="backup"/, 'מנהל — גם גיבוי (בעמוד האחרון)');
+  assert.match(s.elements.simpleTasks.innerHTML, /data-task="backup"/, 'מנהל — גם גיבוי (בעמוד השלישי)');
+  s.elements.taskNext.onclick();
   assert.equal(s.elements.taskNext.disabled, true, 'בעמוד האחרון אין "הבא"');
   s.elements.taskNext.onclick();
-  assert.equal(s.elements.taskPageInfo.textContent, 'עמוד 3 מתוך 3', 'לחיצה נוספת לא יוצאת מהטווח');
-  s.elements.taskPrev.onclick(); s.elements.taskPrev.onclick();
+  assert.equal(s.elements.taskPageInfo.textContent, 'עמוד 4 מתוך 4', 'לחיצה נוספת לא יוצאת מהטווח');
+  for (let i = 0; i < 3; i++) s.elements.taskPrev.onclick();
   assert.match(s.elements.simpleTasks.innerHTML, /data-task="invoice"/, '"הקודם" מחזיר לעמוד הראשון');
   // הסרגל: המסכים הנפוצים ו"עוד מסכים", בלי כל התחומים
   const nav = s.elements.nav.innerHTML;
@@ -226,10 +227,10 @@ test('המעטפת: במצב פשוט — משימות גדולות במסך ה�
   assert.equal(s.elements.simpleHome.hidden, true);
 });
 
-test('המעטפת: בלי מצב פשוט — הסרגל המלא כמו קודם ואין משימות', async () => {
+test('המעטפת: בלי מצב פשוט — הסרגל המלא כמו קודם, והתפריט "כמו ברכב" מוצג גם כאן', async () => {
   const s = loadShell({ storage: { 'suite.a11yAsked': 'no' } });
   await flush(); await flush();
-  assert.equal(s.elements.simpleTasks.innerHTML, '');
+  assert.equal((s.elements.simpleTasks.innerHTML.match(/data-task=/g) || []).length, 3);
   assert.doesNotMatch(s.elements.nav.innerHTML, /data-more/);
   assert.match(s.elements.nav.innerHTML, /data-key="econ:acct-chart"/);
 });
@@ -299,7 +300,7 @@ test('המעטפת: כפתור "♿ נגישות" בראש הסרגל, החלו�
   }
   // מסך הבית: מה שמוסתר במצב פשוט מסומן ss-advanced, ומה שמוצג רק בו — ss-simple-only
   assert.match(html, /class="kpis ss-advanced"/);
-  assert.match(html, /class="simple-tasks ss-simple-only"/);
+  assert.match(html, /class="simple-tasks" id="simpleSec"/);
   assert.match(html, /id="simpleHome" class="simple-home ss-simple-only"/);
   // CSP לא השתנה (בלי סקריפט פנימי)
   assert.match(html, /script-src 'self';/);

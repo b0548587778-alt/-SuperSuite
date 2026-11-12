@@ -476,25 +476,26 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 /* מצב פשוט במסך הבית: משימות גדולות בפעלים */
 .simple-tasks{margin:0 0 26px;position:relative;z-index:2}
 .simple-tasks h2{margin:0 0 14px;font:800 24px var(--ss-font-title);color:var(--text)}
-.tasks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
-@media (max-width:620px){.tasks{grid-template-columns:minmax(0,1fr)}}
-/* תפריט "כמו ברכב": מעבר בין עמודי המשימות — כפתורים גדולים עם מילים, בלי אנימציה */
+.tasks{display:flex;justify-content:space-evenly;align-items:center;gap:16px}
+@media (max-width:620px){.tasks{flex-wrap:wrap}}
+/* תפריט "כמו ברכב" (בכל מצב, לא רק במצב פשוט): שלושה עיגולים גדולים בכל פעם וחץ עגול מכל צד — בלי אנימציה */
 .simple-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px}
 .simple-tasks .simple-head h2{margin:0}
 .task-page{font-size:16px;font-weight:600;color:var(--text)}
-.tasks-wrap{display:flex;align-items:stretch;gap:12px}
+.tasks-wrap{display:flex;align-items:center;gap:12px}
 .tasks-wrap .tasks{flex:1 1 auto;min-width:0}
-.task-nav{flex:0 0 84px;height:auto;min-height:52px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:17px}
-.task-nav span{font-size:26px;line-height:1}
+.task-nav{flex:0 0 84px;width:84px;height:84px;min-height:0;padding:0;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:14px}
+.task-nav span{font-size:28px;line-height:1}
 .task-nav[hidden]{display:none}
-@media (max-width:620px){.tasks-wrap{flex-wrap:wrap}.tasks-wrap .tasks{flex-basis:100%;order:-1}.task-nav{flex:1 1 0;flex-direction:row}}
-.task{display:flex;align-items:center;gap:14px;min-height:112px;padding:16px 18px;border-radius:var(--ss-radius-lg);cursor:pointer;text-align:start;
-      font:inherit;color:var(--text);background:var(--surface);border:2px solid var(--ss-border-strong);box-shadow:var(--ss-shadow-sm)}
+@media (max-width:620px){.tasks-wrap{flex-wrap:wrap;justify-content:space-between}.tasks-wrap .tasks{flex-basis:100%;order:-1}}
+.task{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;flex:0 1 230px;min-width:150px;aspect-ratio:1;padding:20px;border-radius:50%;cursor:pointer;text-align:center;
+      font:inherit;color:var(--text);background:var(--surface);border:3px solid var(--ss-border-strong);box-shadow:var(--ss-shadow-sm)}
 .task:hover{border-color:var(--ss-primary);background:var(--ss-primary-soft)}
-.task .t-ic{width:52px;height:52px;flex:0 0 52px;border-radius:14px;display:grid;place-items:center;background:var(--ss-primary-soft);color:var(--ss-primary)}
-.task .t-ic .ss-icon{width:28px;height:28px}
-.task b{display:block;font-size:18px;line-height:1.3}
-.task small{display:block;margin-top:2px;font-size:14px;color:var(--muted)}
+.task .t-ic{width:60px;height:60px;flex:0 0 60px;border-radius:50%;display:grid;place-items:center;background:var(--ss-primary-soft);color:var(--ss-primary)}
+.task .t-ic .ss-icon{width:32px;height:32px}
+.task b{display:block;font-size:17px;line-height:1.25}
+/* ההסבר הקצר לא נכנס בעיגול — נשאר לקורא מסך ובריחוף (title) */
+.task small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .simple-note{margin:14px 0 0;font-size:15px;color:var(--muted)}
 /* מצב פשוט: "מה יש לעשות היום" (סבב 5) — עד 5 פריטים, לכל אחד "לטפל" */
 .agenda-sec{margin:0 0 22px;position:relative;z-index:2}
@@ -612,14 +613,14 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
       <h2 id="agendaHead">מה יש לעשות היום</h2>
       <ul class="ag-list" id="agendaList"></ul>
     </section>
-    <section class="simple-tasks ss-simple-only" id="simpleSec" aria-labelledby="simpleTitle">
+    <section class="simple-tasks" id="simpleSec" aria-labelledby="simpleTitle">
       <div class="simple-head"><h2 id="simpleTitle">מה רוצים לעשות?</h2><span class="task-page" id="taskPageInfo" role="status" aria-live="polite"></span></div>
       <div class="tasks-wrap" role="group" aria-label="המשימות, ומעבר ביניהן">
         <button type="button" class="task-nav ss-btn ss-btn-secondary" id="taskPrev" hidden><span aria-hidden="true">→</span>הקודם</button>
         <div class="tasks" id="simpleTasks"></div>
         <button type="button" class="task-nav ss-btn ss-btn-primary" id="taskNext" hidden><span aria-hidden="true">←</span>הבא</button>
       </div>
-      <p class="simple-note">צריכים משהו אחר? <button type="button" class="link" id="simpleAll" aria-expanded="false">הצגת כל המסכים</button> · <button type="button" class="link" id="simpleOff">יציאה ממצב פשוט</button></p>
+      <p class="simple-note ss-simple-only">צריכים משהו אחר? <button type="button" class="link" id="simpleAll" aria-expanded="false">הצגת כל המסכים</button> · <button type="button" class="link" id="simpleOff">יציאה ממצב פשוט</button></p>
     </section>
     <section class="kpis ss-advanced" id="kpis" aria-label="מדדים עיקריים"></section>
     <div class="today-grid ss-advanced">

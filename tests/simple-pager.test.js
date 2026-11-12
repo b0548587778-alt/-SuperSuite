@@ -8,8 +8,8 @@ const Simple = require('../shell/simple-mode');
 
 const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 
-test('pageOf: 3 עד 5 משימות בעמוד, וכל המשימות מופיעות בדיוק פעם אחת', () => {
-  assert.ok(Simple.PAGE_SIZE >= 3 && Simple.PAGE_SIZE <= 5);
+test('pageOf: שלוש משימות בעמוד, וכל המשימות מופיעות בדיוק פעם אחת', () => {
+  assert.equal(Simple.PAGE_SIZE, 3);
   const all = Simple.tasksFor({ admin: true });
   const first = Simple.pageOf(all, 0);
   const seen = [];
@@ -24,8 +24,8 @@ test('pageOf: 3 עד 5 משימות בעמוד, וכל המשימות מופיע
 test('pageOf: מספר עמוד לא תקין ← העמוד הקרוב ביותר; רשימה ריקה ← עמוד אחד ריק', () => {
   const list = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   assert.equal(Simple.pageOf(list, -3).page, 0);
-  assert.equal(Simple.pageOf(list, 99).page, 2);
-  assert.deepEqual(Simple.pageOf(list, 99).items, [9]);
+  assert.equal(Simple.pageOf(list, 99, 4).page, 2);
+  assert.deepEqual(Simple.pageOf(list, 99, 4).items, [9]);
   assert.equal(Simple.pageOf(list, 'x').page, 0);
   assert.equal(Simple.pageOf(list, 1.5).page, 0);
   assert.deepEqual(Simple.pageOf([], 0), { items: [], page: 0, pages: 1 });

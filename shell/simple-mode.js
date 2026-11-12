@@ -31,9 +31,9 @@
     return keys;
   }
 
-  // תפריט "כמו ברכב": מעט משימות גדולות בכל פעם, ומעבר לבאות בכפתורים "הקודם" / "הבא".
+  // תפריט "כמו ברכב": שלושה עיגולים גדולים בכל פעם, ומעבר לבאים בחץ מכל צד ("הקודם" / "הבא").
   // מספר עמוד לא תקין (קלט מהמסך) ← העמוד הקרוב ביותר שקיים
-  const PAGE_SIZE = 4;
+  const PAGE_SIZE = 3;
   function pageOf(tasks, page, size = PAGE_SIZE) {
     const list = Array.isArray(tasks) ? tasks : [];
     const per = Number.isInteger(size) && size > 0 ? size : PAGE_SIZE;

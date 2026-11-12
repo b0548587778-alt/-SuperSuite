@@ -53,9 +53,9 @@ test('דפדפן — המעטפת: רגיל, מצב פשוט וטקסט ענק �
       assert.deepEqual(p.errors, [], name);
       const simple = await p.js('document.documentElement.getAttribute("data-ss-simple")');
       assert.equal(simple, display.simple === 'on' ? 'on' : 'off');
-      // במצב פשוט: המשימות גלויות והמדדים מוסתרים; ברגיל — להפך
+      // המשימות (תפריט "כמו ברכב") גלויות בכל מצב; המדדים — רק ברגיל
       const shown = await p.js('[".task", "#kpis", "#simpleSec"].map(s => { const e = document.querySelector(s); return !!e && e.getBoundingClientRect().height > 0; }).join(",")');
-      assert.equal(shown, display.simple === 'on' ? 'true,false,true' : 'false,true,false', name);
+      assert.equal(shown, display.simple === 'on' ? 'true,false,true' : 'true,true,true', name);
     } finally { await p.close(); }
   }
 });
