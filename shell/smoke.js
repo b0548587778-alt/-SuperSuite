@@ -10,9 +10,11 @@ const isSmoke = (argv) => (argv || []).includes('--smoke');
 // --shots=<תיקייה>: צילום מסך של כל מודול (PLAN.md 7.1 — השוואת מראה לפני/אחרי). רק יחד עם --smoke
 const shotsDir = (argv) => { const a = (argv || []).find(x => String(x).startsWith('--shots=')); return a ? String(a).slice(8) : null; };
 
-function createSmoke({ fs, path, dir, dialog, exit, now = Date.now, setTimer = setTimeout, shots = null }) {
+function createSmoke({ fs, path, dir, dialog, exit, now = Date.now, setTimer = setTimeout, shots = null, measure = null }) {
   const errors = [];
   const loaded = [];
+  // זמני טעינה לכל מסך (מדידת מהירות): [{ id, ms }] — מאז תחילת הבדיקה
+  const timings = [];
   const started = now();
   let finished = false;
   const add = (where, message) => errors.push({ where, message: String(message).slice(0, 500) });
@@ -26,7 +28,9 @@ function createSmoke({ fs, path, dir, dialog, exit, now = Date.now, setTimer = s
     if (finished) return;
     finished = true;
     if (reason) add('smoke', reason);
-    const result = { ok: errors.length === 0, ms: now() - started, loaded, errors };
+    const result = { ok: errors.length === 0, ms: now() - started, loaded, errors, timings };
+    // measure (אופציונלי): נתוני זיכרון וזמן עלייה מהתהליך הראשי. כשל במדידה לא מכשיל את הבדיקה
+    if (measure) { try { result.measure = measure(); } catch { /* מדידה בלבד */ } }
     try { fs.writeFileSync(path.join(dir, 'smoke.json'), JSON.stringify(result, null, 2)); } catch { /* exit בכל מקרה */ }
     exit(result.ok ? 0 : 1);
   }
@@ -51,6 +55,7 @@ function createSmoke({ fs, path, dir, dialog, exit, now = Date.now, setTimer = s
         const wc = open(id);
         await waitLoaded(wc);
         loaded.push(id);
+        timings.push({ id, ms: now() - started });
       }
       await new Promise(r => setTimer(r, SETTLE_MS));
       if (shots && capture) {

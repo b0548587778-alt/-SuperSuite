@@ -37,8 +37,14 @@ crash.installProcessHandlers();
 const Smoke = require('./shell/smoke');
 const Splash = require('./shell/splash');
 const PrintPdf = require('./shell/print-pdf');
+// מדידת מהירות וזיכרון (רק ב---smoke): זמן מאז יצירת התהליך וזיכרון לכל תהליך, בק"ב
+const smokeMeasure = () => ({
+  sinceProcessStartMs: Math.round(Date.now() - process.getCreationTime()),
+  processes: app.getAppMetrics().map(p => ({ type: p.type, name: p.name || '', kb: p.memory.workingSetSize })),
+  totalKb: app.getAppMetrics().reduce((n, p) => n + p.memory.workingSetSize, 0)
+});
 const smoke = Smoke.isSmoke(process.argv)
-  ? (process.argv.some(a => a.startsWith('--user-data-dir=')) ? Smoke.createSmoke({ fs, path, dir: app.getPath('userData'), dialog, exit: (c) => app.exit(c), shots: Smoke.shotsDir(process.argv) }) : (app.exit(2), null))
+  ? (process.argv.some(a => a.startsWith('--user-data-dir=')) ? Smoke.createSmoke({ fs, path, dir: app.getPath('userData'), dialog, exit: (c) => app.exit(c), shots: Smoke.shotsDir(process.argv), measure: smokeMeasure }) : (app.exit(2), null))
   : null;
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
