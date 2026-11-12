@@ -189,7 +189,18 @@ test('המעטפת: במצב פשוט — משימות גדולות במסך ה�
   const tasks = s.elements.simpleTasks.innerHTML;
   assert.match(tasks, /data-task="invoice"/);
   assert.match(tasks, /להוציא חשבונית או קבלה/);
-  assert.match(tasks, /data-task="backup"/, 'מנהל — גם גיבוי');
+  // תפריט "כמו ברכב": בעמוד הראשון עד 4 משימות, השאר ב"הבא"
+  assert.equal((tasks.match(/data-task=/g) || []).length, 4);
+  assert.doesNotMatch(tasks, /data-task="backup"/);
+  assert.equal(s.elements.taskPrev.disabled, true, 'בעמוד הראשון אין "הקודם"');
+  assert.equal(s.elements.taskPageInfo.textContent, 'עמוד 1 מתוך 3');
+  s.elements.taskNext.onclick(); s.elements.taskNext.onclick();
+  assert.match(s.elements.simpleTasks.innerHTML, /data-task="backup"/, 'מנהל — גם גיבוי (בעמוד האחרון)');
+  assert.equal(s.elements.taskNext.disabled, true, 'בעמוד האחרון אין "הבא"');
+  s.elements.taskNext.onclick();
+  assert.equal(s.elements.taskPageInfo.textContent, 'עמוד 3 מתוך 3', 'לחיצה נוספת לא יוצאת מהטווח');
+  s.elements.taskPrev.onclick(); s.elements.taskPrev.onclick();
+  assert.match(s.elements.simpleTasks.innerHTML, /data-task="invoice"/, '"הקודם" מחזיר לעמוד הראשון');
   // הסרגל: המסכים הנפוצים ו"עוד מסכים", בלי כל התחומים
   const nav = s.elements.nav.innerHTML;
   assert.match(nav, /data-more aria-expanded="false">עוד מסכים</);

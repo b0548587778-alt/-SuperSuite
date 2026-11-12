@@ -1,0 +1,44 @@
+// תפריט "כמו ברכב" במסך הבית הפשוט: מעט משימות גדולות בכל פעם, ומעבר ב"הקודם" / "הבא".
+// הלוגיקה הטהורה (pageOf) נבדקת כאן; ההתנהגות במעטפת — ב-tests/r4-a11y-shell.test.js.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const Simple = require('../shell/simple-mode');
+
+const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+
+test('pageOf: 3 עד 5 משימות בעמוד, וכל המשימות מופיעות בדיוק פעם אחת', () => {
+  assert.ok(Simple.PAGE_SIZE >= 3 && Simple.PAGE_SIZE <= 5);
+  const all = Simple.tasksFor({ admin: true });
+  const first = Simple.pageOf(all, 0);
+  const seen = [];
+  for (let p = 0; p < first.pages; p++) {
+    const pg = Simple.pageOf(all, p);
+    assert.ok(pg.items.length >= 1 && pg.items.length <= Simple.PAGE_SIZE);
+    seen.push(...pg.items.map(t => t.id));
+  }
+  assert.deepEqual(seen, all.map(t => t.id), 'אף משימה לא אבדה ולא הוכפלה');
+});
+
+test('pageOf: מספר עמוד לא תקין ← העמוד הקרוב ביותר; רשימה ריקה ← עמוד אחד ריק', () => {
+  const list = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  assert.equal(Simple.pageOf(list, -3).page, 0);
+  assert.equal(Simple.pageOf(list, 99).page, 2);
+  assert.deepEqual(Simple.pageOf(list, 99).items, [9]);
+  assert.equal(Simple.pageOf(list, 'x').page, 0);
+  assert.equal(Simple.pageOf(list, 1.5).page, 0);
+  assert.deepEqual(Simple.pageOf([], 0), { items: [], page: 0, pages: 1 });
+  assert.deepEqual(Simple.pageOf(null, 2), { items: [], page: 0, pages: 1 });
+  assert.equal(Simple.pageOf(list, 0, 0).items.length, Simple.PAGE_SIZE, 'גודל עמוד לא תקין ← ברירת המחדל');
+});
+
+test('מסך הבית: כפתורי המעבר עם מילים בעברית, מוסתרים כשיש עמוד אחד, והכפתור "בצע" לא נחתך', () => {
+  const html = read('shell/shell.html');
+  assert.match(html, /id="taskPrev" hidden>.*?<\/span>הקודם<\/button>/);
+  assert.match(html, /id="taskNext" hidden>.*?<\/span>הבא<\/button>/);
+  assert.match(html, /\.task-nav\[hidden\]\{display:none\}/, 'display:flex גובר על hidden בלי הכלל הזה');
+  assert.match(html, /id="taskPageInfo"[^>]*aria-live="polite"/);
+  // רוחב הכפתור "בצע" לפי התוכן: flex-basis קבוע של 44px חתך את המילה
+  assert.match(html, /\.ask \.ask-go\{[^}]*flex:0 0 auto/);
+});

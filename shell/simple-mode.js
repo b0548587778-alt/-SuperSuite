@@ -31,7 +31,18 @@
     return keys;
   }
 
-  const api = { TASKS, tasksFor, sidebarKeys };
+  // תפריט "כמו ברכב": מעט משימות גדולות בכל פעם, ומעבר לבאות בכפתורים "הקודם" / "הבא".
+  // מספר עמוד לא תקין (קלט מהמסך) ← העמוד הקרוב ביותר שקיים
+  const PAGE_SIZE = 4;
+  function pageOf(tasks, page, size = PAGE_SIZE) {
+    const list = Array.isArray(tasks) ? tasks : [];
+    const per = Number.isInteger(size) && size > 0 ? size : PAGE_SIZE;
+    const pages = Math.max(1, Math.ceil(list.length / per));
+    const p = Math.min(pages - 1, Math.max(0, Number.isInteger(page) ? page : 0));
+    return { items: list.slice(p * per, p * per + per), page: p, pages };
+  }
+
+  const api = { TASKS, PAGE_SIZE, tasksFor, pageOf, sidebarKeys };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_SIMPLE = api;
 })(typeof window !== 'undefined' ? window : this);

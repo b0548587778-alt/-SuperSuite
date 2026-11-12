@@ -419,9 +419,20 @@ function renderSimpleHome() {
   $('simpleAll').textContent = ui.simpleAll ? 'הסתרת שאר המסכים' : 'הצגת כל המסכים';
   renderHomeAgenda();
   if (!ui.simple) { $('simpleTasks').innerHTML = ''; return; }
-  $('simpleTasks').innerHTML = simpleTasks().map(t => `<button type="button" class="task" data-task="${esc(t.id)}">` +
+  // תפריט "כמו ברכב": עד PAGE_SIZE משימות גדולות בכל פעם; "הקודם" / "הבא" עוברים בין העמודים (בלי אנימציה)
+  const pg = SIMPLE.pageOf(simpleTasks(), ui.taskPage || 0);
+  ui.taskPage = pg.page;
+  $('simpleTasks').innerHTML = pg.items.map(t => `<button type="button" class="task" data-task="${esc(t.id)}">` +
     `<span class="t-ic" aria-hidden="true">${IC ? svg(t.icon) : ''}</span><span><b>${esc(t.verb)}</b><small>${esc(t.hint)}</small></span></button>`).join('');
+  if (!$('taskPrev')) return;
+  $('taskPrev').hidden = $('taskNext').hidden = pg.pages < 2;
+  $('taskPrev').disabled = pg.page <= 0;
+  $('taskNext').disabled = pg.page >= pg.pages - 1;
+  $('taskPageInfo').textContent = pg.pages < 2 ? '' : `עמוד ${pg.page + 1} מתוך ${pg.pages}`;
 }
+function stepTaskPage(step) { ui.taskPage = (ui.taskPage || 0) + step; renderSimpleHome(); }
+if ($('taskPrev')) $('taskPrev').onclick = () => stepTaskPage(-1);
+if ($('taskNext')) $('taskNext').onclick = () => stepTaskPage(1);
 /* ---------- מצב פשוט: "מה יש לעשות היום" (סבב 5) ----------
    הפריטים מ-getHomeSummary().agenda (core/dashboard.js → agenda — קריאה בלבד, רק תחומים פתוחים), ועוד גיבוי שנכשל
    (למנהל). שום דבר לא קורה לבד (כלל השבת): "לטפל" פותח את המסך, או את האשף כשהמעטפת יודעת להפעיל אותו (shellAPI.startTask) */
