@@ -700,7 +700,7 @@ function shamaiDataForEcon(senderId) {
 /* ---------- הגדרות תצוגה (PLAN.md 7.4) ----------
    נשמרות ב-ui-settings.json → display. shell/display-preload.js מציב אותן כמאפייני data-ss-* בכל מסך,
    והעיצוב — ב-design-tokens.css. גם ערכת המערכת (פסי גלילה, שדות תאריך) עוברת לכהה דרך nativeTheme */
-function displaySettings() { return Display.sanitize(loadJson(uiFile()).display); }
+function displaySettings() { return Display.stored(loadJson(uiFile())); }
 function displayAttrs() { return Display.attrsFor(displaySettings(), !!(nativeTheme && nativeTheme.shouldUseDarkColors)); }
 function applyNativeTheme() { if (nativeTheme) nativeTheme.themeSource = displaySettings().theme; }
 function broadcastDisplay() {
@@ -710,7 +710,7 @@ function broadcastDisplay() {
 }
 function saveDisplay(input) {
   const ui = loadJson(uiFile());
-  saveJson(uiFile(), { ...ui, display: Display.sanitize(input) });
+  saveJson(uiFile(), Display.withSaved(ui, input));
   applyNativeTheme();
   broadcastDisplay();
   return displaySettings();

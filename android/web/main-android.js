@@ -459,7 +459,7 @@ function start(ctx) {
   ipcMain.handle('shell:overlay', (e, on) => { if (!isShell(e)) return false; overlay = !!on; show(); return true; });
   // תצוגה ונגישות (סבב 4): כמו main.js — נשמר ב-ui-settings → display, ומגיע לכל מסך כמאפייני data-ss-*
   // (המעטפת — applyShellDisplay; כל מודול — frames.setDisplay ← frame.js), כולל data-ss-simple של מצב פשוט
-  const displaySettings = () => Display.sanitize((ctx.ui.load() || {}).display);
+  const displaySettings = () => Display.stored(ctx.ui.load() || {});
   const broadcastDisplay = () => {
     const attrs = Display.attrsFor(displaySettings(), typeof ctx.systemDark === 'function' && !!ctx.systemDark());
     if (typeof ctx.applyShellDisplay === 'function') ctx.applyShellDisplay(attrs);
@@ -471,7 +471,7 @@ function start(ctx) {
   ipcMain.handle('shell:save-display', (e, input) => {
     if (!isShell(e)) return null;
     const ui = ctx.ui.load() || {};
-    ctx.ui.save({ ...ui, display: Display.sanitize(input) });
+    ctx.ui.save(Display.withSaved(ui, input));
     broadcastDisplay();
     return displaySettings();
   });

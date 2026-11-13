@@ -481,7 +481,8 @@ $('simpleTasks').onclick = e => {
   else if (t.key) open(t.key);
 };
 $('simpleAll').onclick = () => { ui.simpleAll = !ui.simpleAll; renderSimpleHome(); };
-$('simpleOff').onclick = () => saveA11y({ simple: 'off' }, 'מצב פשוט: כבוי');
+$('simpleOff').onclick = () => saveA11y({ simple: 'off' }, 'התצוגה המלאה פועלת');
+if ($('simpleOn')) $('simpleOn').onclick = () => saveA11y({ simple: 'on' }, 'התצוגה הפשוטה פועלת');
 $('simpleHome').onclick = () => goHome();
 
 /* ---------- מסך הבית: מדדים ו"היום" (יארצייטים, הלוואות לפירעון, חשבוניות פתוחות) ----------
@@ -1324,27 +1325,33 @@ function openA11y() {
 }
 if ($('a11yBtn')) $('a11yBtn').onclick = openA11y;
 
-// שאלה אחת בהפעלה הראשונה: "רוצה שהתוכנה תהיה פשוטה יותר וגדולה יותר?" — רק כשכל הגדרות הנגישות רגילות,
-// לא במצב שבת, ופעם אחת (התשובה נשמרת ב-localStorage של המעטפת)
-const A11Y_ASKED_KEY = 'suite.a11yAsked';
+// "הפשוט הוא הבסיס" (החלטת הבעלים 13.11.2026): אין שאלה בהפעלה הראשונה — התוכנה נפתחת פשוטה לכולם.
+// מי שכבר עבד עם התוכנה (יש לו היסטוריה ב-localStorage של המעטפת) רואה פעם אחת הודעה שהמסך התחדש, עם דרך חזרה
+// לתצוגה המלאה. לא במצב שבת; התשובה נשמרת ב-localStorage (SIMPLE_BASE_KEY), והתקנה חדשה מסומנת בלי הודעה
+const A11Y_ASKED_KEY = 'suite.a11yAsked'; // מהגרסה הקודמת — מעיד על משתמש קיים
+const SIMPLE_BASE_KEY = 'suite.simpleBaseSeen';
 function maybeAskA11y() {
-  let asked = true;
-  try { asked = !!localStorage.getItem(A11Y_ASKED_KEY); } catch { /* אין אחסון — לא שואלים */ }
-  if (asked || shabbatOn || !DSP.isPlain(display)) return;
+  let seen = true, existing = false;
+  try {
+    seen = !!localStorage.getItem(SIMPLE_BASE_KEY);
+    existing = [A11Y_ASKED_KEY, RECENT_KEY, OB_KEY, TOUR_KEY].some(k => localStorage.getItem(k) != null);
+  } catch { /* אין אחסון — בלי הודעה */ }
+  if (seen || shabbatOn) return;
+  if (!existing || display.simple !== 'on') { try { localStorage.setItem(SIMPLE_BASE_KEY, 'new'); } catch { /* לא נורא */ } return; }
   const dlg = $('a11yAsk');
   if (dlg.open || document.querySelector('dialog[open]')) return;
   const answer = async (what) => {
-    try { localStorage.setItem(A11Y_ASKED_KEY, what); } catch { /* בפעם הבאה נשאל שוב */ }
+    try { localStorage.setItem(SIMPLE_BASE_KEY, what); } catch { /* בפעם הבאה תוצג שוב */ }
     $('a11yAskYes').onclick = $('a11yAskNo').onclick = $('a11yAskPick').onclick = null;
     dlg.oncancel = null;
     closeDialog(dlg);
-    if (what === 'yes') await saveA11y({ ...DSP.A11Y_EASY }, 'מצב פשוט וטקסט גדול — פועלים');
+    if (what === 'full') await saveA11y({ simple: 'off' }, 'התצוגה המלאה חזרה');
     if (what === 'pick') openA11y();
   };
-  $('a11yAskYes').onclick = () => answer('yes');
-  $('a11yAskNo').onclick = () => answer('no');
+  $('a11yAskYes').onclick = () => answer('ok');
+  $('a11yAskNo').onclick = () => answer('full');
   $('a11yAskPick').onclick = () => answer('pick');
-  dlg.oncancel = (e) => { e.preventDefault(); answer('no'); };
+  dlg.oncancel = (e) => { e.preventDefault(); answer('ok'); };
   showDialog(dlg);
   $('a11yAskYes').focus();
 }
@@ -1356,7 +1363,7 @@ function openDisplaySettings() {
     $('dsPresets').innerHTML = DSP.PRESETS.map(p => `<button type="button" data-preset="${esc(p.id)}" aria-pressed="${presetOf && presetOf.id === p.id}"><b>${DS_ICONS[p.id] || ''} ${esc(p.name)}</b><small>${esc(p.desc)}</small></button>`).join('');
     $('dsGroups').innerHTML = DSP.KEYS.map(k => `<div class="ds-group" role="group" aria-label="${esc(DS_LABELS[k])}"><span>${esc(DS_LABELS[k])}</span><div class="ds-seg">${DSP.OPTIONS[k].map(o =>
       `<button type="button" data-k="${esc(k)}" data-v="${esc(o.id)}" aria-pressed="${cur[k] === o.id}"${o.desc ? ` title="${esc(o.desc)}"` : ''}>${k === 'accent' ? `<i data-ss-swatch="${esc(o.id)}"></i>` : ''}${esc(o.name)}</button>`).join('')}</div></div>`).join('');
-    document.querySelectorAll('#dsPresets [data-preset]').forEach(b => b.onclick = () => { cur = DSP.applyPreset(b.dataset.preset); dsPreview(cur); render(); });
+    document.querySelectorAll('#dsPresets [data-preset]').forEach(b => b.onclick = () => { cur = { ...DSP.applyPreset(b.dataset.preset), simple: cur.simple }; dsPreview(cur); render(); }); // ערכה מוכנה לא מחליפה פשוט/מלא
     document.querySelectorAll('#dsGroups [data-k]').forEach(b => b.onclick = () => { cur = DSP.sanitize({ ...cur, [b.dataset.k]: b.dataset.v }); dsPreview(cur); render(); });
   };
   const done = (keep) => {

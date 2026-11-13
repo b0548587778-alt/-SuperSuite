@@ -620,7 +620,8 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
         <div class="tasks" id="simpleTasks"></div>
         <button type="button" class="task-nav ss-btn ss-btn-primary" id="taskNext" hidden><span aria-hidden="true">←</span>הבא</button>
       </div>
-      <p class="simple-note ss-simple-only">צריכים משהו אחר? <button type="button" class="link" id="simpleAll" aria-expanded="false">הצגת כל המסכים</button> · <button type="button" class="link" id="simpleOff">יציאה ממצב פשוט</button></p>
+      <p class="simple-note ss-simple-only">צריכים משהו אחר? <button type="button" class="link" id="simpleAll" aria-expanded="false">הצגת כל המסכים</button> · <button type="button" class="link" id="simpleOff">תצוגה מלאה (למתקדמים)</button></p>
+      <p class="simple-note ss-advanced"><button type="button" class="link" id="simpleOn">חזרה לתצוגה הפשוטה</button></p>
     </section>
     <section class="kpis ss-advanced" id="kpis" aria-label="מדדים עיקריים"></section>
     <div class="today-grid ss-advanced">
@@ -779,11 +780,11 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 </dialog>
 <!-- שאלה אחת בהפעלה הראשונה (רק כשכל הגדרות הנגישות רגילות) -->
 <dialog id="a11yAsk" class="a11y-ask" aria-labelledby="a11yAskTitle" aria-describedby="a11yAskText">
-  <h3 id="a11yAskTitle">רוצה שהתוכנה תהיה פשוטה יותר וגדולה יותר?</h3>
-  <p id="a11yAskText">אפשר לשנות את זה בכל רגע — בכפתור "♿ נגישות" שבראש הסרגל.</p>
+  <h3 id="a11yAskTitle">המסך התחדש — עכשיו הוא פשוט יותר</h3>
+  <p id="a11yAskText">כל מה שהיה קודם נשאר, ושום דבר לא נמחק. אפשר לחזור לתצוגה המלאה בכל רגע — בקישור „תצוגה מלאה” שבמסך הבית.</p>
   <div class="row">
-    <button type="button" class="primary" id="a11yAskYes">כן, בבקשה</button>
-    <button type="button" id="a11yAskNo">לא, תודה</button>
+    <button type="button" class="primary" id="a11yAskYes">הבנתי, תודה</button>
+    <button type="button" id="a11yAskNo">להחזיר את התצוגה המלאה</button>
     <button type="button" class="ghost" id="a11yAskPick">אני רוצה לבחור בעצמי</button>
   </div>
 </dialog>

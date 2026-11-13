@@ -87,17 +87,17 @@ test('דפדפן — המעטפת במקלדת בלבד: Tab ראשון = "♿ �
   } finally { await p.close(); }
 });
 
-test('דפדפן — השאלה בהפעלה הראשונה: המיקוד על "כן", Enter מפעיל מצב פשוט וטקסט גדול, ולא נשאלת שוב', { skip: SKIP }, async () => {
-  const p = await open(fileUrl('shell/shell.html'), { initScript: shellMock({ asked: false }) + AUDIT });
+test('דפדפן — משתמש קיים רואה פעם אחת "המסך התחדש": המיקוד על "הבנתי", Enter סוגר, והמצב הפשוט נשאר', { skip: SKIP }, async () => {
+  const p = await open(fileUrl('shell/shell.html'), { initScript: shellMock({ display: { simple: 'on' }, asked: true, baseSeen: false }) + AUDIT });
   try {
     assert.equal(await p.js('document.getElementById("a11yAsk").open'), true);
     assert.equal(await p.js('document.activeElement.id'), 'a11yAskYes');
-    assertClean(await audit(p), 'השאלה בהפעלה הראשונה');
+    assertClean(await audit(p), 'ההודעה החד-פעמית');
     await p.key('Enter');
     await C.wait(300);
     assert.equal(await p.js('document.getElementById("a11yAsk").open'), false);
-    assert.equal(await p.js('document.documentElement.getAttribute("data-ss-simple") + "/" + document.documentElement.getAttribute("data-ss-text")'), 'on/lg');
-    assert.equal(await p.js('localStorage.getItem("suite.a11yAsked")'), 'yes');
+    assert.equal(await p.js('document.documentElement.getAttribute("data-ss-simple") + "/" + document.documentElement.getAttribute("data-ss-text")'), 'on/md');
+    assert.equal(await p.js('localStorage.getItem("suite.simpleBaseSeen")'), 'ok');
   } finally { await p.close(); }
 });
 
