@@ -38,7 +38,12 @@ const Smoke = require('./shell/smoke');
 const Splash = require('./shell/splash');
 const PrintPdf = require('./shell/print-pdf');
 // מדידת מהירות וזיכרון (רק ב---smoke): זמן מאז יצירת התהליך וזיכרון לכל תהליך, בק"ב
+// bootMarks — כמה זמן עבר מיצירת התהליך עד כל שלב בעלייה (לאיתור השלב האיטי)
+const bootMarks = {};
+const bootMark = (name) => { try { bootMarks[name] = Math.round(Date.now() - process.getCreationTime()); } catch { /* מדידה בלבד */ } };
+bootMark('mainLoaded');
 const smokeMeasure = () => ({
+  bootMarks: { ...bootMarks },
   sinceProcessStartMs: Math.round(Date.now() - process.getCreationTime()),
   processes: app.getAppMetrics().map(p => ({ type: p.type, name: p.name || '', kb: p.memory.workingSetSize })),
   totalKb: app.getAppMetrics().reduce((n, p) => n + p.memory.workingSetSize, 0)
@@ -1224,6 +1229,7 @@ if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', onSecondInstance);
 
 app.whenReady().then(async () => {
+  bootMark('appReady');
   Menu.setApplicationMenu(null);
   if (!smoke) openSplash();
   registerProtocol();
@@ -1267,6 +1273,7 @@ app.whenReady().then(async () => {
     }
   }
 
+  bootMark('econReady');
   // רישוי: שינוי סטטוס (התקנה, עדכון, סנכרון, או פקיעה עם הזמן — נבדק כל דקה) נאכף מיד
   if (econ.onLicenseChange) econ.onLicenseChange(enforceLicense);
   if (econ.onAuthChange) econ.onAuthChange(onEconAuthChange);

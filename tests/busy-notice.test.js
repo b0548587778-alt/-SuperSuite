@@ -26,3 +26,11 @@ test('המעטפת: ההודעה מוקראת (role=status), בעברית, ומ�
   assert.match(read('modules/econ/ui/core.js'), /role="status">רגע, עובד על זה…</);
   assert.match(read('modules/econ/ui/wizards.js'), /nextBtn\.textContent = 'רגע, שומר…'/);
 });
+
+test('מצב פשוט: בלי אנימציות (גם למחשב חלש); ומדידת שלבי העלייה נכנסת לדוח --smoke', () => {
+  const css = read('shell/design-tokens.css');
+  assert.ok(css.includes(':root[data-ss-simple="on"] *, :root[data-ss-simple="on"] *::before, :root[data-ss-simple="on"] *::after {'));
+  const main = read('main.js');
+  for (const m of ['mainLoaded', 'appReady', 'econReady']) assert.ok(main.includes("bootMark('" + m + "')"), m);
+  assert.ok(main.includes('bootMarks: { ...bootMarks },'));
+});
