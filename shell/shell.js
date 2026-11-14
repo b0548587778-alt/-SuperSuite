@@ -285,6 +285,9 @@ function setBusy(on) { const b = $('busy'); if (b) { b.hidden = !on; b.textConte
 if (window.shellAPI.onBusy) window.shellAPI.onBusy(setBusy);
 if ($('sbMore')) $('sbMore').onclick = () => setSideMore(!ui.sideMore);
 if ($('sbHelp')) $('sbHelp').onclick = () => showGuide();
+// "לנסות בלי לחשוש": לוח הבקרה, שם מציעים נתוני דוגמה שנמחקים בלחיצה אחת (sample.js) — שום דבר לא נוצר מכאן
+if ($('tryIt')) $('tryIt').onclick = () => open('econ:dashboard');
+if ($('tourSimple')) $('tourSimple').onclick = () => startTour();
 if ($('askOpen')) $('askOpen').onclick = () => { setAskOpen(true); const a = $('askQ'); if (a && a.focus) a.focus(); };
 function focusSearch() { setSideMore(true); q.focus(); if (q.select) q.select(); }
 $('cta').onclick = focusSearch;
@@ -796,16 +799,18 @@ const TOUR_KEY = 'suite.tour';
 const TOUR = (OB && OB.TOUR) || [];
 function tourSeen() { try { return localStorage.getItem(TOUR_KEY) === 'done'; } catch { return true; } }
 function startTour() {
-  if (!TOUR.length) return;
+  // במסך הפשוט — סיור על מה שנראה בו (העיגולים, החץ, העזרה)
+  const T = ui.simple && OB && Array.isArray(OB.TOUR_SIMPLE) && OB.TOUR_SIMPLE.length ? OB.TOUR_SIMPLE : TOUR;
+  if (!T.length) return;
   const dlg = $('tourDlg');
   let i = 0;
   const place = () => {
-    const s = TOUR[i];
-    $('tourStep').textContent = `שלב ${i + 1} מתוך ${TOUR.length}`;
+    const s = T[i];
+    $('tourStep').textContent = `שלב ${i + 1} מתוך ${T.length}`;
     $('tourTitle').textContent = s.title;
     $('tourText').textContent = s.text;
     $('tourBack').hidden = i === 0;
-    $('tourNext').textContent = i === TOUR.length - 1 ? 'סיום' : 'הבא';
+    $('tourNext').textContent = i === T.length - 1 ? 'סיום' : 'הבא';
     if (dlg.querySelectorAll) dlg.querySelectorAll('#tourDots i').forEach((d, n) => d.classList.toggle('on', n === i));
     const el = document.querySelector(s.sel);
     const r = el && typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
@@ -827,7 +832,7 @@ function startTour() {
     try { localStorage.setItem(TOUR_KEY, 'done'); } catch { /* לא קריטי */ }
     if (dlg.open) closeDialog(dlg);
   };
-  $('tourNext').onclick = () => { if (i < TOUR.length - 1) { i++; place(); $('tourNext').focus(); } else done(); };
+  $('tourNext').onclick = () => { if (i < T.length - 1) { i++; place(); $('tourNext').focus(); } else done(); };
   $('tourBack').onclick = () => { if (i > 0) { i--; place(); $('tourNext').focus(); } };
   $('tourSkip').onclick = done;
   dlg.oncancel = (e) => { e.preventDefault(); done(); };

@@ -83,3 +83,19 @@ test('מסך בית שקט במצב פשוט: הסרגל במילים, השאר 
   assert.match(html, /id="askOpen" aria-expanded="false" aria-controls="askForm">אפשר גם לכתוב במילים מה רוצים</);
   assert.match(html, /שום דבר לא נשמר בלי שתאשרו/);
 });
+
+test('סיור במסך הפשוט: 3 שלבים, כל אחד מצביע על אזור שקיים ונראה במסך הפשוט; ותרגול עם נתוני דוגמה', () => {
+  const OB = require('../shell/onboarding');
+  const html = read('shell/shell.html');
+  const js = read('shell/shell.js');
+  assert.equal(OB.TOUR_SIMPLE.length, 3);
+  for (const s of OB.TOUR_SIMPLE) {
+    const name = s.sel.slice(1);
+    assert.ok(html.includes(s.sel[0] === '#' ? `id="${name}"` : `class="${name}"`), s.sel);
+    assert.ok(s.title && s.text && !/[A-Za-z]{3,}/.test(s.title + s.text), 'עברית בלבד: ' + s.sel);
+  }
+  assert.match(js, /const T = ui\.simple && OB && Array\.isArray\(OB\.TOUR_SIMPLE\)/);
+  assert.match(html, /id="tourSimple">סיור קצר במסך \(3 שלבים\)</);
+  assert.match(html, /id="tryIt">לתרגל עם נתוני דוגמה</);
+  assert.match(js, /\$\('tryIt'\)\.onclick = \(\) => open\('econ:dashboard'\)/, 'רק פותח מסך — הדוגמה נוצרת שם בבחירה מפורשת');
+});
