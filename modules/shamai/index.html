@@ -449,7 +449,7 @@
           </div>
 
           <div class="field">
-            <label for="w-papers">מקור / Box & Papers</label>
+            <label for="w-papers">קופסה ותעודות מקוריות</label>
             <select id="w-papers">
               <option value="full">מלא: קופסה + ניירות + תעודה</option>
               <option value="partial">חלקי: קופסה או ניירות</option>
@@ -467,7 +467,7 @@
           </div>
 
           <div class="field">
-            <label for="w-retail">מחיר רטרייל / השוואה ב-Chrono24 (₪)</label>
+            <label for="w-retail">מחיר בחנות / השוואה באתר Chrono24 (₪)</label>
             <input type="number" id="w-retail" placeholder="חפש דגם זהה ב-Chrono24" />
             <div class="field-hint">בלי ערך זה - אי אפשר לחשב</div>
           </div>
@@ -506,8 +506,8 @@
               <label>טוהר
                 <select id="a-silver-purity">
                   <option value="999">999 (טהור)</option>
-                  <option value="925" selected>925 (Sterling)</option>
-                  <option value="900">900 (Coin)</option>
+                  <option value="925" selected>925 (סטרלינג)</option>
+                  <option value="900">900 (מטבעות)</option>
                   <option value="800">800 (אירופאי)</option>
                 </select>
               </label>
@@ -1074,12 +1074,12 @@
 
           <div class="field-row">
             <div class="field">
-              <label for="nft-floor">Floor Price (ETH)</label>
+              <label for="nft-floor">המחיר הנמוך ביותר בשוק (ETH)</label>
               <input type="number" id="nft-floor" step="0.001" placeholder="0.5" />
               <div class="field-hint">מחיר בסיס מ-OpenSea</div>
             </div>
             <div class="field">
-              <label for="nft-rarity">Rarity Rank (1=נדיר ביותר)</label>
+              <label for="nft-rarity">דירוג נדירות (1 = הנדיר ביותר)</label>
               <input type="number" id="nft-rarity" placeholder="500" />
               <div class="field-hint">מ-Rarity Tools</div>
             </div>
@@ -1104,8 +1104,8 @@
               <label for="nft-currency">מטבע</label>
               <select id="nft-currency">
                 <option value="ETH">ETH</option>
-                <option value="USD">USD</option>
-                <option value="ILS">ILS ₪</option>
+                <option value="USD">דולר</option>
+                <option value="ILS">שקל (₪)</option>
               </select>
             </div>
           </div>
@@ -1129,7 +1129,7 @@
             <label class="check-inline"><input type="checkbox" id="wn-kosher" /><span>כשר למהדרין +15%</span></label>
           </div>
           <div class="field">
-            <label for="wn-retail">מחיר רטרייל ב-Wine-Searcher (₪)</label>
+            <label for="wn-retail">מחיר בחנות לפי Wine-Searcher (₪)</label>
             <input type="number" id="wn-retail" placeholder="500" />
             <div class="field-hint">מחיר ממוצע. בלי זה אי אפשר לחשב.</div>
           </div>
@@ -1145,7 +1145,7 @@
           </div>
           <div class="field"><label>מותג</label><div class="brand-grid" id="bg-brands"></div></div>
           <div class="field"><label for="bg-model">דגם / שם</label><input type="text" id="bg-model" placeholder="Birkin 30, Classic Flap, Neverfull..." /></div>
-          <div class="field"><label for="bg-year">שנת יצירה (Year stamp)</label><input type="number" id="bg-year" /></div>
+          <div class="field"><label for="bg-year">שנת ייצור (חותמת השנה)</label><input type="number" id="bg-year" /></div>
           <div class="field"><label>מצב</label><div class="cond-grid" id="bg-cond"></div></div>
           <div class="field">
             <label class="check-inline"><input type="checkbox" id="bg-auth" /><span>תיעוד אותנטי / אומת על-ידי שמאי +20%</span></label>
@@ -1310,7 +1310,7 @@
         </div>
 
         <div class="sub-view" data-tool="roi" hidden>
-          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>מחשבון ROI</h2></div>
+          <div class="sub-header"><button class="back-btn" data-back="tools-hub">‹ חזרה</button><h2>מחשבון תשואה — כמה הרווחתי</h2></div>
           <div class="field-row">
             <div class="field"><label for="r-buy">קנייה (₪)</label><input type="number" id="r-buy" value="1000" /></div>
             <div class="field"><label for="r-sell">מכירה (₪)</label><input type="number" id="r-sell" value="1500" /></div>
@@ -1431,23 +1431,23 @@
             <div class="field">
               <label for="cu-from">מ-</label>
               <select id="cu-from">
-                <option value="USD">USD $</option>
-                <option value="ILS" selected>ILS ₪</option>
-                <option value="EUR">EUR €</option>
-                <option value="GBP">GBP £</option>
-                <option value="CHF">CHF</option>
-                <option value="JPY">JPY ¥</option>
+                <option value="USD">דולר ($)</option>
+                <option value="ILS" selected>שקל (₪)</option>
+                <option value="EUR">אירו (€)</option>
+                <option value="GBP">לירה שטרלינג (£)</option>
+                <option value="CHF">פרנק שווייצרי</option>
+                <option value="JPY">ין יפני (¥)</option>
               </select>
             </div>
             <div class="field">
               <label for="cu-to">אל</label>
               <select id="cu-to">
-                <option value="USD" selected>USD $</option>
-                <option value="ILS">ILS ₪</option>
-                <option value="EUR">EUR €</option>
-                <option value="GBP">GBP £</option>
-                <option value="CHF">CHF</option>
-                <option value="JPY">JPY ¥</option>
+                <option value="USD" selected>דולר ($)</option>
+                <option value="ILS">שקל (₪)</option>
+                <option value="EUR">אירו (€)</option>
+                <option value="GBP">לירה שטרלינג (£)</option>
+                <option value="CHF">פרנק שווייצרי</option>
+                <option value="JPY">ין יפני (¥)</option>
               </select>
             </div>
           </div>
@@ -1462,11 +1462,11 @@
             <div class="field">
               <label for="cr-coin">מטבע</label>
               <select id="cr-coin">
-                <option value="bitcoin">BTC</option>
-                <option value="ethereum">ETH</option>
-                <option value="solana">SOL</option>
+                <option value="bitcoin">ביטקוין (BTC)</option>
+                <option value="ethereum">את'ריום (ETH)</option>
+                <option value="solana">סולנה (SOL)</option>
                 <option value="binancecoin">BNB</option>
-                <option value="ripple">XRP</option>
+                <option value="ripple">ריפל (XRP)</option>
               </select>
             </div>
           </div>

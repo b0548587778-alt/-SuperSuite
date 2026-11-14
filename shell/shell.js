@@ -962,13 +962,13 @@ async function runBackup() {
   const r = await askPassphrase({ title: 'גיבוי מוצפן', text: 'בחר מה לגבות והזן סיסמה. לפחות 12 תווים — משפט קצר שקל לזכור טוב יותר ממילה מסובכת. בלי הסיסמה לא ניתן לשחזר את הקובץ.', scopes: true });
   if (r === null) return;
   try { await window.shellAPI.backupAll(r.pass, r.scope); }
-  catch (e) { await ssDialog.alert(e.message || 'שגיאה בגיבוי', { title: 'הגיבוי לא הצליח' }); }
+  catch (e) { await ssDialog.alert(e.message || 'הגיבוי לא הצליח הפעם. אפשר לנסות שוב.', { title: 'הגיבוי לא הצליח' }); }
 }
 async function runRestore() {
   const r = await askPassphrase({ title: 'שחזור מגיבוי', text: 'אם הגיבוי מוצפן, הזן את סיסמת הגיבוי. גיבוי אוטומטי מהמחשב הזה — השאר ריק; ממחשב אחר — הזן את קוד השחזור (🔑).', optional: true });
   if (r === null) return;
   try { await window.shellAPI.restoreAll(r.pass); }
-  catch (e) { await ssDialog.alert(e.message || 'שגיאה בשחזור', { title: 'השחזור לא הצליח' }); }
+  catch (e) { await ssDialog.alert(e.message || 'השחזור לא הצליח הפעם. אפשר לנסות שוב.', { title: 'השחזור לא הצליח' }); }
 }
 function showGuide() {
   const g = $('guide');
@@ -1145,7 +1145,7 @@ async function showPlainBackups() {
     b.textContent = label;
     b.onclick = async () => {
       $('pbErr').textContent = '';
-      try { await fn(); } catch (e) { $('pbErr').textContent = e.message || 'הפעולה נכשלה'; }
+      try { await fn(); } catch (e) { $('pbErr').textContent = e.message || 'הפעולה לא הצליחה. אפשר לנסות שוב.'; }
       await render();
     };
     return b;
