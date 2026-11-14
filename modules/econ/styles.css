@@ -726,6 +726,9 @@ button.secondary:disabled {
 .alloc-pending { display: block; color: var(--ss-warning); font-weight: 700; margin-top: 4px; }
 .alloc-ok { display: block; color: var(--ss-success-ink); margin-top: 4px; }
 .acct-actions { display:flex; gap:8px; flex-wrap:wrap; }
+/* מצב פשוט: כפתורים משניים מאחורי "עוד אפשרויות" (foldCrowdedActions ב-ui/core.js) */
+[data-folded]:not(.fold-open) > .fold-hidden { display:none; }
+.fold-more { min-height:44px; padding:6px 10px; font-weight:600; }
 
 /* ---------- עיצוב "מלכותי" למסכי הנהלת החשבונות ---------- */
 .royal { --gold: var(--ss-gold); --gold-soft: var(--ss-gold-soft); --navy: var(--ss-navy-2); }
