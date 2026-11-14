@@ -502,6 +502,19 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 .task b{display:block;font-size:17px;line-height:1.25}
 /* ההסבר הקצר לא נכנס בעיגול — נשאר לקורא מסך ובריחוף (title) */
 .task small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+/* מסך בית שקט וסרגל שקט במצב פשוט */
+.side-more{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+.side-word{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:6px 14px;border-radius:11px;cursor:pointer;font:inherit;font-size:16px;font-weight:600;
+      color:var(--ss-on-dark);background:var(--ss-veil-1);border:1px solid var(--ss-veil-line)}
+.side-word:hover{background:var(--ss-veil-3)}
+.side-word .ss-icon{width:20px;height:20px}
+:root[data-ss-simple="on"] .side:not(.more) .side-more,:root[data-ss-simple="on"] .side:not(.more) .side-tools{display:none}
+:root[data-ss-simple="on"] .side:not(.more) .bot{margin-top:auto}
+.ask-open{margin:14px 0 0}
+.ask-open-btn{background:none;border:0;padding:6px 2px;min-height:44px;font:inherit;font-size:16px;font-weight:600;color:var(--ss-on-dark);text-decoration:underline;cursor:pointer;border-radius:6px}
+:root[data-ss-simple="on"] .hero-in:not(.ask-on) .ask-title,:root[data-ss-simple="on"] .hero-in:not(.ask-on) .ask,:root[data-ss-simple="on"] .hero-in:not(.ask-on) .ask-hint{display:none}
+:root[data-ss-simple="on"] .hero-in.ask-on .ask-open{display:none}
+.calm-note{margin:18px 0 0;font-size:16px;font-weight:600;color:var(--ss-success-ink);background:var(--ss-success-soft);border:1px solid var(--ss-success-line);border-radius:12px;padding:10px 14px;display:inline-block}
 .simple-note{margin:14px 0 0;font-size:15px;color:var(--muted)}
 /* מצב פשוט: "מה יש לעשות היום" (סבב 5) — עד 5 פריטים, לכל אחד "לטפל" */
 .agenda-sec{margin:0 0 22px;position:relative;z-index:2}
@@ -543,7 +556,7 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 </style>
 </head>
 <body>
-<div class="side">
+<div class="side" id="side">
   <div class="brand">
     <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 20h16v-2H4zM5 16h3V10H5zm5.5 0h3V6h-3zM16 16h3V3h-3z" fill="currentColor"/></svg></div>
     <div><b>SuperSuite <span class="ed">כלכלה</span></b><small>כספים, עסק וקהילה — במקום אחד</small></div>
@@ -553,7 +566,12 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
   <div class="a11y-bar">
     <button id="a11yBtn" class="a11y-btn" type="button" aria-haspopup="dialog" title="נגישות: טקסט גדול, ניגודיות, מצב פשוט (Alt+0)"><span class="a11y-ic" aria-hidden="true">♿</span><span>נגישות</span></button>
     <button id="simpleHome" class="simple-home ss-simple-only" type="button" hidden><span data-icon="home" aria-hidden="true"></span><span>חזרה למסך הבית</span></button>
+    <!-- סרגל שקט במצב פשוט: כפתורים במילים. החיפוש, רשימת המסכים ופעולות המערכת — מאחורי "עוד אפשרויות" (שום דבר לא נמחק) -->
+    <button id="sbHelp" class="side-word ss-simple-only" type="button"><span data-icon="help" aria-hidden="true"></span><span>עזרה</span></button>
+    <button id="sbMore" class="side-word ss-simple-only" type="button" aria-expanded="false" aria-controls="sideMore"><span data-icon="list" aria-hidden="true"></span><span id="sbMoreT">עוד אפשרויות</span></button>
   </div>
+  <div id="licBar" role="status" aria-live="polite" hidden></div>
+  <div class="side-more" id="sideMore">
   <div class="histnav" role="group" aria-label="ניווט בהיסטוריה">
     <button id="navBack" type="button" title="אחורה (Alt+←)" aria-label="אחורה" disabled><span data-icon="arrow-right"></span></button>
     <button id="navFwd" type="button" title="קדימה (Alt+→)" aria-label="קדימה" disabled><span data-icon="arrow-left"></span></button>
@@ -564,9 +582,10 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
     <input id="q" type="search" placeholder="חיפוש מהיר..." autocomplete="off" aria-label="חיפוש בכל התוכנה" aria-controls="nav">
     <kbd aria-hidden="true">Ctrl K</kbd>
   </div>
-  <div id="licBar" role="status" aria-live="polite" hidden></div>
   <nav id="nav" aria-label="ניווט ראשי"></nav>
+  </div>
   <div class="bot">
+    <div class="side-tools" id="sideTools">
     <div class="tools" role="toolbar" aria-label="פעולות מערכת">
       <button id="hm" type="button" aria-label="מסך הבית" title="מסך הבית"><span data-icon="home"></span></button>
       <button id="bk" type="button" aria-label="גיבוי מוצפן" title="גיבוי מוצפן (Ctrl+Shift+B)"><span data-icon="download"></span></button>
@@ -578,6 +597,7 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
       <button id="hp" type="button" aria-label="מדריך וקיצורים" title="מדריך וקיצורים (F1)"><span data-icon="help"></span></button>
       <button id="qt" type="button" aria-label="יציאה מהמערכת" title="יציאה מהמערכת"><span data-icon="power"></span></button>
     </div>
+    </div>
     <small id="tgInfo">הנתונים נשמרים במחשב שלך בלבד</small>
     <button type="button" id="tgWarn" hidden></button>
   </div>
@@ -586,11 +606,12 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 <main class="stage" id="home">
   <section class="hero" aria-labelledby="greet">
     <div class="bsd">בס״ד</div>
-    <div class="hero-in">
+    <div class="hero-in" id="heroIn">
       <h1 id="greet">שלום</h1>
       <div class="dates" id="dates"></div>
       <!-- "מה תרצה לעשות?" (תיבת הפקודה): שאלה ← תשובה מהנתונים; בקשה ← הטופס נפתח מלא לאישור (shell/intents.js,
            shell/tasks.js). שום דבר לא נשמר מכאן. דיבור — רק ההכתבה של מערכת ההפעלה (Win+H / מיקרופון במקלדת), בלי רשת -->
+      <p class="ask-open ss-simple-only"><button type="button" class="ask-open-btn" id="askOpen" aria-expanded="false" aria-controls="askForm">אפשר גם לכתוב במילים מה רוצים</button></p>
       <label for="askQ" class="ask-title" id="askTitle">מה תרצה לעשות?</label>
       <form class="ask" id="askForm" aria-labelledby="askTitle" autocomplete="off">
         <span class="ask-ic" data-icon="sparkles" aria-hidden="true"></span>
@@ -626,6 +647,7 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
         <div class="tasks" id="simpleTasks"></div>
         <button type="button" class="task-nav ss-btn ss-btn-primary" id="taskNext" hidden><span aria-hidden="true">←</span>הבא</button>
       </div>
+      <p class="calm-note ss-simple-only"><span aria-hidden="true">✓</span> אפשר לנסות בלי לחשוש — שום דבר לא נשמר בלי שתאשרו.</p>
       <p class="simple-note ss-simple-only">צריכים משהו אחר? <button type="button" class="link" id="simpleAll" aria-expanded="false">הצגת כל המסכים</button> · <button type="button" class="link" id="simpleOff">תצוגה מלאה (למתקדמים)</button></p>
       <p class="simple-note ss-advanced"><button type="button" class="link" id="simpleOn">חזרה לתצוגה הפשוטה</button></p>
     </section>

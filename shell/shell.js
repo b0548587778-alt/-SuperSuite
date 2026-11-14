@@ -269,7 +269,21 @@ q.addEventListener('keydown', e => {
     q.value = ''; ui.query = ''; renderNav(); q.blur();
   }
 });
-function focusSearch() { q.focus(); if (q.select) q.select(); }
+// מצב פשוט: החיפוש, רשימת המסכים ופעולות המערכת מאחורי "עוד אפשרויות"; תיבת "לכתוב במילים" מאחורי קישור
+function setSideMore(on) {
+  ui.sideMore = !!on;
+  if ($('side')) $('side').classList.toggle('more', ui.sideMore);
+  if ($('sbMore')) { $('sbMore').setAttribute('aria-expanded', String(ui.sideMore)); $('sbMoreT').textContent = ui.sideMore ? 'פחות אפשרויות' : 'עוד אפשרויות'; }
+}
+function setAskOpen(on) {
+  ui.askOpen = !!on;
+  if ($('heroIn')) $('heroIn').classList.toggle('ask-on', ui.askOpen);
+  if ($('askOpen')) $('askOpen').setAttribute('aria-expanded', String(ui.askOpen));
+}
+if ($('sbMore')) $('sbMore').onclick = () => setSideMore(!ui.sideMore);
+if ($('sbHelp')) $('sbHelp').onclick = () => showGuide();
+if ($('askOpen')) $('askOpen').onclick = () => { setAskOpen(true); const a = $('askQ'); if (a && a.focus) a.focus(); };
+function focusSearch() { setSideMore(true); q.focus(); if (q.select) q.select(); }
 $('cta').onclick = focusSearch;
 
 /* ---------- אחרונים ---------- */

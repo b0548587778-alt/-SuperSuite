@@ -312,7 +312,7 @@ test('המעטפת: חלון הנגישות — מקיצור המקלדת (פק�
 
 test('המעטפת: כפתור "♿ נגישות" בראש הסרגל, החלונות עם כותרת, והקבצים נטענים לפני shell.js', () => {
   const html = read('shell/shell.html');
-  const side = html.slice(html.indexOf('<div class="side">'), html.indexOf('<nav id="nav"'));
+  const side = html.slice(html.indexOf('<div class="side" id="side">'), html.indexOf('<nav id="nav"'));
   assert.match(side, /<button id="a11yBtn" class="a11y-btn" type="button" aria-haspopup="dialog"[^>]*><span class="a11y-ic" aria-hidden="true">♿<\/span><span>נגישות<\/span><\/button>/);
   assert.ok(side.indexOf('a11yBtn') < side.indexOf('id="q"'), 'לפני החיפוש — הדבר הראשון בסרגל');
   assert.match(html, /<dialog id="a11yDlg" class="a11y-dlg" aria-labelledby="a11yTitle" aria-describedby="a11yIntro">/);

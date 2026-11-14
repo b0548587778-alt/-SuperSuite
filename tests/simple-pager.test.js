@@ -69,3 +69,17 @@ test('צבע קבוע לכל משימה: כל משימה עם tone מוכר, ו�
   for (const t of Simple.TASKS) assert.ok(Simple.TONES.includes(t.tone), t.id);
   for (const tone of Simple.TONES.filter(x => x !== 'primary')) assert.ok(html.includes('.task.tone-' + tone + '{--tone:var(--ss-' + tone + '-ink)'), tone);
 });
+
+test('מסך בית שקט במצב פשוט: הסרגל במילים, השאר מאחורי "עוד אפשרויות", והודעות הרישיון נשארות גלויות', () => {
+  const html = read('shell/shell.html');
+  const js = read('shell/shell.js');
+  assert.match(html, /id="sbHelp" class="side-word ss-simple-only"[^>]*>.*?<span>עזרה<\/span>/);
+  assert.match(html, /id="sbMore" class="side-word ss-simple-only" type="button" aria-expanded="false" aria-controls="sideMore"/);
+  const more = html.slice(html.indexOf('id="sideMore"'), html.indexOf('<div class="bot">'));
+  assert.ok(more.includes('id="q"') && more.includes('id="nav"'), 'החיפוש ורשימת המסכים בתוך "עוד אפשרויות" — לא נמחקו');
+  assert.ok(html.indexOf('id="licBar"') < html.indexOf('id="sideMore"'), 'מצב הרישיון תמיד גלוי');
+  assert.ok(html.includes(':root[data-ss-simple="on"] .side:not(.more) .side-more'), 'מוסתר רק במצב פשוט');
+  assert.match(js, /function focusSearch\(\) \{ setSideMore\(true\);/, 'חיפוש (Ctrl+K) פותח את החלק המוסתר לפני המיקוד');
+  assert.match(html, /id="askOpen" aria-expanded="false" aria-controls="askForm">אפשר גם לכתוב במילים מה רוצים</);
+  assert.match(html, /שום דבר לא נשמר בלי שתאשרו/);
+});
