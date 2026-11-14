@@ -6,17 +6,20 @@
 (function (root) {
   'use strict';
 
+  // tone — הצבע הקבוע של המשימה (primary / success / info / warning): אותו צבע בכל מקום שהיא מופיעה, כדי שיזהו אותה במבט.
+  // רק ערכות צבע מ-design-tokens.css (יש להן גם גרסה כהה)
+  const TONES = ['primary', 'success', 'info', 'warning'];
   const TASKS = [
-    { id: 'invoice', key: 'econ:acct-invoices', task: 'invoice', icon: 'invoice', verb: 'להוציא חשבונית או קבלה', hint: 'ללקוח של העסק' },
-    { id: 'donation', key: 'econ:npo', task: 'donation', icon: 'heart', verb: 'לרשום תרומה ולתת קבלה', hint: 'לתורם של העמותה' },
-    { id: 'income', key: 'econ:dashboard', icon: 'chart-bar', verb: 'לראות כמה כסף נכנס החודש', hint: 'תמונת מצב במבט אחד' },
-    { id: 'collect', key: 'econ:collect', icon: 'card', verb: 'לבקש תשלום (לגבות)', hint: 'קישור תשלום ללקוח או לתורם' },
-    { id: 'loan', key: 'econ:gemach', icon: 'hand-coin', verb: 'לרשום הלוואה או החזר בגמ"ח', hint: 'הלוואות, ערבים והפקדות' },
-    { id: 'appraise', key: 'shamai', icon: 'gem', verb: 'להעריך שווי של זהב או תכשיט', hint: 'שמאות נכסים' },
-    { id: 'calc', key: 'tools', icon: 'calculator', verb: 'לחשב משהו', hint: 'מחשבון וכלי עזר' },
-    { id: 'find', action: 'search', icon: 'search', verb: 'לחפש מסך אחר', hint: 'מקלידים מילה אחת ולוחצים Enter' },
-    { id: 'backup', action: 'backup', icon: 'download', verb: 'לשמור גיבוי של הנתונים', hint: 'עותק מוצפן — לשמור במקום בטוח', admin: true },
-    { id: 'help', action: 'help', icon: 'help', verb: 'עזרה והסבר', hint: 'איך עושים מה' },
+    { id: 'invoice', tone: 'primary', key: 'econ:acct-invoices', task: 'invoice', icon: 'invoice', verb: 'להוציא חשבונית או קבלה', hint: 'ללקוח של העסק' },
+    { id: 'donation', tone: 'success', key: 'econ:npo', task: 'donation', icon: 'heart', verb: 'לרשום תרומה ולתת קבלה', hint: 'לתורם של העמותה' },
+    { id: 'income', tone: 'info', key: 'econ:dashboard', icon: 'chart-bar', verb: 'לראות כמה כסף נכנס החודש', hint: 'תמונת מצב במבט אחד' },
+    { id: 'collect', tone: 'warning', key: 'econ:collect', icon: 'card', verb: 'לבקש תשלום (לגבות)', hint: 'קישור תשלום ללקוח או לתורם' },
+    { id: 'loan', tone: 'success', key: 'econ:gemach', icon: 'hand-coin', verb: 'לרשום הלוואה או החזר בגמ"ח', hint: 'הלוואות, ערבים והפקדות' },
+    { id: 'appraise', tone: 'warning', key: 'shamai', icon: 'gem', verb: 'להעריך שווי של זהב או תכשיט', hint: 'שמאות נכסים' },
+    { id: 'calc', tone: 'info', key: 'tools', icon: 'calculator', verb: 'לחשב משהו', hint: 'מחשבון וכלי עזר' },
+    { id: 'find', tone: 'primary', action: 'search', icon: 'search', verb: 'לחפש מסך אחר', hint: 'מקלידים מילה אחת ולוחצים Enter' },
+    { id: 'backup', tone: 'success', action: 'backup', icon: 'download', verb: 'לשמור גיבוי של הנתונים', hint: 'עותק מוצפן — לשמור במקום בטוח', admin: true },
+    { id: 'help', tone: 'info', action: 'help', icon: 'help', verb: 'עזרה והסבר', hint: 'איך עושים מה' },
   ];
 
   // has(key) — הפריט קיים בקטלוג; open(key) — פתוח ברישיון; admin — המשתמש מנהל
@@ -67,7 +70,7 @@
       .sort((a, b) => b.n - a.n || a.i - b.i).map(x => x.t);
   }
 
-  const api = { TASKS, PAGE_SIZE, tasksFor, pageOf, sidebarKeys, normalizeUse, bumpUse, orderByUse };
+  const api = { TASKS, TONES, PAGE_SIZE, tasksFor, pageOf, sidebarKeys, normalizeUse, bumpUse, orderByUse };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_SIMPLE = api;
 })(typeof window !== 'undefined' ? window : this);

@@ -63,3 +63,9 @@ test('העיגולים לומדים במעטפת: הסדר נקבע בעלייה
   assert.match(js, /orderByUse\(SIMPLE\.tasksFor\([^\n]*\), taskUseAtStart\)/, 'לא לפי הספירה החיה — עיגול לא זז באמצע העבודה');
   assert.match(js, /countTaskUse\(t\.id\);/);
 });
+
+test('צבע קבוע לכל משימה: כל משימה עם tone מוכר, ולכל tone יש כלל במסך הבית', () => {
+  const html = read('shell/shell.html');
+  for (const t of Simple.TASKS) assert.ok(Simple.TONES.includes(t.tone), t.id);
+  for (const tone of Simple.TONES.filter(x => x !== 'primary')) assert.ok(html.includes('.task.tone-' + tone + '{--tone:var(--ss-' + tone + '-ink)'), tone);
+});

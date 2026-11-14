@@ -490,8 +490,14 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 @media (max-width:620px){.tasks-wrap{flex-wrap:wrap;justify-content:space-between}.tasks-wrap .tasks{flex-basis:100%;order:-1}}
 .task{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;flex:0 1 230px;min-width:150px;aspect-ratio:1;padding:20px;border-radius:50%;cursor:pointer;text-align:center;
       font:inherit;color:var(--text);background:var(--surface);border:3px solid var(--ss-border-strong);box-shadow:var(--ss-shadow-sm)}
-.task:hover{border-color:var(--ss-primary);background:var(--ss-primary-soft)}
-.task .t-ic{width:60px;height:60px;flex:0 0 60px;border-radius:50%;display:grid;place-items:center;background:var(--ss-primary-soft);color:var(--ss-primary)}
+/* צבע קבוע לכל משימה (tone ב-simple-mode.js) — רק מסגרת ועיגול האייקון; הטקסט נשאר בצבע הרגיל */
+.task{--tone:var(--ss-primary);--tone-soft:var(--ss-primary-soft);--tone-line:var(--ss-border-strong)}
+.task.tone-success{--tone:var(--ss-success-ink);--tone-soft:var(--ss-success-soft);--tone-line:var(--ss-success-line)}
+.task.tone-info{--tone:var(--ss-info-ink);--tone-soft:var(--ss-info-soft);--tone-line:var(--ss-info-line)}
+.task.tone-warning{--tone:var(--ss-warning-ink);--tone-soft:var(--ss-warning-soft);--tone-line:var(--ss-warning-line)}
+.task{border-color:var(--tone-line)}
+.task:hover{border-color:var(--tone);background:var(--tone-soft)}
+.task .t-ic{width:60px;height:60px;flex:0 0 60px;border-radius:50%;display:grid;place-items:center;background:var(--tone-soft);color:var(--tone)}
 .task .t-ic .ss-icon{width:32px;height:32px}
 .task b{display:block;font-size:17px;line-height:1.25}
 /* ההסבר הקצר לא נכנס בעיגול — נשאר לקורא מסך ובריחוף (title) */

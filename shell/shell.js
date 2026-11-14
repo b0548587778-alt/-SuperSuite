@@ -433,7 +433,7 @@ function renderSimpleHome() {
   // וחץ מכל צד עובר בין העמודים (בלי אנימציה)
   const pg = SIMPLE.pageOf(simpleTasks(), ui.taskPage || 0);
   ui.taskPage = pg.page;
-  $('simpleTasks').innerHTML = pg.items.map(t => `<button type="button" class="task" data-task="${esc(t.id)}" title="${esc(t.hint)}">` +
+  $('simpleTasks').innerHTML = pg.items.map(t => `<button type="button" class="task tone-${esc(t.tone)}" data-task="${esc(t.id)}" title="${esc(t.hint)}">` +
     `<span class="t-ic" aria-hidden="true">${IC ? svg(t.icon) : ''}</span><span><b>${esc(t.verb)}</b><small>${esc(t.hint)}</small></span></button>`).join('');
   if (!$('taskPrev')) return;
   $('taskPrev').hidden = $('taskNext').hidden = pg.pages < 2;
