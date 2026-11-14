@@ -176,9 +176,19 @@ function toggleGroup(id) {
 }
 
 // משימות מצב פשוט שפתוחות למשתמש הזה (רישיון ומנהל)
+// "העיגולים לומדים": הסדר לפי מה שנבחר הכי הרבה — נקבע פעם אחת בעלייה (taskUseAtStart) ולא משתנה באמצע העבודה
+const TASK_USE_KEY = 'suite.taskUse';
+function readTaskUse() {
+  try { return SIMPLE ? SIMPLE.normalizeUse(JSON.parse(localStorage.getItem(TASK_USE_KEY) || '{}')) : {}; } catch { return {}; }
+}
+const taskUseAtStart = readTaskUse();
+function countTaskUse(id) {
+  if (!SIMPLE) return;
+  try { localStorage.setItem(TASK_USE_KEY, JSON.stringify(SIMPLE.bumpUse(readTaskUse(), id))); } catch { /* העדפה בלבד */ }
+}
 function simpleTasks() {
   if (!SIMPLE) return [];
-  return SIMPLE.tasksFor({ has: k => BY_KEY.has(k), open: k => itemOpen(BY_KEY.get(k)), admin: shellAdmin });
+  return SIMPLE.orderByUse(SIMPLE.tasksFor({ has: k => BY_KEY.has(k), open: k => itemOpen(BY_KEY.get(k)), admin: shellAdmin }), taskUseAtStart);
 }
 function renderNav() {
   const q = ui.query.trim();
@@ -474,6 +484,7 @@ $('simpleTasks').onclick = e => {
   const b = e.target.closest('[data-task]');
   const t = b && SIMPLE ? SIMPLE.TASKS.find(x => x.id === b.dataset.task) : null;
   if (!t) return;
+  countTaskUse(t.id);
   if (t.action === 'search') focusSearch();
   else if (t.action === 'backup') runBackup();
   else if (t.action === 'help') showGuide();

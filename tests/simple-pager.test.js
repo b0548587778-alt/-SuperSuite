@@ -42,3 +42,24 @@ test('מסך הבית: כפתורי המעבר עם מילים בעברית, מ�
   // רוחב הכפתור "בצע" לפי התוכן: flex-basis קבוע של 44px חתך את המילה
   assert.match(html, /\.ask \.ask-go\{[^}]*flex:0 0 auto/);
 });
+
+test('העיגולים לומדים: מה שנבחר הכי הרבה עולה ראשון, שוויון שומר על הסדר, וקלט פגום מהאחסון לא שובר', () => {
+  const all = Simple.tasksFor({ admin: true });
+  assert.deepEqual(Simple.orderByUse(all, {}).map(t => t.id), all.map(t => t.id), 'בלי היסטוריה — הסדר הקבוע');
+  const ordered = Simple.orderByUse(all, { calc: 5, loan: 2 }).map(t => t.id);
+  assert.deepEqual(ordered.slice(0, 3), ['calc', 'loan', 'invoice']);
+  assert.equal(ordered.length, all.length, 'אף משימה לא נעלמה');
+  for (const bad of [null, 'x', [], { calc: -3, loan: 1.5, evil: 9, invoice: '7', __proto__: { calc: 9 } }]) {
+    assert.deepEqual(Simple.orderByUse(all, bad).map(t => t.id), all.map(t => t.id));
+  }
+  assert.deepEqual(Simple.bumpUse({ calc: 2 }, 'calc'), { calc: 3 });
+  assert.deepEqual(Simple.bumpUse({}, 'no-such-task'), {}, 'מזהה לא מוכר לא נשמר');
+  assert.equal(Simple.bumpUse({ calc: 1e9 }, 'calc').calc, 100000, 'תקרה');
+});
+
+test('העיגולים לומדים במעטפת: הסדר נקבע בעלייה בלבד, והספירה נשמרת כהעדפת תצוגה', () => {
+  const js = read('shell/shell.js');
+  assert.match(js, /const taskUseAtStart = readTaskUse\(\);/);
+  assert.match(js, /orderByUse\(SIMPLE\.tasksFor\([^\n]*\), taskUseAtStart\)/, 'לא לפי הספירה החיה — עיגול לא זז באמצע העבודה');
+  assert.match(js, /countTaskUse\(t\.id\);/);
+});

@@ -42,7 +42,32 @@
     return { items: list.slice(p * per, p * per + per), page: p, pages };
   }
 
-  const api = { TASKS, PAGE_SIZE, tasksFor, pageOf, sidebarKeys };
+  // "העיגולים לומדים": סופרים כמה פעמים נבחרה כל משימה, ומה שנבחר הכי הרבה עולה ראשון.
+  // העדפת תצוגה בלבד (localStorage של המעטפת) — לא נתוני משתמש. הקלט מהאחסון לא מהימן: רק מזהים מוכרים ושלמים חיוביים.
+  const USE_MAX = 100000;
+  function normalizeUse(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+    for (const t of TASKS) {
+      const n = Object.prototype.hasOwnProperty.call(raw, t.id) ? raw[t.id] : 0;
+      if (Number.isInteger(n) && n > 0) out[t.id] = Math.min(n, USE_MAX);
+    }
+    return out;
+  }
+  function bumpUse(raw, id) {
+    const use = normalizeUse(raw);
+    if (TASKS.some(t => t.id === id)) use[id] = Math.min((use[id] || 0) + 1, USE_MAX);
+    return use;
+  }
+  // מיון יציב: מספר שימושים גבוה קודם; שוויון — הסדר המקורי. המסך מסדר רק לפי המצב שנקרא בעלייה,
+  // כדי שעיגול לא "יברח" למשתמש באמצע העבודה
+  function orderByUse(tasks, raw) {
+    const use = normalizeUse(raw);
+    return (Array.isArray(tasks) ? tasks : []).map((t, i) => ({ t, i, n: use[t.id] || 0 }))
+      .sort((a, b) => b.n - a.n || a.i - b.i).map(x => x.t);
+  }
+
+  const api = { TASKS, PAGE_SIZE, tasksFor, pageOf, sidebarKeys, normalizeUse, bumpUse, orderByUse };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_SIMPLE = api;
 })(typeof window !== 'undefined' ? window : this);
