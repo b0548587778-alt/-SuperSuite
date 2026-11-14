@@ -475,12 +475,15 @@ async function wizNext() {
   w.busy = true;
   const btns = [...w.overlay.querySelectorAll('button')];
   btns.forEach(b => { b.disabled = true; });
+  const nextBtn = w.overlay.querySelector('#wizNext');
+  nextBtn.textContent = 'רגע, שומר…';
   let result;
   try {
     result = await w.def.submit(w.answers, w.ctx);
   } catch (error) {
     w.busy = false;
     btns.forEach(b => { b.disabled = false; });
+    nextBtn.textContent = 'כן, לשמור';
     const err = w.overlay.querySelector('#wizError');
     err.textContent = 'לא נשמר — ' + errMsg(error).replace(/[.!?]?\s*$/, '.') + ' אפשר ללחוץ "חזרה לתיקון".';
     err.hidden = false;

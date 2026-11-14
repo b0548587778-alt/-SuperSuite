@@ -240,7 +240,7 @@ async function switchView(viewName, opts = {}) {
     }
 
     // Clear view — "טוען" מוקרא (aria-busy על אזור התוכן)
-    elements.view.innerHTML = '<div class="loading" role="status">טוען… רגע אחד</div>';
+    elements.view.innerHTML = '<div class="loading" role="status">רגע, עובד על זה…</div>';
     if (elements.view.setAttribute) elements.view.setAttribute('aria-busy', 'true');
 
     // Load view data

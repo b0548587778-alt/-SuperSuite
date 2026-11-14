@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('shellAPI', {
   openUserGuide: () => ipcRenderer.invoke('shell:open-user-guide'),
   saveUserGuidePdf: () => ipcRenderer.invoke('shell:save-user-guide-pdf'),
   onActive: cb => ipcRenderer.on('shell:active', (_e, id) => cb(id)),
+  onBusy: cb => ipcRenderer.on('shell:busy', (_e, on) => cb(on === true)),
   onCmd: cb => ipcRenderer.on('shell:cmd', (_e, cmd) => cb(cmd)),
   getLicenseState: () => ipcRenderer.invoke('shell:license-state'),
   onLicense: cb => ipcRenderer.on('shell:license', (_e, st) => cb(st)),

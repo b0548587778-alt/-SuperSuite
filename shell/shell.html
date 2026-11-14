@@ -510,6 +510,9 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
 .side-word .ss-icon{width:20px;height:20px}
 :root[data-ss-simple="on"] .side:not(.more) .side-more,:root[data-ss-simple="on"] .side:not(.more) .side-tools{display:none}
 :root[data-ss-simple="on"] .side:not(.more) .bot{margin-top:auto}
+.busy{position:fixed;z-index:50;left:calc((100% - 264px) / 2);bottom:40px;transform:translateX(-50%);padding:14px 26px;border-radius:var(--ss-radius-pill);
+      font-size:18px;font-weight:700;color:var(--ss-on-dark);background:var(--ss-navy-1);border:2px solid var(--ss-gold-bright);box-shadow:var(--ss-shadow-sm)}
+.busy[hidden]{display:none}
 .ask-open{margin:14px 0 0}
 .ask-open-btn{background:none;border:0;padding:6px 2px;min-height:44px;font:inherit;font-size:16px;font-weight:600;color:var(--ss-on-dark);text-decoration:underline;cursor:pointer;border-radius:6px}
 :root[data-ss-simple="on"] .hero-in:not(.ask-on) .ask-title,:root[data-ss-simple="on"] .hero-in:not(.ask-on) .ask,:root[data-ss-simple="on"] .hero-in:not(.ask-on) .ask-hint{display:none}
@@ -603,6 +606,7 @@ dialog.a11y-ask .row button{min-height:52px;font-size:17px}
   </div>
 </div>
 <!-- הבמה: מסך הבית. כשפריט פתוח, Electron מצייר אותו מעליה (main.js: layout) -->
+<div class="busy" id="busy" role="status" aria-live="polite" hidden></div>
 <main class="stage" id="home">
   <section class="hero" aria-labelledby="greet">
     <div class="bsd">בס״ד</div>

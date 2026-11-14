@@ -280,6 +280,9 @@ function setAskOpen(on) {
   if ($('heroIn')) $('heroIn').classList.toggle('ask-on', ui.askOpen);
   if ($('askOpen')) $('askOpen').setAttribute('aria-expanded', String(ui.askOpen));
 }
+// "רגע, עובד על זה": מסך שנטען בפעם הראשונה (main.js ← shell:busy). בלי אנימציה
+function setBusy(on) { const b = $('busy'); if (b) { b.hidden = !on; b.textContent = on ? 'רגע, פותח את המסך…' : ''; } }
+if (window.shellAPI.onBusy) window.shellAPI.onBusy(setBusy);
 if ($('sbMore')) $('sbMore').onclick = () => setSideMore(!ui.sideMore);
 if ($('sbHelp')) $('sbHelp').onclick = () => showGuide();
 if ($('askOpen')) $('askOpen').onclick = () => { setAskOpen(true); const a = $('askQ'); if (a && a.focus) a.focus(); };

@@ -221,6 +221,17 @@ function wireAppCommand(w) {
   });
 }
 
+// "רגע, עובד על זה": מודול שנטען בפעם הראשונה נשאר מוסתר עד שהמסך שלו מוכן (במחשב חלש — כמה שניות של מסך ריק),
+// ובינתיים המעטפת מציגה הודעה (shell:busy). רשת ביטחון: אחרי VIEW_LOAD_MAX_MS המסך מוצג בכל מקרה
+const loadingViews = new Set();
+const VIEW_LOAD_MAX_MS = 15000;
+function sendBusy(on) { if (win && !win.isDestroyed()) win.webContents.send('shell:busy', on === true); }
+function viewLoaded(id) {
+  if (!loadingViews.delete(id)) return;
+  if (active !== id) return;
+  sendBusy(false);
+  if (views[id]) views[id].setVisible(!overlay);
+}
 function ensureView(id) {
   if (views[id]) return views[id];
   const prefs = { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true };
@@ -233,6 +244,13 @@ function ensureView(id) {
   wireView(id, v.webContents);
   layout();
   v.webContents.loadURL(ENTRY[id]);
+  if (!smoke && v.webContents.isLoading() === true) {
+    loadingViews.add(id);
+    v.webContents.once('did-finish-load', () => viewLoaded(id));
+    v.webContents.once('did-fail-load', () => viewLoaded(id));
+    const t = setTimeout(() => viewLoaded(id), VIEW_LOAD_MAX_MS);
+    if (t && typeof t.unref === 'function') t.unref();
+  }
   return v;
 }
 
@@ -302,7 +320,8 @@ function switchTo(id) {
   if (loginGate.route(id) !== id) { showLoginForLocked(); return; }
   const v = ensureView(id);
   active = id;
-  for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === id);
+  for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === id && !loadingViews.has(k));
+  sendBusy(loadingViews.has(id));
   v.webContents.focus();
   if (win && !win.isDestroyed()) win.webContents.send('shell:active', id);
   // במודול הכלכלי התצוגה תדווח מיד (shell:econ-view) ותשלים את הרישום
@@ -358,7 +377,7 @@ function openModuleView(id, view) {
 // דיאלוג במעטפת: מסתירים את המודול הפעיל בזמן שהדיאלוג פתוח, ומחזירים אותו בסגירה
 function setOverlay(on) {
   overlay = !!on;
-  for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === active);
+  for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === active && !loadingViews.has(k));
   if (!overlay && active && views[active]) views[active].webContents.focus();
 }
 
