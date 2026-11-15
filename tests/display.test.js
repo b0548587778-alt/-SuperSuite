@@ -117,7 +117,8 @@ test('main.js: ההגדרות נשמרות רק מהמעטפת, ה-preload נר�
   assert.match(save, /canShellNavigate\(e\.sender\.id, win\.webContents\.id\)/);
   const setTheme = main.slice(main.indexOf("ipcMain.handle('display:set-theme'"));
   assert.match(setTheme.slice(0, 600), /\['light', 'dark'\]\.includes\(theme\)/);
-  assert.match(main, /saveJson\(uiFile\(\), \{ \.\.\.ui, display: Display\.sanitize\(input\) \}\)/, 'מיזוג — לא דורס את הלוח העברי והזום');
+  assert.match(main, /saveJson\(uiFile\(\), Display\.withSaved\(ui, input\)\)/, 'מיזוג — לא דורס את הלוח העברי והזום');
+  assert.deepEqual(D.withSaved({ zoom: 1.2, calendar: { city: 'x' } }, { theme: 'dark' }), { zoom: 1.2, calendar: { city: 'x' }, display: D.sanitize({ theme: 'dark' }), displayBase: D.BASE_V });
   assert.match(main, /nativeTheme\.themeSource = displaySettings\(\)\.theme/);
 });
 

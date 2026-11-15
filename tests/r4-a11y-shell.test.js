@@ -189,7 +189,19 @@ test('המעטפת: במצב פשוט — משימות גדולות במסך ה�
   const tasks = s.elements.simpleTasks.innerHTML;
   assert.match(tasks, /data-task="invoice"/);
   assert.match(tasks, /להוציא חשבונית או קבלה/);
-  assert.match(tasks, /data-task="backup"/, 'מנהל — גם גיבוי');
+  // תפריט "כמו ברכב": בעמוד הראשון 3 משימות, השאר ב"הבא"
+  assert.equal((tasks.match(/data-task=/g) || []).length, 3);
+  assert.doesNotMatch(tasks, /data-task="backup"/);
+  assert.equal(s.elements.taskPrev.disabled, true, 'בעמוד הראשון אין "הקודם"');
+  assert.equal(s.elements.taskPageInfo.textContent, 'עמוד 1 מתוך 4');
+  s.elements.taskNext.onclick(); s.elements.taskNext.onclick();
+  assert.match(s.elements.simpleTasks.innerHTML, /data-task="backup"/, 'מנהל — גם גיבוי (בעמוד השלישי)');
+  s.elements.taskNext.onclick();
+  assert.equal(s.elements.taskNext.disabled, true, 'בעמוד האחרון אין "הבא"');
+  s.elements.taskNext.onclick();
+  assert.equal(s.elements.taskPageInfo.textContent, 'עמוד 4 מתוך 4', 'לחיצה נוספת לא יוצאת מהטווח');
+  for (let i = 0; i < 3; i++) s.elements.taskPrev.onclick();
+  assert.match(s.elements.simpleTasks.innerHTML, /data-task="invoice"/, '"הקודם" מחזיר לעמוד הראשון');
   // הסרגל: המסכים הנפוצים ו"עוד מסכים", בלי כל התחומים
   const nav = s.elements.nav.innerHTML;
   assert.match(nav, /data-more aria-expanded="false">עוד מסכים</);
@@ -215,35 +227,59 @@ test('המעטפת: במצב פשוט — משימות גדולות במסך ה�
   assert.equal(s.elements.simpleHome.hidden, true);
 });
 
-test('המעטפת: בלי מצב פשוט — הסרגל המלא כמו קודם ואין משימות', async () => {
+test('המעטפת: בלי מצב פשוט — הסרגל המלא כמו קודם, והתפריט "כמו ברכב" מוצג גם כאן', async () => {
   const s = loadShell({ storage: { 'suite.a11yAsked': 'no' } });
   await flush(); await flush();
-  assert.equal(s.elements.simpleTasks.innerHTML, '');
+  assert.equal((s.elements.simpleTasks.innerHTML.match(/data-task=/g) || []).length, 3);
   assert.doesNotMatch(s.elements.nav.innerHTML, /data-more/);
   assert.match(s.elements.nav.innerHTML, /data-key="econ:acct-chart"/);
 });
 
-test('המעטפת: שאלה אחת בהפעלה הראשונה — "כן" מפעיל מצב פשוט וטקסט גדול, ונשאלת פעם אחת בלבד', async () => {
-  const s = loadShell();
+test('המעטפת: "הפשוט הוא הבסיס" — התקנה חדשה בלי שום שאלה; משתמש קיים רואה פעם אחת "המסך התחדש", עם דרך חזרה לתצוגה המלאה', async () => {
+  // התקנה חדשה: אין היסטוריה ← אין חלון, והסימון נשמר
+  const fresh = loadShell({ display: { simple: 'on' } });
   await flush(); await flush();
-  assert.equal(s.elements.a11yAsk.open, true, 'החלון נפתח');
+  assert.ok(!(fresh.elements.a11yAsk && fresh.elements.a11yAsk.open), 'בהפעלה הראשונה אין שאלות');
+  assert.equal(fresh.store['suite.simpleBaseSeen'], 'new');
+  assert.match(fresh.elements.simpleTasks.innerHTML, /data-task=/);
+  // משתמש קיים (יש לו היסטוריה): ההודעה נפתחת פעם אחת
+  const s = loadShell({ display: { simple: 'on' }, storage: { 'suite.a11yAsked': 'no' } });
+  await flush(); await flush();
+  assert.equal(s.elements.a11yAsk.open, true, 'ההודעה נפתחה');
   assert.equal(s.calls.overlay.at(-1), true, 'המודול מוסתר מאחורי החלון');
   s.elements.a11yAskYes.onclick();
   await flush(); await flush();
   assert.equal(s.elements.a11yAsk.open, false);
-  assert.equal(s.store['suite.a11yAsked'], 'yes');
-  const saved = s.calls.save.at(-1);
-  assert.equal(saved.simple, 'on');
-  assert.equal(saved.text, 'lg');
-  assert.equal(saved.targets, 'large');
-  assert.match(s.elements.simpleTasks.innerHTML, /data-task=/, 'מסך הבית עבר למצב פשוט מיד');
-  // נשאל כבר — לא שוב; והגדרות שכבר שונו — לא שואלים
-  const again = loadShell({ storage: { 'suite.a11yAsked': 'no' } });
+  assert.equal(s.store['suite.simpleBaseSeen'], 'ok');
+  assert.equal(s.calls.save.length, 0, '"הבנתי" לא משנה שום הגדרה');
+  // "להחזיר את התצוגה המלאה" — נשמר simple: off
+  const back = loadShell({ display: { simple: 'on' }, storage: { 'suite.recent': '[]' } });
   await flush(); await flush();
-  assert.ok(!(again.elements.a11yAsk && again.elements.a11yAsk.open), 'לא נשאל שוב');
-  const custom = loadShell({ display: { text: 'xl' } });
+  assert.equal(back.elements.a11yAsk.open, true);
+  back.elements.a11yAskNo.onclick();
   await flush(); await flush();
-  assert.ok(!(custom.elements.a11yAsk && custom.elements.a11yAsk.open), 'הגדרות שכבר שונו — לא שואלים');
+  assert.equal(back.calls.save.at(-1).simple, 'off');
+  assert.equal(back.store['suite.simpleBaseSeen'], 'full');
+  // כבר הוצגה — לא שוב; ומי שכבר בתצוגה המלאה — בלי הודעה
+  const again = loadShell({ display: { simple: 'on' }, storage: { 'suite.a11yAsked': 'no', 'suite.simpleBaseSeen': 'ok' } });
+  await flush(); await flush();
+  assert.ok(!(again.elements.a11yAsk && again.elements.a11yAsk.open), 'לא מוצגת שוב');
+  const full = loadShell({ display: { simple: 'off' }, storage: { 'suite.a11yAsked': 'no' } });
+  await flush(); await flush();
+  assert.ok(!(full.elements.a11yAsk && full.elements.a11yAsk.open));
+});
+
+test('display: stored — התקנה חדשה והגדרות מלפני השינוי נפתחות במצב פשוט; אחרי שמירה הבחירה נשמרת כמו שהיא', () => {
+  assert.equal(D.stored(undefined).simple, 'on', 'אין קובץ');
+  assert.equal(D.stored({}).simple, 'on', 'התקנה חדשה');
+  assert.equal(D.stored({ display: { simple: 'off', theme: 'dark' } }).simple, 'on', 'מי שעבד במסך המלא עובר פעם אחת');
+  assert.equal(D.stored({ display: { simple: 'off', theme: 'dark' } }).theme, 'dark', 'שאר ההגדרות לא משתנות');
+  const saved = D.withSaved({ zoom: 1.1 }, { simple: 'off' });
+  assert.equal(saved.zoom, 1.1);
+  assert.equal(D.stored(saved).simple, 'off', 'בחירה מפורשת בתצוגה המלאה נשמרת');
+  assert.equal(D.stored({ display: { simple: 'off' }, displayBase: 'x' }).simple, 'on', 'סימון לא תקין = לא סומן');
+  assert.equal(D.resetA11y({ simple: 'off', text: 'xl' }).simple, 'on', '"חזרה למצב הרגיל" = הפשוט');
+  assert.equal(D.resetA11y({ simple: 'off', text: 'xl' }).text, 'md');
 });
 
 test('המעטפת: חלון הנגישות — מקיצור המקלדת (פקודה a11y), מתג נשמר מיד ומודיע בהודעה חיה', async () => {
@@ -276,19 +312,21 @@ test('המעטפת: חלון הנגישות — מקיצור המקלדת (פק�
 
 test('המעטפת: כפתור "♿ נגישות" בראש הסרגל, החלונות עם כותרת, והקבצים נטענים לפני shell.js', () => {
   const html = read('shell/shell.html');
-  const side = html.slice(html.indexOf('<div class="side">'), html.indexOf('<nav id="nav"'));
+  const side = html.slice(html.indexOf('<div class="side" id="side">'), html.indexOf('<nav id="nav"'));
   assert.match(side, /<button id="a11yBtn" class="a11y-btn" type="button" aria-haspopup="dialog"[^>]*><span class="a11y-ic" aria-hidden="true">♿<\/span><span>נגישות<\/span><\/button>/);
   assert.ok(side.indexOf('a11yBtn') < side.indexOf('id="q"'), 'לפני החיפוש — הדבר הראשון בסרגל');
   assert.match(html, /<dialog id="a11yDlg" class="a11y-dlg" aria-labelledby="a11yTitle" aria-describedby="a11yIntro">/);
   assert.match(html, /<dialog id="a11yAsk" class="a11y-ask" aria-labelledby="a11yAskTitle" aria-describedby="a11yAskText">/);
-  assert.match(html, /רוצה שהתוכנה תהיה פשוטה יותר וגדולה יותר\?/);
+  assert.match(html, /המסך התחדש — עכשיו הוא פשוט יותר/);
+  assert.match(html, /id="simpleOff">תצוגה מלאה \(למתקדמים\)</);
+  assert.match(html, /id="simpleOn">חזרה לתצוגה הפשוטה</);
   assert.match(html, /id="a11yLive" role="status" aria-live="polite"/);
   for (const f of ['ss-help.js', 'simple-mode.js', 'display.js']) {
     assert.ok(html.indexOf(`src="${f}"`) > 0 && html.indexOf(`src="${f}"`) < html.indexOf('src="shell.js"'), f);
   }
   // מסך הבית: מה שמוסתר במצב פשוט מסומן ss-advanced, ומה שמוצג רק בו — ss-simple-only
   assert.match(html, /class="kpis ss-advanced"/);
-  assert.match(html, /class="simple-tasks ss-simple-only"/);
+  assert.match(html, /class="simple-tasks" id="simpleSec"/);
   assert.match(html, /id="simpleHome" class="simple-home ss-simple-only"/);
   // CSP לא השתנה (בלי סקריפט פנימי)
   assert.match(html, /script-src 'self';/);
@@ -414,7 +452,7 @@ test('אנדרואיד: הגדרות התצוגה והנגישות נשמרות 
   assert.equal(toShell.length, 1, 'בעלייה — המצב השמור');
   assert.equal(toFrames.length, 1);
   const call = (sender, ch, ...a) => handlers.get(ch)({ sender: { id: sender } }, ...a);
-  assert.deepEqual(await call(1, 'shell:get-display'), D.DEFAULTS);
+  assert.deepEqual(await call(1, 'shell:get-display'), { ...D.DEFAULTS, simple: 'on' }, 'התקנה חדשה נפתחת במצב הפשוט');
   const saved = await call(1, 'shell:save-display', { simple: 'on', text: 'xxl', theme: 'system', evil: '<x>' });
   assert.equal(saved.simple, 'on');
   assert.equal(ui.display.text, 'xxl');

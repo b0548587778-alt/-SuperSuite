@@ -3,8 +3,10 @@
 //   AUDIT — window.__a11yAudit(root): בדיקות כלליות על מה שגלוי כרגע במסך
 'use strict';
 
-function shellMock({ display = {}, admin = true, licensed = true, asked = true } = {}) {
+// baseSeen: ההודעה החד-פעמית "המסך התחדש" כבר הוצגה (ברירת מחדל — כדי שלא תכסה את המסך בבדיקות אחרות)
+function shellMock({ display = {}, admin = true, licensed = true, asked = true, baseSeen = true } = {}) {
   return `(() => {
+  ${baseSeen ? "try { localStorage.setItem('suite.simpleBaseSeen', 'ok'); } catch {}" : "try { localStorage.removeItem('suite.simpleBaseSeen'); } catch {}"}
   ${asked ? "try { localStorage.setItem('suite.a11yAsked', '1'); } catch {}" : "try { localStorage.removeItem('suite.a11yAsked'); } catch {}"}
   window.__calls = { open: [], overlay: [], saveDisplay: [], goHome: 0, backup: 0 };
   let disp = ${JSON.stringify(display)};

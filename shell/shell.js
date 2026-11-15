@@ -176,9 +176,19 @@ function toggleGroup(id) {
 }
 
 // משימות מצב פשוט שפתוחות למשתמש הזה (רישיון ומנהל)
+// "העיגולים לומדים": הסדר לפי מה שנבחר הכי הרבה — נקבע פעם אחת בעלייה (taskUseAtStart) ולא משתנה באמצע העבודה
+const TASK_USE_KEY = 'suite.taskUse';
+function readTaskUse() {
+  try { return SIMPLE ? SIMPLE.normalizeUse(JSON.parse(localStorage.getItem(TASK_USE_KEY) || '{}')) : {}; } catch { return {}; }
+}
+const taskUseAtStart = readTaskUse();
+function countTaskUse(id) {
+  if (!SIMPLE) return;
+  try { localStorage.setItem(TASK_USE_KEY, JSON.stringify(SIMPLE.bumpUse(readTaskUse(), id))); } catch { /* העדפה בלבד */ }
+}
 function simpleTasks() {
   if (!SIMPLE) return [];
-  return SIMPLE.tasksFor({ has: k => BY_KEY.has(k), open: k => itemOpen(BY_KEY.get(k)), admin: shellAdmin });
+  return SIMPLE.orderByUse(SIMPLE.tasksFor({ has: k => BY_KEY.has(k), open: k => itemOpen(BY_KEY.get(k)), admin: shellAdmin }), taskUseAtStart);
 }
 function renderNav() {
   const q = ui.query.trim();
@@ -259,7 +269,27 @@ q.addEventListener('keydown', e => {
     q.value = ''; ui.query = ''; renderNav(); q.blur();
   }
 });
-function focusSearch() { q.focus(); if (q.select) q.select(); }
+// מצב פשוט: החיפוש, רשימת המסכים ופעולות המערכת מאחורי "עוד אפשרויות"; תיבת "לכתוב במילים" מאחורי קישור
+function setSideMore(on) {
+  ui.sideMore = !!on;
+  if ($('side')) $('side').classList.toggle('more', ui.sideMore);
+  if ($('sbMore')) { $('sbMore').setAttribute('aria-expanded', String(ui.sideMore)); $('sbMoreT').textContent = ui.sideMore ? 'פחות אפשרויות' : 'עוד אפשרויות'; }
+}
+function setAskOpen(on) {
+  ui.askOpen = !!on;
+  if ($('heroIn')) $('heroIn').classList.toggle('ask-on', ui.askOpen);
+  if ($('askOpen')) $('askOpen').setAttribute('aria-expanded', String(ui.askOpen));
+}
+// "רגע, עובד על זה": מסך שנטען בפעם הראשונה (main.js ← shell:busy). בלי אנימציה
+function setBusy(on) { const b = $('busy'); if (b) { b.hidden = !on; b.textContent = on ? 'רגע, פותח את המסך…' : ''; } }
+if (window.shellAPI.onBusy) window.shellAPI.onBusy(setBusy);
+if ($('sbMore')) $('sbMore').onclick = () => setSideMore(!ui.sideMore);
+if ($('sbHelp')) $('sbHelp').onclick = () => showGuide();
+// "לנסות בלי לחשוש": לוח הבקרה, שם מציעים נתוני דוגמה שנמחקים בלחיצה אחת (sample.js) — שום דבר לא נוצר מכאן
+if ($('tryIt')) $('tryIt').onclick = () => open('econ:dashboard');
+if ($('tourSimple')) $('tourSimple').onclick = () => startTour();
+if ($('askOpen')) $('askOpen').onclick = () => { setAskOpen(true); const a = $('askQ'); if (a && a.focus) a.focus(); };
+function focusSearch() { setSideMore(true); q.focus(); if (q.select) q.select(); }
 $('cta').onclick = focusSearch;
 
 /* ---------- אחרונים ---------- */
@@ -418,10 +448,22 @@ function renderSimpleHome() {
   $('simpleAll').setAttribute('aria-expanded', String(ui.simpleAll));
   $('simpleAll').textContent = ui.simpleAll ? 'הסתרת שאר המסכים' : 'הצגת כל המסכים';
   renderHomeAgenda();
-  if (!ui.simple) { $('simpleTasks').innerHTML = ''; return; }
-  $('simpleTasks').innerHTML = simpleTasks().map(t => `<button type="button" class="task" data-task="${esc(t.id)}">` +
+  if (!SIMPLE) { $('simpleTasks').innerHTML = ''; return; }
+  // תפריט "כמו ברכב" — בכל מצב (החלטת הבעלים 13.11.2026), לא רק במצב פשוט: PAGE_SIZE עיגולים גדולים בכל פעם,
+  // וחץ מכל צד עובר בין העמודים (בלי אנימציה)
+  const pg = SIMPLE.pageOf(simpleTasks(), ui.taskPage || 0);
+  ui.taskPage = pg.page;
+  $('simpleTasks').innerHTML = pg.items.map(t => `<button type="button" class="task tone-${esc(t.tone)}" data-task="${esc(t.id)}" title="${esc(t.hint)}">` +
     `<span class="t-ic" aria-hidden="true">${IC ? svg(t.icon) : ''}</span><span><b>${esc(t.verb)}</b><small>${esc(t.hint)}</small></span></button>`).join('');
+  if (!$('taskPrev')) return;
+  $('taskPrev').hidden = $('taskNext').hidden = pg.pages < 2;
+  $('taskPrev').disabled = pg.page <= 0;
+  $('taskNext').disabled = pg.page >= pg.pages - 1;
+  $('taskPageInfo').textContent = pg.pages < 2 ? '' : `עמוד ${pg.page + 1} מתוך ${pg.pages}`;
 }
+function stepTaskPage(step) { ui.taskPage = (ui.taskPage || 0) + step; renderSimpleHome(); }
+if ($('taskPrev')) $('taskPrev').onclick = () => stepTaskPage(-1);
+if ($('taskNext')) $('taskNext').onclick = () => stepTaskPage(1);
 /* ---------- מצב פשוט: "מה יש לעשות היום" (סבב 5) ----------
    הפריטים מ-getHomeSummary().agenda (core/dashboard.js → agenda — קריאה בלבד, רק תחומים פתוחים), ועוד גיבוי שנכשל
    (למנהל). שום דבר לא קורה לבד (כלל השבת): "לטפל" פותח את המסך, או את האשף כשהמעטפת יודעת להפעיל אותו (shellAPI.startTask) */
@@ -462,6 +504,7 @@ $('simpleTasks').onclick = e => {
   const b = e.target.closest('[data-task]');
   const t = b && SIMPLE ? SIMPLE.TASKS.find(x => x.id === b.dataset.task) : null;
   if (!t) return;
+  countTaskUse(t.id);
   if (t.action === 'search') focusSearch();
   else if (t.action === 'backup') runBackup();
   else if (t.action === 'help') showGuide();
@@ -469,7 +512,8 @@ $('simpleTasks').onclick = e => {
   else if (t.key) open(t.key);
 };
 $('simpleAll').onclick = () => { ui.simpleAll = !ui.simpleAll; renderSimpleHome(); };
-$('simpleOff').onclick = () => saveA11y({ simple: 'off' }, 'מצב פשוט: כבוי');
+$('simpleOff').onclick = () => saveA11y({ simple: 'off' }, 'התצוגה המלאה פועלת');
+if ($('simpleOn')) $('simpleOn').onclick = () => saveA11y({ simple: 'on' }, 'התצוגה הפשוטה פועלת');
 $('simpleHome').onclick = () => goHome();
 
 /* ---------- מסך הבית: מדדים ו"היום" (יארצייטים, הלוואות לפירעון, חשבוניות פתוחות) ----------
@@ -755,16 +799,18 @@ const TOUR_KEY = 'suite.tour';
 const TOUR = (OB && OB.TOUR) || [];
 function tourSeen() { try { return localStorage.getItem(TOUR_KEY) === 'done'; } catch { return true; } }
 function startTour() {
-  if (!TOUR.length) return;
+  // במסך הפשוט — סיור על מה שנראה בו (העיגולים, החץ, העזרה)
+  const T = ui.simple && OB && Array.isArray(OB.TOUR_SIMPLE) && OB.TOUR_SIMPLE.length ? OB.TOUR_SIMPLE : TOUR;
+  if (!T.length) return;
   const dlg = $('tourDlg');
   let i = 0;
   const place = () => {
-    const s = TOUR[i];
-    $('tourStep').textContent = `שלב ${i + 1} מתוך ${TOUR.length}`;
+    const s = T[i];
+    $('tourStep').textContent = `שלב ${i + 1} מתוך ${T.length}`;
     $('tourTitle').textContent = s.title;
     $('tourText').textContent = s.text;
     $('tourBack').hidden = i === 0;
-    $('tourNext').textContent = i === TOUR.length - 1 ? 'סיום' : 'הבא';
+    $('tourNext').textContent = i === T.length - 1 ? 'סיום' : 'הבא';
     if (dlg.querySelectorAll) dlg.querySelectorAll('#tourDots i').forEach((d, n) => d.classList.toggle('on', n === i));
     const el = document.querySelector(s.sel);
     const r = el && typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
@@ -786,7 +832,7 @@ function startTour() {
     try { localStorage.setItem(TOUR_KEY, 'done'); } catch { /* לא קריטי */ }
     if (dlg.open) closeDialog(dlg);
   };
-  $('tourNext').onclick = () => { if (i < TOUR.length - 1) { i++; place(); $('tourNext').focus(); } else done(); };
+  $('tourNext').onclick = () => { if (i < T.length - 1) { i++; place(); $('tourNext').focus(); } else done(); };
   $('tourBack').onclick = () => { if (i > 0) { i--; place(); $('tourNext').focus(); } };
   $('tourSkip').onclick = done;
   dlg.oncancel = (e) => { e.preventDefault(); done(); };
@@ -924,13 +970,13 @@ async function runBackup() {
   const r = await askPassphrase({ title: 'גיבוי מוצפן', text: 'בחר מה לגבות והזן סיסמה. לפחות 12 תווים — משפט קצר שקל לזכור טוב יותר ממילה מסובכת. בלי הסיסמה לא ניתן לשחזר את הקובץ.', scopes: true });
   if (r === null) return;
   try { await window.shellAPI.backupAll(r.pass, r.scope); }
-  catch (e) { await ssDialog.alert(e.message || 'שגיאה בגיבוי', { title: 'הגיבוי לא הצליח' }); }
+  catch (e) { await ssDialog.alert(e.message || 'הגיבוי לא הצליח הפעם. אפשר לנסות שוב.', { title: 'הגיבוי לא הצליח' }); }
 }
 async function runRestore() {
   const r = await askPassphrase({ title: 'שחזור מגיבוי', text: 'אם הגיבוי מוצפן, הזן את סיסמת הגיבוי. גיבוי אוטומטי מהמחשב הזה — השאר ריק; ממחשב אחר — הזן את קוד השחזור (🔑).', optional: true });
   if (r === null) return;
   try { await window.shellAPI.restoreAll(r.pass); }
-  catch (e) { await ssDialog.alert(e.message || 'שגיאה בשחזור', { title: 'השחזור לא הצליח' }); }
+  catch (e) { await ssDialog.alert(e.message || 'השחזור לא הצליח הפעם. אפשר לנסות שוב.', { title: 'השחזור לא הצליח' }); }
 }
 function showGuide() {
   const g = $('guide');
@@ -1107,7 +1153,7 @@ async function showPlainBackups() {
     b.textContent = label;
     b.onclick = async () => {
       $('pbErr').textContent = '';
-      try { await fn(); } catch (e) { $('pbErr').textContent = e.message || 'הפעולה נכשלה'; }
+      try { await fn(); } catch (e) { $('pbErr').textContent = e.message || 'הפעולה לא הצליחה. אפשר לנסות שוב.'; }
       await render();
     };
     return b;
@@ -1312,27 +1358,33 @@ function openA11y() {
 }
 if ($('a11yBtn')) $('a11yBtn').onclick = openA11y;
 
-// שאלה אחת בהפעלה הראשונה: "רוצה שהתוכנה תהיה פשוטה יותר וגדולה יותר?" — רק כשכל הגדרות הנגישות רגילות,
-// לא במצב שבת, ופעם אחת (התשובה נשמרת ב-localStorage של המעטפת)
-const A11Y_ASKED_KEY = 'suite.a11yAsked';
+// "הפשוט הוא הבסיס" (החלטת הבעלים 13.11.2026): אין שאלה בהפעלה הראשונה — התוכנה נפתחת פשוטה לכולם.
+// מי שכבר עבד עם התוכנה (יש לו היסטוריה ב-localStorage של המעטפת) רואה פעם אחת הודעה שהמסך התחדש, עם דרך חזרה
+// לתצוגה המלאה. לא במצב שבת; התשובה נשמרת ב-localStorage (SIMPLE_BASE_KEY), והתקנה חדשה מסומנת בלי הודעה
+const A11Y_ASKED_KEY = 'suite.a11yAsked'; // מהגרסה הקודמת — מעיד על משתמש קיים
+const SIMPLE_BASE_KEY = 'suite.simpleBaseSeen';
 function maybeAskA11y() {
-  let asked = true;
-  try { asked = !!localStorage.getItem(A11Y_ASKED_KEY); } catch { /* אין אחסון — לא שואלים */ }
-  if (asked || shabbatOn || !DSP.isPlain(display)) return;
+  let seen = true, existing = false;
+  try {
+    seen = !!localStorage.getItem(SIMPLE_BASE_KEY);
+    existing = [A11Y_ASKED_KEY, RECENT_KEY, OB_KEY, TOUR_KEY].some(k => localStorage.getItem(k) != null);
+  } catch { /* אין אחסון — בלי הודעה */ }
+  if (seen || shabbatOn) return;
+  if (!existing || display.simple !== 'on') { try { localStorage.setItem(SIMPLE_BASE_KEY, 'new'); } catch { /* לא נורא */ } return; }
   const dlg = $('a11yAsk');
   if (dlg.open || document.querySelector('dialog[open]')) return;
   const answer = async (what) => {
-    try { localStorage.setItem(A11Y_ASKED_KEY, what); } catch { /* בפעם הבאה נשאל שוב */ }
+    try { localStorage.setItem(SIMPLE_BASE_KEY, what); } catch { /* בפעם הבאה תוצג שוב */ }
     $('a11yAskYes').onclick = $('a11yAskNo').onclick = $('a11yAskPick').onclick = null;
     dlg.oncancel = null;
     closeDialog(dlg);
-    if (what === 'yes') await saveA11y({ ...DSP.A11Y_EASY }, 'מצב פשוט וטקסט גדול — פועלים');
+    if (what === 'full') await saveA11y({ simple: 'off' }, 'התצוגה המלאה חזרה');
     if (what === 'pick') openA11y();
   };
-  $('a11yAskYes').onclick = () => answer('yes');
-  $('a11yAskNo').onclick = () => answer('no');
+  $('a11yAskYes').onclick = () => answer('ok');
+  $('a11yAskNo').onclick = () => answer('full');
   $('a11yAskPick').onclick = () => answer('pick');
-  dlg.oncancel = (e) => { e.preventDefault(); answer('no'); };
+  dlg.oncancel = (e) => { e.preventDefault(); answer('ok'); };
   showDialog(dlg);
   $('a11yAskYes').focus();
 }
@@ -1344,7 +1396,7 @@ function openDisplaySettings() {
     $('dsPresets').innerHTML = DSP.PRESETS.map(p => `<button type="button" data-preset="${esc(p.id)}" aria-pressed="${presetOf && presetOf.id === p.id}"><b>${DS_ICONS[p.id] || ''} ${esc(p.name)}</b><small>${esc(p.desc)}</small></button>`).join('');
     $('dsGroups').innerHTML = DSP.KEYS.map(k => `<div class="ds-group" role="group" aria-label="${esc(DS_LABELS[k])}"><span>${esc(DS_LABELS[k])}</span><div class="ds-seg">${DSP.OPTIONS[k].map(o =>
       `<button type="button" data-k="${esc(k)}" data-v="${esc(o.id)}" aria-pressed="${cur[k] === o.id}"${o.desc ? ` title="${esc(o.desc)}"` : ''}>${k === 'accent' ? `<i data-ss-swatch="${esc(o.id)}"></i>` : ''}${esc(o.name)}</button>`).join('')}</div></div>`).join('');
-    document.querySelectorAll('#dsPresets [data-preset]').forEach(b => b.onclick = () => { cur = DSP.applyPreset(b.dataset.preset); dsPreview(cur); render(); });
+    document.querySelectorAll('#dsPresets [data-preset]').forEach(b => b.onclick = () => { cur = { ...DSP.applyPreset(b.dataset.preset), simple: cur.simple }; dsPreview(cur); render(); }); // ערכה מוכנה לא מחליפה פשוט/מלא
     document.querySelectorAll('#dsGroups [data-k]').forEach(b => b.onclick = () => { cur = DSP.sanitize({ ...cur, [b.dataset.k]: b.dataset.v }); dsPreview(cur); render(); });
   };
   const done = (keep) => {
