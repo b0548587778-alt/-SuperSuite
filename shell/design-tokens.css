@@ -284,6 +284,11 @@
   --ss-border: #6a7fa8; --ss-border-strong: #8ea0c4;
 }
 
+/* ---- מצב פשוט (הבסיס): בלי אנימציות — רגוע יותר לעין, וקל יותר למחשב חלש ---- */
+:root[data-ss-simple="on"] *, :root[data-ss-simple="on"] *::before, :root[data-ss-simple="on"] *::after {
+  animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important;
+}
+
 /* ---- תנועה מופחתת ---- */
 :root[data-ss-motion="reduced"] *, :root[data-ss-motion="reduced"] *::before, :root[data-ss-motion="reduced"] *::after {
   animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important;

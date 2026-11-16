@@ -240,7 +240,7 @@ async function switchView(viewName, opts = {}) {
     }
 
     // Clear view — "טוען" מוקרא (aria-busy על אזור התוכן)
-    elements.view.innerHTML = '<div class="loading" role="status">טוען… רגע אחד</div>';
+    elements.view.innerHTML = '<div class="loading" role="status">רגע, עובד על זה…</div>';
     if (elements.view.setAttribute) elements.view.setAttribute('aria-busy', 'true');
 
     // Load view data
@@ -736,6 +736,37 @@ function enhanceA11y(root) {
   root.querySelectorAll('[data-ss-help]').forEach(el => describeWithHelp(el));
   // רכיב לחיץ שאינו כפתור (data-goto על div וכו') — גם במקלדת
   root.querySelectorAll('[data-goto]:not(button):not(a), [data-clickable]').forEach(el => makeKeyboardClickable(el));
+  foldCrowdedActions(root);
+}
+
+// מצב פשוט: שורת כפתורים עמוסה ← עד FOLD_KEEP כפתורים גלויים (הראשי קודם), והשאר מאחורי "עוד אפשרויות".
+// שום כפתור לא נמחק ולא זז ב-DOM (המאזינים נשארים) — רק מחלקה שמסתירה, וכפתור שמגלה. רץ שוב על תוכן חדש בלי לשנות פעמיים
+const FOLD_KEEP = 3;
+const FOLD_GROUPS = '.acct-actions, .card-actions, .ss-toolbar, .ss-actions';
+function foldCrowdedActions(root) {
+  if (!isSimpleMode() || !root || typeof root.querySelectorAll !== 'function') return;
+  root.querySelectorAll(FOLD_GROUPS).forEach(g => {
+    if (!g || !g.children || (g.getAttribute && g.getAttribute('data-folded'))) return;
+    const btns = [...g.children].filter(c => c.tagName === 'BUTTON' && !c.hidden);
+    if (btns.length <= FOLD_KEEP + 1) return;
+    const keep = [...btns.filter(b => b.classList.contains('primary')).slice(0, 1)];
+    for (const b of btns) { if (keep.length >= FOLD_KEEP) break; if (!keep.includes(b)) keep.push(b); }
+    const rest = btns.filter(b => !keep.includes(b));
+    rest.forEach(b => b.classList.add('fold-hidden'));
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'link fold-more';
+    more.setAttribute('aria-expanded', 'false');
+    more.textContent = `עוד אפשרויות (${rest.length})`;
+    more.addEventListener('click', () => {
+      const open = !g.classList.contains('fold-open');
+      g.classList.toggle('fold-open', open);
+      more.setAttribute('aria-expanded', String(open));
+      more.textContent = open ? 'פחות אפשרויות' : `עוד אפשרויות (${rest.length})`;
+    });
+    g.setAttribute('data-folded', '1');
+    g.appendChild(more);
+  });
 }
 // חלק מהמסך שמתרנדר מחדש בלי renderView (תוצאות חיפוש, סיכום מחושב, פרטי תיק) — עובר את אותו מעבר נגישות.
 // רק childList: השינויים של enhanceA11y עצמו הם מאפיינים, והוספת ההסבר הנסתר קורית פעם אחת לכל רכיב

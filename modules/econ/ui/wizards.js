@@ -475,25 +475,84 @@ async function wizNext() {
   w.busy = true;
   const btns = [...w.overlay.querySelectorAll('button')];
   btns.forEach(b => { b.disabled = true; });
+  const nextBtn = w.overlay.querySelector('#wizNext');
+  nextBtn.textContent = 'רגע, שומר…';
   let result;
   try {
     result = await w.def.submit(w.answers, w.ctx);
   } catch (error) {
     w.busy = false;
     btns.forEach(b => { b.disabled = false; });
+    nextBtn.textContent = 'כן, לשמור';
     const err = w.overlay.querySelector('#wizError');
     err.textContent = 'לא נשמר — ' + errMsg(error).replace(/[.!?]?\s*$/, '.') + ' אפשר ללחוץ "חזרה לתיקון".';
     err.hidden = false;
     return;
   }
   const view = state.currentView;
+  const doneId = w.id;
   wizClose();
   showUndoToast((result && result.message) || 'נשמר ✓', result && result.undo);
+  wizShowSuccess(doneId, (result && result.message) || 'נשמר');
   if (result && typeof result.after === 'function') {
     try { const r = await result.after(); if (r && r.ok) showToast('הקבלה נשמרה להדפסה'); }
     catch (error) { showError('הקבלה נשמרה במערכת, אבל קובץ ההדפסה לא נשמר — ' + errMsg(error)); }
   }
   if (state.user && state.currentView === view) await switchView(view);
+}
+
+// ---------- מסך הצלחה: סימן גדול, "היום עשית", ו"עוד אחת" ----------
+// הספירה — העדפת תצוגה בלבד (localStorage של המסך, לפי יום); לא נתוני משתמש ולא נכנסת לגיבוי. קלט מהאחסון לא מהימן
+const WIZ_DONE_KEY = 'econ.doneToday';
+function wizDoneRead() {
+  try {
+    const o = JSON.parse(localStorage.getItem(WIZ_DONE_KEY) || 'null');
+    if (!o || typeof o !== 'object' || o.day !== today() || !o.n || typeof o.n !== 'object') return {};
+    const out = {};
+    for (const id of GUIDED_TASK_IDS) if (Number.isInteger(o.n[id]) && o.n[id] > 0 && o.n[id] < 100000) out[id] = o.n[id];
+    return out;
+  } catch { return {}; }
+}
+// עותק בזיכרון — כשאין אחסון (או שהוא נדחה) הספירה נכונה לפחות עד סגירת התוכנה
+let wizDoneMem = { day: '', n: {} };
+function wizDoneBump(id) {
+  if (wizDoneMem.day !== today()) wizDoneMem = { day: today(), n: {} };
+  const stored = wizDoneRead();
+  const n = wizDoneMem.n;
+  n[id] = Math.max(n[id] || 0, stored[id] || 0) + 1;
+  try { localStorage.setItem(WIZ_DONE_KEY, JSON.stringify({ day: today(), n: { ...stored, ...n } })); } catch { /* העדפה בלבד */ }
+  return n[id];
+}
+function wizShowSuccess(id, message) {
+  if (!Object.prototype.hasOwnProperty.call(WIZARDS, id)) return;
+  const count = wizDoneBump(id);
+  const returnTo = rememberFocus();
+  const overlay = document.createElement('div');
+  overlay.className = 'wiz-done-layer'; // לא .modal: שכבה נמוכה מהטוסט, כדי ש"טעיתי, לבטל" יישאר לחיץ מעליה
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-labelledby', 'wizDoneTitle');
+  overlay.innerHTML = `<div class="modal-card wiz-card wiz-done-card">
+      <div class="wiz-done-mark" aria-hidden="true">✓</div>
+      <h2 id="wizDoneTitle" tabindex="-1">${esc(String(message).replace(/s*✓s*$/, ''))}</h2>
+      <p class="wiz-done-count">${count === 1 ? 'יפה מאוד! זו הפעם הראשונה היום.' : `יפה מאוד! היום כבר עשיתם את זה ${count} פעמים.`}</p>
+      <p class="ss-hint">טעיתם? יש חצי דקה ללחוץ "טעיתי, לבטל" בהודעה שבראש המסך.</p>
+      <div class="modal-actions wiz-actions">
+        <button type="button" class="secondary wiz-btn" id="wizDoneAgain">עוד אחת</button>
+        <button type="button" class="primary wiz-btn" id="wizDoneClose">סיימתי</button>
+      </div>
+    </div>`;
+  const close = () => { document.removeEventListener('keydown', onKey, true); overlay.remove(); restoreFocus(returnTo); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+    trapTab(e, overlay);
+  };
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(overlay);
+  overlay.querySelector('#wizDoneClose').addEventListener('click', close);
+  overlay.querySelector('#wizDoneAgain').addEventListener('click', async () => { close(); await econStartTask(id); });
+  const focusEl = overlay.querySelector('#wizDoneClose');
+  if (focusEl && typeof focusEl.focus === 'function') focusEl.focus();
 }
 
 // ---------- "טעיתי, לבטל" — 30 שניות אחרי שמירה ----------

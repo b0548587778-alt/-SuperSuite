@@ -54,6 +54,13 @@
     { sel: '#askForm', title: 'שאל את התוכנה', text: 'שאלות בשפה פשוטה על החשבונות, התרומות והגמ"ח. התשובה מחושבת במחשב שלך, בלי רשת.' },
   ];
 
+  // הסיור במסך הפשוט (הבסיס): רק מה שנראה שם — העיגולים, החץ, והכפתורים שבסרגל
+  const TOUR_SIMPLE = [
+    { sel: '#simpleTasks', title: 'בוחרים מה רוצים לעשות', text: 'כל עיגול הוא פעולה אחת. לוחצים על העיגול, והתוכנה שואלת שאלה אחת בכל פעם. שום דבר לא נשמר עד שמאשרים.' },
+    { sel: '.tasks-wrap', title: 'עוד פעולות — בחץ', text: 'החץ "הבא" מציג עוד שלושה עיגולים, ו"הקודם" מחזיר. מה שתעשו הרבה יופיע ראשון בפעם הבאה.' },
+    { sel: '.a11y-bar', title: 'עזרה תמיד כאן', text: '"עזרה" מסבירה איך עושים מה. "עוד אפשרויות" מציג את כל שאר המסכים. "נגישות" מגדיל את הכתב.' },
+  ];
+
   // profiles: מזהי פרופילים שנבחרו. validKeys: מפתחות הקטלוג הקיימים (מסך שלא קיים — מושמט).
   // admin: false — בלי הצעדים של מנהל בלבד
   function plan(profiles, validKeys, { admin = true } = {}) {
@@ -80,7 +87,7 @@
     };
   }
 
-  const api = { PROFILES, ALL_PROFILES, COMMON_STEPS, MAX_SCREENS, ADMIN_KEYS, TOUR, plan, normalizeState };
+  const api = { PROFILES, ALL_PROFILES, COMMON_STEPS, MAX_SCREENS, ADMIN_KEYS, TOUR, TOUR_SIMPLE, plan, normalizeState };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_ONBOARDING = api;
 })(typeof window !== 'undefined' ? window : this);

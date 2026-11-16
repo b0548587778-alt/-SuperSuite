@@ -47,6 +47,8 @@
     ],
     // נגישות (סבב 4): מצב פשוט, מטרות לחיצה גדולות, קו תחתון לקישורים, גופן קריא.
     // data-ss-simple="on" הוא חוזה משותף לכל המסכים (ui-kit.css: .ss-advanced מוסתר, .ss-simple-only מוצג, data-ss-help)
+    // סדר הרשימה נשאר (off ראשון — המתגים והעיצוב נשענים עליו), אבל מה שהמשתמש מקבל בלי שבחר הוא "on":
+    // ראו stored() למטה — "הפשוט הוא הבסיס" (החלטת הבעלים 13.11.2026)
     simple: [
       { id: 'off', name: 'רגיל' },
       { id: 'on', name: 'מצב פשוט', desc: 'רק הפעולות הנפוצות, כפתורים גדולים והסברים' },
@@ -109,13 +111,14 @@
   // כל הגדרות הנגישות בברירת המחדל? (השאלה בהפעלה הראשונה נשאלת רק אז)
   function isPlain(settings) {
     const s = sanitize(settings);
-    return A11Y_KEYS.every(k => k === 'theme' || s[k] === DEFAULTS[k]);
+    return A11Y_KEYS.every(k => k === 'theme' || k === 'simple' || s[k] === DEFAULTS[k]); // פשוט / מלא — בחירת תצוגה, לא התאמת נגישות
   }
   // חזרה למצב הרגיל — רק הגדרות הנגישות; ערכה וצבע הדגשה נשארים
   function resetA11y(settings) {
     const s = sanitize(settings);
     for (const k of A11Y_KEYS) if (k !== 'theme') s[k] = DEFAULTS[k];
     s.density = DEFAULTS.density;
+    s.simple = 'on'; // "המצב הרגיל" הוא הפשוט (הבסיס); התצוגה המלאה — רק בבחירה מפורשת
     return s;
   }
 
@@ -127,7 +130,23 @@
     }
   }
 
-  const api = { OPTIONS, KEYS, DEFAULTS, PRESETS, A11Y_KEYS, A11Y_FULL, A11Y_EASY, sanitize, applyPreset, attrsFor, applyTo, isPlain, resetA11y };
+  // "הפשוט הוא הבסיס" (13.11.2026): התקנה חדשה נפתחת במצב פשוט, והגדרות שנשמרו לפני השינוי עוברות אליו פעם אחת —
+  // גם מי שעבד במסך המלא.
+  // displayBase נכתב בכל שמירה, ומאותו רגע הבחירה של המשתמש (גם "תצוגה מלאה") נשמרת כמו שהיא.
+  // ui — תוכן ui-settings.json (קלט לא מהימן)
+  const BASE_V = 1;
+  function stored(ui) {
+    const u = ui && typeof ui === 'object' ? ui : {};
+    const s = sanitize(u.display);
+    if (!(Number(u.displayBase) >= BASE_V)) s.simple = 'on';
+    return s;
+  }
+  function withSaved(ui, input) {
+    const u = ui && typeof ui === 'object' ? ui : {};
+    return { ...u, display: sanitize(input), displayBase: BASE_V };
+  }
+
+  const api = { OPTIONS, KEYS, DEFAULTS, PRESETS, A11Y_KEYS, A11Y_FULL, A11Y_EASY, BASE_V, sanitize, stored, withSaved, applyPreset, attrsFor, applyTo, isPlain, resetA11y };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SUITE_DISPLAY = api;
 })(typeof window !== 'undefined' ? window : this);

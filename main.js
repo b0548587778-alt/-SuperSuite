@@ -40,8 +40,19 @@ crash.installProcessHandlers();
 const Smoke = require('./shell/smoke');
 const Splash = require('./shell/splash');
 const PrintPdf = require('./shell/print-pdf');
+// מדידת מהירות וזיכרון (רק ב---smoke): זמן מאז יצירת התהליך וזיכרון לכל תהליך, בק"ב
+// bootMarks — כמה זמן עבר מיצירת התהליך עד כל שלב בעלייה (לאיתור השלב האיטי)
+const bootMarks = {};
+const bootMark = (name) => { try { bootMarks[name] = Math.round(Date.now() - process.getCreationTime()); } catch { /* מדידה בלבד */ } };
+bootMark('mainLoaded');
+const smokeMeasure = () => ({
+  bootMarks: { ...bootMarks },
+  sinceProcessStartMs: Math.round(Date.now() - process.getCreationTime()),
+  processes: app.getAppMetrics().map(p => ({ type: p.type, name: p.name || '', kb: p.memory.workingSetSize })),
+  totalKb: app.getAppMetrics().reduce((n, p) => n + p.memory.workingSetSize, 0)
+});
 const smoke = Smoke.isSmoke(process.argv)
-  ? (process.argv.some(a => a.startsWith('--user-data-dir=')) ? Smoke.createSmoke({ fs, path, dir: app.getPath('userData'), dialog, exit: (c) => app.exit(c), shots: Smoke.shotsDir(process.argv) }) : (app.exit(2), null))
+  ? (process.argv.some(a => a.startsWith('--user-data-dir=')) ? Smoke.createSmoke({ fs, path, dir: app.getPath('userData'), dialog, exit: (c) => app.exit(c), shots: Smoke.shotsDir(process.argv), measure: smokeMeasure }) : (app.exit(2), null))
   : null;
 // תצוגות מותרות = הקטלוג + תצוגות חדשות שזוהו בסרגל הפנימי של המודול הכלכלי (סנכרון אוטומטי)
 const ECON_EXTRAS = (() => {
@@ -229,6 +240,17 @@ function wireAppCommand(w) {
   });
 }
 
+// "רגע, עובד על זה": מודול שנטען בפעם הראשונה נשאר מוסתר עד שהמסך שלו מוכן (במחשב חלש — כמה שניות של מסך ריק),
+// ובינתיים המעטפת מציגה הודעה (shell:busy). רשת ביטחון: אחרי VIEW_LOAD_MAX_MS המסך מוצג בכל מקרה
+const loadingViews = new Set();
+const VIEW_LOAD_MAX_MS = 15000;
+function sendBusy(on) { if (win && !win.isDestroyed()) win.webContents.send('shell:busy', on === true); }
+function viewLoaded(id) {
+  if (!loadingViews.delete(id)) return;
+  if (active !== id) return;
+  sendBusy(false);
+  if (views[id]) views[id].setVisible(!overlay);
+}
 function ensureView(id) {
   if (views[id]) return views[id];
   const prefs = { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true };
@@ -243,6 +265,13 @@ function ensureView(id) {
   wireView(id, v.webContents);
   layout();
   v.webContents.loadURL(ENTRY[id]);
+  if (!smoke && v.webContents.isLoading() === true) {
+    loadingViews.add(id);
+    v.webContents.once('did-finish-load', () => viewLoaded(id));
+    v.webContents.once('did-fail-load', () => viewLoaded(id));
+    const t = setTimeout(() => viewLoaded(id), VIEW_LOAD_MAX_MS);
+    if (t && typeof t.unref === 'function') t.unref();
+  }
   return v;
 }
 
@@ -312,7 +341,8 @@ function switchTo(id) {
   if (loginGate.route(id) !== id) { showLoginForLocked(); return; }
   const v = ensureView(id);
   active = id;
-  for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === id);
+  for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === id && !loadingViews.has(k));
+  sendBusy(loadingViews.has(id));
   v.webContents.focus();
   if (win && !win.isDestroyed()) win.webContents.send('shell:active', id);
   // במודול הכלכלי התצוגה תדווח מיד (shell:econ-view) ותשלים את הרישום
@@ -381,7 +411,7 @@ function openModuleView(id, view) {
 // דיאלוג במעטפת: מסתירים את המודול הפעיל בזמן שהדיאלוג פתוח, ומחזירים אותו בסגירה
 function setOverlay(on) {
   overlay = !!on;
-  for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === active);
+  for (const k of Object.keys(views)) views[k].setVisible(!overlay && k === active && !loadingViews.has(k));
   if (!overlay && active && views[active]) views[active].webContents.focus();
 }
 
@@ -723,7 +753,7 @@ function shamaiDataForEcon(senderId) {
 /* ---------- הגדרות תצוגה (PLAN.md 7.4) ----------
    נשמרות ב-ui-settings.json → display. shell/display-preload.js מציב אותן כמאפייני data-ss-* בכל מסך,
    והעיצוב — ב-design-tokens.css. גם ערכת המערכת (פסי גלילה, שדות תאריך) עוברת לכהה דרך nativeTheme */
-function displaySettings() { return Display.sanitize(loadJson(uiFile()).display); }
+function displaySettings() { return Display.stored(loadJson(uiFile())); }
 function displayAttrs() { return Display.attrsFor(displaySettings(), !!(nativeTheme && nativeTheme.shouldUseDarkColors)); }
 function applyNativeTheme() { if (nativeTheme) nativeTheme.themeSource = displaySettings().theme; }
 function broadcastDisplay() {
@@ -733,7 +763,7 @@ function broadcastDisplay() {
 }
 function saveDisplay(input) {
   const ui = loadJson(uiFile());
-  saveJson(uiFile(), { ...ui, display: Display.sanitize(input) });
+  saveJson(uiFile(), Display.withSaved(ui, input));
   applyNativeTheme();
   broadcastDisplay();
   return displaySettings();
@@ -1257,6 +1287,7 @@ if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', onSecondInstance);
 
 app.whenReady().then(async () => {
+  bootMark('appReady');
   Menu.setApplicationMenu(null);
   if (!smoke) openSplash();
   registerProtocol();
@@ -1300,6 +1331,7 @@ app.whenReady().then(async () => {
     }
   }
 
+  bootMark('econReady');
   // רישוי: שינוי סטטוס (התקנה, עדכון, סנכרון, או פקיעה עם הזמן — נבדק כל דקה) נאכף מיד
   if (econ.onLicenseChange) econ.onLicenseChange(enforceLicense);
   if (econ.onAuthChange) econ.onAuthChange(onEconAuthChange);
