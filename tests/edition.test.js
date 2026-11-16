@@ -255,6 +255,8 @@ test('המודול הכלכלי בפועל: ערוץ של תחום אחר נדח
     assert.deepEqual(await handlers['personal:getEntries'](ev).catch(() => null), before);
   } finally {
     Edition._setForTests('full');
+    // Windows: הקובץ של SQLite נעול עד הסגירה — אחרת rmSync נכשל ב-EBUSY
+    try { const d = ipc.getDb(); if (d && d.db) d.db.close(); } catch { /* כבר סגור */ }
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
