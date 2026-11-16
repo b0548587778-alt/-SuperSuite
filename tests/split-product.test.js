@@ -55,7 +55,7 @@ test('split: עותק עם היסטוריה, commit אחד של המוצר, בל
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dest, 'edition-product.json'), 'utf8')), { products: ['acct'] });
   assert.deepEqual(EB.productLock(dest), ['acct']);
   assert.equal(fs.readFileSync(path.join(dest, 'shell/edition-id.js'), 'utf8'), fs.readFileSync(path.join(ROOT, 'shell/edition-id.js'), 'utf8'), 'הקוד נשאר full — המהדורה נקבעת בבנייה');
-  assert.match(fs.readFileSync(path.join(dest, 'CLAUDE.md'), 'utf8'), /^# .*\n\n> \*\*מאגר המוצר SuperSuite חשבונאות\*\*/);
+  assert.match(fs.readFileSync(path.join(dest, 'CLAUDE.md'), 'utf8').replace(/\r\n/g, '\n'), /^# .*\n\n> \*\*מאגר המוצר SuperSuite חשבונאות\*\*/);
   assert.ok(!fs.existsSync(path.join(dest, 'node_modules')));
 
   assert.throws(() => SP.split('acct', dest), /אינה ריקה/);
