@@ -283,12 +283,12 @@ test('spokenText: בערך, שורש, חזקות, פאי, יחס וסימני כ
   assert.equal(M.spokenText({ prompt: '', expr: '√49 = ?' }), 'שורש של 49 שווה כמה');
   assert.equal(M.spokenText({ prompt: '', expr: '5² = ?' }), '5 בריבוע שווה כמה');
   assert.equal(M.spokenText({ prompt: '', expr: '2³ = ?' }), '2 בחזקת 3 שווה כמה');
-  assert.equal(M.spokenText({ prompt: 'קנה מידה ⁦1 : 100,000⁩. כמה?', expr: null }), 'קנה מידה 1 ל 100,000. כמה?');
+  assert.equal(M.spokenText({ prompt: 'קנה מידה \u20661 : 100,000\u2069. כמה?', expr: null }), 'קנה מידה 1 ל 100,000. כמה?');
   assert.equal(M.spokenText({ prompt: 'כמה אחוזים?', expr: '8 / 10 = ?%' }), 'כמה אחוזים? 8 חלקי 10 שווה כמה אחוז');
   assert.match(M.spokenText({ prompt: 'מה ההיקף? (השתמשו ב-π = 3.14)', expr: null }), /פאי/);
   // בכל הנושאים — בלי סימן שהקול מדלג עליו
   for (const t of M.TOPIC_IDS) for (let l = 1; l <= 5; l++) for (let i = 0; i < 10; i++) {
     let q; try { q = M.generate(t, l, { grade: 8 }); } catch (_) { continue; }
-    assert.doesNotMatch(M.spokenText(q), /[≈√²³⁰¹⁴-⁹π‎‏‪-‮⁦-⁩]/, t);
+    assert.doesNotMatch(M.spokenText(q), /[≈√²³⁰¹⁴-⁹π\u200e\u200f\u202a-\u202e\u2066-\u2069]/, t);
   }
 });
