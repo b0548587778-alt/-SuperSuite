@@ -9,6 +9,15 @@ const GROUPS = [...CAT.GROUPS];
 const ITEMS = [...CAT.ITEMS];
 const BY_KEY = new Map(ITEMS.map(it => [it.key, it]));
 const $ = id => document.getElementById(id);
+// המהדורה (shell/edition.js): השם בסרגל, בכותרת החלון ובברכה — רק טקסט קבוע מהקובץ, דרך textContent
+const EDITION = (window.SUITE_EDITION && window.SUITE_EDITION.current()) || { name: 'SuperSuite כלכלה', short: 'כלכלה', tagline: '' };
+(function applyEditionLabels() {
+  if (!document.getElementById) return;
+  document.title = EDITION.name;
+  const sh = $('edShort'); if (sh) sh.textContent = EDITION.short;
+  const tg = $('edTagline'); if (tg && EDITION.tagline) tg.textContent = EDITION.tagline;
+  if (document.querySelectorAll) for (const el of document.querySelectorAll('.ed-name')) el.textContent = EDITION.name;
+})();
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 /* ---------- סט אייקונים אחד למעטפת: קווי, 24×24, עובי אחיד (.ss-icon ב-ui-kit.css). ציור מקורי, בלי רכיב צד שלישי.
    הקטלוג שומר אמוג'י לכל פריט; כאן המיפוי מפריט/תחום/פרופיל לאייקון ---------- */
@@ -131,7 +140,7 @@ const ui = { active: null, views: {}, query: '' };
 // navMore — "עוד מסכים" בסרגל. מוגדר כאן (לפני הרינדור הראשון), ומתעדכן ב-applyA11yState
 ui.simple = false; ui.simpleAll = false; ui.navMore = false;
 const SIMPLE = window.SUITE_SIMPLE || null;
-const VIEW_MODS = ['econ'];
+const VIEW_MODS = ['econ', 'trainer'];
 // מצב הרישוי מ-main.js: level ok / limited (קריאה בלבד) / blocked (נעול), ואילו מודולים פתוחים
 let lic = { level: 'ok', message: '', modules: {} };
 const ALWAYS_OPEN_VIEWS = ['licensing', 'messages'];
@@ -947,6 +956,8 @@ function askPassphrase({ title, text, optional, scopes }) {
   input.value = ''; err.textContent = '';
   input.required = !optional;
   scopeSel.hidden = !scopes;
+  // גיבוי של מודול בודד — רק מודולים שבמהדורה (EDITION.mods ריק = המלאה, הכול)
+  for (const o of Array.from(scopeSel.options || [])) if (o.value !== 'all' && o.value !== 'econ') o.hidden = !!(EDITION.mods && !EDITION.mods.includes(o.value));
   scopeSel.value = 'all';
   return new Promise(resolve => {
     const form = $('ppForm');
@@ -1012,7 +1023,7 @@ $('noticesBtn').onclick = () => showDoc('notices');
 $('userGuideBtn').onclick = () => { if (window.shellAPI.openUserGuide) window.shellAPI.openUserGuide().catch(() => {}); };
 $('userGuidePdfBtn').onclick = () => { if (window.shellAPI.saveUserGuidePdf) window.shellAPI.saveUserGuidePdf().catch(() => {}); };
 if (!window.shellAPI.getAbout) for (const id of ['eulaBtn', 'noticesBtn', 'userGuideBtn', 'userGuidePdfBtn']) $(id).hidden = true;
-aboutData().then(a => { if (a) $('aboutText').textContent = 'SuperSuite כלכלה גרסה ' + a.version + ' · © 2026 Bunim Seller. כל הזכויות שמורות. הנתונים נשמרים במחשב שלך בלבד.'; });
+aboutData().then(a => { if (a) $('aboutText').textContent = EDITION.name + ' גרסה ' + a.version + ' · © 2026 Bunim Seller. כל הזכויות שמורות. הנתונים נשמרים במחשב שלך בלבד.'; });
 $('crashReportBtn').onclick = () => { if (window.shellAPI.saveCrashReport) window.shellAPI.saveCrashReport().catch(() => {}); };
 $('hm').onclick = goHome;
 

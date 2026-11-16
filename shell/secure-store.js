@@ -7,7 +7,8 @@ const crypto = require('crypto');
 const AR = require('../modules/econ/core/atRest');
 
 // מודול האימונים עבר למוצר החינוכי הנפרד: secure-trainer.bin של משתמשים קיימים לא נפתח כאן — ולא נמחק
-const MODULES = ['shamai'];
+// שמאי, ומודולי הלימוד של המהדורה המלאה (אימונים, אנגלית, חשבון, ניהול מוסד)
+const MODULES = ['shamai', 'trainer', 'english', 'math', 'school'];
 const MAX_KEY = 256;
 const MAX_VALUE = 5 * 1024 * 1024;
 const MAX_TOTAL = 64 * 1024 * 1024;

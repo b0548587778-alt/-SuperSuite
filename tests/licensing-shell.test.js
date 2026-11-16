@@ -23,12 +23,12 @@ test('שער: מסכי רישוי והודעות תמיד פתוחים; סיכו
   const l = LG.shellState(LOCKED);
   assert.equal(l.level, 'blocked');
   assert.match(l.message, /נעולה: חוב פתוח/);
-  assert.deepEqual(l.modules, { econ: false, shamai: false, tools: false });
+  assert.deepEqual(l.modules, { econ: false, shamai: false, tools: false, trainer: false, english: false, math: false, school: false });
   const s = LG.shellState(SUSPENDED);
   assert.equal(s.level, 'limited');
   assert.equal(s.modules.tools, true);
   assert.equal(s.modules.shamai, false, 'מודול שאינו ברישיון');
-  assert.equal('trainer' in s.modules, false, 'מודול האימונים עבר למוצר נפרד');
+  assert.equal(s.modules.trainer, false, 'מודול לימוד שאינו ברישיון');
   assert.equal(LG.shellState(ACTIVE_ECON_ONLY).modules.shamai, false);
 });
 

@@ -20,10 +20,12 @@ const LIC_FEATURES = [
   ['econ', 'מערכת כלכלית (בסיס)'], ['econ.accounting', 'הנהלת חשבונות'], ['econ.npo', 'עמותה ותרומות'], ['econ.gemach', 'גמ"ח'],
   ['econ.chesed', 'חסד וחלוקות'], ['econ.mortgage', 'משכנתאות'], ['econ.mortgage-advisor', 'ייעוץ משכנתאות'], ['econ.mortgage-lab', 'מעבדת תמהיל'], ['econ.realestate', 'נדל"ן (שמאות מקרקעין, תיווך ויזמים)'],
   ['shamai', 'שמאות'], ['tools', 'ארגז כלים'],
-  ['ai', 'עוזר חכם — כללים'], ['ai.local', 'עוזר חכם — מודל במחשב'], ['ai.cloud', 'עוזר חכם — שדרוג ענן']
+  ['ai', 'עוזר חכם — כללים'], ['ai.local', 'עוזר חכם — מודל במחשב'], ['ai.cloud', 'עוזר חכם — שדרוג ענן'],
+  // מודולי הלימוד — במהדורה המלאה
+  ['trainer', 'ניהול אימונים'], ['english', 'אנגלית'], ['math', 'חשבון'], ['school', 'ניהול מוסד']
 ];
-// תחומים מרישיונות ישנים שאינם במוצר הזה — מוצגים בשם קריא, ולא מוצעים בהנפקה (trainer: עבר למוצר החינוכי הנפרד)
-const LIC_LEGACY_FEATURES = { trainer: 'ניהול אימונים (מוצר נפרד)' };
+// תחומים מרישיונות ישנים שאינם במוצר הזה — מוצגים בשם קריא, ולא מוצעים בהנפקה (כרגע אין)
+const LIC_LEGACY_FEATURES = {};
 const licFeatureLabel = (f) => (LIC_FEATURES.find(x => x[0] === f) || [f, LIC_LEGACY_FEATURES[f] || f])[1];
 const licDate = (ms) => (ms ? new Date(ms).toLocaleDateString('he-IL') : '');
 const licBadge = (st) => `<span class="${st === 'active' ? 'good' : 'bad'}">${esc(LIC_STATUS[st] || st)}</span>`;
@@ -538,8 +540,11 @@ function showRecoveryCodes(r) {
   });
 }
 
-// עורך תכניות ותקנון (מנהל-העל)
-function offerEditor(cur) {
+// עורך תכניות ותקנון (מנהל-העל). editions — { choices, templates } מ-owner:offerEditions:
+// לכל תכנית מהדורה (shell/edition.js; ריק = כל המהדורות), ו"תכנית אחת לכל מוצר" — בלי מחיר, הבעלים מקליד
+function offerEditor(cur, editions) {
+  const edChoices = (editions && Array.isArray(editions.choices)) ? editions.choices : [];
+  const edTemplates = (editions && Array.isArray(editions.templates)) ? editions.templates : [];
   return openDialog((card, finish) => {
     card.style.maxWidth = '720px';
     const plans = (cur && cur.plans ? cur.plans : [{ id: 'basic', name: 'בסיסי', priceAgorot: 0, months: 12, features: ['econ'], limits: { maxUsers: 3, maxChildren: 0 } }])
@@ -556,8 +561,16 @@ function offerEditor(cur) {
         card.appendChild(fsx);
         const f = (label, val, type) => { const l = document.createElement('label'); l.className = 'field'; const sp = document.createElement('span'); sp.textContent = label;
           const i = document.createElement('input'); i.type = type || 'text'; i.value = val == null || Number.isNaN(val) ? '' : val; l.append(sp, i); fsx.appendChild(l); return i; };
-        const out = { id: f('מזהה (אנגלית)', p.id), name: f('שם', p.name), desc: f('תיאור', p.desc), price: f('מחיר ב-₪ (0 = חינם)', p.priceAgorot / 100, 'number'),
+        const out = { id: f('מזהה (אנגלית)', p.id), name: f('שם', p.name), desc: f('תיאור', p.desc), price: f('מחיר ב-₪ (0 = חינם)', p.priceAgorot == null ? '' : p.priceAgorot / 100, 'number'),
           months: f('תקופה (חודשים)', p.months, 'number'), users: f('משתמשים', p.limits.maxUsers, 'number'), children: f('מערכות בת', p.limits.maxChildren, 'number'), feats: [] };
+        if (edChoices.length) {
+          const l = document.createElement('label'); l.className = 'field'; const sp = document.createElement('span'); sp.textContent = 'מהדורה (התוכנה שבה התכנית מוצעת)';
+          const sel = document.createElement('select');
+          for (const [val, label] of [['', 'כל המהדורות'], ...edChoices.map(c => [c.id, c.name])]) {
+            const o = document.createElement('option'); o.value = val; o.textContent = label; o.selected = (p.edition || '') === val; sel.appendChild(o);
+          }
+          l.append(sp, sel); fsx.appendChild(l); out.edition = sel;
+        }
         const box = document.createElement('div'); box.className = 'checks';
         for (const [val, label] of LIC_FEATURES) { const l = document.createElement('label'); const c = document.createElement('input'); c.type = 'checkbox'; c.value = val; c.checked = (p.features || []).includes(val);
           l.append(c, document.createTextNode(' ' + label)); box.appendChild(l); out.feats.push(c); }
@@ -567,6 +580,15 @@ function offerEditor(cur) {
       const add = document.createElement('button'); add.type = 'button'; add.className = 'secondary small'; add.textContent = '＋ תכנית נוספת';
       add.onclick = () => { collect(); plans.push({ id: 'plan' + (plans.length + 1), name: '', priceAgorot: 0, months: 12, features: ['econ'], limits: { maxUsers: 3, maxChildren: 0 } }); render(); };
       card.appendChild(add);
+      if (edTemplates.length) {
+        const addEd = document.createElement('button'); addEd.type = 'button'; addEd.className = 'secondary small'; addEd.textContent = '＋ תכנית אחת לכל מוצר (עמותות, נדל"ן, חשבונאות)';
+        addEd.onclick = () => {
+          collect();
+          for (const t of edTemplates) if (!plans.some(p => p.id === t.id)) plans.push({ ...t, features: [...t.features], limits: { ...t.limits } });
+          render();
+        };
+        card.appendChild(addEd);
+      }
       const tv = mk('גרסת התקנון (למשל 1.0) — שינוי נוסח מחייב גרסה חדשה', cur && cur.terms ? cur.terms.version : '1.0');
       const tt = mk('כותרת התקנון', cur && cur.terms ? cur.terms.title : 'תקנון ותנאי שימוש');
       const tx = mk('נוסח התקנון המלא', cur && cur.terms ? cur.terms.text : '', 'textarea');
@@ -580,7 +602,8 @@ function offerEditor(cur) {
       function collect() {
         inputs.forEach((x, i) => { Object.assign(plans[i], { id: x.id.value.trim(), name: x.name.value.trim(), desc: x.desc.value.trim(),
           priceAgorot: Math.round(num(x.price) * 100), months: num(x.months), features: x.feats.filter(c => c.checked).map(c => c.value),
-          limits: { ...plans[i].limits, maxUsers: num(x.users), maxChildren: num(x.children), maxDepth: num(x.children) > 0 ? 2 : 1 } }); });
+          limits: { ...plans[i].limits, maxUsers: num(x.users), maxChildren: num(x.children), maxDepth: num(x.children) > 0 ? 2 : 1 } });
+          if (x.edition) { if (x.edition.value) plans[i].edition = x.edition.value; else delete plans[i].edition; } });
       }
       ok.onclick = () => {
         collect();

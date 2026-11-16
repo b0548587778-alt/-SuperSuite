@@ -19,24 +19,32 @@ test('מפתחות הקטלוג ייחודיים, וכל פריט שייך למ�
   const keys = CAT.ITEMS.map(it => it.key);
   assert.equal(new Set(keys).size, keys.length);
   for (const it of CAT.ITEMS) {
-    assert.ok(['econ', 'shamai', 'tools'].includes(it.mod), it.key);
-    assert.ok(!it.view || it.mod === 'econ', 'תצוגה פנימית רק במודול הכלכלי: ' + it.key);
+    assert.ok(['econ', 'shamai', 'tools', 'trainer', 'english', 'math', 'school'].includes(it.mod), it.key);
+    assert.ok(!it.view || it.mod === 'econ' || it.mod === 'trainer', 'תצוגה פנימית רק במודול הכלכלי ובאימונים: ' + it.key);
     assert.match(it.name, /[֐-׿]/, 'שם בעברית: ' + it.key);
   }
 });
 
 test('כל מודול נגיש מהקטלוג', () => {
-  for (const mod of ['econ', 'shamai', 'tools']) {
+  for (const mod of ['econ', 'shamai', 'tools', 'trainer', 'english', 'math', 'school']) {
     assert.ok(CAT.ITEMS.some(it => it.mod === mod), mod);
   }
 });
 
-test('מוצר כלכלי: אין בקטלוג את מודול האימונים (עבר למוצר החינוכי) ולא את יומן הכושר', () => {
-  assert.ok(!CAT.ITEMS.some(it => it.mod === 'trainer'));
-  assert.ok(!CAT.GROUPS.some(g => g.id === 'trainer' || g.id === 'health'));
+// מודולי הלימוד חזרו למהדורה המלאה (החלטת הבעלים 7.11.2026); יומן הכושר — לא
+test('המהדורה המלאה: מודולי הלימוד בקטלוג (אימונים עם תצוגות לפי הסרגל הפנימי), בלי יומן הכושר', () => {
+  assert.ok(CAT.GROUPS.some(g => g.id === 'trainer') && CAT.GROUPS.some(g => g.id === 'learn') && CAT.GROUPS.some(g => g.id === 'school'));
+  assert.ok(!CAT.GROUPS.some(g => g.id === 'health'));
   assert.ok(!CAT.ECON_VIEWS.includes('fitness'));
-  assert.equal(CAT.TRAINER_VIEWS, undefined);
-  assert.equal(CAT.TRAINER_LABELS, undefined);
+  assert.ok(CAT.TRAINER_VIEWS.length >= 10);
+  for (const v of CAT.TRAINER_VIEWS) {
+    assert.match(CAT.TRAINER_LABELS[v], /[֐-׿]/, v);
+    assert.equal(CAT.TRAINER_BY_LABEL[CAT.TRAINER_LABELS[v]], v);
+  }
+  // הכפתורים בסרגל הפנימי של החבילה המהודרת — הטקסטים קיימים בה (אחרת הניווט מהסרגל האחיד לא ילחץ על כלום)
+  const bundle = fs.readdirSync(path.join(ROOT, 'modules/trainer/assets')).filter(f => f.endsWith('.js'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'modules/trainer/assets', f), 'utf8')).join('\n');
+  for (const v of CAT.TRAINER_VIEWS) assert.ok(bundle.includes(CAT.TRAINER_LABELS[v]), 'בחבילה: ' + CAT.TRAINER_LABELS[v]);
 });
 
 function loadEconPreload() {

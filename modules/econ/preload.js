@@ -409,6 +409,7 @@ contextBridge.exposeInMainWorld('systemAPI', {
   licenseSignupStatus: () => ipcRenderer.invoke('license:signupStatus'),
   licenseOpenPayment: () => ipcRenderer.invoke('license:openPayment'),
   ownerGetOffer: () => ipcRenderer.invoke('owner:getOffer'),
+  ownerOfferEditions: () => ipcRenderer.invoke('owner:offerEditions'),
   ownerChangePassphrase: (oldPass, newPass) => ipcRenderer.invoke('owner:changePassphrase', oldPass, newPass),
   ownerRecoveryCodes: (passphrase, n, k) => ipcRenderer.invoke('owner:recoveryCodes', passphrase, n, k),
   ownerRecoveryInfo: () => ipcRenderer.invoke('owner:recoveryInfo'),

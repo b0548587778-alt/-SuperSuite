@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>חשבון</title>
+<link rel="stylesheet" href="/design-tokens.css">
+<link rel="stylesheet" href="/ui-kit.css">
+<script src="/screen-guard.js"></script>
+<script src="/ss-dialog.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="m-no-he-voice">
+<div id="app">
+  <header class="ss-page-head m-head no-print">
+    <div class="m-brand">
+      <span class="m-logo" aria-hidden="true"><span dir="ltr">1+2</span></span>
+      <div>
+        <h1>חשבון</h1>
+        <p class="ss-hint m-sub">תרגול, אתגרים ודפי עבודה — מותאם לכל ילד ולכל כיתה</p>
+      </div>
+    </div>
+    <div class="m-who" id="who"></div>
+  </header>
+
+  <nav class="ss-tabs no-print" role="tablist" aria-label="מסכי החשבון" id="tabs">
+    <button class="ss-tab" role="tab" data-tab="practice" id="tab-practice" aria-controls="view">תרגול</button>
+    <button class="ss-tab" role="tab" data-tab="timed" id="tab-timed" aria-controls="view">אתגר דקה</button>
+    <button class="ss-tab" role="tab" data-tab="table" id="tab-table" aria-controls="view">אלוף לוח הכפל</button>
+    <button class="ss-tab" role="tab" data-tab="sheet" id="tab-sheet" aria-controls="view">דף עבודה</button>
+    <button class="ss-tab" role="tab" data-tab="progress" id="tab-progress" aria-controls="view">התקדמות</button>
+    <button class="ss-tab" role="tab" data-tab="learners" id="tab-learners" aria-controls="view">הילדים</button>
+  </nav>
+
+  <main id="view" role="tabpanel"></main>
+  <div class="m-sr" id="live" role="status" aria-live="polite"></div>
+</div>
+<div class="m-toast" id="toast" role="status" aria-live="polite"></div>
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

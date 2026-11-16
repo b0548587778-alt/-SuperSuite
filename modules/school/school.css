@@ -1,0 +1,100 @@
+/* מודול ניהול מוסד — רק var(--ss-*) (בהיר וכהה דרך design-tokens.css). המבנה — מחלקות ss-* מ-ui-kit.css */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: var(--ss-font); background: var(--ss-bg); color: var(--ss-text); padding: var(--ss-sp-5) var(--ss-sp-6) var(--ss-sp-6); -webkit-font-smoothing: antialiased; }
+input, select, textarea, button { font: inherit; }
+[hidden] { display: none !important; }
+
+.sc-head h1 { display: flex; align-items: center; gap: var(--ss-sp-2); }
+.sc-head h1::before { content: ""; width: 5px; height: 26px; border-radius: 3px; background: var(--ss-grad-gold); }
+.sc-sub { margin: var(--ss-sp-1) 0 0; font-size: var(--ss-fs-sm); }
+.ss-tabs { position: sticky; top: 0; z-index: 5; background: var(--ss-bg); }
+
+/* כרטיס עם כותרת ופעולות */
+.sc-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--ss-sp-3); flex-wrap: wrap; margin-bottom: var(--ss-sp-3); }
+.sc-card-head h2, .sc-card-head h3 { margin: 0; font: 700 var(--ss-fs-lg) / 1.3 var(--ss-font-title); color: var(--ss-navy-2); }
+.sc-kpi-note { display: block; margin-top: 2px; color: var(--ss-muted); font-size: var(--ss-fs-xs); }
+.sc-kpi-btn { cursor: pointer; text-align: start; font: inherit; color: inherit; width: 100%; }
+.sc-kpi-btn:hover { border-color: var(--ss-border-strong); box-shadow: var(--ss-shadow); }
+
+.sc-alerts { display: grid; gap: var(--ss-sp-2); }
+.sc-alert { display: flex; gap: var(--ss-sp-2); align-items: center; padding: var(--ss-sp-2) var(--ss-sp-3); border-radius: var(--ss-radius); border: 1px solid var(--ss-border); background: var(--ss-surface-2); font-size: var(--ss-fs-md); }
+.sc-alert-warn { background: var(--ss-warning-soft); border-color: var(--ss-warning-line); color: var(--ss-warning-ink); }
+.sc-alert-danger { background: var(--ss-danger-soft); border-color: var(--ss-danger-line); color: var(--ss-danger-ink); }
+.sc-alert-ok { background: var(--ss-success-soft); border-color: var(--ss-success-line); color: var(--ss-success-ink); }
+.sc-alert .ss-btn-sm { margin-inline-start: auto; }
+
+.sc-name { font-weight: 600; color: var(--ss-text); }
+.sc-row-click { cursor: pointer; }
+.sc-nowrap { white-space: nowrap; }
+.sc-num { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+.ss-table td .ss-badge { margin-inline-end: 4px; }
+.sc-table-tight td, .sc-table-tight th { padding: 6px 8px; }
+.sc-pos { color: var(--ss-success-ink); }
+.sc-neg { color: var(--ss-danger-ink); font-weight: 600; }
+.sc-strike { text-decoration: line-through; color: var(--ss-muted); }
+
+/* סימון נוכחות: ארבעה כפתורים, הנבחר צבוע */
+.sc-att { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.sc-att button { min-height: max(44px, var(--ss-ctl-h)); min-width: 88px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: var(--ss-radius-pill); border: 1px solid var(--ss-border-strong); background: var(--ss-surface); color: var(--ss-text-2); cursor: pointer; font-size: var(--ss-fs-sm); transition: background-color var(--ss-dur-fast), border-color var(--ss-dur-fast); }
+.sc-att button:hover { background: var(--ss-surface-2); }
+.sc-att button[aria-pressed="true"][data-code="P"] { background: var(--ss-success-soft); border-color: var(--ss-success); color: var(--ss-success-ink); font-weight: 700; }
+.sc-att button[aria-pressed="true"][data-code="A"] { background: var(--ss-danger-soft); border-color: var(--ss-danger); color: var(--ss-danger-ink); font-weight: 700; }
+.sc-att button[aria-pressed="true"][data-code="L"] { background: var(--ss-warning-soft); border-color: var(--ss-warning); color: var(--ss-warning-ink); font-weight: 700; }
+.sc-att button[aria-pressed="true"][data-code="E"] { background: var(--ss-info-soft); border-color: var(--ss-info); color: var(--ss-info-ink); font-weight: 700; }
+
+.sc-bar { height: 8px; border-radius: var(--ss-radius-pill); background: var(--ss-surface-2); overflow: hidden; min-width: 80px; }
+.sc-bar > i { display: block; height: 100%; background: var(--ss-success); }
+.sc-bar.is-low > i { background: var(--ss-danger); }
+
+.sc-chips { display: flex; flex-wrap: wrap; gap: var(--ss-sp-2); }
+.sc-chip-on { border-color: var(--ss-primary); color: var(--ss-primary); background: var(--ss-primary-soft); font-weight: 700; }
+.sc-score { width: 6rem; }
+.sc-legal { font-size: var(--ss-fs-sm); color: var(--ss-text-2); }
+.sc-legal strong { color: var(--ss-navy-2); }
+
+/* חלון טופס */
+.sc-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--ss-border); border-radius: var(--ss-radius-xl); background: var(--ss-surface); color: var(--ss-text); box-shadow: var(--ss-shadow-xl); }
+.sc-dialog::backdrop { background: var(--ss-overlay); }
+.sc-dialog[open] { display: flex; flex-direction: column; }
+.sc-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: var(--ss-sp-3); padding: var(--ss-sp-3) var(--ss-sp-4); border-bottom: 1px solid var(--ss-border); }
+.sc-dialog-head h2 { margin: 0; font: 700 var(--ss-fs-lg) var(--ss-font-title); color: var(--ss-navy-2); }
+.sc-dialog-body { padding: var(--ss-sp-4); overflow: auto; }
+.sc-dialog-foot { display: flex; gap: var(--ss-sp-2); justify-content: flex-start; padding: var(--ss-sp-3) var(--ss-sp-4); border-top: 1px solid var(--ss-border); background: var(--ss-surface-2); border-radius: 0 0 var(--ss-radius-xl) var(--ss-radius-xl); }
+.sc-err { color: var(--ss-danger-ink); font-size: var(--ss-fs-sm); min-height: 1.2em; margin-top: 4px; }
+textarea.ss-input { min-height: 72px; resize: vertical; }
+.sc-checklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px var(--ss-sp-3); max-height: 260px; overflow: auto; padding: var(--ss-sp-2); border: 1px solid var(--ss-border); border-radius: var(--ss-radius); }
+
+/* אישור תשלום / תעודה — מוצג במסך ומודפס */
+.sc-doc { background: var(--ss-surface); color: var(--ss-text); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-lg); padding: var(--ss-sp-5); }
+.sc-doc h2 { margin: 0 0 var(--ss-sp-1); font: 800 var(--ss-fs-xl) var(--ss-font-title); color: var(--ss-navy-2); }
+.sc-doc .sc-doc-meta { color: var(--ss-muted); font-size: var(--ss-fs-sm); margin-bottom: var(--ss-sp-3); }
+.sc-doc-note { margin-top: var(--ss-sp-4); padding: var(--ss-sp-2) var(--ss-sp-3); border: 1px dashed var(--ss-border-strong); border-radius: var(--ss-radius); font-size: var(--ss-fs-sm); color: var(--ss-text-2); }
+.sc-doc-sign { margin-top: var(--ss-sp-5); display: flex; justify-content: space-between; gap: var(--ss-sp-4); color: var(--ss-muted); font-size: var(--ss-fs-sm); }
+
+.sc-toast { position: fixed; inset-inline-start: 50%; bottom: 24px; transform: translateX(50%); background: var(--ss-navy-1); color: var(--ss-on-dark); padding: 10px 18px; border-radius: var(--ss-radius-pill); box-shadow: var(--ss-shadow-lg); opacity: 0; pointer-events: none; transition: opacity var(--ss-dur); font-size: var(--ss-fs-md); z-index: 50; }
+.sc-toast.on { opacity: 1; }
+/* הודעה עם "ביטול" — לחיצה אפשרית */
+.sc-toast { display: flex; align-items: center; gap: var(--ss-sp-3); max-width: min(680px, calc(100vw - 32px)); }
+.sc-toast.on.sc-toast-action { pointer-events: auto; }
+.sc-toast .ss-btn { color: var(--ss-on-dark); border-color: var(--ss-on-dark); background: transparent; }
+/* יעד מגע של 44px לפחות לכפתורים הקטנים ולשבבים */
+.ss-btn-sm, .ss-chip { min-height: max(44px, var(--ss-ctl-h)); }
+.sc-att-ico { font-weight: 700; }
+/* "עוד" — פעולות שלא צריכות להיות תחת היד (ניקוי יום) */
+.sc-more { position: relative; }
+.sc-more > summary { list-style: none; cursor: pointer; }
+.sc-more > summary::-webkit-details-marker { display: none; }
+.sc-more[open] > .ss-btn-ghost { position: absolute; inset-inline-end: 0; top: calc(100% + 4px); z-index: 6; background: var(--ss-surface); border: 1px solid var(--ss-border); box-shadow: var(--ss-shadow); white-space: nowrap; }
+.sc-more-fields > summary { cursor: pointer; padding: var(--ss-sp-2) 0; }
+.sc-big { min-height: 52px; font-size: var(--ss-fs-lg); }
+
+.sc-print { display: none; }
+@media print {
+  body { background: var(--ss-surface); padding: 0; }
+  body.sc-printing #app, body.sc-printing .sc-dialog, body.sc-printing .sc-toast { display: none !important; }
+  body.sc-printing .sc-print { display: block; }
+  .sc-doc { border: 0; padding: 0; }
+  .ss-table th { position: static; }
+}
+@media (max-width: 720px) { body { padding: var(--ss-sp-3); } }
