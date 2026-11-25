@@ -132,7 +132,8 @@ function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now, tim
     setOffer: (signer, offer) => call(signer, 'setOffer', { offer }),
     setPrekey: (signer, bundle) => call(signer, 'setPrekey', { bundle }),
     getPrekey: async (signer, id) => (await call(signer, 'getPrekey', { id })).bundle,
-    getOffer: async (signer) => (await call(signer, 'getOffer', {})).offer,
+    // product — ההצעה של איזו תוכנה (מרכז הרישוי); שרת מגרסה קודמת מתעלם ומחזיר את ההצעה היחידה שלו
+    getOffer: async (signer, product) => (await call(signer, 'getOffer', product ? { product } : {})).offer,
     checkout: (signer, signup) => call(signer, 'checkout', { signup }),
     paymentStatus: (signer, paymentId) => call(signer, 'paymentStatus', { paymentId }),
   };

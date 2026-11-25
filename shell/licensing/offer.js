@@ -1,19 +1,25 @@
 // הצעת מנהל-העל: תכניות (מחיר באגורות, תקופה, תחומים, מכסות) + תקנון בגרסה — חתומים במפתח השורש.
 // הלקוח רואה רק הצעה שחתימתה תקינה; השרת גובה רק לפי המחיר שבהצעה החתומה (לא לפי מה שהלקוח שלח).
+// מרכז הרישוי (products.js): מנהל-העל עורך "הצעה ראשית" אחת — לכל תכנית היקף (מוצר, משפחה או הכול) ותחומים לכל מוצר.
+// ממנה נחתמת הצעה נפרדת לכל מוצר (splitMaster ← createOffer עם product): בהצעה של מוצר רק התכניות שמכסות אותו,
+// ו-features של כל תכנית הם התחומים של אותו מוצר — בדיוק המבנה שגרסאות קודמות מכירות. תכנית שמכסה כמה מוצרים
+// נושאת גם bundle ({ scope, products, features }) — חתום, כך שההנפקה למוצר הנוסף לפי החבילה נבדקת מול מה ששולם.
 const L = require('./license');
+const P = require('./products');
 
 const OFFER_TYPE = 'supersuite-offer';
 const MAX_PLANS = 20;
 const MAX_TERMS = 100000;
-const FEATURES = ['econ', 'econ.accounting', 'econ.npo', 'econ.gemach', 'econ.chesed', 'econ.mortgage', 'econ.mortgage-advisor', 'econ.mortgage-lab', 'econ.realestate',
-  'shamai', 'tools', 'ai', 'ai.local', 'ai.cloud'];
+// התחומים של SuperSuite עצמה (התוכנה הזו) — לתקופת הניסיון (store.js) ולהצעה בלי מוצר (מגרסה קודמת)
+const FEATURES = P.featuresOf(P.THIS_PRODUCT);
 // תחומים שהיו במוצר ועברו למוצר אחר: לא מוצעים בהצעה חדשה, אבל הצעה חתומה ישנה שכוללת אותם עדיין מאומתת
 // (בלעדי זה תכנית שכל תחומיה ישנים הייתה "בלי אף תחום", וכל ההצעה נפסלת). 'trainer' — המוצר החינוכי הנפרד
 const LEGACY_FEATURES = ['trainer'];
 
 const clean = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, max);
+const sameSet = (a, b) => [...a].sort().join('\n') === [...b].sort().join('\n');
 
-function cleanPlan(p, i, { legacy = false } = {}) {
+function cleanCommon(p, i) {
   const id = clean(p && p.id, 40) || 'plan-' + (i + 1);
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) throw new Error('מזהה תכנית אינו תקין');
   const name = clean(p.name, 60);
@@ -24,44 +30,131 @@ function cleanPlan(p, i, { legacy = false } = {}) {
   if (!Number.isSafeInteger(priceAgorot) || priceAgorot < 0 || priceAgorot > 100000000) throw new Error(`המחיר בתכנית "${name}" אינו תקין`);
   const months = Number(p.months);
   if (!Number.isSafeInteger(months) || months < 12 || months > 60) throw new Error(`התקופה בתכנית "${name}" אינה תקינה — הרישיון שנתי (12–60 חודשים)`);
-  const known = (f) => FEATURES.includes(f) || (legacy && LEGACY_FEATURES.includes(f));
-  const features = [...new Set((Array.isArray(p.features) ? p.features : []).map(String))].filter(known);
-  if (!features.length) throw new Error(`בתכנית "${name}" לא נבחר אף תחום`);
   const lim = p.limits || {};
   const int = (v, def, max) => { const n = Number(v); return Number.isSafeInteger(n) && n >= 0 && n <= max ? n : def; };
   const limits = { maxUsers: int(lim.maxUsers, 3, 10000), maxChildren: int(lim.maxChildren, 0, 10000),
     maxStorageMb: int(lim.maxStorageMb, 1024, 1000000), maxDepth: int(lim.maxDepth, lim.maxChildren > 0 ? 2 : 1, 8) };
   if (limits.maxDepth < 1) limits.maxDepth = 1;
-  return { id, name, desc: clean(p.desc, 300), priceAgorot, currency: 'ILS', months, features, limits };
+  return { id, name, desc: clean(p.desc, 300), priceAgorot, currency: 'ILS', months, limits };
 }
+
+// תחומים של מוצר אחד בתכנית: רק המוכרים (legacy — גם ישנים, בהצעה חתומה ישנה של SuperSuite)
+function cleanFeatures(list, product, legacy) {
+  const known = new Set([...P.featuresOf(product), ...(legacy && product === P.THIS_PRODUCT ? LEGACY_FEATURES : [])]);
+  return [...new Set((Array.isArray(list) ? list : []).map(String))].filter(f => known.has(f));
+}
+
+// חבילה שחתומה בתכנית: היקף, המוצרים שהוא מכסה והתחומים לכל אחד מהם
+function cleanBundle(b, name) {
+  const products = b && P.productsOfScope(b.scope);
+  if (!products || products.length < 2) throw new Error(`החבילה בתכנית "${name}" אינה תקינה`);
+  const features = {};
+  for (const pid of products) {
+    features[pid] = cleanFeatures(b.features && b.features[pid], pid, false);
+    if (!features[pid].length) throw new Error(`בתכנית "${name}" לא נבחר אף תחום ב${P.productName(pid)}`);
+  }
+  return { scope: b.scope, products, features };
+}
+
+// תכנית בהצעה של מוצר אחד (המבנה הישן: features = מערך). bundle — רק כשהתכנית מכסה כמה מוצרים
+function cleanPlan(p, i, { legacy = false, product = P.THIS_PRODUCT } = {}) {
+  const base = cleanCommon(p, i);
+  const features = cleanFeatures(p.features, product, legacy);
+  if (!features.length) throw new Error(`בתכנית "${base.name}" לא נבחר אף תחום`);
+  if (p.bundle == null) return { ...base, features };
+  const bundle = cleanBundle(p.bundle, base.name);
+  // התחומים של המוצר הזה בחבילה הם התחומים של התכנית — אחרת ההנפקה לפי החבילה הייתה נותנת אחרים
+  if (!bundle.products.includes(product) || !sameSet(bundle.features[product], features)) throw new Error(`החבילה בתכנית "${base.name}" אינה תואמת לתכנית`);
+  return { ...base, features, bundle };
+}
+
+function cleanTerms(t) {
+  const src = t || {};
+  const terms = { version: clean(src.version, 20), title: clean(src.title, 120) || 'תקנון ותנאי שימוש', text: String(src.text || '').replace(/\r\n/g, '\n').slice(0, MAX_TERMS).trim() };
+  if (!/^[0-9A-Za-z.\-]{1,20}$/.test(terms.version)) throw new Error('גרסת התקנון אינה תקינה (למשל 1.0)');
+  if (terms.text.length < 50) throw new Error('נוסח התקנון קצר מדי');
+  terms.sha256 = L.sha256Hex(terms.text);
+  return terms;
+}
+const cleanSeller = (s) => ({ name: clean(s && s.name, 80), taxId: clean(s && s.taxId, 12) });
 
 function cleanOffer(input, opts) {
   const plans = (Array.isArray(input.plans) ? input.plans : []).slice(0, MAX_PLANS).map((p, i) => cleanPlan(p, i, opts));
   if (!plans.length) throw new Error('יש להגדיר לפחות תכנית אחת');
   if (new Set(plans.map(p => p.id)).size !== plans.length) throw new Error('מזהי התכניות חייבים להיות שונים');
-  const t = input.terms || {};
-  const terms = { version: clean(t.version, 20), title: clean(t.title, 120) || 'תקנון ותנאי שימוש', text: String(t.text || '').replace(/\r\n/g, '\n').slice(0, MAX_TERMS).trim() };
-  if (!/^[0-9A-Za-z.\-]{1,20}$/.test(terms.version)) throw new Error('גרסת התקנון אינה תקינה (למשל 1.0)');
-  if (terms.text.length < 50) throw new Error('נוסח התקנון קצר מדי');
-  terms.sha256 = L.sha256Hex(terms.text);
-  return { v: 1, seller: { name: clean(input.seller && input.seller.name, 80), taxId: clean(input.seller && input.seller.taxId, 12) }, plans, terms };
+  return { v: 1, seller: cleanSeller(input.seller), plans, terms: cleanTerms(input.terms) };
 }
 
-function createOffer(rootPrivateJwk, input, { issuedAt = Date.now() } = {}) {
-  const payload = { ...cleanOffer(input || {}), issuer: L.keyId(rootPrivateJwk), issuedAt };
+// המוצר של הצעה חתומה. בלי שדה — הצעה מגרסה קודמת, של SuperSuite
+const productOfOffer = (payload) => (payload && payload.product != null ? payload.product : P.DEFAULT_PRODUCT);
+
+function createOffer(rootPrivateJwk, input, { issuedAt = Date.now(), product = P.THIS_PRODUCT } = {}) {
+  if (!P.isProduct(product)) throw new Error('המוצר אינו מוכר');
+  const payload = { ...cleanOffer(input || {}, { product }), product, issuer: L.keyId(rootPrivateJwk), issuedAt };
   return JSON.stringify({ type: OFFER_TYPE, payload, sig: L.signObject(payload, rootPrivateJwk) });
 }
 
-function verifyOffer(text, rootKeys) {
+// expectProduct — המוצר שהקורא מצפה לו (התוכנה שמציגה את ההצעה, או השרת לפי הבקשה). הצעה של מוצר אחר נדחית
+function verifyOffer(text, rootKeys, { expectProduct = null } = {}) {
   let o;
   try { o = typeof text === 'string' ? JSON.parse(text) : text; } catch { throw new Error('קובץ ההצעה פגום'); }
   if (!o || o.type !== OFFER_TYPE || !o.payload || typeof o.sig !== 'string') throw new Error('הקובץ אינו הצעת הרשמה');
   const key = (rootKeys || []).find(k => L.keyId(k) === o.payload.issuer);
   if (!key) throw new Error('ההצעה אינה מהספק של התוכנה הזו');
   if (!L.verifyObject(o.payload, o.sig, key)) throw new Error('חתימת ההצעה אינה תקינה');
-  const c = cleanOffer(o.payload, { legacy: true });
+  const product = productOfOffer(o.payload);
+  if (!P.isProduct(product)) throw new Error('ההצעה היא של מוצר שאינו מוכר');
+  if (expectProduct && product !== expectProduct) throw new Error('ההצעה שהתקבלה היא של תוכנה אחרת');
+  const c = cleanOffer(o.payload, { legacy: true, product });
   if (c.terms.sha256 !== o.payload.terms.sha256) throw new Error('נוסח התקנון שונה מהחתום');
   return o.payload;
+}
+
+// ---------- ההצעה הראשית (מסך מנהל-העל) ----------
+// plan: { id, name, desc, priceAgorot, months, limits, scope, features: { <מוצר>: [...] } }.
+// תכנית מגרסה קודמת (features מערך, בלי scope) — של SuperSuite
+function cleanMasterPlan(p, i) {
+  const src = p || {};
+  const base = cleanCommon(src, i);
+  const legacyArray = Array.isArray(src.features);
+  const scope = src.scope == null && legacyArray ? P.THIS_PRODUCT : src.scope;
+  const products = P.productsOfScope(scope);
+  if (!products) throw new Error(`בתכנית "${base.name}" לא נבחר מוצר או חבילה`);
+  const map = legacyArray ? { [P.THIS_PRODUCT]: src.features } : (src.features || {});
+  const features = {};
+  for (const pid of products) {
+    features[pid] = cleanFeatures(map[pid], pid, false);
+    if (!features[pid].length) throw new Error(products.length > 1 ? `בתכנית "${base.name}" לא נבחר אף תחום ב${P.productName(pid)}` : `בתכנית "${base.name}" לא נבחר אף תחום`);
+  }
+  return { ...base, scope, products, features };
+}
+
+function cleanMaster(input) {
+  const src = input || {};
+  const plans = (Array.isArray(src.plans) ? src.plans : []).slice(0, MAX_PLANS).map(cleanMasterPlan);
+  if (!plans.length) throw new Error('יש להגדיר לפחות תכנית אחת');
+  if (new Set(plans.map(p => p.id)).size !== plans.length) throw new Error('מזהי התכניות חייבים להיות שונים');
+  return { v: 2, seller: cleanSeller(src.seller), plans, terms: cleanTerms(src.terms) };
+}
+
+// הצעה לכל מוצר שיש לו לפחות תכנית אחת: { <מוצר>: קלט ל-createOffer }
+function splitMaster(master) {
+  const out = {};
+  for (const pid of P.PRODUCTS.map(x => x.id)) {
+    const plans = master.plans.filter(p => p.products.includes(pid)).map(p => ({
+      id: p.id, name: p.name, desc: p.desc, priceAgorot: p.priceAgorot, months: p.months, limits: { ...p.limits },
+      features: [...p.features[pid]],
+      ...(p.products.length > 1 ? { bundle: { scope: p.scope, products: [...p.products], features: JSON.parse(JSON.stringify(p.features)) } } : {}),
+    }));
+    if (plans.length) out[pid] = { seller: { ...master.seller }, plans, terms: { version: master.terms.version, title: master.terms.title, text: master.terms.text } };
+  }
+  return out;
+}
+
+// הצעה ראשית מהצעה חתומה של מוצר אחד (offer.json מגרסה קודמת)
+function masterFromOffer(offer) {
+  return cleanMaster({ seller: offer.seller, terms: offer.terms,
+    plans: offer.plans.map(p => ({ ...p, scope: P.THIS_PRODUCT, features: { [P.THIS_PRODUCT]: p.features } })) });
 }
 
 const planOf = (offer, planId) => {
@@ -72,4 +165,4 @@ const planOf = (offer, planId) => {
 
 const formatAgorot = (a) => '₪' + (Math.round(a) / 100).toLocaleString('he-IL', { minimumFractionDigits: a % 100 ? 2 : 0, maximumFractionDigits: 2 });
 
-module.exports = { OFFER_TYPE, FEATURES, LEGACY_FEATURES, createOffer, verifyOffer, planOf, formatAgorot };
+module.exports = { OFFER_TYPE, FEATURES, LEGACY_FEATURES, createOffer, verifyOffer, productOfOffer, cleanMaster, splitMaster, masterFromOffer, planOf, formatAgorot };

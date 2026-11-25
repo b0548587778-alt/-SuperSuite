@@ -66,8 +66,10 @@ function verifySignup(text, rootKeys, { current = null } = {}) {
   if (b.terms.sha256 !== offer.terms.sha256 || b.terms.version !== offer.terms.version) throw new Error('נוסח התקנון שנחתם אינו תואם');
   if (L.sha256Hex(checkSignatureImage(pkg.signatureImage)) !== b.signature.imageSha256) throw new Error('תמונת החתימה שונתה');
   cleanCustomer(b.customer);
-  const request = JSON.stringify({ type: PKG_REQUEST, v: 1, name: b.customer.org, publicKey: b.publicKey, keyId: b.keyId });
-  return { body: b, plan, offer, request, signatureImage: pkg.signatureImage };
+  // המוצר — של ההצעה שלפיה נרשמו (מרכז הרישוי, products.js); נכנס לבקשה כדי שההנפקה תהיה של אותו מוצר
+  const product = O.productOfOffer(offer);
+  const request = JSON.stringify({ type: PKG_REQUEST, v: 1, name: b.customer.org, publicKey: b.publicKey, keyId: b.keyId, product });
+  return { body: b, plan, offer, product, request, signatureImage: pkg.signatureImage };
 }
 
 const escHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

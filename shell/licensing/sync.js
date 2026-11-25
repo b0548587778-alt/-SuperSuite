@@ -6,6 +6,7 @@ const { createRemote, mailboxOf, randomNonce } = require('./remote');
 const CK = require('./checkin');
 const M = require('./messages');
 const OF = require('./offer');
+const PR = require('./products');
 const SU = require('./signup');
 const PK = require('./prekeys');
 const { PKG_REQUEST, PKG_APPROVAL_REQUEST, READ_ERROR_CODE } = require('./store');
@@ -25,7 +26,8 @@ function compactRequest(body) {
   try { keyId = L.keyId(req.publicKey); } catch { throw new Error('בקשה לא תקינה'); }
   if (req.keyId !== keyId) throw new Error('בקשה לא תקינה');
   const name = String(req.name == null ? '' : req.name).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80);
-  return { keyId, name, body: JSON.stringify({ type: PKG_REQUEST, v: 1, name, publicKey: L.publicOf(req.publicKey), keyId }) };
+  const product = PR.isProduct(req.product) ? req.product : undefined;
+  return { keyId, name, body: JSON.stringify({ type: PKG_REQUEST, v: 1, name, publicKey: L.publicOf(req.publicKey), keyId, product }) };
 }
 // רשומה ברשימת הבקשות הממתינות (גם רשומה ישנה שנשמרה עם הגוף המקורי) — או null כשאינה תקינה
 function pendingEntry(p, fallbackAt) {
@@ -353,19 +355,30 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
 
   // ---------- הרשמה ותשלום ----------
   // מנהל-העל: פרסום ההצעה (תכניות + תקנון) בשרת
+  // הצעה לכל מוצר (מרכז הרישוי): SuperSuite קודם — שרת מגרסה קודמת מקבל רק אותה, ושאר המוצרים נכשלים שם בלי לעצור אותה.
+  // published — המוצרים שפורסמו; failed — מוצר ושגיאה. שום מוצר לא פורסם ← השגיאה נזרקת
   async function ownerPublishOffer() {
     const o = owner.offer();
     if (!o) throw new Error('עדיין לא הוגדרו תכניות ותקנון');
-    await remote().setOffer(owner.rootSigner(), o.text);
+    const order = Object.keys(o.texts).sort((a, b) => (a === PR.THIS_PRODUCT ? -1 : b === PR.THIS_PRODUCT ? 1 : 0));
+    const published = [];
+    const failed = [];
+    for (const pid of order) {
+      try { await remote().setOffer(owner.rootSigner(), o.texts[pid]); published.push(pid); } catch (e) {
+        failed.push({ product: pid, name: PR.productName(pid), error: e, message: e.message });
+      }
+    }
+    if (!published.length) throw failed[0].error;
+    failed.forEach(f => { delete f.error; });
     // מתי כל הצעה פורסמה — לבדיקת הרשמות לפי הצעה ישנה (ממצא 31). נרשמת ההצעה שנשלחה, ולא מה שנשמר מקומית
     // בזמן שהפרסום רץ ברשת
-    if (typeof owner.offerPublished === 'function') owner.offerPublished(o.offer.issuedAt);
-    return { ok: true };
+    if (typeof owner.offerPublished === 'function') owner.offerPublished(o.issuedAt);
+    return { ok: true, published, failed };
   }
-  // מערכת חדשה: ההצעה מהשרת — נבדקת בחתימה מול מפתח השורש שבתוכנה
+  // מערכת חדשה: ההצעה מהשרת — נבדקת בחתימה מול מפתח השורש שבתוכנה, ורק הצעה של התוכנה הזו
   async function getOffer() {
-    const text = await remote().getOffer(store.syncKey(true));
-    return { text, offer: OF.verifyOffer(text, rootKeys) };
+    const text = await remote().getOffer(store.syncKey(true), PR.THIS_PRODUCT);
+    return { text, offer: OF.verifyOffer(text, rootKeys, { expectProduct: PR.THIS_PRODUCT }) };
   }
   // הרשמה: חתימה על התקנון ויצירת תשלום. מחזיר קישור לדף התשלום המאובטח של הספק
   // לפני שליחת פרטי לקוח (ת"ז, טלפון, חתימה) ולפני שמירה או פתיחה של קישור תשלום: השרת מוכיח שהוא של הספק —

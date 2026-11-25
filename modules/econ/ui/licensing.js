@@ -25,6 +25,14 @@ const LIC_FEATURES = [
 // תחומים מרישיונות ישנים שאינם במוצר הזה — מוצגים בשם קריא, ולא מוצעים בהנפקה (trainer: עבר למוצר החינוכי הנפרד)
 const LIC_LEGACY_FEATURES = { trainer: 'ניהול אימונים (מוצר נפרד)' };
 const licFeatureLabel = (f) => (LIC_FEATURES.find(x => x[0] === f) || [f, LIC_LEGACY_FEATURES[f] || f])[1];
+// מרכז הרישוי (shell/licensing/products.js): הקטלוג מגיע ממצב מנהל-העל (owner:getState → products).
+// לכל תוכנה תחומים משלה — ושמות תחומים חוזרים בין תוכנות, ולכן שם תחום תמיד לפי התוכנה
+const licProducts = (cat) => (cat && Array.isArray(cat.products) ? cat.products : []);
+const licProductName = (cat, id) => (licProducts(cat).find(p => p.id === id) || { name: id || '' }).name;
+const licProductFeatures = (cat, id) => (licProducts(cat).find(p => p.id === id) || { features: id ? [] : LIC_FEATURES }).features;
+const licScopes = (cat) => (cat && Array.isArray(cat.scopes) ? cat.scopes : []);
+const licScopeName = (cat, s) => (licScopes(cat).find(x => x.id === s) || { name: s || '' }).name;
+const licProductFeatureLabel = (cat, pid, f) => ((licProductFeatures(cat, pid) || []).find(x => x[0] === f) || [f, licFeatureLabel(f)])[1];
 const licDate = (ms) => (ms ? new Date(ms).toLocaleDateString('he-IL') : '');
 const licBadge = (st) => `<span class="${st === 'active' ? 'good' : 'bad'}">${esc(LIC_STATUS[st] || st)}</span>`;
 const licLimits = (l) => l ? `עד ${Number(l.maxUsers)} משתמשים · ${Number(l.maxChildren)} מערכות בת · ${Number(l.maxStorageMb)}MB` : '';
@@ -445,9 +453,10 @@ function renderOwnerPanel(o, inbox, remote, releases, ownerOffer, signups, owner
     ${o.configured ? '' : `<p class="bad">המפתח הציבורי שלך עדיין לא מוגדר בתוכנה (shell/licensing/root-keys.js), ולכן הרישוי אינו נאכף בהתקנות. <button class="secondary small" id="ownerCopyKeyBtn">שמירת המפתח הציבורי לקובץ</button></p>`}
     ${globalHolds.map(h => `<p class="bad">נעילה גלובלית פעילה: ${esc(h.reason)}</p>`).join('')}
     <div class="acct-scroll"><table class="acct-table">
-      <thead><tr><th>#</th><th>לקוח</th><th>מצב</th><th>בתוקף עד</th><th>מכסות</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>לקוח</th><th>תוכנה</th><th>מצב</th><th>בתוקף עד</th><th>מכסות</th><th></th></tr></thead>
       <tbody>${tenants.map(t => `<tr>
         <td>${Number(t.slot)}</td><td><b>${esc(t.name)}</b></td>
+        <td>${esc(licProductName(o.products, t.product))}${t.bundleId ? '<br><small class="muted">בחבילה</small>' : ''}</td>
         <td>${licBadge(t.status)}${(t.holds || []).map(h => `<br><small>${esc(LIC_HOLD_KINDS[h.kind] || h.kind)}: ${esc(h.reason)}</small>`).join('')}</td>
         <td>${esc(licDate(t.expiresAt))}</td><td><small>${esc(licLimits(t.limits))}</small></td>
         <td>
@@ -457,19 +466,34 @@ function renderOwnerPanel(o, inbox, remote, releases, ownerOffer, signups, owner
           ${t.status === 'terminated' ? '' : `<button class="danger-outline" data-owner-terminate="${esc(t.id)}">סיום</button>`}
         </td></tr>
         ${(t.children || []).map(c => `<tr class="${c.revoked ? 'muted' : ''}">
-          <td></td><td>↳ ${esc(c.name)} <small class="muted">(מערכת בת ${Number(c.slot)})</small></td>
+          <td></td><td>↳ ${esc(c.name)} <small class="muted">(מערכת בת ${Number(c.slot)})</small></td><td></td>
           <td>${c.revoked || c.terminated ? licBadge('terminated') : ((c.holds || []).length ? licBadge((c.holds[0] || {}).kind) : '<span class="muted">לפי הלקוח</span>')}</td>
           <td><small>אושרה ${esc(licDate(c.approvedAt))}</small></td><td></td>
           <td>${c.revoked ? '' : `
             ${(c.holds || []).map(h => `<button class="secondary small" data-owner-release="${esc(c.id)}" data-hold="${esc(h.holdId)}">החזרה</button>`).join('')}
             <button class="secondary small" data-owner-hold="${esc(c.id)}">השבתה</button>
             <button class="danger-outline" data-owner-revoke="${esc(c.id)}">ביטול אישור</button>`}</td>
-        </tr>`).join('')}`).join('') || '<tr><td colspan="6" class="muted">עדיין לא הונפקו רישיונות. לקוח חדש: "פתיחת בקשה מלקוח"</td></tr>'}</tbody>
+        </tr>`).join('')}`).join('') || '<tr><td colspan="7" class="muted">עדיין לא הונפקו רישיונות. לקוח חדש: "פתיחת בקשה מלקוח"</td></tr>'}</tbody>
     </table></div>
+    ${renderOwnerBundles(o.bundles, o.products)}
     <p class="muted">שינוי סטטוס נכנס לתוקף אצל הלקוח כשהוא מקבל "קובץ עדכון" (או בהתקנת רישיון מחודש). השבתה של לקוח משביתה גם את כל מערכות הבת שלו.</p>
-    ${renderOwnerSignups(ownerOffer, signups, remote, ownerPayment)}
+    ${renderOwnerSignups(ownerOffer, signups, remote, ownerPayment, o.products)}
     ${renderOwnerReleases(releases, remote)}
   </div>`;
+}
+
+// חבילות ששולמו (תכנית שמכסה כמה תוכנות): מה כבר הונפק ומה מחכה לבקשה מהתוכנה
+function renderOwnerBundles(bundles, cat) {
+  const list = Array.isArray(bundles) ? bundles : [];
+  if (!list.length) return '';
+  return `<h4>חבילות ששולמו</h4>
+    <div class="acct-scroll"><table class="acct-table">
+      <thead><tr><th>לקוח</th><th>תכנית</th><th>הונפק</th><th>ממתין לבקשה מהתוכנה</th></tr></thead>
+      <tbody>${list.map(b => `<tr><td><b>${esc(b.customer)}</b></td><td>${esc(b.planName)}<br><small class="muted">${esc(b.scopeName || licScopeName(cat, b.scope))}</small></td>
+        <td><small>${b.products.filter(p => b.issued && b.issued[p]).map(p => esc(licProductName(cat, p))).join(', ') || '—'}</small></td>
+        <td><small>${(b.pending || []).map(p => esc(licProductName(cat, p))).join(', ') || '<span class="ok">הכול הונפק</span>'}</small></td></tr>`).join('')}</tbody>
+    </table></div>
+    <p class="muted">בקשה שמגיעה מתוכנה בחבילה — "הנפקה" ובחירה "לפי חבילה ששולמה": התחומים, המכסות והתקופה כפי ששולמו, בלי תשלום נוסף.</p>`;
 }
 
 // אימות התשלום של הרשמה מול Cardcom (במחשב של מנהל-העל) — שורת מצב בטבלה
@@ -494,20 +518,20 @@ function renderOwnerCardcom(p) {
     ${c.configured ? '<button class="secondary small danger" id="ownerCardcomClearBtn">הסרה</button>' : ''}</span></div>`;
 }
 
-function renderOwnerSignups(offer, list, remote, payment) {
+function renderOwnerSignups(offer, list, remote, payment, cat) {
   if (!offer || !Array.isArray(offer.plans) || !offer.terms) offer = null;
   const rows = (Array.isArray(list) ? list : []).slice().reverse();
   const cardcomOn = !!(payment && payment.cardcom && payment.cardcom.configured);
   return `<div class="acct-header"><h4>הרשמה, תכניות ותקנון</h4>
       <div class="acct-actions"><button class="secondary small" id="ownerOfferBtn">${offer ? '✎ עריכת תכניות ותקנון' : '＋ הגדרת תכניות ותקנון'}</button>
       ${offer && remote && remote.url ? '<button class="primary small" id="ownerOfferPublishBtn">📤 פרסום בשרת</button>' : ''}</div></div>
-    ${offer ? `<p class="muted">תקנון גרסה ${esc(offer.terms.version)} · ${offer.plans.map(p => esc(p.name) + ' ' + esc(agorotText(p.priceAgorot))).join(' · ')}</p>` : '<p class="muted">עדיין לא הוגדרו תכניות. מערכות חדשות יוכלו להירשם ולשלם אחרי פרסום בשרת.</p>'}
+    ${offer ? `<p class="muted">תקנון גרסה ${esc(offer.terms.version)} · ${offer.plans.map(p => esc(p.name) + ' ' + esc(agorotText(p.priceAgorot)) + (p.scope ? ' (' + esc(licScopeName(cat, p.scope)) + ')' : '')).join(' · ')}</p>` : '<p class="muted">עדיין לא הוגדרו תכניות. מערכות חדשות יוכלו להירשם ולשלם אחרי פרסום בשרת.</p>'}
     ${renderOwnerCardcom(payment)}
     ${rows.length ? `<div class="acct-scroll"><table class="acct-table">
       <thead><tr><th>התקבלה</th><th>לקוח</th><th>תכנית</th><th>תשלום</th><th>מצב</th><th></th></tr></thead>
       <tbody>${rows.map(x => `<tr><td><small>${esc(new Date(x.receivedAt).toLocaleString('he-IL'))}</small></td>
         <td><b>${esc(x.customer.org)}</b><br><small>${esc(x.customer.contact)} · <span dir="ltr">${esc(x.customer.phone)}</span></small></td>
-        <td>${esc(x.planName)}</td><td>${x.payment ? esc(agorotText(x.payment.amountAgorot)) + '<br><small dir="ltr">' + esc(x.payment.providerRef || '') + '</small>' + signupPayCheckHtml(x) : 'ללא תשלום'}</td>
+        <td>${esc(x.planName)}${x.product ? '<br><small class="muted">' + esc(licProductName(cat, x.product)) + (x.bundle ? ' · ' + esc(licScopeName(cat, x.bundle.scope)) : '') + '</small>' : ''}</td><td>${x.payment ? esc(agorotText(x.payment.amountAgorot)) + '<br><small dir="ltr">' + esc(x.payment.providerRef || '') + '</small>' + signupPayCheckHtml(x) : 'ללא תשלום'}</td>
         <td>${x.status === 'issued' ? '<span class="ok">הונפק</span>' : x.status === 'review' ? '<b>לבדיקה</b><br><small>' + esc(x.problem || '') + '</small>' : '<b>חדשה</b>'}${x.invoice ? `<br><small>חשבונית ${Number(x.invoice.number)}</small>` : ''}</td>
         <td>${x.status === 'issued' ? '' : `<button class="primary small" data-owner-signup-issue="${esc(x.id)}"${signupNeedsCheck(x, cardcomOn) ? ' data-owner-verify-first="1"' : ''}>✔ הנפקה ושליחה</button>`}
           ${cardcomOn && x.status !== 'issued' && x.payment && x.payment.amountAgorot > 0 && !x.invoice ? `<button class="secondary small" data-owner-signup-verify="${esc(x.id)}">🔍 בדיקת התשלום ב-Cardcom</button>` : ''}
@@ -538,12 +562,20 @@ function showRecoveryCodes(r) {
   });
 }
 
-// עורך תכניות ותקנון (מנהל-העל)
-function offerEditor(cur) {
+// עורך תכניות ותקנון (מנהל-העל) — מרכז הרישוי: לכל תכנית היקף (תוכנה אחת, חבילת משפחה או כל התוכנות) ותחומים
+// לכל תוכנה בהיקף. נשמרת הצעה ראשית אחת, וממנה נחתמת הצעה לכל תוכנה (shell/licensing/offer.js — splitMaster)
+const LIC_THIS_PRODUCT = 'supersuite';
+// תכנית מגרסה קודמת: features מערך ובלי scope — של SuperSuite
+const licPlanFeatures = (p) => (Array.isArray(p.features) ? { [LIC_THIS_PRODUCT]: p.features } : { ...(p.features || {}) });
+function offerEditor(cur, cat) {
   return openDialog((card, finish) => {
-    card.style.maxWidth = '720px';
-    const plans = (cur && cur.plans ? cur.plans : [{ id: 'basic', name: 'בסיסי', priceAgorot: 0, months: 12, features: ['econ'], limits: { maxUsers: 3, maxChildren: 0 } }])
-      .map(p => ({ ...p, limits: { ...p.limits } }));
+    card.style.maxWidth = '760px';
+    const fresh = (n) => ({ id: n > 1 ? 'plan' + n : 'basic', name: n > 1 ? '' : 'בסיסי', priceAgorot: 0, months: 12, scope: LIC_THIS_PRODUCT,
+      features: { [LIC_THIS_PRODUCT]: ['econ'] }, limits: { maxUsers: 3, maxChildren: 0 } });
+    const plans = (cur && cur.plans ? cur.plans : [fresh(1)])
+      .map(p => ({ ...p, scope: p.scope || LIC_THIS_PRODUCT, features: licPlanFeatures(p), limits: { ...p.limits } }));
+    const scopes = licScopes(cat).length ? licScopes(cat) : [{ id: LIC_THIS_PRODUCT, name: 'SuperSuite', products: [LIC_THIS_PRODUCT] }];
+    const scopeProducts = (s) => (scopes.find(x => x.id === s) || { products: [] }).products;
     const render = () => {
       card.innerHTML = '<h2>תכניות ותקנון</h2>';
       const mk = (label, value, type = 'text') => { const l = document.createElement('label'); l.className = 'field'; const sp = document.createElement('span'); sp.textContent = label;
@@ -558,14 +590,28 @@ function offerEditor(cur) {
           const i = document.createElement('input'); i.type = type || 'text'; i.value = val == null || Number.isNaN(val) ? '' : val; l.append(sp, i); fsx.appendChild(l); return i; };
         const out = { id: f('מזהה (אנגלית)', p.id), name: f('שם', p.name), desc: f('תיאור', p.desc), price: f('מחיר ב-₪ (0 = חינם)', p.priceAgorot / 100, 'number'),
           months: f('תקופה (חודשים)', p.months, 'number'), users: f('משתמשים', p.limits.maxUsers, 'number'), children: f('מערכות בת', p.limits.maxChildren, 'number'), feats: [] };
-        const box = document.createElement('div'); box.className = 'checks';
-        for (const [val, label] of LIC_FEATURES) { const l = document.createElement('label'); const c = document.createElement('input'); c.type = 'checkbox'; c.value = val; c.checked = (p.features || []).includes(val);
-          l.append(c, document.createTextNode(' ' + label)); box.appendChild(l); out.feats.push(c); }
-        fsx.appendChild(box);
+        // היקף: תוכנה אחת או חבילה. שינוי ההיקף מצייר מחדש את התחומים (מה שסומן נשמר)
+        const sl = document.createElement('label'); sl.className = 'field';
+        const ssp = document.createElement('span'); ssp.textContent = 'תוכנה / חבילה';
+        const sel = document.createElement('select');
+        for (const s of scopes) { const op = document.createElement('option'); op.value = s.id; op.textContent = s.name; sel.appendChild(op); }
+        sel.value = p.scope;
+        sl.append(ssp, sel); fsx.appendChild(sl);
+        sel.onchange = () => { collect(); plans[idx].scope = sel.value; render(); };
+        out.scope = sel;
+        for (const pid of scopeProducts(p.scope)) {
+          const box = document.createElement('div'); box.className = 'checks';
+          box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'תחומים — ' + licProductName(cat, pid));
+          if (scopeProducts(p.scope).length > 1) { const h = document.createElement('b'); h.textContent = licProductName(cat, pid) + ':'; box.appendChild(h); }
+          for (const [val, label] of licProductFeatures(cat, pid)) { const l = document.createElement('label'); const c = document.createElement('input'); c.type = 'checkbox'; c.value = val; c.dataset.product = pid;
+            c.checked = (p.features[pid] || []).includes(val);
+            l.append(c, document.createTextNode(' ' + label)); box.appendChild(l); out.feats.push(c); }
+          fsx.appendChild(box);
+        }
         return out;
       });
       const add = document.createElement('button'); add.type = 'button'; add.className = 'secondary small'; add.textContent = '＋ תכנית נוספת';
-      add.onclick = () => { collect(); plans.push({ id: 'plan' + (plans.length + 1), name: '', priceAgorot: 0, months: 12, features: ['econ'], limits: { maxUsers: 3, maxChildren: 0 } }); render(); };
+      add.onclick = () => { collect(); plans.push(fresh(plans.length + 1)); render(); };
       card.appendChild(add);
       const tv = mk('גרסת התקנון (למשל 1.0) — שינוי נוסח מחייב גרסה חדשה', cur && cur.terms ? cur.terms.version : '1.0');
       const tt = mk('כותרת התקנון', cur && cur.terms ? cur.terms.title : 'תקנון ותנאי שימוש');
@@ -579,7 +625,8 @@ function offerEditor(cur) {
       const num = (el) => (String(el.value).trim() === '' ? NaN : Number(el.value));
       function collect() {
         inputs.forEach((x, i) => { Object.assign(plans[i], { id: x.id.value.trim(), name: x.name.value.trim(), desc: x.desc.value.trim(),
-          priceAgorot: Math.round(num(x.price) * 100), months: num(x.months), features: x.feats.filter(c => c.checked).map(c => c.value),
+          priceAgorot: Math.round(num(x.price) * 100), months: num(x.months), scope: x.scope.value,
+          features: Object.fromEntries(scopeProducts(x.scope.value).map(pid => [pid, x.feats.filter(c => c.checked && c.dataset.product === pid).map(c => c.value)])),
           limits: { ...plans[i].limits, maxUsers: num(x.users), maxChildren: num(x.children), maxDepth: num(x.children) > 0 ? 2 : 1 } }); });
       }
       ok.onclick = () => {

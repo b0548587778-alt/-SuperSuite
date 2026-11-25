@@ -9,6 +9,7 @@ const S = require('./status');
 const BK = require('../../modules/econ/core/backupCrypto');
 const { PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL } = require('./store');
 const OF = require('./offer');
+const P = require('./products');
 const SH = require('./shamir');
 const C = require('./crypto-lite');
 const CK = require('./checkin');
@@ -226,24 +227,59 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
     return pkg;
   }
 
+  // ---------- מוצרים (מרכז הרישוי — products.js) ----------
+  // המוצר של לקוח: נרשם בהנפקה; לקוח מלפני מרכז הרישוי — לפי התחומים
+  const tenantProduct = (t) => (P.isProduct(t.product) ? t.product : P.productOfFeatures(t.license.payload.features));
+  // המוצר שבבקשה (תוכנה שמציינת אותו — שיר סטודיו, וגרסאות חדשות); בלי שדה — לא ידוע (null), מנהל-העל בוחר
+  const requestProduct = (req) => (req && P.isProduct(req.product) ? req.product : null);
+  // חבילות ששולמו: הרשמה לתכנית שמכסה כמה מוצרים — ממנה מונפק רישיון לכל מוצר בחבילה, פעם אחת לכל מוצר, בלי תשלום נוסף
+  const bundlesOf = (reg) => (Array.isArray(reg.bundles) ? reg.bundles : []);
+  function bundleSummary(b) {
+    return { id: b.id, customer: b.customer, planName: b.planName, scope: b.scope, scopeName: P.scopeName(b.scope), products: [...b.products],
+      issued: { ...b.issued }, months: b.months, createdAt: b.createdAt, pending: b.products.filter(pid => !b.issued[pid]) };
+  }
+  // חבילות שאפשר להנפיק מהן למוצר הזה: המוצר בחבילה ועוד לא הונפק לו (או שהונפק לאותה מערכת — חידוש)
+  const bundlesFor = (reg, product, id) => bundlesOf(reg)
+    .filter(b => b.products.includes(product) && (!b.issued[product] || b.issued[product] === id)).map(bundleSummary);
+
   // ---------- לקוחות (רמה 1): למנהל-העל אין מכסה ----------
+  // opts.product — המוצר (אחרת: מהבקשה, מהלקוח הקיים, או לפי התחומים). התחומים חייבים להיות של המוצר הזה.
+  // opts.bundleId — הנפקה לפי חבילה ששולמה: התחומים, המכסות והתקופה מהחבילה (לא מהקלט)
   function issue(opts) {
     const req = parse(opts.request, PKG_REQUEST, 'הקובץ אינו בקשת רישיון');
     const reg = registry();
     const id = L.keyId(req.publicKey);
     const existing = reg.tenants.find(t => t.id === id);
+    const fromReq = requestProduct(req);
+    const product = opts.product != null ? opts.product : (fromReq || (existing ? tenantProduct(existing) : P.productOfFeatures(opts.features)));
+    if (!P.isProduct(product)) throw new Error('המוצר אינו מוכר');
+    if (fromReq && fromReq !== product) throw new Error(`הבקשה נשלחה מ${P.productName(fromReq)} — אי אפשר להנפיק לה רישיון של ${P.productName(product)}`);
+    let terms = { features: opts.features, limits: opts.limits, months: opts.months, graceDays: opts.graceDays };
+    let bundle = null;
+    if (opts.bundleId != null) {
+      bundle = bundlesOf(reg).find(b => b.id === opts.bundleId);
+      if (!bundle) throw new Error('החבילה לא נמצאה');
+      if (!bundle.products.includes(product)) throw new Error(`${P.productName(product)} אינו חלק מהחבילה הזו`);
+      if (bundle.issued[product] && bundle.issued[product] !== id) throw new Error(`מהחבילה הזו כבר הונפק רישיון ל${P.productName(product)}`);
+      terms = { features: bundle.features[product], limits: bundle.limits, months: bundle.months, graceDays: opts.graceDays };
+    }
+    const problem = P.checkFeatures(product, terms.features);
+    if (problem) throw new Error(problem);
     const slot = existing ? existing.slot : reg.tenants.reduce((m, t) => Math.max(m, t.slot), 0) + 1;
     const now = clock();
     // שנה לפחות (ACT.termMs) — מערכת עם רישיון קצר משנה לא נפתחת (shell/licensing/activation.js)
-    const termMs = ACT.termMs(opts.months == null ? 12 : opts.months);
+    const termMs = ACT.termMs(terms.months == null ? 12 : terms.months);
     const lic = L.issueLicense(issuer(), {
       name: opts.name || req.name, publicKey: req.publicKey, slot,
-      features: opts.features, limits: opts.limits,
-      issuedAt: now, expiresAt: now + termMs, graceDays: opts.graceDays,
+      features: terms.features, limits: terms.limits,
+      issuedAt: now, expiresAt: now + termMs, graceDays: terms.graceDays,
     });
-    reg.tenants = [...reg.tenants.filter(t => t.id !== id), { id, slot, name: lic.payload.name, license: lic, issuedAt: now }];
+    const bundleId = bundle ? bundle.id : (existing && existing.bundleId) || null;
+    reg.tenants = [...reg.tenants.filter(t => t.id !== id), { id, slot, name: lic.payload.name, product, license: lic, issuedAt: now,
+      ...(bundleId ? { bundleId } : {}) }];
+    if (bundle) reg.bundles = bundlesOf(reg).map(b => (b.id === bundle.id ? { ...b, issued: { ...b.issued, [product]: id } } : b));
     writeJson('registry.json', reg);
-    return { id, slot, name: lic.payload.name, renewal: !!existing,
+    return { id, slot, name: lic.payload.name, product, renewal: !!existing, ...(bundle ? { bundleId: bundle.id } : {}),
       package: JSON.stringify({ type: PKG_LICENSE, v: 1, chain: [lic], notices: noticesFor([id]) }) };
   }
 
@@ -271,7 +307,7 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
     const holdsOf = (st, id) => st.reasons.filter(r => r.holdId && r.node === id).map(r => ({ holdId: r.holdId, kind: r.kind, reason: r.reason }));
     const tenants = reg.tenants.map(t => {
       const st = S.effectiveStatus({ chain: [t.license], notices, rootKeys, now });
-      return { id: t.id, slot: t.slot, name: t.name, status: st.status, expiresAt: t.license.payload.expiresAt,
+      return { id: t.id, slot: t.slot, name: t.name, product: tenantProduct(t), bundleId: t.bundleId || null, status: st.status, expiresAt: t.license.payload.expiresAt,
         features: t.license.payload.features, limits: t.license.payload.limits, holds: holdsOf(st, t.id),
         children: reg.approvals.filter(a => a.parentId === t.id).map(a => ({
           id: a.childId, slot: a.slot, name: a.name, approvedAt: a.approvedAt, revoked: !!a.revoked,
@@ -284,7 +320,7 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
     const globalHolds = notices.filter(n => n.payload.target === S.ALL && n.payload.type === 'hold'
       && !notices.some(r => r.payload.type === 'release' && r.payload.holdId === n.payload.id))
       .map(n => ({ holdId: n.payload.id, kind: n.payload.kind, reason: n.payload.reason }));
-    return { tenants, globalHolds };
+    return { tenants, globalHolds, bundles: bundlesOf(reg).map(bundleSummary), products: P.catalog() };
   }
 
   // ---------- תעודה למפתח של שרת הרישוי (בדיקה חתומה — checkin.js, ממצא 27) ----------
@@ -314,9 +350,15 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
     try { pkg = JSON.parse(text); } catch { throw new Error('הקובץ אינו קובץ רישוי תקין'); }
     if (pkg && pkg.type === PKG_REQUEST) {
       const id = L.keyId(pkg.publicKey);
-      const existing = registry().tenants.find(t => t.id === id);
-      return { kind: 'license', id, name: pkg.name, renewal: !!existing,
-        current: existing ? { features: existing.license.payload.features, limits: existing.license.payload.limits } : null };
+      const reg = registry();
+      const existing = reg.tenants.find(t => t.id === id);
+      // product — מהבקשה (קבוע); בלי — הצעה (productGuess) מהלקוח הקיים, ומנהל-העל בוחר
+      const product = requestProduct(pkg);
+      const productGuess = product || (existing ? tenantProduct(existing) : P.DEFAULT_PRODUCT);
+      const bundles = P.PRODUCTS.map(x => x.id).filter(pid => !product || pid === product)
+        .flatMap(pid => bundlesFor(reg, pid, id).map(b => ({ ...b, forProduct: pid })));
+      return { kind: 'license', id, name: pkg.name, renewal: !!existing, product, productGuess, bundles,
+        current: existing ? { features: existing.license.payload.features, limits: existing.license.payload.limits, product: tenantProduct(existing) } : null };
     }
     if (pkg && pkg.type === PKG_APPROVAL_REQUEST) return { kind: 'approval', ...review({ request: text }) };
     throw new Error('הקובץ אינו בקשה של לקוח');
@@ -434,23 +476,43 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
 
   // ---------- הרשמה: הצעה (תכניות + תקנון) והרשמות שהתקבלו ----------
   // published — מתי כל הצעה פורסמה בשרת ({ issuedAt, at }), לבדיקת הרשמות לפי הצעה ישנה (ממצא 31)
+  // הצעה ראשית אחת (master) ← הצעה חתומה לכל מוצר שיש לו תכנית (texts), כולן באותו issuedAt.
+  // text — ההצעה של SuperSuite (כמו בגרסה הקודמת)
   function setOffer(input) {
-    const text = OF.createOffer(rootKey(), input, { issuedAt: clock() });
+    const master = OF.cleanMaster(input);
+    const issuedAt = clock();
+    const texts = {};
+    for (const [pid, part] of Object.entries(OF.splitMaster(master))) texts[pid] = OF.createOffer(rootKey(), part, { issuedAt, product: pid });
     const prev = readJson('offer.json', null);
-    writeJson('offer.json', { text, published: (prev && Array.isArray(prev.published)) ? prev.published : [] });
-    return { text, offer: OF.verifyOffer(text, [pubkey()]) };
+    writeJson('offer.json', { v: 2, master, texts, text: texts[P.THIS_PRODUCT] || null, issuedAt,
+      published: (prev && Array.isArray(prev.published)) ? prev.published : [] });
+    return offer();
   }
+  // { master, issuedAt, texts, offers: { <מוצר>: הצעה מאומתת }, text / offer — של SuperSuite (או null) }
   function offer() {
     const o = readJson('offer.json', null);
     if (!o) return null;
-    try { return { text: o.text, offer: OF.verifyOffer(o.text, [pubkey()]) }; } catch { return null; }
+    const texts = o.texts && typeof o.texts === 'object' ? o.texts : (o.text ? { [P.THIS_PRODUCT]: o.text } : {});
+    const offers = {};
+    for (const [pid, text] of Object.entries(texts)) {
+      if (!P.isProduct(pid) || typeof text !== 'string') continue;
+      try { offers[pid] = OF.verifyOffer(text, [pubkey()], { expectProduct: pid }); } catch { /* הצעה פגומה — לא מוצגת ולא מתפרסמת */ }
+    }
+    const pids = Object.keys(offers);
+    if (!pids.length) return null;
+    const issuedAt = offers[pids[0]].issuedAt;
+    let master = null;
+    try { master = o.master ? OF.cleanMaster(o.master) : OF.masterFromOffer(offers[pids[0]]); } catch { master = null; }
+    const own = offers[P.THIS_PRODUCT] || null;
+    return { master, issuedAt, texts: Object.fromEntries(pids.map(pid => [pid, texts[pid]])), offers,
+      text: own ? texts[P.THIS_PRODUCT] : null, offer: own };
   }
   // אחרי פרסום מוצלח בשרת (sync.js → ownerPublishOffer). issuedAt — ההצעה שנשלחה בפועל: בזמן שהפרסום רץ ברשת
   // אולי כבר נשמרה הצעה חדשה, שעוד לא פורסמה. בלי issuedAt — ההצעה הנוכחית
   function offerPublished(issuedAt, at = clock()) {
     const o = readJson('offer.json', null);
     let id = issuedAt;
-    if (!Number.isSafeInteger(id)) { const cur = offer(); id = cur ? cur.offer.issuedAt : null; }
+    if (!Number.isSafeInteger(id)) { const cur = offer(); id = cur ? cur.issuedAt : null; }
     if (!o || !Number.isSafeInteger(id)) return;
     const list = (Array.isArray(o.published) ? o.published : []).filter(x => x && x.issuedAt !== id);
     writeJson('offer.json', { ...o, published: [...list, { issuedAt: id, at }].slice(-50) });
@@ -464,7 +526,7 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
     if (i < 0) {
       if (list.length) return false;
       const cur = offer();
-      return !!cur && cur.offer.issuedAt === issuedAt;
+      return !!cur && cur.issuedAt === issuedAt;
     }
     const next = list[i + 1];
     return !next || t <= next.at + slack;
@@ -486,7 +548,8 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
     const live = offerLiveAt(v.offer.issuedAt, when, paid ? PAID_OFFER_SLACK_MS : FREE_OFFER_SLACK_MS);
     const problem = paid ? 'ההרשמה נעשתה לפי הצעה שכבר הוחלפה — יש לבדוק את התשלום ואת התכנית לפני הנפקה'
       : 'ההרשמה לתכנית החינמית נעשתה לפי הצעה שאינה המפורסמת — יש לבדוק את התכנית לפני הנפקה';
-    writeJson('signups.json', trimSignups([...list, { id: v.body.id, keyId: v.body.keyId, customer: v.body.customer, planId: v.plan.id, planName: v.plan.name,
+    writeJson('signups.json', trimSignups([...list, { id: v.body.id, keyId: v.body.keyId, customer: v.body.customer, product: v.product, planId: v.plan.id, planName: v.plan.name,
+      ...(v.plan.bundle ? { bundle: { scope: v.plan.bundle.scope, products: [...v.plan.bundle.products] } } : {}),
       priceAgorot: v.plan.priceAgorot, months: v.plan.months, terms: v.body.terms, signedAt: v.body.signedAt, payment: d.payment || null,
       receivedAt: clock(), status: live ? 'new' : 'review', ...(live ? {} : { problem }),
       signup: d.signup }]));
@@ -507,7 +570,22 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
     const x = signupOf(id);
     if (x.status === 'review' && !force) throw new Error(x.problem || 'ההרשמה ממתינה לבדיקה');
     const v = SU.verifySignup(x.signup, [pubkey()]);
-    const r = issue({ request: v.request, name: x.customer.org, features: v.plan.features, limits: v.plan.limits, months: v.plan.months });
+    // חבילה (תכנית שמכסה כמה מוצרים): נרשמת לפני ההנפקה, וההנפקה הראשונה — למוצר שממנו נרשמו — היא חלק ממנה.
+    // שאר המוצרים — כשתגיע בקשה מהם ("לפי חבילה"), בלי תשלום נוסף
+    let bundleId = null;
+    if (v.plan.bundle) {
+      const b = v.plan.bundle;
+      const reg = registry();
+      if (!bundlesOf(reg).some(y => y.id === x.id)) {
+        reg.bundles = [...bundlesOf(reg), { id: x.id, customer: x.customer.org, planId: v.plan.id, planName: v.plan.name, scope: b.scope,
+          products: [...b.products], features: JSON.parse(JSON.stringify(b.features)), limits: { ...v.plan.limits }, months: v.plan.months,
+          issued: {}, createdAt: clock() }];
+        writeJson('registry.json', reg);
+      }
+      bundleId = x.id;
+    }
+    const r = issue({ request: v.request, name: x.customer.org, product: v.product,
+      ...(bundleId ? { bundleId } : { features: v.plan.features, limits: v.plan.limits, months: v.plan.months }) });
     writeJson('signups.json', signups().map(y => (y.id === id ? { ...y, status: 'issued', issuedAt: clock(), tenantId: r.id } : y)));
     return { ...r, keyId: x.keyId };
   }

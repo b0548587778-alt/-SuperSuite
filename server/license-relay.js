@@ -15,6 +15,7 @@ const https = require('https');
 const crypto = require('crypto');
 const L = require('../shell/licensing/license');
 const OF = require('../shell/licensing/offer');
+const PR = require('../shell/licensing/products');
 const SU = require('../shell/licensing/signup');
 const CK = require('../shell/licensing/checkin');
 const { createProvider } = require('./payments');
@@ -301,19 +302,34 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
     writeBox(to, [...readBox(to), msg], { added: [msg] });
   }
 
-  // מנהל-העל מפרסם הצעה (חתומה במפתח השורש — רק הוא יכול)
+  // הצעה לכל מוצר (מרכז הרישוי — shell/licensing/products.js): SuperSuite ב-offer.json (כמו בגרסה הקודמת — לקוח
+  // ישן שלא שולח product מקבל אותה), שאר המוצרים ב-offer-<מוצר>.json
+  const offerFile = (product) => (product === PR.DEFAULT_PRODUCT ? 'offer.json' : 'offer-' + product + '.json');
+  function offerProduct(v) {
+    if (v == null || v === '') return PR.DEFAULT_PRODUCT;
+    if (!PR.isProduct(v)) throw httpError(400, 'המוצר אינו מוכר');
+    return v;
+  }
+  // מנהל-העל מפרסם הצעה (חתומה במפתח השורש — רק הוא יכול). המוצר — מתוך ההצעה החתומה
   function setOffer(from, p) {
     needBilling();
     if (from !== ownerBox()) throw httpError(403, 'רק מנהל-העל מפרסם הצעה');
     const offer = OF.verifyOffer(p.offer, billing.rootKeys);
-    writeJsonFile('offer.json', { text: p.offer, issuedAt: offer.issuedAt });
+    writeJsonFile(offerFile(OF.productOfOffer(offer)), { text: p.offer, issuedAt: offer.issuedAt });
     return { ok: true };
   }
-  function getOffer() {
+  function getOffer(p = {}) {
     needBilling();
-    const o = readJsonFile('offer.json', null);
+    const o = readJsonFile(offerFile(offerProduct(p && p.product)), null);
     if (!o) throw httpError(404, 'הספק עדיין לא פרסם תכניות');
     return { ok: true, offer: o.text };
+  }
+  // המוצר של ההרשמה — לפי ההצעה שבתוכה (נבדקת בחתימה ב-verifySignup מול ההצעה הנוכחית של אותו מוצר)
+  function signupProduct(text) {
+    try { const pkg = JSON.parse(text); return offerProduct(OF.productOfOffer(JSON.parse(pkg.offer).payload)); } catch (e) {
+      if (e && e.status) throw e;
+      throw httpError(400, 'חבילת ההרשמה פגומה');
+    }
   }
 
   // חבילת ההרשמה (עד ~200KB עם תמונת החתימה) נשמרת בקובץ משלה, ו-payments.json מחזיק רק את פרטי התשלום —
@@ -337,7 +353,8 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
   // לא מתקבלת (ממצא 31). ההרשמה עצמה — מהיממה האחרונה
   async function checkout(from, p, ip = '') {
     needBilling();
-    const cur = readJsonFile('offer.json', null);
+    if (typeof p.signup !== 'string') throw httpError(400, 'חבילת ההרשמה פגומה');
+    const cur = readJsonFile(offerFile(signupProduct(p.signup)), null);
     if (!cur || typeof cur.text !== 'string') throw httpError(404, 'הספק עדיין לא פרסם תכניות');
     let v;
     try { v = SU.verifySignup(p.signup, billing.rootKeys, { current: OF.verifyOffer(cur.text, billing.rootKeys) }); } catch (e) { throw httpError(400, e.message); }
@@ -452,7 +469,7 @@ function createRelay({ dataDir, clock = Date.now, billing = null, maxStoreBytes 
       return { ok: true, bundle: readJson(prekeyFile(p.id), null) };
     }
     if (body.op === 'setOffer') return setOffer(from, p);
-    if (body.op === 'getOffer') return getOffer();
+    if (body.op === 'getOffer') return getOffer(p);
     if (body.op === 'checkout') return checkout(from, p, ip);
     if (body.op === 'paymentStatus') return paymentStatus(from, p);
     if (body.op === 'send') {

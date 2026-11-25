@@ -6,6 +6,7 @@ const ACT = require('./activation');
 const S = require('./status');
 const CK = require('./checkin');
 const { FEATURES: ALL_FEATURES } = require('./offer');
+const PR = require('./products');
 
 const CACHE_MS = 60 * 1000;
 const LASTSEEN_WRITE_MS = 10 * 60 * 1000;
@@ -365,7 +366,8 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
   function request(name) {
     const key = nodeKey(true);
     const pub = L.publicOf(key);
-    return { type: PKG_REQUEST, v: 1, name: String(name || '').trim().slice(0, 80), publicKey: pub, keyId: L.keyId(pub) };
+    // product — מרכז הרישוי אצל מנהל-העל מנפיק לכמה תוכנות (products.js); כך הבקשה מזוהה כבקשה של SuperSuite
+    return { type: PKG_REQUEST, v: 1, name: String(name || '').trim().slice(0, 80), publicKey: pub, keyId: L.keyId(pub), product: PR.THIS_PRODUCT };
   }
 
   // ---------- התקנת רישיון (חדש או חידוש) ----------

@@ -2369,7 +2369,8 @@ function registerIpcHandlers() {
   });
   handle('owner:issue', async (event, input = {}) => {
     const r = ownerCore.issue(input || {});
-    await ownerAudit(event, 'tenant.issue', { id: r.id, name: r.name, slot: r.slot, renewal: r.renewal, features: (input || {}).features, limits: (input || {}).limits });
+    await ownerAudit(event, 'tenant.issue', { id: r.id, name: r.name, slot: r.slot, renewal: r.renewal, product: r.product, bundleId: r.bundleId,
+      features: (input || {}).features, limits: (input || {}).limits });
     return r;
   });
   handle('owner:approve', async (event, input = {}) => {
@@ -2511,7 +2512,7 @@ function registerIpcHandlers() {
     work: async ({ m, r }) => { await licenseSync.ownerReply(m.from, 'license', r.package); return true; },
     record: async (event, sent, { m, r }) => {
       ownerCore.takeFromInbox(m.id);
-      await ownerAudit(event, 'tenant.issue', { id: r.id, name: r.name, slot: r.slot, renewal: r.renewal, remote: true });
+      await ownerAudit(event, 'tenant.issue', { id: r.id, name: r.name, slot: r.slot, renewal: r.renewal, product: r.product, bundleId: r.bundleId, remote: true });
       return { id: r.id, name: r.name, slot: r.slot };
     },
   });
@@ -2613,15 +2614,18 @@ function registerIpcHandlers() {
     return r;
   });
 
-  handle('owner:getOffer', async () => { const o = ownerCore.offer(); return o ? o.offer : null; });
+  // ההצעה הראשית (כל המוצרים — מרכז הרישוי) לעורך, והמוצרים שיש להם הצעה חתומה
+  const ownerOfferView = (o) => (o && o.master ? { ...o.master, issuedAt: o.issuedAt, products: Object.keys(o.offers) } : null);
+  handle('owner:getOffer', async () => ownerOfferView(ownerCore.offer()));
   handle('owner:setOffer', async (event, input) => {
     const r = ownerCore.setOffer(input || {});
-    await ownerAudit(event, 'offer.set', { plans: r.offer.plans.map(p => ({ id: p.id, priceAgorot: p.priceAgorot })), terms: r.offer.terms.version });
-    return r.offer;
+    await ownerAudit(event, 'offer.set', { plans: r.master.plans.map(p => ({ id: p.id, scope: p.scope, priceAgorot: p.priceAgorot })),
+      terms: r.master.terms.version, products: Object.keys(r.offers) });
+    return ownerOfferView(r);
   });
   handleNet('owner:publishOffer', {
     work: () => licenseSync.ownerPublishOffer(),
-    record: async (event, r) => { await ownerAudit(event, 'offer.publish', {}); return r; },
+    record: async (event, r) => { await ownerAudit(event, 'offer.publish', { published: r.published, failed: (r.failed || []).map(f => f.product) }); return r; },
   });
   handle('owner:signups', async () => ownerCore.signups().map(({ signup, ...x }) => x));
   // opts.force — אחרי בדיקה ידנית של הרשמה שסומנה "לבדיקה" (לפי הצעה שכבר הוחלפה — ממצא 31). הבדיקה לפני החשבונית
