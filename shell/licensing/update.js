@@ -10,6 +10,9 @@ const UPDATE_TYPE = 'supersuite-update';
 const PLATFORMS = { win: ['exe'], android: ['apk'] };
 const MAX_SIZE = 1024 * 1024 * 1024; // 1GB
 const VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,6}$/;
+// המוצר שהעדכון מיועד לו (שם החבילה ב-package.json). תעודה בלי מוצר — מהגרסאות הראשונות של SuperSuite הכלכלית
+const LEGACY_PRODUCT = 'super-suite';
+const PRODUCT_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const MAX_NOTES = 2000;
 
@@ -56,11 +59,12 @@ function cleanPayload(input, issuedAt) {
   const platform = platformOf(fileName);
   if (input.platform && input.platform !== platform) throw new Error('הפלטפורמה אינה תואמת לסוג הקובץ');
   parseVersion(input.version);
+  if (input.product != null && !PRODUCT_RE.test(String(input.product))) throw new Error('שם המוצר בעדכון אינו תקין');
   const sha256 = String(input.sha256 || '').toLowerCase();
   if (!HEX64.test(sha256)) throw new Error('תמצית הקובץ (SHA-256) אינה תקינה');
   const size = Number(input.size);
   if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_SIZE) throw new Error('גודל הקובץ אינו תקין');
-  return { v: 1, version: String(input.version), platform, fileName, sha256, size, url: checkUrl(input.url),
+  return { v: 1, version: String(input.version), ...(input.product != null ? { product: String(input.product) } : {}), platform, fileName, sha256, size, url: checkUrl(input.url),
     notes: String(input.notes || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, MAX_NOTES),
     issuedAt: Number.isSafeInteger(issuedAt) ? issuedAt : Date.now() };
 }
@@ -81,7 +85,7 @@ function verifyRelease(text, rootKeys) {
   if (!key || !L.verifyObject(rel.payload, rel.sig, key)) throw new Error('חתימת העדכון אינה תקינה — העדכון נדחה');
   const p = rel.payload;
   const clean = cleanPayload(p, p.issuedAt);
-  if (clean.fileName !== p.fileName || clean.platform !== p.platform || clean.url !== p.url) throw new Error('קובץ העדכון אינו תקין');
+  if (clean.fileName !== p.fileName || clean.platform !== p.platform || clean.url !== p.url || clean.product !== p.product) throw new Error('קובץ העדכון אינו תקין');
   return { ...clean, issuer: p.issuer };
 }
 
@@ -122,26 +126,34 @@ async function readCapped(res, max) {
 
 // מנהל העדכונים במערכת: זוכר את העדכון החדש ביותר שהתקבל, מוריד, מאמת ושומר לקובץ.
 // io: { saveFile(name, bytes) → path, fetchImpl } — כדי שאותו קוד ירוץ בשולחן העבודה ובאנדרואיד
-function createUpdateManager({ storage, rootKeys, currentVersion, platform, fetchImpl, saveFile, clock = Date.now }) {
+// product — המוצר המותקן: עדכון של מוצר אחר (למשל SuperSuite הכלכלית מול SuperSuite לימוד, באותו מפתח שורש) נדחה,
+// גם אם מספר הגרסה שלו גבוה יותר
+const productOf = (p) => (p && p.product) || LEGACY_PRODUCT;
+function createUpdateManager({ storage, rootKeys, currentVersion, platform, product = LEGACY_PRODUCT, fetchImpl, saveFile, clock = Date.now }) {
   const load = () => { try { return JSON.parse(storage.read() || '{}') || {}; } catch { return {}; } };
   const save = (d) => storage.write(JSON.stringify(d));
 
   function isNewer(p) { return compareVersions(p.version, currentVersion) > 0; }
+  // עדכון של מוצר אחר (סקירת קוד 11.2026, ממצא f13) — גם מקובץ (USB) וגם מה שכבר נשמר ב-updates.json: עדכון של
+  // התוכנה הכלכלית שנשמר כאן חסם את העדכונים האמיתיים ("known") והותקן במקום התוכנה הזו
+  const ours = (p) => !!p && productOf(p) === product;
+  const OTHER_PRODUCT = 'העדכון בקובץ מיועד לתוכנה אחרת (לא ל-SuperSuite הזו) — יש לבחור את קובץ העדכון של התוכנה הזו';
 
   // תעודה שהגיעה (מהשרת או מקובץ). נשמרת אם היא לפלטפורמה הזו וחדשה מהקיים
   function offer(text) {
     const p = verifyRelease(text, rootKeys);
     if (p.platform !== platform) return { added: false, reason: 'platform' };
+    if (productOf(p) !== product) return { added: false, reason: 'product' };
     if (!isNewer(p)) return { added: false, reason: 'old' };
     const d = load();
-    if (d.available && compareVersions(d.available.payload.version, p.version) >= 0) return { added: false, reason: 'known' };
+    if (d.available && ours(d.available.payload) && compareVersions(d.available.payload.version, p.version) >= 0) return { added: false, reason: 'known' };
     save({ ...d, available: { payload: p, text: typeof text === 'string' ? text : JSON.stringify(text), at: clock() }, downloaded: null });
     return { added: true, version: p.version };
   }
 
   function status() {
     const d = load();
-    const av = d.available && isNewer(d.available.payload) ? d.available.payload : null;
+    const av = d.available && ours(d.available.payload) && isNewer(d.available.payload) ? d.available.payload : null;
     const dl = av && d.downloaded && d.downloaded.version === av.version ? d.downloaded : null;
     return { currentVersion, platform, available: av, downloaded: dl ? { version: dl.version, path: dl.path } : null, checkedAt: d.lastCheck || null };
   }
@@ -150,7 +162,7 @@ function createUpdateManager({ storage, rootKeys, currentVersion, platform, fetc
   async function download() {
     const d = load();
     const p = d.available && d.available.payload;
-    if (!p || !isNewer(p)) throw new Error('אין עדכון זמין');
+    if (!p || !ours(p) || !isNewer(p)) throw new Error('אין עדכון זמין');
     if (!p.url) throw new Error('לעדכון הזה אין קישור הורדה — יש להתקין מקובץ');
     if (typeof fetchImpl !== 'function') throw new Error('אין חיבור רשת במכשיר הזה — יש להתקין מקובץ');
     let res;
@@ -169,6 +181,7 @@ function createUpdateManager({ storage, rootKeys, currentVersion, platform, fetc
   async function fromFile(releaseText, bytes) {
     const p = verifyRelease(releaseText, rootKeys);
     if (p.platform !== platform) throw new Error(platform === 'win' ? 'העדכון מיועד לאנדרואיד ולא למחשב' : 'העדכון מיועד למחשב ולא לאנדרואיד');
+    if (!ours(p)) throw new Error(OTHER_PRODUCT);
     if (!isNewer(p)) throw new Error('הגרסה בקובץ (' + p.version + ') אינה חדשה מהמותקנת (' + currentVersion + ')');
     checkFile(p, bytes);
     const path = await saveFile(p.fileName, bytes);
@@ -182,7 +195,7 @@ function createUpdateManager({ storage, rootKeys, currentVersion, platform, fetc
     const d = load();
     if (!d.available || !d.downloaded || typeof d.available.text !== 'string') throw new Error('אין עדכון מוכן להתקנה');
     const p = verifyRelease(d.available.text, rootKeys);
-    if (p.platform !== platform || !isNewer(p) || d.downloaded.version !== p.version || typeof d.downloaded.path !== 'string') {
+    if (p.platform !== platform || !ours(p) || !isNewer(p) || d.downloaded.version !== p.version || typeof d.downloaded.path !== 'string') {
       throw new Error('אין עדכון מוכן להתקנה');
     }
     return { version: p.version, path: d.downloaded.path, payload: p };
@@ -191,4 +204,4 @@ function createUpdateManager({ storage, rootKeys, currentVersion, platform, fetc
   return { offer, status, download, fromFile, readyToInstall, markChecked: () => save({ ...load(), lastCheck: clock() }) };
 }
 
-module.exports = { UPDATE_TYPE, PLATFORMS, MAX_SIZE, compareVersions, platformOf, hashBytes, createRelease, verifyRelease, checkFile, readCapped, createUpdateManager };
+module.exports = { UPDATE_TYPE, LEGACY_PRODUCT, PLATFORMS, MAX_SIZE, compareVersions, platformOf, hashBytes, createRelease, verifyRelease, checkFile, readCapped, createUpdateManager };

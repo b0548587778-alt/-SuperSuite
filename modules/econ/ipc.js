@@ -87,6 +87,11 @@ function appVersionOf() {
   if (typeof window !== 'undefined' && window.__ssBuildInfo && window.__ssBuildInfo.version) return String(window.__ssBuildInfo.version);
   try { return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')).version || '0.0.0'; } catch { return '0.0.0'; }
 }
+// המוצר המותקן (שם החבילה) — עדכון חתום של מוצר אחר באותו מפתח שורש נדחה (shell/licensing/update.js)
+function appProductOf() {
+  if (typeof window !== 'undefined' && window.__ssBuildInfo && window.__ssBuildInfo.product) return String(window.__ssBuildInfo.product);
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')).name || UP.LEGACY_PRODUCT; } catch { return UP.LEGACY_PRODUCT; }
+}
 
 // מצב הרישיון הנוכחי (docs/LICENSING-DESIGN.md). לפני אתחול — כמו התקנה בלי רישוי
 // כל שינוי סטטוס נרשם ביומן הביקורת ומודיע למאזינים (main.js — חסימת מודולים ומסך "מערכת מושבתת")
@@ -109,6 +114,7 @@ function withActivation(s) {
   const act = activationState(s);
   if (act.ok) return s;
   const first = act.steps.find(x => !x.ok);
+  if (act.readOnly) return { ...s, status: 'offline', activation: act, reasons: [{ kind: 'offline', reason: first.reason, source: 'activation', step: 'server' }, ...(s.reasons || [])] };
   return { ...s, status: 'locked', activation: act, reasons: [{ kind: 'locked', reason: ACT.message(act), source: 'activation', step: first && first.id }, ...(s.reasons || [])] };
 }
 let clockNow = () => Date.now();
@@ -152,6 +158,8 @@ function licenseState() {
 
 // אחסון הרישוי: באנדרואיד הקוד רץ ב-WebView (יש window.localStorage, ו-fs הוא shim); בשולחן העבודה — קבצים ו-DPAPI.
 // getBackupKey(create) — מפתח הגיבוי האוטומטי (main.js) להצפנת תיבות ההודעות בדיסק (ממצא 26); בלעדיו — גלוי, כמו קודם
+// תקציב לתיבת הודעות באנדרואיד (תווים): שתי תיבות × 1.5M = 6MB ב-UTF-16, מתוך מכסה של כ-10MB ל-origin
+const ANDROID_CHAT_BUDGET = 1.5 * 1024 * 1024;
 function licenseAdapters(userDataPath, getBackupKey, onError) {
   const ls = typeof window !== 'undefined' && window.localStorage;
   if (ls) return { storage: LS.webStorage(ls, 'supersuite.license'), secret: LS.webStorage(ls, 'supersuite.license.key'),
@@ -185,7 +193,9 @@ function licenseAdapters(userDataPath, getBackupKey, onError) {
 // הכתיבה בתור (כלל 3), בלי להמתין לה; כשל — ביומן התקלות, לא מפיל דבר
 function saveLicenseMarks(target, m) {
   if (!target || typeof target.setLicenseMarks !== 'function' || !m) return;
-  const marks = { ...(m.trialStart ? { trialStart: m.trialStart } : {}), ...(m.hadLicense ? { hadLicense: '1' } : {}) };
+  const marks = { ...(m.trialStart ? { trialStart: m.trialStart } : {}), ...(m.hadLicense ? { hadLicense: '1' } : {}),
+    ...(m.lastSeen ? { lastSeen: m.lastSeen } : {}), ...(m.notices ? { notices: JSON.stringify(m.notices) } : {}),
+    ...(m.leaves ? { leaves: JSON.stringify(m.leaves) } : {}) };
   enqueue(() => target.setLicenseMarks(marks)).catch(e => errorLogger('license-marks', e));
 }
 // בעלייה (לפני שהערוצים פעילים — בלי התור, כמו פתיחת המסד עצמו)
@@ -193,8 +203,29 @@ async function loadLicenseMarks(target, store) {
   if (!target || typeof target.getLicenseMarks !== 'function') return;
   try {
     const r = await target.getLicenseMarks();
-    store.setMark({ trialStart: Number(r.trialStart) || 0, hadLicense: r.hadLicense === '1' });
+    const json = (v) => { try { return v ? JSON.parse(v) : null; } catch { return null; } };
+    const notices = json(r.notices);
+    const leaves = json(r.leaves);
+    // כל הסימונים נמחקו (גם במסד): יומן הביקורת זוכר שהרישוי כבר רץ כאן (license.trial.start ואירועי רישוי אחרים) —
+    // האירוע המוקדם ביותר הוא רצפה לתחילת הניסיון, ולא מתחיל ניסיון חדש של 30 יום (ממצא f8). התקנה שהרישוי לא רץ בה
+    // מעולם — אין אירוע, וניסיון רגיל
+    // (נבדק גם כשבמסד כבר יש תחילה: ייתכן שזו תחילה חדשה שנכתבה רגע לפני הקריאה, אחרי שהסימונים נמחקו)
+    let fromAudit = 0;
+    if (r.hadLicense !== '1' && typeof target.firstLicenseAuditAt === 'function') {
+      try { fromAudit = await target.firstLicenseAuditAt(); } catch (e) { errorLogger('license-marks', e); }
+      // רק רצפה לתחילה — זמן "עתידי" ביומן (שעון שהוחזר) לא מקדם את הזמן שנצפה
+      if (fromAudit > clockNow()) fromAudit = 0;
+    }
+    const starts = [Number(r.trialStart), fromAudit].filter(x => Number.isSafeInteger(x) && x > 0);
+    store.setMark({ trialStart: starts.length ? Math.min(...starts) : 0, hadLicense: r.hadLicense === '1', lastSeen: Number(r.lastSeen) || 0, ...(notices ? { notices } : {}), ...(leaves ? { leaves } : {}) });
   } catch (e) { errorLogger('license-marks', e); }
+}
+// תחילת ניסיון חדשה — ביומן הביקורת (ממצא f8). לפני שהמסד נפתח — נרשם מיד אחרי הפתיחה
+let pendingTrialAudit = null;
+function auditTrialStart(target, at) {
+  if (!target || typeof target.audit !== 'function') { pendingTrialAudit = at; return; }
+  pendingTrialAudit = null;
+  enqueue(() => target.audit(null, 'license.trial.start', JSON.stringify({ at }))).catch(e => errorLogger('license-marks', e));
 }
 // הסימון נכלל בכל גיבוי (main.js / main-android.js → collectBackup) ונקלט בשחזור (restoreAll, recoverDatabase):
 // שחזור גיבוי להתקנה נקייה או למסד חדש לא מתחיל ניסיון חדש. הקליטה רק מחמירה — גיבוי ישן לא מאריך דבר
@@ -213,6 +244,7 @@ async function initEcon(userDataPath, opts = {}) {
   aiContextBySender.clear();
   // אתחול חוזר: התור מול השרת מתחיל מחדש (פעולה של המופע הקודם לא מעכבת את החדש)
   relayChain = Promise.resolve();
+  pendingTrialAudit = null;
   const { rootKeys = ROOT_KEYS, relayUrl = DEFAULT_RELAY_URL, clock, licenseStorage, licenseSecret, ownerStorage, fetchImpl, chatStorage, ownerChatStorage,
   updateStorage, appVersion, platform, prekeyStorage, ownerPrekeyStorage, isRestTime = () => false, googleSignIn, openExternal, dbOptions, googleClient } = opts;
   restTime = isRestTime;
@@ -229,7 +261,7 @@ async function initEcon(userDataPath, opts = {}) {
   const ad = licenseAdapters(userDataPath, typeof opts.getBackupKey === 'function' ? opts.getBackupKey : null, chatLog);
   // עדכוני גרסה: קבצים מאומתים נשמרים בתיקיית updates בתוך נתוני המשתמש
   updatesDir = path.join(userDataPath, 'updates');
-  updateManager = UP.createUpdateManager({ storage: updateStorage || ad.updates, rootKeys, currentVersion: appVersion || appVersionOf(),
+  updateManager = UP.createUpdateManager({ storage: updateStorage || ad.updates, rootKeys, currentVersion: appVersion || appVersionOf(), product: opts.appProduct || appProductOf(),
     platform: platform || ad.platform, fetchImpl: fetchImpl || globalThis.fetch, clock: clock || Date.now,
     saveFile: async (name, bytes) => {
       fs.mkdirSync(updatesDir, { recursive: true });
@@ -251,13 +283,15 @@ async function initEcon(userDataPath, opts = {}) {
   flushChat();
   // באנדרואיד אין יציאה מסודרת שבה נכתב מה שממתין (will-quit) — כל שינוי נכתב מיד (localStorage, זול)
   const writeDelayMs = ad.platform === 'android' ? 0 : undefined;
-  chatStore = createChatStore({ storage: chatStorage || ad.chat, clock, maxAttachmentBytes, onError: chatLog, writeDelayMs });
-  ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock, maxAttachmentBytes, onError: chatLog, writeDelayMs });
+  // באנדרואיד — תקציב קבוע לכל תיבה, כדי שיישאר מקום לקובץ הרישוי ולשמירת הסנכרון (ממצא f78)
+  const maxStoredChars = ad.platform === 'android' ? ANDROID_CHAT_BUDGET : Infinity;
+  chatStore = createChatStore({ storage: chatStorage || ad.chat, clock, maxAttachmentBytes, onError: chatLog, writeDelayMs, maxStoredChars });
+  ownerChatStore = createChatStore({ storage: ownerChatStorage || ad.ownerChat, clock, maxAttachmentBytes, onError: chatLog, writeDelayMs, maxStoredChars });
   // מחסן הרישוי נוצר לפני הסנכרון: createLicenseSync שומר את ההפניה, ו-null כאן הפיל כל פעולה מרחוק
   // סימוני הרישוי נשמרים במסד של האתחול הזה (marksDb) — מוגדר אחרי שהמסד נפתח
   let marksDb = null;
   licenseStore = LS.createLicenseStore({ storage: licenseStorage || ad.storage, secret: licenseSecret || ad.secret, rootKeys, clock, defaultUrl: relayUrl,
-    onMark: (m) => saveLicenseMarks(marksDb, m), markStorage: opts.licenseMarkStorage || ad.marks });
+    onMark: (m) => saveLicenseMarks(marksDb, m), markStorage: opts.licenseMarkStorage || ad.marks, deferWrites: () => restTime(), onTrialStart: (at) => auditTrialStart(marksDb, at) });
   licenseSync = createLicenseSync({ store: licenseStore, owner: ownerCore, rootKeys, fetchImpl: fetchImpl || globalThis.fetch, clock,
     chat: chatStore, ownerChat: ownerChatStore, updates: updateManager, isRestTime: () => restTime(),
     prekeys: PK.createPrekeyStore({ storage: prekeyStorage || ad.prekeys, clock: clock || Date.now }),
@@ -265,6 +299,7 @@ async function initEcon(userDataPath, opts = {}) {
   // dbOptions: הצפנת המסד (PLAN.md 3.1) — המפתח והגיבוי לפני ההמרה מגיעים מ-main.js
   db = await initializeDatabase(userDataPath, dbOptions);
   marksDb = db;
+  if (pendingTrialAudit) auditTrialStart(db, pendingTrialAudit);
   // תיבות ההודעות נקראות בכל עלייה (אחרי שמפתח המסד נקבע — כולל קוד שחזור): messages.json גלוי מומר עכשיו,
   // ולא רק כשנפתח מסך ההודעות או בקבלה האוטומטית — שלא רצה בהתקנה אופליין ובשבת (ממצא 26). כשל — ביומן, וננסה בפעולה הבאה
   for (const box of [chatStore, ownerChatStore]) { try { box.settings(); } catch { /* נרשם ביומן התקלות (chat-read) */ } }
@@ -2334,7 +2369,8 @@ function registerIpcHandlers() {
   const LICENSE_FILTERS = [{ name: 'קובץ רישוי', extensions: ['sslic'] }];
   const licenseFileName = (name) => (String(name || 'license').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').slice(0, 60) || 'license') + '.sslic';
   handleSave('license:saveFile', async (event, text, name) => {
-    if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('תוכן הקובץ אינו תקין');
+    // עד 12MB: אישור חיבור בקובץ (license:offlineRelay) כולל את ההודעות שבתיבה
+    if (typeof text !== 'string' || text.length > 12 * 1024 * 1024) throw new Error('תוכן הקובץ אינו תקין');
     return { name: licenseFileName(name), filters: LICENSE_FILTERS, data: text, encoding: 'utf8' };
   });
 
@@ -2413,7 +2449,9 @@ function registerIpcHandlers() {
     // certExpiresAt — תפוגת התעודה של שרת הרישוי (מהתשובה החתומה השמורה): מסך הרישוי מזהיר 60 יום לפני (ממצא 4)
     const proof = typeof licenseStore.syncProof === 'function' ? licenseStore.syncProof() : null;
     const certExpiresAt = proof ? proof.certExpiresAt : (Number.isSafeInteger(r.certExpiresAt) ? r.certExpiresAt : null);
+    const held = r.pendingLicense && typeof r.pendingLicense === 'object' ? r.pendingLicense : null;
     return { url: r.url || '', lastSync: r.lastSync || null, checkinError: r.checkinError || null, certExpiresAt, myCode: info.nodeId,
+      pendingLicense: held ? { name: String(held.name || ''), at: Number(held.at) || null, expiresAt: Number(held.expiresAt) || null } : null,
       pending: await Promise.all((r.pendingChildRequests || []).map(async ({ keyId, name, at }) => ({ keyId, name, at, payment: await collectService.licensePayment(keyId) }))) };
   });
   handle('license:setRemote', async (event, url) => {
@@ -2438,6 +2476,28 @@ function registerIpcHandlers() {
     work: () => licenseSync.receive(),
     record: async (event, r) => {
       if (r.handled) await auditEvent(event, 'license.remote.sync', { handled: r.handled, errors: r.errors.length });
+      licenseStore.invalidate();
+      licenseState();
+      return r;
+    },
+  });
+  // אישור חיבור בקובץ, למחשב בלי חיבור (סקירה 11.2026, f81; licenseSync.offlineRequest / offlineRelay / offlineImport):
+  // המחשב בלי החיבור שומר בקשה, מחשב מחובר מעביר אותה לשרת ושומר את התשובה החתומה, והראשון טוען אותה
+  // כל השלושה דרך relayRun — לא במקביל לסנכרון עם השרת, שגם הוא כותב את הגדרות העבודה מרחוק
+  handleNet('license:offlineRequest', {
+    work: () => ({ text: licenseSync.offlineRequest() }),
+    record: async (event, r) => { await auditEvent(event, 'license.offline.request', {}); return r; },
+  });
+  handleNet('license:offlineRelay', {
+    before: async (event, text) => { if (typeof text !== 'string' || text.length > 64 * 1024) throw new Error('הקובץ אינו בקשת אישור חיבור של SuperSuite'); },
+    work: (pre, text) => licenseSync.offlineRelay(text),
+    record: async (event, r) => { await auditEvent(event, 'license.offline.relay', { box: r.box }); return { text: r.text }; },
+  });
+  handleNet('license:offlineImport', {
+    before: async (event, text) => { if (typeof text !== 'string' || text.length > 12 * 1024 * 1024) throw new Error('הקובץ אינו אישור חיבור של SuperSuite'); },
+    work: (pre, text) => licenseSync.offlineImport(text),
+    record: async (event, r) => {
+      await auditEvent(event, 'license.offline.import', { handled: r.handled, deferred: r.deferred, errors: r.errors.length });
       licenseStore.invalidate();
       licenseState();
       return r;
@@ -2638,8 +2698,9 @@ function registerIpcHandlers() {
       const x = ownerCore.signups().find(y => y.id === sid);
       if (!x) throw new Error('ההרשמה לא נמצאה');
       if (x.status === 'review' && !force) throw new Error(x.problem || 'ההרשמה ממתינה לבדיקה');
-      // אישור התשלום מהשרת אינו חתום — הנפקה בתשלום רק אחרי אימות מול Cardcom במחשב הזה (כשהוגדרו פרטי המסוף),
-      // או אישור מפורש של מנהל-העל (סקירת קוד 2.11.2026; החלטת הבעלים 5.11.2026)
+      // אישור התשלום החתום של השרת (payment.verified) נבדק בקליטה (addSignup): בלעדיו ההרשמה "לבדיקה", והנפקה רק עם force.
+      // החתימה לא מגינה מפני שרת שנפרץ — ולכן הנפקה בתשלום גם אחרי אימות מול Cardcom במחשב הזה (כשהוגדרו פרטי המסוף),
+      // או אישור מפורש של מנהל-העל (סקירת קוד 2.11.2026; החלטת הבעלים 5.11.2026; owner-core.js — signupPaymentCode)
       const pay = OC.signupPaymentCode(x, { paymentConfirmed: !!(opts && opts.paymentConfirmed === true), verifyConfigured: !!ownerCore.cardcomCredentials() });
       if (pay) throw Object.assign(new Error(pay.message), { code: pay.code });
       // חשבונית קודם (אם שולם ועוד אין) — כך שלא יונפק רישיון בתשלום בלי מסמך חשבונאי
@@ -2768,7 +2829,7 @@ function registerIpcHandlers() {
       return { bin, size: bytes.length, sha256: UP.hashBytes(bytes) };
     },
     after: async (event, f, input = {}) => {
-      const text = UP.createRelease(ownerCore.rootSigner(), { version: (input || {}).version, url: (input || {}).url, notes: (input || {}).notes,
+      const text = UP.createRelease(ownerCore.rootSigner(), { version: (input || {}).version, url: (input || {}).url, notes: (input || {}).notes, product: appProductOf(),
         fileName: path.basename(f.bin), size: f.size, sha256: f.sha256 });
       const payload = UP.verifyRelease(text, [ownerCore.pubkey()]);
       ownerCore.addRelease(text, payload);
@@ -2968,13 +3029,14 @@ function registerIpcHandlers() {
     if (s.mode === 'unlicensed') return { mode: 'unlicensed', status: 'active' };
     const trial = s.trial ? { startedAt: s.trial.startedAt, endsAt: s.trial.endsAt, daysLeft: s.trial.daysLeft, warn: !!s.trial.warn } : null;
     // תנאי ההפעלה — למסך הרישוי: מה חסר, ועד מתי צריך להתחבר שוב. בתקופת ניסיון — אין תנאים
-    const act = trial ? { required: false, ok: true, missing: [], nextDue: null, dueSoon: false, steps: [] } : activationState();
+    const act = trial ? { required: false, ok: true, missing: [], nextDue: null, dueSoon: false, steps: [], readOnly: false, lockAt: null, lockSoon: false } : activationState();
     // תוקף הרישיון של המערכת — למסך הרישוי ("עומד לפוג"). בתקופת ניסיון אין רישיון
     const leaf = trial ? null : licenseStore.leafPayload();
     return { mode: s.mode, status: s.status,
       reasons: (s.reasons || []).map(r => ({ kind: r.kind, reason: r.reason, ...(r.source ? { source: String(r.source) } : {}), ...(r.step ? { step: String(r.step) } : {}) })),
       graceUntil: s.graceUntil || null, expiresAt: leaf && Number.isSafeInteger(leaf.expiresAt) ? leaf.expiresAt : null, features: s.features, limits: s.limits, trial,
       activation: { required: act.required, ok: act.ok, missing: act.missing, nextDue: act.nextDue, dueSoon: act.dueSoon,
+        readOnly: !!act.readOnly, lockAt: act.lockAt || null, lockSoon: !!act.lockSoon,
         steps: act.steps.map(({ id, label, ok, reason, until }) => ({ id, label, ok, reason, until })) } };
   });
   handle('license:getRequest', async (event, name) => {
@@ -2982,10 +3044,22 @@ function registerIpcHandlers() {
     await auditEvent(event, 'license.request', { keyId: r.keyId });
     return JSON.stringify(r);
   });
-  handle('license:install', async (event, text) => {
+  // opts.allowParentChange — אחרי שהמנהל אישר מעבר למערכת מנפיקה אחרת (ממצא f85). בלי אישור — מוחזר confirm
+  // opts.pending — הרישיון שהתקבל בסנכרון ממערכת מנפיקה אחרת וממתין לאישור (sync.js, pendingLicense)
+  handle('license:install', async (event, text, opts) => {
+    if (opts && typeof opts === 'object' && opts.pending === true) {
+      const held = licenseStore.getRemoteSettings().pendingLicense;
+      if (!held || typeof held.body !== 'string') throw new Error('אין רישיון שממתין להתקנה');
+      text = held.body;
+    }
     if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('קובץ הרישוי אינו תקין');
-    const r = licenseStore.install(text);
-    await auditEvent(event, 'license.install', r);
+    const allowParentChange = !!(opts && typeof opts === 'object' && opts.allowParentChange === true);
+    let r;
+    try { r = licenseStore.install(text, { allowParentChange }); } catch (e) {
+      if (e && e.code === LS.PARENT_CHANGE_CODE) return { confirm: e.message };
+      throw e;
+    }
+    await auditEvent(event, 'license.install', { ...r, ...(allowParentChange ? { parentChange: true } : {}) });
     licenseState();
     return r;
   });
@@ -3002,6 +3076,8 @@ function registerIpcHandlers() {
     lock: childPayLock, busy: CHILD_PAY_BUSY,
     // קודם בדיקת הבקשה והתנאים (בלי תופעות לוואי), ואז התשלום — ומשך הרישיון לפי מה ששולם
     before: async (event, input = {}) => {
+      // תנאי ההפעלה (סקירה 5.11.2026): מערכת בצפייה בלבד (בלי חיבור 30–60 יום) או נעולה — לא מנפיקה
+      licenseStore.assertCanIssue();
       const { childId } = licenseStore.requestChildApproval(input || {});
       const pay = await requireChildPayment(childId);
       return { childId, pay, r: licenseStore.requestChildApproval({ ...(input || {}), months: pay.months }) };
@@ -3023,6 +3099,7 @@ function registerIpcHandlers() {
     },
   });
   handle('license:issueChild', async (event, input = {}) => {
+    licenseStore.assertCanIssue(); // תנאי ההפעלה — כמו בשער (withActivation)
     const r = licenseStore.issueChild(input || {});
     await auditEvent(event, 'license.child.issue', { id: r.child.id, name: r.child.name, slot: r.child.slot, features: r.child.features, limits: r.child.limits });
     return r;

@@ -93,8 +93,9 @@ function start(ctx) {
 
   /* ---------- רישוי (כמו main.js) ---------- */
   // מודול שאינו ברישיון או מערכת נעולה — לא נפתחים. במערכת הכלכלית "רישוי ומערכות" ו"הודעות" נשארים פתוחים
+  const licenseFailed = () => ({ mode: 'licensed', status: 'locked', features: [], limits: {}, reasons: [{ kind: 'locked', reason: 'לא ניתן לחשב את מצב הרישוי — יש להפעיל מחדש את התוכנה או לפנות לספק הרישיון' }] });
   function licenseNow() {
-    try { return econ.licenseState ? econ.licenseState() : { mode: 'unlicensed' }; } catch { return { mode: 'unlicensed' }; }
+    try { return econ.licenseState ? econ.licenseState() : { mode: 'unlicensed' }; } catch { return licenseFailed(); }
   }
   const sendLicenseToShell = st => emitShell('shell:license', LG.shellState(st));
   // מי רשאי לשנות נתונים בשמאות — כמו secureWriteBlock ב-main.js (ממצא 24): כניסה פעילה עם data.edit

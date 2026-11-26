@@ -261,8 +261,10 @@ function ensureView(id) {
 
 // רישוי (docs/LICENSING-DESIGN.md, שלב 4): מודול שאינו ברישיון או מערכת נעולה — לא נפתחים.
 // במערכת הכלכלית "רישוי ומערכות" ו"הודעות" נשארים פתוחים, כדי שאפשר יהיה להתקין רישיון ולפנות לספק
+// חריגה בחישוב הרישוי = נעול, לא "בלי רישוי" (סקירת קוד 2.11.2026, ממצא f1 — fail-closed)
+const licenseFailed = () => ({ mode: 'licensed', status: 'locked', features: [], limits: {}, reasons: [{ kind: 'locked', reason: 'לא ניתן לחשב את מצב הרישוי — יש להפעיל מחדש את התוכנה או לפנות לספק הרישיון' }] });
 function licenseNow() {
-  try { return econ && econ.licenseState ? econ.licenseState() : { mode: 'unlicensed' }; } catch { return { mode: 'unlicensed' }; }
+  try { return econ && econ.licenseState ? econ.licenseState() : { mode: 'unlicensed' }; } catch { return licenseFailed(); }
 }
 function sendLicenseToShell(state) {
   if (win && !win.isDestroyed()) win.webContents.send('shell:license', LG.shellState(state));

@@ -45,19 +45,19 @@ function aesGcm(encrypt, key, iv, data, tag) {
 //   DH2 = חד-פעמי(שולח) × זמני(נמען)      — סודיות קדימה מצד הנמען (המפתח הזמני נמחק אחרי 30 יום)
 //   DH3 = קבוע(שולח) × קבוע(נמען)         — קשירה לזהות השולח
 // בלי מפתח זמני (הנמען עוד לא פרסם) — DH2 מושמט, והמעטפה מסומנת בהתאם
-function sharedKeyV2({ eph, recipientStaticX, recipientPrekeyX, senderStaticSeed, senderStaticPubX, recipientStaticSeed, ephPub, recipientPrekeyPriv }, salt) {
-  let dh1, dh2 = new Uint8Array(0), dh3;
+function sharedKeyV2({ eph, recipientStaticX, recipientPrekeyX, senderStaticSeed, senderStaticPubX, recipientStaticSeed, ephPub, recipientPrekeyPriv }, salt, info = INFO2) {
+  let dh1, dh2 = new Uint8Array(0), dh3 = new Uint8Array(0);
   if (eph) {
     dh1 = C.x25519.scalarMult(eph, recipientStaticX);
     if (recipientPrekeyX) dh2 = C.x25519.scalarMult(eph, recipientPrekeyX);
-    dh3 = C.x25519.scalarMult(C.x25519.fromEdSeed(senderStaticSeed), recipientStaticX);
+    if (senderStaticSeed) dh3 = C.x25519.scalarMult(C.x25519.fromEdSeed(senderStaticSeed), recipientStaticX);
   } else {
     const mine = C.x25519.fromEdSeed(recipientStaticSeed);
     dh1 = C.x25519.scalarMult(mine, ephPub);
     if (recipientPrekeyPriv) dh2 = C.x25519.scalarMult(recipientPrekeyPriv, ephPub);
-    dh3 = C.x25519.scalarMult(mine, senderStaticPubX);
+    if (senderStaticPubX) dh3 = C.x25519.scalarMult(mine, senderStaticPubX);
   }
-  return C.hkdfSha256(C.concat(dh1, dh2, dh3), salt, INFO2, 32);
+  return C.hkdfSha256(C.concat(dh1, dh2, dh3), salt, info, 32);
 }
 
 function sharedKey(myPrivateJwk, peerPublicJwk, salt) {
@@ -149,6 +149,8 @@ function open(myJwk, envelopeText, contacts, { prekeyPriv } = {}) {
     }
     plain = aesGcm(false, key, C.b64uDecode(env.iv), C.b64uDecode(env.ct), C.b64uDecode(env.tag));
   } catch (e) {
+    // קובץ המפתחות הזמניים לא נקרא (תפוס לרגע) — לא "ישנה מדי": ההודעה נשארת בשרת (sync.js → keepOnServer, f84)
+    if (e && e.code === 'prekeys-unavailable') throw e;
     throw new Error(e && e.message === 'expired' ? 'ההודעה ישנה מדי — המפתח הזמני שלה כבר נמחק' : 'לא ניתן לפענח את ההודעה');
   }
   let msg;
@@ -187,4 +189,33 @@ function contactsOf({ chain, children = [], rootKeys = [], ownerName = 'מנהל
   return out;
 }
 
-module.exports = { seal, open, contactsOf, cleanAttachment, cleanText, MAX_TEXT, MAX_SUBJECT, MAX_ATTACHMENT, ATTACHMENT_TYPES };
+// מעטפה מוצפנת לנתונים (לא הודעת צ'אט) — אותה הצפנה כמו seal (X25519 + HKDF + AES-256-GCM), בלי מפתח זמני ובלי
+// תקרת טקסט. purpose נכנס ל-HKDF (מעטפה של מטרה אחת לא נפתחת כמטרה אחרת). senderJwk — אופציונלי: עם מפתח השולח
+// המעטפה קשורה לזהותו (DH3); בלעדיו — שולח אנונימי (השרת מצפין חבילה ישנה, סקירה 2.11.2026 f89).
+// האמינות של התוכן — מהחתימה שבתוכו, לא מהמעטפה
+const SEALED_TYPE = 'supersuite-sealed';
+const sealedInfo = (purpose) => C.utf8('supersuite-sealed-v1:' + String(purpose));
+function sealData(senderJwk, recipientPub, text, purpose) {
+  const salt = randomBytes(16), iv = randomBytes(12), eph = randomBytes(32);
+  const ephPub = C.x25519.scalarMult(eph, C.x25519.BASE);
+  const key = sharedKeyV2({ eph, recipientStaticX: C.x25519.fromEdPublic(C.b64uDecode(recipientPub.x)), recipientPrekeyX: null,
+    senderStaticSeed: senderJwk ? C.b64uDecode(senderJwk.d) : null }, salt, sealedInfo(purpose));
+  eph.fill(0);
+  const { ct, tag } = aesGcm(true, key, iv, C.utf8(String(text)));
+  return JSON.stringify({ type: SEALED_TYPE, v: 1, purpose: String(purpose), from: senderJwk ? L.keyId(senderJwk) : null, to: L.keyId(recipientPub),
+    eph: C.b64uEncode(ephPub), salt: C.b64uEncode(salt), iv: C.b64uEncode(iv), ct: C.b64uEncode(ct), tag: C.b64uEncode(tag) });
+}
+// פתיחה במפתח הנמען. senderPub — המפתח הציבורי של השולח (למעטפה עם from); בלי from — אנונימית
+function openData(myJwk, envelopeText, purpose, { senderPub = null } = {}) {
+  let env;
+  try { env = typeof envelopeText === 'string' ? JSON.parse(envelopeText) : envelopeText; } catch { throw new Error('המעטפה פגומה'); }
+  if (!env || env.type !== SEALED_TYPE || env.purpose !== String(purpose) || env.to !== L.keyId(myJwk)) throw new Error('המעטפה אינה מיועדת למערכת הזו');
+  if (env.from != null && (!senderPub || L.keyId(senderPub) !== env.from)) throw new Error('השולח של המעטפה אינו תואם');
+  try {
+    const key = sharedKeyV2({ ephPub: C.b64uDecode(env.eph), recipientStaticSeed: C.b64uDecode(myJwk.d), recipientPrekeyPriv: null,
+      senderStaticPubX: env.from != null ? C.x25519.fromEdPublic(C.b64uDecode(senderPub.x)) : null }, C.b64uDecode(env.salt), sealedInfo(purpose));
+    return new TextDecoder().decode(aesGcm(false, key, C.b64uDecode(env.iv), C.b64uDecode(env.ct), C.b64uDecode(env.tag)));
+  } catch { throw new Error('לא ניתן לפענח את המעטפה'); }
+}
+
+module.exports = { seal, open, sealData, openData, SEALED_TYPE, contactsOf, cleanAttachment, cleanText, MAX_TEXT, MAX_SUBJECT, MAX_ATTACHMENT, ATTACHMENT_TYPES };

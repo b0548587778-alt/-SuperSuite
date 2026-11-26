@@ -233,9 +233,12 @@ test('ממצא 2 (שרת): הודעת סטטוס שטרם נקראה מאותו 
   const box = boxOf(relay, b);
   assert.deepEqual(box.filter(m => m.from === a.keyId).map(m => [m.kind, m.body]), [['notices', 'v3'], ['message', 'הודעה']]);
   assert.deepEqual(box.filter(m => m.from === c.keyId).map(m => m.body), ['c1'], 'שולח אחר — לא מושפע');
-  // 100 הודעות סטטוס ברצף לא מגיעות לתקרת השולח (MAX_FROM_SENDER_IN_BOX)
-  for (let i = 0; i < R.MAX_FROM_SENDER_IN_BOX + 5; i++) relay.handle(signedReq(a, 'send', { items: [{ to: b.keyId, kind: 'notices', body: 'n' + i }] }), '10.4.' + Math.floor(i / 15) + '.1');
-  assert.equal(boxOf(relay, b).filter(m => m.from === a.keyId && m.kind === 'notices').length, 1);
+  // 100 הודעות סטטוס ברצף לא מגיעות לתקרת השולח (MAX_FROM_SENDER_IN_BOX). שרת עם שעון שמתקדם — המכסה לדקה
+  // היא לפי המפתח המאומת (סקירה 2.11.2026, f16)
+  let t = Date.now();
+  const slow = R.createRelay({ dataDir: mk('relay-replace-slow'), clock: () => t });
+  for (let i = 0; i < R.MAX_FROM_SENDER_IN_BOX + 5; i++) { t = Date.now() + i * 2000 - 120000; slow.handle(signedReq(a, 'send', { items: [{ to: b.keyId, kind: 'notices', body: 'n' + i }] }), '10.4.' + Math.floor(i / 15) + '.1'); }
+  assert.equal(boxOf(slow, b).filter(m => m.from === a.keyId && m.kind === 'notices').length, 1);
 });
 
 test('ממצא 2: 429 אצל מערכת בת אחת לא עוצר את האישור לשרת — הרישיון של מערכת בת חדשה באותו סנכרון נמסר, והעדכון ינוסה שוב', async () => {

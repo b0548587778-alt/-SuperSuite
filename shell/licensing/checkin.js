@@ -103,10 +103,11 @@ function verifyRelayCert(text, rootKeys, now = Date.now(), { allowExpired = fals
 
 // השרת: חתימה על תשובה. box — התיבה (מזהה המערכת ששלחה), challenge — האתגר שהיא שלחה, origin — הכתובת שבתעודה
 // של השרת, items — בתשובת סנכרון (fetch): כל ההודעות שבתיבה ברגע החתימה, [מזהה, תמצית] (boxItems)
-function signCheckin(relayPrivateJwk, { purpose = 'fetch', origin, box, challenge, at, items }) {
+// caps (hello בלבד) — מה השרת הזה יודע לעשות, בתוך החתימה: לקוח חדש מזהה שרת ישן לפני שליחת פרטים (RELAY_CAPS)
+function signCheckin(relayPrivateJwk, { purpose = 'fetch', origin, box, challenge, at, items, caps }) {
   if (!PURPOSES.has(purpose)) throw new Error('purpose');
   const payload = { type: CHECKIN_TYPE, v: CHECKIN_V, purpose, relayId: L.keyId(relayPrivateJwk), origin, box, challenge, at,
-    ...(purpose === 'fetch' ? { items: items || [] } : {}) };
+    ...(purpose === 'fetch' ? { items: items || [] } : {}), ...(purpose === 'hello' && Array.isArray(caps) ? { caps } : {}) };
   return { payload, sig: L.signObject(payload, relayPrivateJwk) };
 }
 
@@ -128,7 +129,8 @@ function verifyCheckin(att, { rootKeys, box, challenge, origin, purpose = 'fetch
     if (!Array.isArray(p.items) || p.items.length > MAX_ITEMS || !p.items.every(validItem)) throw new Error('חתימת שרת הרישוי אינה תקינה');
     items = p.items;
   }
-  return { at: p.at, relayId: cert.relayId, certExpiresAt: cert.expiresAt, origin: want, items };
+  const caps = Array.isArray(p.caps) ? p.caps.filter(c => typeof c === 'string').slice(0, 20) : [];
+  return { at: p.at, relayId: cert.relayId, certExpiresAt: cert.expiresAt, origin: want, items, caps };
 }
 
 // ---------- הבדיקה החתומה השמורה (סקירת אבטחה 24.10.2026, ממצא 1) ----------
@@ -186,9 +188,91 @@ function verifySendReceipt(resp, { rootKeys, box, challenge, origin, sent, now =
   });
 }
 
+// ---------- דף התשלום ומצב התשלום — חתומים (סקירה 2.11.2026, f86) ----------
+// ההוכחה (hello) היא בקשה נפרדת מ-checkout: מי ששולט בשם השרת (DNS) יכול לענות ל-hello בהעברה לשרת האמיתי, ול-checkout
+// בקישור תשלום משלו. לכן השרת חותם במפתח השרת גם על תשובת checkout / paymentStatus — על האתגר של הבקשה הזו, התיבה,
+// מזהה התשלום, הקישור, הסכום והמצב — והלקוח שומר ופותח רק מה שבחתימה. יכולת השרת מוכרזת בחתימת ה-hello (caps)
+const PAY_PROOF_TYPE = 'supersuite-payment-proof';
+const PAY_PROOF_V = 1;
+const PAY_OPS = new Set(['checkout', 'paymentStatus']);
+const CAP_PAY_PROOF = 'pay-proof';
+const RELAY_CAPS = [CAP_PAY_PROOF];
+function signPaymentProof(relayPrivateJwk, { op, origin, box, challenge, at, paymentId = null, status, url = null, amountAgorot = null, free = false }) {
+  if (!PAY_OPS.has(op)) throw new Error('op');
+  const payload = { type: PAY_PROOF_TYPE, v: PAY_PROOF_V, op, relayId: L.keyId(relayPrivateJwk), origin, box, challenge, at,
+    paymentId, status, url, amountAgorot, free: !!free };
+  return { payload, sig: L.signObject(payload, relayPrivateJwk) };
+}
+// resp — תשובת השרת ({ payProof, relayCert }). מחזיר את התוכן החתום ({ paymentId, status, url, amountAgorot, free }) או זורק
+function verifyPaymentProof(resp, { rootKeys, op, box, challenge, origin, now = Date.now(), skewMs = CHECKIN_SKEW_MS, allowLocal = false }) {
+  if (!resp || !resp.payProof || typeof resp.relayCert !== 'string') {
+    throw new Error('שרת הרישוי לא אישר בחתימה את פרטי התשלום — ייתכן שזה שרת ישן (יש לעדכן אותו) או שרת שאינו של הספק');
+  }
+  const cert = verifyRelayCert(resp.relayCert, rootKeys, now, { allowLocal });
+  const p = resp.payProof.payload;
+  if (!p || p.type !== PAY_PROOF_TYPE || p.v !== PAY_PROOF_V || p.relayId !== cert.relayId || !L.verifyObject(p, resp.payProof.sig, cert.relayKey)) {
+    throw new Error('חתימת שרת הרישוי על פרטי התשלום אינה תקינה');
+  }
+  const want = originOf(origin);
+  if (cert.origin !== want || p.origin !== want) throw new Error('שרת הרישוי בכתובת הזו אינו מאושר על ידי הספק (התעודה שלו ניתנה לכתובת אחרת)');
+  if (p.op !== op || p.box !== box || p.challenge !== challenge) throw new Error('פרטי התשלום מהשרת אינם שייכים לבקשה הזו');
+  if (!isTime(p.at) || Math.abs(p.at - now) > skewMs) throw new Error('שעון המחשב אינו תואם לשעון שרת הרישוי — בדקו את התאריך והשעה במחשב');
+  if (typeof p.status !== 'string' || (p.paymentId !== null && typeof p.paymentId !== 'string') || (p.url !== null && typeof p.url !== 'string')
+    || (p.amountAgorot !== null && !Number.isSafeInteger(p.amountAgorot))) throw new Error('חתימת שרת הרישוי על פרטי התשלום אינה תקינה');
+  return { paymentId: p.paymentId, status: p.status, url: p.url, amountAgorot: p.amountAgorot, free: p.free === true };
+}
+
+// כתובות דף התשלום — רק אצל ספק הסליקה (f86): גם שרת עם חתימה תקינה (או מפתח שרת שדלף) לא שולח את הלקוח לדף אחר.
+// ספק הבדיקות מגיש את הדף בשרת עצמו — רק כשהשרת מקומי (localhost; assertPaymentConfig בשרת)
+const PAYMENT_HOSTS = ['secure.cardcom.solutions'];
+function assertPaymentUrl(url, { relayOrigin } = {}) {
+  let u;
+  try { u = new URL(String(url || '')); } catch { throw new Error('כתובת דף התשלום אינה תקינה'); }
+  if (u.username || u.password) throw new Error('כתובת דף התשלום אינה תקינה');
+  if (u.protocol === 'https:' && PAYMENT_HOSTS.includes(u.hostname.toLowerCase()) && !u.port) return u.toString();
+  let relay = null;
+  try { relay = relayOrigin ? new URL(relayOrigin) : null; } catch { relay = null; }
+  if (relay && isLocalHost(relay.hostname) && u.origin === relay.origin) return u.toString();
+  throw new Error('דף התשלום אינו של ספק הסליקה המוכר (' + PAYMENT_HOSTS.join(', ') + ') — הוא לא נפתח');
+}
+
+// ---------- אישור תשלום חתום למנהל-העל (סקירה 2.11.2026, f83) ----------
+// מסירת הרשמה ששולמה נושאת אישור חתום במפתח השרת: מזהה התשלום, הסכום, הספק ומספר העסקה אצלו, ההרשמה (מזהה, המכשיר,
+// ותמצית המעטפה המוצפנת שנמסרה) וזמן התשלום. מי שעונה למשיכה של מנהל-העל (DNS) בלי מפתח השרת לא יכול להמציא "שולם"
+const PAID_TYPE = 'supersuite-payment-confirmation';
+const PAID_V = 1;
+function sealedDigest(text) {
+  const t = String(text || '');
+  if (nodeCrypto) return nodeCrypto.createHash('sha256').update(t, 'utf8').digest('base64url');
+  return C.b64uEncode(C.sha256(C.utf8(t)));
+}
+function signPaymentConfirmation(relayPrivateJwk, { origin, paymentId, amountAgorot, provider, providerRef, signupId, keyId, sealed, paidAt }) {
+  const payload = { type: PAID_TYPE, v: PAID_V, relayId: L.keyId(relayPrivateJwk), origin, paymentId, amountAgorot, provider: String(provider || ''),
+    providerRef: String(providerRef || ''), signupId, keyId, sealedDigest: sealedDigest(sealed), paidAt };
+  return { payload, sig: L.signObject(payload, relayPrivateJwk) };
+}
+// att = { confirmation, cert } מתוך payment.proof שבמסירה. expect — מה שמנהל-העל יודע בעצמו (מההרשמה החתומה במכשיר):
+// { paymentId, amountAgorot, signupId, keyId, sealed, origin }. מחזיר את התוכן החתום או זורק
+function verifyPaymentConfirmation(att, { rootKeys, expect = {}, now = Date.now(), skewMs = CHECKIN_SKEW_MS, allowLocal = false }) {
+  if (!att || !att.confirmation || typeof att.cert !== 'string') throw new Error('אין אישור תשלום חתום מהשרת');
+  const cert = verifyRelayCert(att.cert, rootKeys, now, { allowExpired: true, allowLocal });
+  const p = att.confirmation.payload;
+  if (!p || p.type !== PAID_TYPE || p.v !== PAID_V || p.relayId !== cert.relayId || !L.verifyObject(p, att.confirmation.sig, cert.relayKey)) {
+    throw new Error('חתימת השרת על אישור התשלום אינה תקינה');
+  }
+  if (p.origin !== cert.origin || (expect.origin && p.origin !== originOf(expect.origin))) throw new Error('אישור התשלום ניתן בשרת אחר');
+  if (!isTime(p.paidAt) || p.paidAt > cert.expiresAt || p.paidAt < cert.issuedAt - skewMs || p.paidAt > now + skewMs) throw new Error('זמן אישור התשלום אינו תקין');
+  if (!Number.isSafeInteger(p.amountAgorot) || p.amountAgorot !== expect.amountAgorot || p.paymentId !== expect.paymentId
+    || p.signupId !== expect.signupId || p.keyId !== expect.keyId || p.sealedDigest !== sealedDigest(expect.sealed)) {
+    throw new Error('אישור התשלום החתום אינו של ההרשמה הזו');
+  }
+  return p;
+}
+
 const validChallenge = (s) => typeof s === 'string' && CHALLENGE_RE.test(s);
 // מחיקה בשרת לפי [מזהה, תמצית] (ack) — רשומה תקינה
 const validAckItem = validItem;
 
 module.exports = { CERT_TYPE, CHECKIN_TYPE, RECEIPT_TYPE, CHECKIN_SKEW_MS, MAX_ITEMS, MAX_STORED_CHECKIN, createRelayCert, verifyRelayCert, signCheckin, verifyCheckin,
-  storedCheckinTime, signSendReceipt, verifySendReceipt, validChallenge, originOf, assertCertOrigin, isLocalHost, messageDigest, boxItems, validAckItem };
+  storedCheckinTime, signSendReceipt, verifySendReceipt, validChallenge,
+  signPaymentProof, verifyPaymentProof, assertPaymentUrl, PAYMENT_HOSTS, CAP_PAY_PROOF, RELAY_CAPS, signPaymentConfirmation, verifyPaymentConfirmation, sealedDigest, originOf, assertCertOrigin, isLocalHost, messageDigest, boxItems, validAckItem };

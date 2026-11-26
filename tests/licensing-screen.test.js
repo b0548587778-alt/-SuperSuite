@@ -186,7 +186,9 @@ test('הדבקת קוד: אותה התקנה כמו קובץ — קוד תקין
   const i = src.indexOf("on('licPasteBtn'");
   assert.ok(i > 0);
   assert.match(src.slice(i, i + 500), /type: 'textarea'/);
-  assert.match(src.slice(i, i + 500), /window\.systemAPI\.installLicense\(v\.code\)/);
+  // אותה התקנה כמו הקובץ (licInstallText — כולל אישור מעבר למנפיק אחר, ממצא f85)
+  assert.match(src.slice(i, i + 500), /licInstallText\(v\.code\)/);
+  assert.match(src, /async function licInstallText\(text, extra = \{\}\) \{\s*const r = await window\.systemAPI\.installLicense\(text, extra\);/);
   assert.match(src, /f\.type === 'textarea'/);
 
   let now = Date.now();

@@ -171,6 +171,15 @@ async function licIssueDialog(req, cat) {
 const licReason = (title, extra = []) => licForm(title, [...extra, { name: 'reason', label: 'סיבה (חובה — נרשמת ביומן ומוצגת למשתמשי המערכת)', required: true }], 'אישור');
 const licHoldFields = [{ name: 'kind', label: 'סוג', type: 'select', options: Object.entries(LIC_HOLD_KINDS) }];
 
+// התקנת רישיון מקובץ או מקוד. רישיון ממערכת מנפיקה אחרת (ממצא f85) — רק אחרי אישור מפורש. null — בוטל
+// extra.pending — הרישיון שהתקבל בסנכרון וממתין לאישור (text ריק)
+async function licInstallText(text, extra = {}) {
+  const r = await window.systemAPI.installLicense(text, extra);
+  if (!r || !r.confirm) return r;
+  if (!(await askConfirm(r.confirm + '. להתקין בכל זאת?'))) return null;
+  return window.systemAPI.installLicense(text, { ...extra, allowParentChange: true });
+}
+
 async function licSave(text, name, doneMsg) {
   const r = await window.systemAPI.saveLicenseFile(text, name);
   if (r && r.ok) showToast(doneMsg || 'הקובץ נשמר');
@@ -235,18 +244,23 @@ function attachLicensingHandlers() {
   on('licInstallBtn', async () => {
     const text = await pickFileText('.sslic,.json');
     if (text == null) return;
-    const r = await window.systemAPI.installLicense(text);
-    showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
+    const r = await licInstallText(text);
+    if (r) showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
   });
   // קוד רישיון שהודבק = אותו תוכן כמו קובץ הרישיון — אותה התקנה ואותן בדיקות
   on('licPasteBtn', async () => {
     const v = await licForm('הדבקת קוד רישיון', [{ name: 'code', label: 'קוד הרישיון', type: 'textarea', required: true }], 'התקנה',
       'הדביקו כאן את כל הקוד שקיבלתם מהספק, מההתחלה ועד הסוף.');
     if (!v) return;
-    const r = await window.systemAPI.installLicense(v.code);
-    showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
+    const r = await licInstallText(v.code);
+    if (r) showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
   });
   on('licBuyBtn', async () => { await startSignup(); });
+  // רישיון שהתקבל בסנכרון ממערכת מנפיקה אחרת (ממצא f85) — התקנה רק אחרי אישור
+  on('licPendingInstallBtn', async () => {
+    const r = await licInstallText('', { pending: true });
+    if (r) showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
+  });
   const goMessages = document.getElementById('licGoMessagesBtn');
   if (goMessages) goMessages.addEventListener('click', () => switchView('messages'));
   on('licNoticesBtn', async () => {
@@ -336,6 +350,24 @@ function attachLicensingHandlers() {
     (r.errors || []).forEach(e => showError(e));
     showToast(r.handled ? `התקבלו ${r.handled} עדכונים` : 'אין עדכונים חדשים');
   });
+  // אישור חיבור בקובץ (f81)
+  on('licOfflineReqBtn', async () => {
+    const r = await window.systemAPI.licenseOfflineRequest();
+    await licSave(r.text, 'בקשת-אישור-חיבור', 'הבקשה נשמרה. העבירו אותה למחשב מחובר, ושם — "העברת בקשה של מחשב אחר"');
+  });
+  on('licOfflineRelayBtn', async () => {
+    const text = await pickFileText('.sslic,.json');
+    if (!text) return;
+    const r = await window.systemAPI.licenseOfflineRelay(text);
+    await licSave(r.text, 'אישור-חיבור', 'האישור נשמר. העבירו אותו למחשב שביקש, ושם — "טעינת אישור"');
+  });
+  on('licOfflineImportBtn', async () => {
+    const text = await pickFileText('.sslic,.json');
+    if (!text) return;
+    const r = await window.systemAPI.licenseOfflineImport(text);
+    (r.errors || []).forEach(e => showError(e));
+    showToast('האישור נקלט' + (r.handled ? ` (${r.handled} עדכונים)` : '') + (r.deferred ? ' — הודעות נוספות ייקלטו בסנכרון עם חיבור' : ''));
+  });
   on('licRemoteRequestBtn', async () => {
     const v = await licForm('בקשת רישיון מהספק', [{ name: 'name', label: 'שם המערכת / הארגון', required: true }], 'שליחה');
     if (!v) return;
@@ -416,7 +448,8 @@ function attachLicensingHandlers() {
       const c = await window.systemAPI.ownerVerifySignupPayment(id);
       showToast(c.message);
     }
-    // שני אישורים אפשריים: הצעה שהוחלפה (ממצא 31), ואימות התשלום מול חברת הסליקה (סקירת קוד 2.11.2026).
+    // אישורים אפשריים: הצעה שהוחלפה (ממצא 31) או תשלום בלי אישור חתום של השרת (f83) — force; ואימות התשלום מול
+    // חברת הסליקה (סקירת קוד 2.11.2026).
     // כשמוגדרים פרטי Cardcom — קודם אימות אוטומטי במחשב הזה (החלטת הבעלים 5.11.2026); לא ניתן לאמת ← אישור ידני
     for (;;) {
       try { r = await window.systemAPI.ownerSignupIssue(id, { ...opts }); break; } catch (e) {
@@ -426,7 +459,7 @@ function attachLicensingHandlers() {
           const c = await window.systemAPI.ownerVerifySignupPayment(id);
           showToast(c.message);
           // לא תואם / לא שולם — הקריאה הבאה נחסמת בשרת עם ההסבר; לא נבדק — עוברים לאישור הידני
-        } else if (/הוחלפה/.test(m) && !opts.force) {
+        } else if (/הוחלפה|בלי אישור חתום/.test(m) && !opts.force) {
           if (!(await askConfirm(m + '\n\nלהנפיק בכל זאת, לפי התכנית שבהרשמה?'))) return;
           opts.force = true;
         } else if (/נדרש אימות התשלום/.test(m) && !opts.paymentConfirmed) {
@@ -626,12 +659,13 @@ function attachLicensingHandlers() {
     if (choice.decision === 'approve') {
       const r = await window.systemAPI.ownerApprove({ request: text });
       await licSave(r.package, 'אישור-' + r.name, `מערכת הבת "${r.name}" אושרה — שלחו את קובץ האישור ל"${r.parentName}"`);
-    } else {
+    } else if (choice.decision === 'reject') {
+      // רק בחירה מפורשת בדחייה — ערך ריק או לא צפוי אינו דחייה (f66)
       const v = await licReason('דחיית הבקשה');
       if (!v) return;
       await window.systemAPI.ownerReject({ request: text, reason: v.reason });
       showToast('הבקשה נדחתה ונרשמה ביומן');
-    }
+    } else return;
   });
   on('ownerKillBtn', async () => {
     if (!(await askConfirm('נעילה גלובלית תנעל את כל המערכות של כל הלקוחות ברגע שיקבלו את העדכון. להמשיך?', { danger: true, okText: 'כן, לנעול את כולם' }))) return;

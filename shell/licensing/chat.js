@@ -232,7 +232,9 @@ function mailboxFromBackup(raw) {
 
 // schedule(fn, ms) — טיימר לכתיבה המאוחרת (מוזרק בבדיקות); onError(scope, e) — יומן תקלות.
 // writeDelayMs: 0 — כל שינוי נכתב מיד (אנדרואיד: אין שם יציאה מסודרת שבה אפשר לכתוב את מה שממתין, והכתיבה ל-localStorage זולה)
-function createChatStore({ storage, clock = Date.now, maxAttachmentBytes = 40 * 1024 * 1024, schedule = laterTimer, onError = () => {}, writeDelayMs = FLUSH_MS }) {
+// maxStoredChars — תקציב לגודל התיבה כולה (תווים ב-JSON). באנדרואיד התיבות חולקות את מכסת ה-localStorage עם קובץ
+// הרישוי ומפתח המערכת; תיבה מלאה חסמה את שמירת הסנכרון והמערכת ננעלה (סקירה 2.11.2026, ממצא f78)
+function createChatStore({ storage, clock = Date.now, maxAttachmentBytes = 40 * 1024 * 1024, schedule = laterTimer, onError = () => {}, writeDelayMs = FLUSH_MS, maxStoredChars = Infinity }) {
   // ממצא 51: התיבה נקראת מהדיסק פעם אחת ונשמרת בזיכרון; שינויים נאספים ונכתבים בכתיבה אחת אחרי FLUSH_MS,
   // או מיד ב-flush() (לפני אישור לשרת שההודעות התקבלו, וביציאה). קודם כל פעולה קראה וכתבה את כל הקובץ עם fsync
   let cache = null;
@@ -311,6 +313,22 @@ function createChatStore({ storage, clock = Date.now, maxAttachmentBytes = 40 * 
       if (total > maxAttachmentBytes) messages[i] = { ...messages[i], att: { ...att, data: null, expired: true } };
     }
     d.messages = messages;
+    if (Number.isFinite(maxStoredChars)) fitBudget(d);
+  }
+  // מעבר לתקציב: קודם הקבצים המצורפים הישנים (ההודעה נשארת), ואחר כך ההודעות הישנות ביותר
+  function fitBudget(d) {
+    const size = () => JSON.stringify({ v: 2, messages: d.messages, meta: d.meta, settings: d.settings }).length;
+    let over = size() - maxStoredChars;
+    if (over <= 0) return;
+    for (let i = 0; i < d.messages.length && over > 0; i++) {
+      const att = d.messages[i].att;
+      if (!att || !att.data) continue;
+      over -= att.data.length;
+      d.messages[i] = { ...d.messages[i], att: { ...att, data: null, expired: true } };
+    }
+    let drop = 0;
+    while (over > 0 && drop < d.messages.length) over -= JSON.stringify(d.messages[drop++]).length + 1;
+    if (drop) d.messages = d.messages.slice(drop);
   }
   // כתיבה מיידית של מה שהשתנה. כשל ← נזרק, והשינויים נשארים בזיכרון לניסיון חוזר
   function flush() {

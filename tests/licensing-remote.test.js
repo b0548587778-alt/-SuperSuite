@@ -2,11 +2,12 @@
 // שרת HTTP אמיתי על localhost, ושלוש "התקנות" נפרדות — מנהל-העל, לקוח ומערכת בת — בלי שום העברת קבצים.
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { allowIssuing } = require('./helpers/activation');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const L = require('../shell/licensing/license');
-const { createLicenseStore } = require('../shell/licensing/store');
+const { createLicenseStore, LEGACY_SYNC_CUTOFF, ACTIVATION_REQUIRED } = require('../shell/licensing/store');
 const { createOwnerCore } = require('../shell/licensing/owner-core');
 const { createLicenseSync } = require('../shell/licensing/sync');
 const { createRemote, validateUrl } = require('../shell/licensing/remote');
@@ -18,25 +19,39 @@ const mem = () => { const m = new Map(); return { read: (n) => (m.has(n) ? m.get
 const tenantLimits = { maxChildren: 2, maxUsers: 10, maxStorageMb: 1000, maxDepth: 2 };
 const childLimits = { maxChildren: 0, maxUsers: 3, maxStorageMb: 100, maxDepth: 2 };
 
+// השרת מאזין על 127.0.0.1, אבל ההתקנות פונות אליו בכתובת https (relayFetch מפנה אותה לשרת המקומי) — כמו שרת אמיתי.
+// תעודת שרת לכתובת מקומית תקפה רק במצב בדיקה מפורש של sync.js, והמחסן (store.lastSyncTime) אינו סופר בדיקה חתומה
+// כזו לעולם: עם שרת על http://127.0.0.1 "החיבור האחרון" נשאר הזמן הלא-חתום, שמוגבל ל-LEGACY_SYNC_CUTOFF (24.10.2026),
+// והבדיקה עברה רק עד 30 יום אחריו (23.11.2026) — אחר כך המערכת "בצפייה בלבד" ולא מנפיקה מערכות בת.
+const localOf = new Map(); // כתובת https של הבדיקה ← הכתובת המקומית של השרת
+const relayFetch = (url, init) => {
+  const u = new URL(String(url));
+  const local = localOf.get(u.origin);
+  return fetch(local ? local + u.pathname + u.search : url, init);
+};
+
 // identity — מפתח שרת ותעודה (attachIdentity), כדי שהשרת יחתום על אישורי מסירה ועל תשובות הסנכרון
 async function startServer(identity = null) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-relay-'));
   const server = createServer({ dataDir, identity });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  return { url: `http://127.0.0.1:${server.address().port}`, dataDir, close: () => new Promise(r => server.close(r)) };
+  const { port } = server.address();
+  const url = `https://relay-${port}.test`;
+  localOf.set(url, `http://127.0.0.1:${port}`);
+  return { url, dataDir, close: () => new Promise(r => server.close(r)).finally(() => { localOf.delete(url); fs.rmSync(dataDir, { recursive: true, force: true }); }) };
 }
 
 // התקנה עצמאית: מצב רישוי + (אופציונלי) מנהל-העל + סנכרון, כמו ב-ipc.js
 function installation(rootKeys, url, owner = null) {
   const store = createLicenseStore({ storage: one(), secret: one(), rootKeys });
   store.setRemoteSettings({ url });
-  return { store, owner, sync: createLicenseSync({ store, owner, rootKeys, fetchImpl: fetch, allowLocalRelay: true }) };
+  return { store, owner, sync: createLicenseSync({ store, owner, rootKeys, fetchImpl: relayFetch }) };
 }
-// מפתח שרת ותעודה ממנהל-העל לכתובת השרת המקומי. תעודה ל-127.0.0.1 — רק במצב בדיקה מפורש (allowLocal /
-// allowLocalRelay, סקירה 24.10.2026). עדכון סטטוס ממערכת הורה (pushToChild) דורש אישור מסירה חתום מהשרת
+// מפתח שרת ותעודה ממנהל-העל לכתובת (https) של השרת — בלי מצב הבדיקה של כתובת מקומית.
+// עדכון סטטוס ממערכת הורה (pushToChild) דורש אישור מסירה חתום מהשרת
 function attachIdentity(identity, owner, url) {
   const kp = L.generateKeyPair();
-  Object.assign(identity, { privateJwk: kp.privateJwk, origin: url, certText: owner.relayCert(kp.publicJwk, { origin: url, allowLocal: true }).text });
+  Object.assign(identity, { privateJwk: kp.privateJwk, origin: url, certText: owner.relayCert(kp.publicJwk, { origin: url }).text });
 }
 
 test('כתובת שרת: https בלבד (או localhost), בלי פרטי כניסה', () => {
@@ -94,6 +109,11 @@ test('זרימה מלאה מרחוק: רישיון, מערכת בת באישור
     owner.takeFromInbox(req.id);
     assert.equal((await T.sync.receive()).handled, 1);
     assert.equal(T.store.current().status, 'active');
+    // תנאי ההפעלה מתקיימים מהבדיקה החתומה של השרת עצמה — לא מהזמן הלא-חתום (שנספר רק עד LEGACY_SYNC_CUTOFF)
+    const proof = T.store.syncProof();
+    assert.ok(proof, 'התשובה החתומה של השרת נשמרה ואומתה מחדש');
+    assert.equal(T.store.lastSyncTime(), proof.at);
+    assert.doesNotThrow(() => T.store.assertCanIssue());
     const tenantCode = T.store.syncInfo().nodeId;
 
     // 2. מערכת בת מבקשת מהלקוח לפי קוד; הלקוח מעביר לאישור; מנהל-העל מאשר
@@ -146,6 +166,44 @@ test('זרימה מלאה מרחוק: רישיון, מערכת בת באישור
   } finally { await srv.close(); }
 });
 
+// רגרסיה (25.11.2026): הזרימה המלאה נכשלה ב-activation-required החל מ-24.11.2026 — 30 יום אחרי LEGACY_SYNC_CUTOFF.
+// השרת של הבדיקה קיבל תעודה לכתובת מקומית; המחסן לא סופר בדיקה חתומה כזו, ו"החיבור האחרון" היה הזמן הלא-חתום בלבד.
+// כאן השעון מוזרק (40 יום אחרי התאריך הקבוע), כך שהבדיקה אינה תלויה בתאריך ההרצה
+test('תעודת שרת לכתובת מקומית: הבדיקה החתומה לא נספרת במחסן — והמערכת לא מנפיקה; עם תעודה לכתובת https — נספרת', async (t) => {
+  const dirs = [];
+  t.after(() => dirs.forEach(d => fs.rmSync(d, { recursive: true, force: true })));
+  const now = LEGACY_SYNC_CUTOFF + 40 * 24 * 60 * 60 * 1000;
+  const clock = () => now;
+  const owner = createOwnerCore({ storage: mem(), clock });
+  const rootKeys = [owner.init(PASS).publicKey];
+  const relayKey = L.generateKeyPair();
+  // מערכת ברישיון שנתי, שמסנכרנת מול שרת (בתוך התהליך) שהתעודה שלו ניתנה ל-origin
+  const tenant = async (origin, opts) => {
+    dirs.push(fs.mkdtempSync(path.join(os.tmpdir(), 'ss-relay-c-')));
+    const relay = createRelay({ dataDir: dirs[dirs.length - 1], clock,
+      identity: { privateJwk: relayKey.privateJwk, origin, certText: owner.relayCert(relayKey.publicJwk, { origin, ...opts.cert }).text } });
+    const fetchImpl = async (url, init) => {
+      let out;
+      try { out = { ok: true, ...relay.handle(JSON.parse(init.body)) }; } catch (e) { out = { ok: false, error: e.message }; }
+      return { ok: out.ok, status: out.ok ? 200 : 400, json: async () => out };
+    };
+    const store = createLicenseStore({ storage: one(), secret: one(), rootKeys, clock });
+    store.setRemoteSettings({ url: origin });
+    store.install(owner.issue({ request: JSON.stringify(store.request('תלמוד תורה')), features: ['econ'], limits: tenantLimits, months: 12 }).package);
+    const sync = createLicenseSync({ store, owner: null, rootKeys, fetchImpl, clock, ...opts.sync });
+    return { store, checkin: (await sync.receive()).checkin };
+  };
+  const local = await tenant('http://127.0.0.1:8787', { cert: { allowLocal: true }, sync: { allowLocalRelay: true } });
+  assert.equal(local.checkin.ok, true, 'במצב הבדיקה של sync.js התשובה מאומתת');
+  assert.equal(local.store.syncProof(), null, 'אבל המחסן לא שומר בדיקה חתומה בתעודה לכתובת מקומית');
+  assert.equal(local.store.lastSyncTime(), LEGACY_SYNC_CUTOFF, 'נשאר רק הזמן הלא-חתום — עד התאריך הקבוע');
+  assert.throws(() => local.store.assertCanIssue(), (e) => e.code === ACTIVATION_REQUIRED && /צפייה בלבד/.test(e.message));
+  const real = await tenant('https://relay.example.org', { cert: {}, sync: {} });
+  assert.equal(real.checkin.ok, true);
+  assert.equal(real.store.lastSyncTime(), now, 'הזמן מהתשובה החתומה');
+  assert.doesNotThrow(() => real.store.assertCanIssue());
+});
+
 test('דחייה מרחוק: הלקוח מקבל את הסיבה', async () => {
   const srv = await startServer();
   try {
@@ -153,6 +211,7 @@ test('דחייה מרחוק: הלקוח מקבל את הסיבה', async () => {
     const rootKeys = [owner.init(PASS).publicKey];
     const O = installation(rootKeys, srv.url, owner);
     const T = installation(rootKeys, srv.url);
+    allowIssuing(T.store); // בלי תעודת שרת — בלי בדיקה חתומה; תנאי ההפעלה נבדקים ב-review-2026-11-relay
     const K = installation(rootKeys, srv.url);
     await T.sync.sendLicenseRequest('ישיבה');
     await O.sync.ownerReceive();

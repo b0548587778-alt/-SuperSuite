@@ -29,20 +29,20 @@ const boxLen = (dir, id) => { try { return JSON.parse(fs.readFileSync(path.join(
 function floodOwner(relay) {
   let sent = 0, err = null;
   for (let i = 0; i < 40 && !err; i++) {
-    const n = Math.min(R.SEND_PER_IP_TO_BOX_HOUR, R.MAX_UNKNOWN_IN_OWNER_BOX - sent) || 1; // בסוף — עוד אחת, שנדחית
+    const n = Math.min(R.SEND_PER_IP_TO_BOX_HOUR, 50, R.MAX_UNKNOWN_IN_OWNER_BOX - sent) || 1; // בסוף — עוד אחת, שנדחית
     try { sent += send(relay, L.generateKeyPair(), ownerId, n, '10.20.' + i + '.1').sent; } catch (e) { err = e; }
   }
   return { sent, err };
 }
 
-test('ממצא 1א: כתובת אחת — עד 20 הודעות בשעה לתיבה אחת, גם עם מפתח חדש לכל בקשה', () => {
+test('ממצא 1א: כתובת אחת — עד SEND_PER_IP_TO_BOX_HOUR הודעות בשעה לתיבה אחת, גם עם מפתח חדש לכל בקשה', () => {
   const relay = relayAt(tmp());
   const to = L.generateKeyPair().keyId;
   let sent = 0, err = null;
-  for (let i = 0; i < 10 && !err; i++) {
+  for (let i = 0; i < 40 && !err; i++) {
     try { sent += send(relay, L.generateKeyPair(), to, 5, '203.0.113.7').sent; } catch (e) { err = e; }
   }
-  assert.equal(sent, 20);
+  assert.equal(sent, R.SEND_PER_IP_TO_BOX_HOUR);
   assert.equal(err && err.status, 429);
   assert.match(err.message, /לנמען הזה מהכתובת הזו/);
   // תיבה אחרת מאותה כתובת, ואותה תיבה מכתובת אחרת — לא נפגעות
@@ -54,7 +54,8 @@ test('ממצא 1א: מי שבעל התיבה כתב לו — לא כפוף למ�
   const relay = relayAt(tmp());
   const a = L.generateKeyPair(), b = L.generateKeyPair();
   send(relay, b, a.keyId, 1, '198.51.100.1', 'message'); // b כתב ל-a
-  assert.equal(send(relay, a, b.keyId, 25, '203.0.113.8', 'message').sent, 25, 'a עונה ל-b — יותר מ-20 מאותה כתובת');
+  assert.equal(send(relay, a, b.keyId, 40, '203.0.113.8', 'message').sent + send(relay, a, b.keyId, 40, '203.0.113.8', 'message').sent, 80,
+    'a עונה ל-b — יותר מהמכסה לכתובת');
 });
 
 test('ממצא 1ב: שולחים לא מוכרים תופסים רק חלק מהתיבה של מנהל-העל; לקוח שמנהל-העל כתב לו — עובר, גם אחרי הפעלה מחדש', () => {

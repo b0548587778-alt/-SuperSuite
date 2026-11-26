@@ -17,7 +17,7 @@ const AR = require('../../modules/econ/core/atRest');
 const CC = require('./owner-cardcom');
 
 // כל קבצי מצב מנהל-העל — לגיבוי מלא (המפתח עצמו נשאר מוצפן בסיסמה גם בתוך הגיבוי)
-const OWNER_FILES = ['root.key', 'root.pub.json', 'registry.json', 'notices.json', 'inbox.json', 'releases.json', 'offer.json', 'signups.json', 'payment-provider.json'];
+const OWNER_FILES = ['root.key', 'root.pub.json', 'registry.json', 'notices.json', 'inbox.json', 'releases.json', 'offer.json', 'signups.json', 'payment-provider.json', 'signups-rejected.json'];
 const OWNER_BACKUP_TYPE = 'supersuite-owner-backup';
 const SU = require('./signup');
 
@@ -27,7 +27,8 @@ const MIN_PASS = 12;
 // התיקייה והסיסמה: גיבוי של התיקייה לכונן חיצוני, כלי שורת הפקודה ואנדרואיד — בלי תלות במפתח המסד (DPAPI) של
 // המחשב הזה. ההצעה, הגרסאות והמפתח הציבורי ציבוריים ממילא; root.key מוצפן בסיסמה בעצמו.
 // payment-provider.json — פרטי המסוף של Cardcom לאימות תשלומי הרשמה (owner-cardcom.js); לעולם לא גלוי בדיסק
-const SEALED_OWNER_FILES = ['registry.json', 'notices.json', 'inbox.json', 'signups.json', 'payment-provider.json'];
+// signups-rejected.json — הרשמות שנמחקו מהשרת כי לא היו תקינות (הסגר מקומי; סקירה 5.11.2026)
+const SEALED_OWNER_FILES = ['registry.json', 'notices.json', 'inbox.json', 'signups.json', 'payment-provider.json', 'signups-rejected.json'];
 const OWNER_SEAL_PREFIX = 'SSOW1:';
 const OWNER_SEAL_INFO = 'SuperSuite owner files v1';
 
@@ -45,6 +46,13 @@ function ownerFileCipher(privateJwk) {
   };
 }
 const signupInvalid = (message) => Object.assign(new Error(message), { code: 'signup-invalid' });
+// מסירה בפורמט שהגרסה הזו לא מכירה (מסירה v>2 או מעטפה v>1 — משרת חדש יותר): לא "פגומה" — נשארת בשרת עד עדכון
+const signupUnknown = () => Object.assign(new Error('ההרשמה נשלחה בפורמט חדש — יש לעדכן את התוכנה במחשב של מנהל-העל'), { code: 'signup-unknown-format' });
+const SIGNUP_DELIVERY_V = 2;
+// הסגר של הרשמות לא תקינות (signups-rejected.json): בתשלום — המסירה כולה (נמסרת רק אחרי תשלום אמיתי, לא ניתנת להצפה);
+// חינם — פרטים בלבד (מסירה חינם אפשר לשלוח בכמויות — סקירה 5.11.2026). תקרות — הקובץ לא גדל בלי סוף
+const MAX_REJECTED_PAID = 100;
+const MAX_REJECTED_FREE = 200;
 // הרשמה לפי הצעה שכבר הוחלפה (ממצא 31): חינם נמסרת מיד בשרת — סטייה קטנה בין השעונים בלבד;
 // בתשלום — תשלום שנפתח לפני ההחלפה נשמר בשרת עד 30 יום (PAYMENT_KEEP_MS ב-server/license-relay.js)
 const FREE_OFFER_SLACK_MS = 60 * 60 * 1000;
@@ -52,6 +60,10 @@ const PAID_OFFER_SLACK_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_SIGNUPS = 1000;
 
 // legacyCipher() — הצופן של המסד (core/atRest.js), רק לקריאת קבצים שהוצפנו בו בגרסת ביניים (SSDB1:); הם מומרים במקום
+// הרשמה בתשלום בלי אישור תשלום חתום מהשרת (f83) — ההודעה במסך, ובחלון האישור לפני הנפקה.
+// (השם PAYMENT_UNVERIFIED שמור לקוד השגיאה של האימות מול Cardcom — למטה)
+const PAYMENT_PROOF_MISSING = 'התשלום הגיע בלי אישור חתום של שרת הרישוי — יש לוודא אצל ספק הסליקה שהתשלום התקבל לפני הנפקה';
+
 // maxSignups — תקרת רשימת ההרשמות (בבדיקות — קטנה)
 function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSignups = MAX_SIGNUPS }) {
   let key = null; // המפתח הפרטי — בזיכרון בלבד, אחרי פתיחה בסיסמה
@@ -269,10 +281,15 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
     const now = clock();
     // שנה לפחות (ACT.termMs) — מערכת עם רישיון קצר משנה לא נפתחת (shell/licensing/activation.js)
     const termMs = ACT.termMs(terms.months == null ? 12 : terms.months);
+    // חידוש מוקדם (סקירת קוד 11.2026, ממצא f87): התקופה החדשה נוספת לתוקף הנוכחי — הזמן ששולם ועוד לא נוצל לא אובד.
+    // הנפקה חוזרת מאותה חבילה לאותה מערכת אינה תשלום חדש — שם התקופה נספרת מהיום (אחרת כל לחיצה מוסיפה שנה בחינם)
+    const curEnd = existing && existing.license && existing.license.payload ? Number(existing.license.payload.expiresAt) : 0;
+    const sameBundle = !!(bundle && bundle.issued[product] === id);
+    const from = !sameBundle && Number.isSafeInteger(curEnd) && curEnd > now ? curEnd : now;
     const lic = L.issueLicense(issuer(), {
       name: opts.name || req.name, publicKey: req.publicKey, slot,
       features: terms.features, limits: terms.limits,
-      issuedAt: now, expiresAt: now + termMs, graceDays: terms.graceDays,
+      issuedAt: now, expiresAt: from + termMs, graceDays: terms.graceDays,
     });
     const bundleId = bundle ? bundle.id : (existing && existing.bundleId) || null;
     reg.tenants = [...reg.tenants.filter(t => t.id !== id), { id, slot, name: lic.payload.name, product, license: lic, issuedAt: now,
@@ -343,6 +360,15 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
     return { parent, child: pkg.child, childId: L.keyId(pkg.child.publicKey) };
   }
   const activeApprovals = (reg, parentId) => reg.approvals.filter(x => x.parentId === parentId && !x.revoked);
+  // המערכת כבר שייכת למישהו אחר (ממצא f85): לקוח ישיר, או מערכת בת פעילה של הורה אחר. אישור כזה היה מעביר אותה
+  // בשקט להורה החדש — וההשבתות של ההורה הקודם הפסיקו לחול
+  function ownedElsewhere(reg, parentId, childId) {
+    if (reg.tenants.some(t => t.id === childId)) return 'המערכת הזו רשומה כלקוח ישיר — לא ניתן לאשר אותה כמערכת בת של לקוח אחר';
+    const other = reg.approvals.find(x => x.childId === childId && x.parentId !== parentId && !x.revoked);
+    // בלי הפניה ל"ביטול האישור הקודם": הביטול (revoke) מוציא הודעת סיום חתומה למערכת עצמה, שחלה בכל שרשרת —
+    // גם אחרי המעבר להורה החדש. מעבר מערכת בת בין הורים אינו נתמך כאן
+    return other ? `המערכת הזו כבר אושרה כמערכת בת של "${other.parentName || other.parentId}". העברת מערכת בת להורה אחר אינה נתמכת — ביטול האישור הקודם מסיים את המערכת לצמיתות, גם אצל ההורה החדש` : null;
+  }
 
   // פתיחת קובץ שהגיע מלקוח: בקשת רישיון (לקוח חדש/חידוש) או בקשת אישור למערכת בת
   function openRequest(text) {
@@ -366,16 +392,19 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
 
   function review(opts) {
     const { parent, child, childId } = readApprovalRequest(opts.request);
-    const used = activeApprovals(registry(), parent.id);
+    const reg = registry();
+    const used = activeApprovals(reg, parent.id);
     const renewal = used.some(x => x.childId === childId);
     return { parentId: parent.id, parentName: parent.name, childId, name: child.name, features: child.features, limits: child.limits,
       expiresAt: child.expiresAt, renewal, quota: { used: used.length, max: parent.limits.maxChildren },
-      problem: L.checkTerms(parent, child) || (!renewal && used.length >= parent.limits.maxChildren ? 'המכסה של הלקוח מלאה' : null) };
+      problem: ownedElsewhere(reg, parent.id, childId) || L.checkTerms(parent, child) || (!renewal && used.length >= parent.limits.maxChildren ? 'המכסה של הלקוח מלאה' : null) };
   }
 
   function approve(opts) {
     const { parent, child, childId } = readApprovalRequest(opts.request);
     const reg = registry();
+    const elsewhere = ownedElsewhere(reg, parent.id, childId);
+    if (elsewhere) throw new Error(elsewhere);
     const used = activeApprovals(reg, parent.id);
     const prev = used.find(x => x.childId === childId);
     let slot = prev && prev.slot;
@@ -535,25 +564,60 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
   // at — זמן המסירה בשרת. הרשמה לפי הצעה שאינה המפורסמת (תכנית זולה או חינמית מהעבר — ממצא 31) נשמרת לבדיקה
   // ("review") ולא מונפקת בלחיצה — גם חינם: השרת מוחק אותה אחרי הקליטה, ודחייה הייתה מאבדת הרשמה אמיתית שלא נרשם
   // לה פרסום (התקנה מלפני הבדיקה, או הצעה שנשמרה בזמן הפרסום). הרשמה לא תקינה — signup-invalid
-  function addSignup(deliveryText, { at } = {}) {
+  // סיווג השגיאות (סקירה 5.11.2026): signup-invalid — המסירה נקראה והתוכן אינו הרשמה תקינה (מאושרת לשרת ונמחקת שם,
+  // אחרת זבל ממלא את המקום של הרשמות חינם); signup-unknown-format — פורמט חדש; כל שגיאה אחרת (נעול, קובץ שלא נקרא) —
+  // אצלנו, וההרשמה נשארת בשרת
+  // אישור התשלום (סקירה 2.11.2026, f83): "שולם" שבמסירה נבדק מול אישור חתום במפתח השרת (payment.proof —
+  // checkin.js, verifyPaymentConfirmation), עם תעודה מהשורש, ל-origin של השרת שממנו נמשך, ולהרשמה ולמעטפה האלה בדיוק.
+  // requirePaymentProof (sync.js, כשיש מפתחות שורש בתוכנה): בלי אישור תקין — ההרשמה נשמרת "לבדיקה" עם האזהרה
+  // PAYMENT_PROOF_MISSING, והנפקה רק באישור מפורש (force). מי שעונה למשיכה של מנהל-העל לא ממציא תשלום
+  function addSignup(deliveryText, { at, origin = null, requirePaymentProof = false, allowLocal = false } = {}) {
     let d;
     try { d = JSON.parse(deliveryText); } catch { throw signupInvalid('הרשמה פגומה'); }
+    if (!d || typeof d !== 'object') throw signupInvalid('הרשמה פגומה');
+    if (typeof d.v === 'number' && d.v > SIGNUP_DELIVERY_V) throw signupUnknown();
+    // מסירה מוצפנת (f89): המעטפה נפתחת במפתח השורש; מסירה גלויה מגרסה קודמת של השרת — עדיין נקראת
+    if (typeof d.sealed === 'string') {
+      const k = rootKey(); // נעול — שגיאה רגילה (לא signup-invalid): ההרשמה נשארת בשרת לסבב הבא
+      let env = null;
+      try { env = JSON.parse(d.sealed); } catch { /* פגומה — למטה */ }
+      if (env && typeof env === 'object' && typeof env.v === 'number' && env.v > 1) throw signupUnknown();
+      try { d = { ...d, signup: SU.openSealedSignup(k, d.sealed, typeof d.public === 'string' ? d.public : null) }; }
+      catch (e) { throw signupInvalid(e.message); }
+    }
     let v;
     try { v = SU.verifySignup(d.signup, [pubkey()]); } catch (e) { throw signupInvalid(e.message); }
     const list = readJson('signups.json', []);
     if (list.some(x => x.id === v.body.id)) return { added: false, id: v.body.id };
     const paid = v.plan.priceAgorot > 0;
     if (paid && !(d.payment && d.payment.amountAgorot === v.plan.priceAgorot)) throw signupInvalid('הרשמה בתשלום ללא אישור תשלום');
+    let payment = d.payment && typeof d.payment === 'object' ? d.payment : null;
+    let unverified = false;
+    if (paid) {
+      let verified = false;
+      if (payment.proof && typeof d.sealed === 'string') {
+        try {
+          CK.verifyPaymentConfirmation(payment.proof, { rootKeys: [pubkey()], now: clock(), allowLocal,
+            expect: { paymentId: payment.id, amountAgorot: v.plan.priceAgorot, signupId: v.body.id, keyId: v.body.keyId, sealed: d.sealed, origin } });
+          verified = true;
+        } catch { verified = false; }
+      }
+      payment = { ...payment, verified };
+      unverified = !verified && requirePaymentProof;
+    }
     const when = Number.isSafeInteger(at) ? at : clock();
     const live = offerLiveAt(v.offer.issuedAt, when, paid ? PAID_OFFER_SLACK_MS : FREE_OFFER_SLACK_MS);
-    const problem = paid ? 'ההרשמה נעשתה לפי הצעה שכבר הוחלפה — יש לבדוק את התשלום ואת התכנית לפני הנפקה'
-      : 'ההרשמה לתכנית החינמית נעשתה לפי הצעה שאינה המפורסמת — יש לבדוק את התכנית לפני הנפקה';
+    const problems = [];
+    if (unverified) problems.push(PAYMENT_PROOF_MISSING);
+    if (!live) problems.push(paid ? 'ההרשמה נעשתה לפי הצעה שכבר הוחלפה — יש לבדוק את התשלום ואת התכנית לפני הנפקה'
+      : 'ההרשמה לתכנית החינמית נעשתה לפי הצעה שאינה המפורסמת — יש לבדוק את התכנית לפני הנפקה');
+    const review = problems.length > 0;
     writeJson('signups.json', trimSignups([...list, { id: v.body.id, keyId: v.body.keyId, customer: v.body.customer, product: v.product, planId: v.plan.id, planName: v.plan.name,
       ...(v.plan.bundle ? { bundle: { scope: v.plan.bundle.scope, products: [...v.plan.bundle.products] } } : {}),
-      priceAgorot: v.plan.priceAgorot, months: v.plan.months, terms: v.body.terms, signedAt: v.body.signedAt, payment: d.payment || null,
-      receivedAt: clock(), status: live ? 'new' : 'review', ...(live ? {} : { problem }),
+      priceAgorot: v.plan.priceAgorot, months: v.plan.months, terms: v.body.terms, signedAt: v.body.signedAt, payment,
+      receivedAt: clock(), status: review ? 'review' : 'new', ...(review ? { problem: problems.join(' · ') } : {}),
       signup: d.signup }]));
-    return { added: true, id: v.body.id, review: !live };
+    return { added: true, id: v.body.id, review, ...(unverified ? { unverified: true } : {}) };
   }
   // תקרת הרשימה — נחתכות רק הרשמות שכבר הונפקו, הוותיקות קודם. הרשמה שלא טופלה (גם בתשלום) לא נמחקת לעולם
   // (סקירת קוד 2.11.2026: קודם נחתכו בשקט 1,000 האחרונות, כולל הרשמות בתשלום שלא טופלו)
@@ -563,6 +627,24 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
     return list.filter(x => !(extra > 0 && x.status === 'issued' && extra-- > 0));
   }
   const signups = () => readJson('signups.json', []);
+  // הרשמה לא תקינה שנמחקת מהשרת — נשמרת כאן קודם (מוצפן במפתח השורש). כשל בשמירה — נזרק, וההרשמה לא מאושרת לשרת
+  function quarantineSignup(deliveryText, { at, error } = {}) {
+    rootKey();
+    let d = null;
+    try { d = JSON.parse(deliveryText); } catch { d = null; }
+    const paid = !!(d && d.payment && typeof d.payment === 'object');
+    let keyId = null;
+    try { keyId = JSON.parse(d.public).body.keyId; } catch { keyId = null; }
+    const entry = { at: Number.isSafeInteger(at) ? at : null, receivedAt: clock(), error: String(error || '').slice(0, 300), paid,
+      keyId: typeof keyId === 'string' ? keyId.slice(0, 64) : null, chars: String(deliveryText).length,
+      ...(paid ? { payment: d.payment, delivery: String(deliveryText) } : {}) };
+    const list = readJson('signups-rejected.json', []);
+    const keepPaid = list.filter(x => x.paid).concat(paid ? [entry] : []).slice(-MAX_REJECTED_PAID);
+    const keepFree = list.filter(x => !x.paid).concat(paid ? [] : [entry]).slice(-MAX_REJECTED_FREE);
+    writeJson('signups-rejected.json', [...keepPaid, ...keepFree].sort((a, b) => a.receivedAt - b.receivedAt));
+    return true;
+  }
+  const rejectedSignups = () => readJson('signups-rejected.json', []);
   function signupOf(id) { const x = signups().find(y => y.id === id); if (!x) throw new Error('ההרשמה לא נמצאה'); return x; }
   // הנפקת רישיון לפי ההרשמה: תחומים, מכסות ותקופה — מהתכנית ששולמה
   // force — אחרי בדיקה ידנית של הרשמה שסומנה "review"
@@ -648,7 +730,7 @@ function createOwnerCore({ storage, clock = Date.now, legacyCipher = null, maxSi
       url: payload.url, notes: payload.notes, issuedAt: payload.issuedAt, text }].slice(-50));
   }
 
-  return { MIN_PASS, changePassphrase, recoveryCodes, recoveryInfo, recoverFromCodes, exportBackup, importBackup, contacts, releases, addRelease, setOffer, offer, offerPublished, addSignup, signups, issueSignup, signedDocument, setSignupInvoice, setCardcomCredentials, clearCardcomCredentials, cardcomCredentials, paymentProviderInfo, setSignupPaymentCheck, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
+  return { MIN_PASS, changePassphrase, recoveryCodes, recoveryInfo, recoverFromCodes, exportBackup, importBackup, contacts, releases, addRelease, setOffer, offer, offerPublished, addSignup, quarantineSignup, rejectedSignups, signups, issueSignup, signedDocument, setSignupInvoice, setCardcomCredentials, clearCardcomCredentials, cardcomCredentials, paymentProviderInfo, setSignupPaymentCheck, isInitialized, init, unlock, lock, isUnlocked, pubkey, issue, notice, list, openRequest, review, approve, approvals, revoke, noticesPackage,
     inbox, addToInbox, takeFromInbox, peekInbox, inboxRequest, rootSigner, recipients, relayCert };
 }
 
@@ -677,12 +759,15 @@ function prefixedWebStorage(ls, prefix) {
   return { read: (n) => ls.getItem(prefix + n), write: (n, text) => ls.setItem(prefix + n, text) };
 }
 
-// אישור התשלום בהרשמה מגיע מהשרת בלי חתימה (סקירת קוד 2.11.2026) — שרת שנפרץ יכול "לאשר" תשלום שלא התקבל.
-// חתימה של השרת לא עוזרת (המפתח שלו נמצא עליו), ולכן לפני חשבונית והנפקה בתשלום — מנהל-העל מאשר במפורש
-// שבדק את התשלום אצל חברת הסליקה. null — אין צורך באישור (חינם, כבר אושר, או כבר יש חשבונית)
-// כשמוגדרים פרטי Cardcom (verifyConfigured) — האימות במחשב של מנהל-העל מול Cardcom (owner-cardcom.js, החלטת הבעלים
-// 5.11.2026): אומת ← null; לא שולם / לא תואם ← חסום (גם עם אישור ידני); לא נבדק עדיין ← PAYMENT_UNVERIFIED (המסך מאמת);
-// לא ניתן לאמת (רשת, הרשמה ישנה) ← חוזרים לאישור הידני, עם הסיבה
+// אימות התשלום בהרשמה — שתי שכבות שמשלימות זו את זו (מיזוג הפרוטוקול של "לימוד", 26.11.2026):
+// 1. אישור חתום של שרת הרישוי (payment.verified, נבדק ב-addSignup מול תעודת השרת) — המקור הראשי. הוא מגן מפני מי
+//    שעונה במקום השרת (DNS, שרת ביניים); בלעדיו, כשיש מפתחות שורש, ההרשמה נשמרת "לבדיקה" (PAYMENT_PROOF_MISSING).
+// 2. אימות אצל מנהל-העל — האישור החתום לא מגן מפני שרת שנפרץ (המפתח שלו נמצא עליו; סקירת קוד 2.11.2026), ולכן
+//    לפני חשבונית והנפקה בתשלום נדרש גם: כשמוגדרים פרטי Cardcom (verifyConfigured) — אימות ישיר מול Cardcom במחשב של
+//    מנהל-העל (owner-cardcom.js, החלטת הבעלים 5.11.2026): אומת ← null; לא שולם / לא תואם ← חסום (גם עם אישור חתום וגם
+//    עם אישור ידני); לא נבדק עדיין ← PAYMENT_UNVERIFIED (המסך מאמת); לא ניתן לאמת (רשת, הרשמה ישנה) ← אישור ידני, עם
+//    הסיבה. בלי פרטי Cardcom — אישור ידני של מנהל-העל שבדק אצל חברת הסליקה.
+// null — אין צורך באישור (חינם, כבר אושר, או כבר יש חשבונית)
 const PAYMENT_UNCONFIRMED = 'payment-unconfirmed';
 const PAYMENT_UNVERIFIED = 'payment-unverified';
 const PAYMENT_REJECTED = 'payment-rejected';
@@ -698,12 +783,13 @@ function signupPaymentCode(x, opts = {}) {
   if (paymentConfirmed === true) return null;
   const ref = x.payment.providerRef ? ` (אסמכתה ${String(x.payment.providerRef)})` : '';
   const why = c && c.status === 'unavailable' && c.message ? `האימות מול Cardcom לא הושלם (${String(c.message)}). ` : '';
+  const signed = x.payment.verified === true ? 'שרת הרישוי אישר את התשלום בחתימה. ' : '';
   return { code: PAYMENT_UNCONFIRMED,
-    message: `נדרש אימות התשלום: ${why}יש לוודא במערכת חברת הסליקה שהתקבל תשלום של ₪${(x.payment.amountAgorot / 100).toLocaleString('he-IL')}${ref} לפני הנפקה וחשבונית` };
+    message: `נדרש אימות התשלום: ${why}${signed}יש לוודא במערכת חברת הסליקה שהתקבל תשלום של ₪${(x.payment.amountAgorot / 100).toLocaleString('he-IL')}${ref} לפני הנפקה וחשבונית` };
 }
 function signupPaymentProblem(x, opts) {
   const r = signupPaymentCode(x, opts);
   return r ? r.message : null;
 }
 
-module.exports = { signupPaymentProblem, signupPaymentCode, PAYMENT_UNCONFIRMED, PAYMENT_UNVERIFIED, PAYMENT_REJECTED, createOwnerCore, dirStorage, prefixedWebStorage, MIN_PASS, SEALED_OWNER_FILES, OWNER_SEAL_PREFIX };
+module.exports = { signupPaymentProblem, signupPaymentCode, PAYMENT_UNCONFIRMED, PAYMENT_UNVERIFIED, PAYMENT_REJECTED, PAYMENT_PROOF_MISSING, createOwnerCore, dirStorage, prefixedWebStorage, MIN_PASS, SEALED_OWNER_FILES, OWNER_SEAL_PREFIX };

@@ -70,7 +70,8 @@ function applicableNotices(notices, chainIds, keysById, rootKeys) {
 
 // חישוב הסטטוס האפקטיבי של הצומת האחרון בשרשרת.
 // lastSeen — הזמן המאוחר ביותר שנצפה בעבר (הגנה מהחזרת שעון)
-function effectiveStatus({ chain, notices, rootKeys, now, lastSeen = 0 }) {
+// noticeCap — תקרה לזמן ההנפקה של הודעה כ"זמן שנצפה" (ממצא f7): הודעה שנחתמה בשעון עתידי לא מקדמת את הזמן מעבר לה
+function effectiveStatus({ chain, notices, rootKeys, now, lastSeen = 0, noticeCap = Infinity }) {
   let node;
   try { node = L.verifyChain(chain, rootKeys); }
   catch (e) { return { status: 'locked', invalid: true, reasons: [{ kind: 'locked', reason: e.message }] }; }
@@ -80,7 +81,7 @@ function effectiveStatus({ chain, notices, rootKeys, now, lastSeen = 0 }) {
   const keysById = new Map(payloads.map(p => [p.id, p.publicKey]));
   const valid = applicableNotices(notices, chainIds, keysById, rootKeys);
 
-  const at = Math.max(now, lastSeen, ...valid.map(p => p.issuedAt));
+  const at = Math.max(now, lastSeen, ...valid.map(p => Math.min(p.issuedAt, noticeCap)));
   const reasons = [];
   let graceUntil = null;
 

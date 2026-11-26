@@ -232,6 +232,7 @@ const migrations = [
 ];
 
 const ROLES = ['admin', 'editor', 'viewer', 'accountant'];
+const LICENSE_MARK_KEYS = ['trialStart', 'hadLicense', 'lastSeen', 'notices', 'leaves'];
 
 const PASSWORD_MIN_LENGTH = 12;
 const LOCKOUT_MS = 15 * 60 * 1000;
@@ -681,7 +682,7 @@ class Database {
     return rows.length > 0;
   }
 
-  // סימוני הרישוי (תחילת הניסיון, "הותקן כאן רישיון") — עותק בלתי תלוי בקבצי הרישוי (בדיקת קוד 23.10.2026, ממצא 29;
+  // סימוני הרישוי (תחילת הניסיון, "הותקן כאן רישיון", הזמן האחרון שנצפה, מזהי ההודעות והרישיונות) — עותק בלתי תלוי בקבצי הרישוי (בדיקת קוד 23.10.2026, ממצא 29;
   // shell/licensing/store.js → setMark). טבלה נפרדת מהאוספים: לא ב-backup() ולא מוחלפת ב-restore() — הסימון נכנס לגיבוי
   // ברמה העליונה (collectBackup ← econ.licenseMarks) ונקלט בשחזור רק כמיזוג מחמיר (econ.mergeLicenseMarks). ערכים לא רגישים
   async getLicenseMarks() {
@@ -694,8 +695,16 @@ class Database {
   async setLicenseMarks(marks) {
     await this.run('CREATE TABLE IF NOT EXISTS license_marks (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
     for (const [k, v] of Object.entries(marks || {})) {
-      if (k === 'trialStart' || k === 'hadLicense') await this.run('INSERT OR REPLACE INTO license_marks (k, v) VALUES (?, ?)', [k, String(v)]);
+      if (LICENSE_MARK_KEYS.includes(k)) await this.run('INSERT OR REPLACE INTO license_marks (k, v) VALUES (?, ?)', [k, String(v)]);
     }
+  }
+
+  // האירוע המוקדם ביותר של הרישוי ביומן הביקורת (license.trial.start, license.install...) — רצפה לתחילת הניסיון כשכל
+  // סימוני הרישוי נמחקו (סקירת קוד 11.2026, ממצא f8). 0 — לא רץ כאן רישוי מעולם
+  async firstLicenseAuditAt() {
+    const rows = await this.all("SELECT MIN(created_at) AS t FROM audit_events WHERE action LIKE 'license.%'");
+    const t = rows.length ? Date.parse(rows[0].t) : NaN;
+    return Number.isFinite(t) && t > 0 ? t : 0;
   }
 
   async userHasPermission(userId, permission) {

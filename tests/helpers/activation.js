@@ -35,4 +35,8 @@ function markActivatedStorage(items, at, key = 'supersuite.license') {
   markSynced({ read: () => (items.has(secretKey) ? items.get(secretKey) : null), write: (t) => items.set(secretKey, t) }, at);
 }
 
-module.exports = { markActivated, markActivatedStorage, markSynced };
+// הנפקת מערכות בת דורשת תנאי הפעלה (store.assertCanIssue, סקירה 5.11.2026): בבדיקות שאינן על תנאי ההפעלה ואין בהן
+// שרת עם תעודה (בדיקה חתומה) — מדלגים על הבדיקה הזו בלבד. הבדיקה עצמה — tests/review-2026-11-relay.test.js
+function allowIssuing(store) { store.assertCanIssue = () => {}; return store; }
+
+module.exports = { markActivated, markActivatedStorage, markSynced, allowIssuing };

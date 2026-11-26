@@ -11,7 +11,7 @@ const L = require('../shell/licensing/license');
 const S = require('../shell/licensing/status');
 const LS = require('../shell/licensing/store');
 const { createLicenseSync } = require('../shell/licensing/sync');
-const { markActivated } = require('./helpers/activation');
+const { markActivated, allowIssuing } = require('./helpers/activation');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-audit-lic-'));
 // מסד שנפתח דרך ipc נשאר פתוח עד סוף התהליך (Windows לא מוחק אותו) — את השארית מנקה tools/run-tests.js
@@ -41,7 +41,7 @@ function licensed({ clock = () => T0 + DAY, storage = mem() } = {}) {
   const lic = issueFor(node);
   const secret = v2Secret(node);
   storage.write(JSON.stringify({ chain: [lic], notices: [], children: [] }));
-  const store = LS.createLicenseStore({ storage, secret, rootKeys, clock });
+  const store = allowIssuing(LS.createLicenseStore({ storage, secret, rootKeys, clock }));
   return { node, lic, id: lic.payload.id, storage, secret, store };
 }
 const rootHold = (target, over = {}) => S.createNotice({ privateJwk: root.privateJwk },
@@ -337,7 +337,7 @@ function fakeRelay() {
   let onSend = null;
   let onFetch = null;
   let seq = 0;
-  const push = (kind, body, at = T0) => box.push({ id: 'm' + (++seq), kind, body, at, from: 'x'.repeat(22) });
+  const push = (kind, body, at = T0, from = 'x'.repeat(22)) => box.push({ id: 'm' + (++seq), kind, body, at, from });
   const fetchImpl = async (url, opts) => {
     const req = JSON.parse(opts.body);
     let data = { ok: true };
@@ -426,7 +426,8 @@ test('ממצא 35 (סקירה): הודעה שנכשלה בגלל קובץ תפו
   const busy = () => { throw Object.assign(new Error('לא ניתן לקרוא כרגע את קובץ הרישוי'), { code: LS.READ_ERROR_CODE }); };
   const store = { ...t.store, importNotices: busy, issueChild: busy };
   relay.push('notices', noticesPkg([rootHold(t.id)]));
-  relay.push('approval', '{}');
+  // אישור — רק ממנהל-העל (ממצא f12, סקירה 11.2026)
+  relay.push('approval', '{}', T0, require('../shell/licensing/remote').mailboxOf(rootKeys[0]));
   relay.push('rejection', JSON.stringify({ name: 'סניף', reason: 'חסר תשלום' }));
   const sync = createLicenseSync({ store, rootKeys, fetchImpl: relay.fetchImpl, clock: () => T0 + DAY });
   const r = await sync.receive();
@@ -455,8 +456,10 @@ test('ממצא 29 (סקירה): תחילת ניסיון עתידית (בסימו
   const future = Date.UTC(2100, 0, 1);
   const s = LS.createLicenseStore({ storage: mem(), secret: mem(), rootKeys, clock: () => now });
   s.setMark({ trialStart: future });
-  assert.deepEqual(s.mark(), {});
+  // סקירה 2.11.2026 (f8): תאריך עתידי בעותק מקומי = שעון שהוחזר אחורה — נשמר כרצפה לזמן, לא כתחילת ניסיון
+  assert.deepEqual(s.mark(), { lastSeen: future });
   assert.equal(s.current().trial.startedAt, now, 'לא מהתאריך העתידי');
+  assert.equal(s.current().status, 'trial_ended', 'רצפת הזמן — לא ניסיון קבוע');
   s.importMark({ trialStart: future });
   s.invalidate();
   assert.equal(s.current().trial.startedAt, now);
@@ -566,8 +569,8 @@ test('ipc / ממצא 29 (סקירה): הסימון בגיבוי — שחזור �
   await handlers['auth:setup'](ev(91), 'menahel_bk1', PASS);
   assert.equal((await handlers['license:getStatus'](ev(91))).trial.startedAt, T0);
   const marks = ipc.licenseMarks(); // מה שנכנס לכל גיבוי (collectBackup)
-  assert.deepEqual(marks, { trialStart: T0 });
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir1, 'install-marks.json'), 'utf8')), { trialStart: T0 });
+  assert.deepEqual(marks, { trialStart: T0, lastSeen: T0 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir1, 'install-marks.json'), 'utf8')), { trialStart: T0, lastSeen: T0 });
 
   // התקנה נקייה (בלי קבצי רישוי ובלי מסד) ושחזור הגיבוי
   now = T0 + 31 * DAY;

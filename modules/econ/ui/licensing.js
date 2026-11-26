@@ -6,7 +6,7 @@
 // רישוי ומערכות (docs/LICENSING-DESIGN.md): הרישיון של המערכת, מערכות בת, ומצב מנהל-העל.
 // כל פעולה בכפתור; הקבצים (בקשה / רישיון / אישור / הודעות) נשמרים ונפתחים בבוחר קבצים.
 // ============================================================
-const LIC_STATUS = { active: 'פעילה', pending_payment: 'ממתינה לתשלום', suspended: 'מושבתת זמנית', locked: 'נעולה', terminated: 'הסתיימה', trial_ended: 'תקופת הניסיון הסתיימה' };
+const LIC_STATUS = { active: 'פעילה', pending_payment: 'ממתינה לתשלום', suspended: 'מושבתת זמנית', locked: 'נעולה', terminated: 'הסתיימה', trial_ended: 'תקופת הניסיון הסתיימה', offline: 'צפייה בלבד — אין חיבור לשרת הרישוי' };
 // תקופת ניסיון (PLAN.md 4.2): כל התחומים פתוחים עד הסוף, ואחר כך קריאה, ייצוא וגיבוי בלבד
 function licTrialRows(t) {
   if (!t) return '';
@@ -54,10 +54,11 @@ function renderActivationCard(act, d) {
     <td>${s.ok ? (s.until ? `<small class="muted">${s.id === 'license' ? 'בתוקף עד' : 'נדרש שוב עד'} ${esc(licDate(s.until))}</small>` : '') : `<small class="bad">${esc(s.reason)}</small>`}</td>
     <td>${s.ok ? '' : fix[s.id] || ''}</td></tr>`).join('');
   return `<div class="card">
-    <div class="acct-header"><h3>הפעלת המערכת</h3><span>${act.ok ? '<span class="ok">✔ המערכת פעילה</span>' : '<span class="bad">נדרשת השלמה — עד אז המערכת נעולה</span>'}</span></div>
+    <div class="acct-header"><h3>הפעלת המערכת</h3><span>${act.ok ? '<span class="ok">✔ המערכת פעילה</span>' : act.readOnly ? `<span class="bad">צפייה בלבד עד החיבור — נעילה מלאה ב-${esc(licDate(act.lockAt))}</span>` : '<span class="bad">נדרשת השלמה — עד אז המערכת נעולה</span>'}</span></div>
     <table class="acct-table"><tbody>${rows}</tbody></table>
-    ${act.ok && act.dueSoon ? `<p class="bad">⏰ יש להתחבר לשרת הרישוי עד ${esc(licDate(act.nextDue))} — אחרת המערכת תינעל. הנתונים לא נמחקים.</p>${isAdmin && remoteOn ? syncBtn : ''}`
+    ${act.ok && act.dueSoon ? `<p class="bad">⏰ יש להתחבר לשרת הרישוי עד ${esc(licDate(act.nextDue))} — אחרת המערכת תעבור לצפייה בלבד, ו-30 יום אחר כך תינעל. הנתונים לא נמחקים.</p>${isAdmin && remoteOn ? syncBtn : ''}`
       : act.ok && act.nextDue ? `<p class="muted">כדי שהמערכת תישאר פתוחה: חיבור לשרת הרישוי לפחות פעם בחודש (אוטומטי כשיש אינטרנט). המועד הקרוב: ${esc(licDate(act.nextDue))}.</p>`
+      : act.readOnly ? `<p class="bad">⏸ אין חיבור לשרת הרישוי יותר מ-30 יום — אפשר לצפות, לייצא ולגבות. בלי חיבור עד ${esc(licDate(act.lockAt))} המערכת תינעל. במחשב מסונן — בקשו מספק הסינון היתר לכתובת שרת הרישוי.</p>`
       : '<p class="muted">מערכת ברישיון נפתחת עם רישיון שנתי בתוקף וחיבור לשרת הרישוי, שחוזר לפחות פעם בחודש. כניסה עם Google אינה חובה.</p>'}
   </div>`;
 }
@@ -82,16 +83,17 @@ function licSummary(st, now = Date.now()) {
       return { kind: 'expiring', icon: '⏰', title: 'הרישיון עומד לפוג',
         detail: `בתוקף עד ${licDate(st.expiresAt)} (עוד ${licDaysText(Math.max(0, Math.ceil((st.expiresAt - now) / LIC_DAY_MS)))}) — יש לחדש.` };
     }
-    if (act.dueSoon) return { kind: 'expiring', icon: '⏰', title: 'נדרש חיבור לשרת', detail: `יש להתחבר לשרת הרישוי עד ${licDate(act.nextDue)} — אחרת המערכת תינעל.` };
+    if (act.dueSoon) return { kind: 'expiring', icon: '⏰', title: 'נדרש חיבור לשרת', detail: `יש להתחבר לשרת הרישוי עד ${licDate(act.nextDue)} — אחרת המערכת תעבור לצפייה בלבד.` };
     return { kind: 'active', icon: '✔', title: 'הרישיון פעיל', detail: st.expiresAt ? `בתוקף עד ${licDate(st.expiresAt)}.` : 'המערכת פעילה.' };
   }
   // סיום — קריאה בלבד (סעיף 8 בהסכם הרישיון), אלא אם יש גם נעילה (כמו isReadOnly ב-gate.js)
-  const readOnly = ['pending_payment', 'suspended', 'trial_ended'].includes(st.status)
+  const readOnly = ['pending_payment', 'suspended', 'trial_ended', 'offline'].includes(st.status)
     || (st.status === 'terminated' && !(st.reasons || []).some(x => x && x.kind === 'locked'));
   const r = (st.reasons || [])[0];
   const title = st.status === 'trial_ended' ? 'תקופת הניסיון הסתיימה'
     : st.status === 'terminated' ? (readOnly ? 'השימוש במערכת הסתיים — צפייה בלבד' : 'השימוש במערכת הסתיים')
-      : readOnly ? 'צפייה בלבד — ' + (LIC_STATUS[st.status] || st.status) : 'המערכת נעולה';
+      : st.status === 'offline' ? LIC_STATUS.offline
+        : readOnly ? 'צפייה בלבד — ' + (LIC_STATUS[st.status] || st.status) : 'המערכת נעולה';
   return { kind: readOnly ? 'limited' : 'locked', icon: readOnly ? '⏸' : '🔒', title,
     detail: (readOnly ? 'אפשר לצפות בנתונים, לייצא ולגבות. יצירה ועריכה חסומות. ' : '') + (r && r.reason ? r.reason : '') };
 }
@@ -107,8 +109,11 @@ function licFixSteps(st, d) {
     return [remoteOn ? 'לחצו "קניית רישיון", בחרו תכנית ושלמו בדף המאובטח — הרישיון יגיע לבד.' : 'בהגדרות המתקדמות: "הפקת בקשת רישיון", ושלחו את הקובץ לספק.', install];
   }
   if (r.source === 'activation') {
+    const act = st.activation || {};
+    const lock = st.status === 'offline' && act.lockAt ? [`בלי חיבור עד ${licDate(act.lockAt)} המערכת תינעל לגמרי (עד אז — צפייה, ייצוא וגיבוי).`] : [];
     return r.step === 'server'
-      ? [remoteOn ? 'התחברו לאינטרנט ולחצו "התחברות לשרת עכשיו" בכרטיס "הפעלת המערכת".' : 'יש להגדיר שרת רישוי בהגדרות המתקדמות ("עבודה מרחוק").']
+      ? [remoteOn ? 'התחברו לאינטרנט ולחצו "התחברות לשרת עכשיו" בכרטיס "הפעלת המערכת".' : 'יש להגדיר שרת רישוי בהגדרות המתקדמות ("עבודה מרחוק").',
+        'במחשב מסונן (נטפרי וכדומה) — בקשו מספק הסינון היתר לכתובת שרת הרישוי.', ...lock]
       : ['הרישיון השנתי חסר או שפג. פנו לספק לחידוש.', install];
   }
   if (st.status === 'pending_payment') return r.source === 'billing' ? ['תוקף הרישיון הסתיים. פנו לספק לחידוש.', install] : ['יש להסדיר את התשלום מול הספק.', sync];
@@ -359,7 +364,7 @@ function licCertWarning(d, now = Date.now()) {
   if (days > LIC_CERT_WARN_DAYS) return '';
   const when = days > 0 ? `תפוג בעוד ${days} ימים (${licDate(exp)})` : `פגה ב-${licDate(exp)}`;
   const what = d.owner && d.owner.unlocked
-    ? 'יש להנפיק תעודה חדשה למפתח השרת (relay-cert) ולהתקין אותה בשרת — docs/LICENSING-ACTIVATION.md, שלב 7, "חידוש". בלי זה כל המערכות ייעלו 30 יום אחרי התפוגה.'
+    ? 'יש להנפיק תעודה חדשה למפתח השרת (relay-cert) ולהתקין אותה בשרת — docs/LICENSING-ACTIVATION.md, שלב 7, "חידוש". בלי זה כל המערכות יינעלו 30 יום אחרי התפוגה.'
     : 'בלי חידוש התעודה אצל הספק, המערכת תינעל 30 יום אחרי התפוגה. פנו לספק התוכנה.';
   return `<div class="ss-card ss-card-warning lic-cert-warn" role="alert"><p><b>⚠ התעודה של שרת הרישוי ${esc(when)}.</b> ${esc(what)}</p></div>`;
 }
@@ -379,6 +384,9 @@ function renderRemoteCard(r, st) {
       <div class="acct-row"><span>שרת</span><span dir="ltr">${esc(r.url)}</span></div>
       <div class="acct-row"><span>סנכרון אחרון</span><span>${r.lastSync ? esc(new Date(r.lastSync).toLocaleString('he-IL')) : 'עדיין לא'}</span></div>
       ${r.checkinError ? `<div class="acct-row"><span>אימות השרת</span><span>⚠ ${esc(r.checkinError)}</span></div>` : ''}
+      ${r.pendingLicense ? `<div class="ss-card ss-card-warning" role="alert"><p><b>⚠ התקבל רישיון ממערכת מנפיקה אחרת${r.pendingLicense.name ? ` („${esc(r.pendingLicense.name)}")` : ''}.</b>
+        הוא לא הותקן: התקנתו תעביר את המערכת לניהול של המנפיק החדש. יש לוודא מול הספק לפני ההתקנה.</p>
+        <div class="acct-actions"><button class="secondary small" id="licPendingInstallBtn">התקנת הרישיון שהתקבל</button></div></div>` : ''}
       ${r.myCode ? `<div class="acct-row"><span>קוד המערכת (למערכות בת)</span><span dir="ltr"><b>${esc(r.myCode)}</b></span></div>` : ''}
       <div class="acct-actions">
         <button class="primary" id="licRemoteSyncBtn">🔄 סנכרון עכשיו</button>
@@ -394,7 +402,17 @@ function renderRemoteCard(r, st) {
             : p.payment ? `<button class="secondary small" data-lic-pay-msg="${esc(p.payment.id)}">📋 הודעת תשלום</button>`
               : `<button class="primary small" data-lic-remote-pay="${esc(p.keyId)}" data-name="${esc(p.name)}">💳 דרישת תשלום</button>`}
             <button class="secondary small" data-lic-remote-dismiss="${esc(p.keyId)}">התעלמות</button></td></tr>`).join('')}</tbody></table></div>` : ''}
-      <p class="muted">השרת משמש רק להעברה: כל רישיון, אישור ועדכון חתומים, והתוכנה בודקת אותם בעצמה. בלי חיבור — הכול ממשיך לעבוד, ואפשר להעביר קבצים ידנית.</p>`
+      <p class="muted">השרת משמש רק להעברה: כל רישיון, אישור ועדכון חתומים, והתוכנה בודקת אותם בעצמה. בלי חיבור — הכול ממשיך לעבוד, ואת אישור החיבור (פעם ב-30 יום) מעבירים בקובץ:</p>
+      <ol class="muted">
+        <li>במחשב בלי חיבור: "שמירת בקשת אישור" — לדיסק-און-קי.</li>
+        <li>במחשב מחובר עם SuperSuite: "העברת בקשה של מחשב אחר" — בוחרים את הבקשה ושומרים את האישור.</li>
+        <li>במחשב בלי חיבור: "טעינת אישור" — בוחרים את קובץ האישור. אותו קובץ טוב עד 14 יום מיום הבקשה.</li>
+      </ol>
+      <div class="acct-actions">
+        <button class="secondary" id="licOfflineReqBtn">💾 שמירת בקשת אישור</button>
+        <button class="secondary" id="licOfflineRelayBtn">🔁 העברת בקשה של מחשב אחר</button>
+        <button class="secondary" id="licOfflineImportBtn">📥 טעינת אישור</button>
+      </div>`
     : '<p class="muted">בלי שרת — העברת קבצים ידנית (הכפתורים למטה). עם שרת — בקשות, אישורים ועדכוני השבתה עוברים בלחיצה, גם למחשב מרוחק.</p>'}
   </div>`;
 }
@@ -500,9 +518,13 @@ function renderOwnerBundles(bundles, cat) {
 const PAY_CHECK = { verified: ['ok', '✔ אומת מול Cardcom'], mismatch: ['bad', '✖ לא תואם'], unpaid: ['bad', '✖ לא שולם'], unavailable: ['muted', '⚠ לא נבדק'] };
 function signupPayCheckHtml(x) {
   const c = x && x.paymentCheck;
-  if (!c || !PAY_CHECK[c.status]) return '';
+  const p = x && x.payment;
+  // האישור החתום של שרת הרישוי (נבדק בקליטת ההרשמה). הרשמה מלפני האישור החתום — בלי השדה, ובלי שורה
+  const signed = !p || !(p.amountAgorot > 0) || typeof p.verified !== 'boolean' ? ''
+    : p.verified ? '<br><small class="ok">✔ אישור חתום של שרת הרישוי</small>' : '<br><small class="bad">⚠ בלי אישור חתום של שרת הרישוי</small>';
+  if (!c || !PAY_CHECK[c.status]) return signed;
   const [cls, label] = PAY_CHECK[c.status];
-  return `<br><small class="${cls}" title="${esc(c.message || '')}">${label}</small>${c.status === 'verified' ? '' : '<br><small>' + esc(c.message || '') + '</small>'}`;
+  return signed + `<br><small class="${cls}" title="${esc(c.message || '')}">${label}</small>${c.status === 'verified' ? '' : '<br><small>' + esc(c.message || '') + '</small>'}`;
 }
 // הרשמה בתשלום, בלי חשבונית ובלי אימות מוצלח — נבדקת מול Cardcom לפני ההנפקה
 const signupNeedsCheck = (x, cardcomOn) => !!(cardcomOn && x && x.payment && x.payment.amountAgorot > 0 && !x.invoice

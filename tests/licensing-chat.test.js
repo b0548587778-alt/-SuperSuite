@@ -2,6 +2,7 @@
 const test = require('node:test');
 const EconUI = require('./helpers/econ-ui');
 const assert = require('node:assert/strict');
+const { allowIssuing } = require('./helpers/activation');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -82,7 +83,7 @@ test('שיחה מלאה דרך שרת אמיתי: מנהל-העל ↔ לקוח �
     const owner = createOwnerCore({ storage: mem() });
     const rootKeys = [owner.init(PASS).publicKey];
     const mk = (withOwner) => {
-      const store = createLicenseStore({ storage: one(), secret: one(), rootKeys });
+      const store = allowIssuing(createLicenseStore({ storage: one(), secret: one(), rootKeys }));
       store.setRemoteSettings({ url });
       const chat = createChatStore({ storage: one() });
       const ownerChat = withOwner ? createChatStore({ storage: one() }) : null;

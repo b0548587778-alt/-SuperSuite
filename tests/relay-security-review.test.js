@@ -54,7 +54,7 @@ const paid = (checkoutId = 'c1') => ({ rawBody: JSON.stringify({ checkoutId, sta
 function flood(relay) {
   let sent = 0;
   for (let i = 0; sent < R.MAX_UNKNOWN_IN_OWNER_BOX; i++) {
-    const n = Math.min(R.SEND_PER_IP_TO_BOX_HOUR, R.MAX_UNKNOWN_IN_OWNER_BOX - sent);
+    const n = Math.min(R.SEND_PER_IP_TO_BOX_HOUR, 50, R.MAX_UNKNOWN_IN_OWNER_BOX - sent);
     sent += relay.handle(req(L.generateKeyPair(), 'send', { items: Array.from({ length: n }, () => ({ to: ownerId, kind: 'message', body: 'x' })) }), '10.0.' + i + '.1').sent;
   }
 }
