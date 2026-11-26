@@ -11,6 +11,7 @@ const NavHistory = require('../../shell/history');
 const { canShellNavigate, canModuleOpen } = require('../../shell/nav-guard');
 const LoginGate = require('../../shell/login-gate');
 const Legacy = require('../../shell/legacy-modules');
+const BackupScope = require('../../shell/backup-scope'); // סימוני הרישוי רק מגיבוי מוצפן של התוכנה הזו, כמו main.js
 const ModCounters = require('../../shell/module-counters');
 const Chat = require('../../shell/licensing/chat');
 const UsersBk = require('../../modules/econ/core/usersBackup'); // משתמשים ויומן הפעולות בגיבוי המלא
@@ -240,7 +241,8 @@ function start(ctx) {
   }
   // כשל בקריאת הכספים = כשל של הגיבוי כולו (כמו main.js): לא נשמר קובץ בלי הכספים שנראה כגיבוי תקין
   async function collectBackup(scope = 'all') {
-    const out = { suite: 'SuperSuite', version: 2, scope, createdAt: new Date().toISOString(), econ: null, localStorage: {} };
+    // product — המוצר שיצר את הגיבוי (shell/backup-scope.js), כמו main.js
+    const out = { suite: 'SuperSuite', product: BackupScope.PRODUCT, version: 2, scope, createdAt: new Date().toISOString(), econ: null, localStorage: {} };
     // סימוני הרישוי בכל גיבוי — שחזור להתקנה נקייה לא מתחיל ניסיון חדש (ipc.js, ממצא 29)
     if (econ.licenseMarks) out.licenseMarks = econ.licenseMarks();
     if (scope === 'all' || scope === 'econ') {
@@ -335,8 +337,9 @@ function start(ctx) {
     const f = await bridgeAsync('openText');
     if (!f || typeof f.text !== 'string') return { ok: false };
     let data;
+    const encrypted = BK.isEncryptedBackup(f.text);
     try {
-      if (!BK.isEncryptedBackup(f.text)) data = JSON.parse(f.text); // גיבוי ישן (JSON גלוי) — נקרא בלבד
+      if (!encrypted) data = JSON.parse(f.text); // גיבוי ישן (JSON גלוי) — נקרא בלבד
       else if (!passphrase) throw new Error('הקובץ מוצפן — הזן את סיסמת הגיבוי כדי לשחזר');
       else data = JSON.parse(BK.decryptBackup(f.text, passphrase));
     } catch (e) {
@@ -388,8 +391,9 @@ function start(ctx) {
       ctx.alert('השחזור נכשל: ' + String(e.message || e) + ' ' + back);
       return { ok: false };
     }
-    // סימוני הרישוי מהגיבוי — רק מחמירים (ipc.js, ממצא 29)
-    try { if (econ.mergeLicenseMarks) econ.mergeLicenseMarks(data.licenseMarks); } catch { /* לא מבטל את השחזור */ }
+    // סימוני הרישוי מהגיבוי — רק מחמירים (ipc.js, ממצא 29), ורק מקובץ מוצפן של התוכנה הזו (shell/backup-scope.js)
+    const marks = BackupScope.licenseMarksToMerge(data, { encrypted });
+    try { if (marks && econ.mergeLicenseMarks) econ.mergeLicenseMarks(marks); } catch { /* לא מבטל את השחזור */ }
     // משתמשים ויומן הפעולות — מיזוג (משתמש קיים לא משתנה); כשל לא מבטל את השחזור, ומדווח
     let usersMsg = '';
     if (usersData) {

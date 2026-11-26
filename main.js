@@ -13,6 +13,7 @@ const DbKey = require('./shell/db-key');
 const SecureStore = require('./shell/secure-store');
 const ModCounters = require('./shell/module-counters');
 const Legacy = require('./shell/legacy-modules');
+const BackupScope = require('./shell/backup-scope');
 const Chat = require('./shell/licensing/chat');
 const UsersBk = require('./modules/econ/core/usersBackup'); // משתמשים ויומן הפעולות בגיבוי המלא
 const { issuedAfter } = require('./modules/econ/core/database');
@@ -603,7 +604,8 @@ async function readModuleItems(id) {
   return JSON.parse(await v.webContents.executeJavaScript(LS_DUMP));
 }
 async function collectBackup(scope = 'all') {
-  const out = { suite: 'SuperSuite', version: 2, scope, createdAt: new Date().toISOString(), econ: null, localStorage: {} };
+  // product — המוצר שיצר את הגיבוי: בשחזור, סימוני הרישוי נקלטים רק מגיבוי של התוכנה הזו (shell/backup-scope.js)
+  const out = { suite: 'SuperSuite', product: BackupScope.PRODUCT, version: 2, scope, createdAt: new Date().toISOString(), econ: null, localStorage: {} };
   // סימוני הרישוי (תחילת הניסיון, "הותקן רישיון") בכל גיבוי — שחזור להתקנה נקייה לא מתחיל ניסיון חדש (ipc.js, ממצא 29)
   if (econ.licenseMarks) out.licenseMarks = econ.licenseMarks();
   if (scope === 'all' || scope === 'econ') {
@@ -878,8 +880,10 @@ async function recoverDatabase(firstErr) {
         // שמגיע למסך נעשה מנהל. גיבוי ישן בלעדיהם — יצירת מנהל רק עם קוד השחזור (ipc.js → auth:setup)
         try { if (econ.usersRestore) await econ.usersRestore(econ.usersFromBackup(data.users)); } catch (e) { logger.error('restore-users', e); }
         try { if (!(await econ.getDb().hasUsers())) await econ.getDb().markSetupNeedsRecoveryCode(); } catch (e) { logger.error('restore-users', e); }
-        // המסד החדש בלי סימוני הרישוי — מהגיבוי (רק מחמיר: ניסיון ממשיך מהתאריך המקורי)
-        try { if (econ.mergeLicenseMarks) econ.mergeLicenseMarks(data.licenseMarks); } catch (e) { logger.error('restore-license-marks', e); }
+        // המסד החדש בלי סימוני הרישוי — מהגיבוי (רק מחמיר: ניסיון ממשיך מהתאריך המקורי). הגיבוי האוטומטי תמיד מוצפן
+        // (openAutoBackup); גיבוי של מוצר אחר שהונח בתיקייה — בלי הסימונים שלו (shell/backup-scope.js)
+        const marks = BackupScope.licenseMarksToMerge(data, { encrypted: true });
+        try { if (marks && econ.mergeLicenseMarks) econ.mergeLicenseMarks(marks); } catch (e) { logger.error('restore-license-marks', e); }
         await bootDialog({ type: 'info', message: 'הנתונים שוחזרו מהגיבוי האוטומטי', detail: `גיבוי מתאריך ${backup.day}. הקובץ הפגום נשמר בצד בתיקיית הנתונים.` });
         return true;
       }
@@ -1078,9 +1082,10 @@ async function restoreAll(passphrase) {
 async function restoreAllRun(passphrase) {
   const r = await dialog.showOpenDialog(win, { title: 'בחירת קובץ גיבוי', properties: ['openFile'], filters: [{ name: 'גיבוי SuperSuite', extensions: ['ssbk', 'json'] }] });
   if (r.canceled || !r.filePaths[0]) return { ok: false };
-  let data, text;
+  let data, text, encrypted = false;
   try {
     text = fs.readFileSync(r.filePaths[0], 'utf8');
+    encrypted = BK.isEncryptedBackup(text);
     data = JSON.parse(openBackupText(text, passphrase));
   } catch (e) {
     dialog.showErrorBox('שגיאה', e.message || 'הקובץ אינו גיבוי תקין');
@@ -1140,8 +1145,10 @@ async function restoreAllRun(passphrase) {
     dialog.showErrorBox('השחזור נכשל', String(e.message || e) + ' ' + back);
     return { ok: false };
   }
-  // סימוני הרישוי מהגיבוי — רק מחמירים (ipc.js, ממצא 29)
-  try { if (econ.mergeLicenseMarks) econ.mergeLicenseMarks(data.licenseMarks); } catch (e) { logger.error('restore-license-marks', e); }
+  // סימוני הרישוי מהגיבוי — רק מחמירים (ipc.js, ממצא 29), ורק מקובץ מוצפן של התוכנה הזו: גיבוי של מוצר אחר, או JSON
+  // גלוי שאפשר לערוך, משוחזר בלי הסימונים שבו (shell/backup-scope.js)
+  const marks = BackupScope.licenseMarksToMerge(data, { encrypted });
+  try { if (marks && econ.mergeLicenseMarks) econ.mergeLicenseMarks(marks); } catch (e) { logger.error('restore-license-marks', e); }
   // משתמשים ויומן הפעולות — מיזוג בטרנזקציה אחת אחרי שהשאר נשמר; כשל לא מבטל את השחזור, ומדווח
   let usersMsg = '';
   if (usersData) {

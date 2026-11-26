@@ -146,3 +146,49 @@ test('אנדרואיד: הגיבוי המלא כולל משתמשים ויומן
   await assert.doesNotReject(A.call(5, 'auth:login', 'zmani', 'zmani-pass-long-1'));
   await assert.doesNotReject(A.call(2, 'auth:login', 'admin', PASS));
 });
+
+// סימוני הרישוי — רק מגיבוי מוצפן של התוכנה הזו (shell/backup-scope.js), כמו ב-main.js (tests/backup-scope.test.js)
+test('אנדרואיד: הגיבוי נושא את המוצר; סימוני הרישוי נקלטים רק מגיבוי מוצפן של התוכנה הזו, ושאר הגיבוי משוחזר תמיד', async () => {
+  const Scope = require('../shell/backup-scope');
+  const DAY = 24 * 60 * 60 * 1000;
+  await A.call(2, 'auth:login', 'admin', PASS);
+  assert.deepEqual(await A.call(1, 'shell:backup-all', BPASS, 'all'), { ok: true });
+  assert.ok(BK.isEncryptedBackup(A.io.saved), 'אין מסלול כתיבה גלוי');
+  const data = JSON.parse(BK.decryptBackup(A.io.saved, BPASS));
+  assert.equal(data.product, Scope.PRODUCT);
+  delete data.chat; // תיבת ההודעות אינה בסביבת הבדיקה
+  delete data.users;
+  const marks = () => A.econ.licenseMarks();
+  const donors = async () => (await A.econ.getDb().load()).donors.map(d => d.name);
+  // extra.product: undefined ← גיבוי ישן בלי השדה (JSON.stringify משמיט אותו)
+  const restore = async (donor, extra, { plain = false } = {}) => {
+    const text = JSON.stringify({ ...data, econ: { ...data.econ, donors: [{ id: 'd-' + donor, name: donor }] }, ...extra });
+    A.io.openText = plain ? text : BK.encryptBackup(text, BPASS);
+    const r = await A.call(1, 'shell:restore-all', BPASS);
+    assert.equal(r.ok, true, JSON.stringify([r, A.alerts.at(-1)]));
+    assert.deepEqual(await donors(), [donor], 'שאר הגיבוי שוחזר');
+  };
+  const before = marks();
+  const foreign = { hadLicense: true, trialStart: Date.now() - 400 * DAY };
+  const unchanged = (why) => {
+    assert.notEqual(marks().hadLicense, true, why);
+    assert.equal(marks().trialStart, before.trialStart, why);
+  };
+  // מוצר אחר: עם product, ובלי product אבל עם המודולים של SuperSuite לימוד
+  await restore('יעקב כהן', { product: 'supersuite-learn', licenseMarks: foreign });
+  unchanged('גיבוי של SuperSuite לימוד');
+  await restore('משה לוי', { product: undefined, localStorage: { tools: {}, english: {}, math: {}, school: {} }, licenseMarks: foreign });
+  unchanged('גיבוי ישן של SuperSuite לימוד');
+  // JSON גלוי של התוכנה הזו — אפשר לערוך אותו בעורך טקסט
+  await restore('אהרן פרידמן', { licenseMarks: foreign }, { plain: true });
+  unchanged('גיבוי גלוי');
+  // מוצפן ושלנו — נקלט; גיבוי ישן בלי product — גם; ורק מחמיר
+  const t1 = Date.now() - 3 * DAY, t2 = Date.now() - 4 * DAY;
+  await restore('שמעון רוזן', { licenseMarks: { trialStart: t1 } });
+  assert.equal(marks().trialStart, t1);
+  await restore('לוי גולדברג', { product: undefined, licenseMarks: { trialStart: t2 } });
+  assert.equal(marks().trialStart, t2, 'גיבוי ישן בלי product ממשיך להעביר את הסימונים');
+  await restore('יוסף כץ', { licenseMarks: { trialStart: t1 } });
+  assert.equal(marks().trialStart, t2, 'תאריך מאוחר יותר לא מאריך');
+  assert.notEqual(marks().hadLicense, true);
+});

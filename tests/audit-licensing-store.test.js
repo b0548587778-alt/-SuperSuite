@@ -637,10 +637,15 @@ test('גיבוי ושחזור (סקירה): הסימון נכלל בכל גיב�
   const main = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
   const android = fs.readFileSync(path.join(ROOT, 'android', 'web', 'main-android.js'), 'utf8');
   assert.match(fnBody(main, 'async function collectBackup('), /out\.licenseMarks = econ\.licenseMarks\(\)/);
-  assert.match(fnBody(main, 'async function restoreAllRun('), /econ\.mergeLicenseMarks\(data\.licenseMarks\)/);
-  assert.match(fnBody(main, 'async function recoverDatabase('), /restore\(data\.econ\);[\s\S]*econ\.mergeLicenseMarks\(data\.licenseMarks\)/);
+  // רק מגיבוי מוצפן של התוכנה הזו (shell/backup-scope.js) — לא ישירות מהקובץ
+  assert.match(fnBody(main, 'async function restoreAllRun('), /BackupScope\.licenseMarksToMerge\(data, \{ encrypted \}\)[\s\S]*econ\.mergeLicenseMarks\(marks\)/);
+  assert.match(fnBody(main, 'async function recoverDatabase('), /restore\(data\.econ\);[\s\S]*BackupScope\.licenseMarksToMerge\(data, \{ encrypted: true \}\)[\s\S]*econ\.mergeLicenseMarks\(marks\)/);
   assert.match(fnBody(android, 'async function collectBackup('), /out\.licenseMarks = econ\.licenseMarks\(\)/);
-  assert.match(fnBody(android, 'async function restoreAll('), /econ\.mergeLicenseMarks\(data\.licenseMarks\)/);
+  assert.match(fnBody(android, 'async function restoreAll('), /BackupScope\.licenseMarksToMerge\(data, \{ encrypted \}\)[\s\S]*econ\.mergeLicenseMarks\(marks\)/);
+  for (const src of [main, android]) {
+    assert.doesNotMatch(src, /mergeLicenseMarks\(data\.licenseMarks\)/, 'אין קליטה ישירה מהקובץ');
+    assert.match(src, /product: BackupScope\.PRODUCT/, 'המוצר נרשם בכל גיבוי');
+  }
 });
 
 // main.js האמיתי בתהליך נפרד (כמו tests/db-recovery.test.js): מסד פגום ← שחזור מהגיבוי האוטומטי, שבו הסימון
@@ -675,7 +680,8 @@ require(${JSON.stringify(path.join(__dirname, '..', 'main.js'))});
 })().catch(e => process.stdout.write('RESULT' + JSON.stringify({ fatal: String(e && e.stack) })));
 `;
 
-test('main.js (סקירה): מסד פגום ← שחזור מהגיבוי האוטומטי מחזיר גם את סימוני הרישוי', async () => {
+// מסד פגום + גיבוי אוטומטי מוצפן אחד בתיקיית הגיבוי, ושחזור ממנו בעלייה; extra — שדות נוספים בגיבוי (product וכו')
+async function recoverFromAutoBackup(trialStart, extra = {}) {
   const { spawnSync } = require('child_process');
   const crypto = require('crypto');
   const R = require('../shell/db-recovery');
@@ -695,9 +701,8 @@ test('main.js (סקירה): מסד פגום ← שחזור מהגיבוי האו
   const bkDir = path.join(userData, 'bk');
   fs.mkdirSync(bkDir);
   fs.writeFileSync(path.join(userData, 'backup-settings.json'), JSON.stringify({ targetDir: bkDir }));
-  const trialStart = Date.UTC(2026, 0, 1);
   const out = { suite: 'SuperSuite', version: 2, scope: 'all', econ: { donors: [{ id: 'd1', name: 'משה כהן' }] }, localStorage: {},
-    licenseMarks: { trialStart, hadLicense: true } };
+    licenseMarks: { trialStart, hadLicense: true }, ...extra };
   fs.writeFileSync(path.join(bkDir, 'auto-2026-10-17.ssbk'), BK.encryptBackup(JSON.stringify(out), key));
 
   const r = spawnSync(process.execPath, ['-e', SPAWN_SCRIPT(userData, [0, 0])], { encoding: 'utf8', timeout: 90000 });
@@ -706,6 +711,26 @@ test('main.js (סקירה): מסד פגום ← שחזור מהגיבוי האו
   const res = JSON.parse(r.stdout.slice(i + 6));
   assert.ok(!res.fatal, res.fatal);
   assert.deepEqual(res.donors, ['משה כהן'], 'הנתונים שוחזרו');
+  return { res, userData };
+}
+
+test('main.js (סקירה): מסד פגום ← שחזור מהגיבוי האוטומטי מחזיר גם את סימוני הרישוי', async () => {
+  const trialStart = Date.UTC(2026, 0, 1);
+  // גיבוי ישן של התוכנה הזו (בלי product) — נקלט כמו קודם
+  const { res, userData } = await recoverFromAutoBackup(trialStart);
   assert.deepEqual(res.marks, { trialStart, hadLicense: true });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(userData, 'install-marks.json'), 'utf8')), { trialStart, hadLicense: true });
+  // וגם גיבוי חדש, שנושא את המוצר של התוכנה הזו
+  const own = await recoverFromAutoBackup(trialStart, { product: require('../shell/backup-scope').PRODUCT });
+  assert.deepEqual(own.res.marks, { trialStart, hadLicense: true });
+});
+
+test('main.js: מסד פגום ← גיבוי אוטומטי של מוצר אחר שהונח בתיקייה משוחזר בלי סימוני הרישוי שלו', async () => {
+  const trialStart = Date.UTC(2026, 0, 1);
+  // עם product של SuperSuite לימוד, או גיבוי מלא ישן שלה בלי product (המודולים שלה קיימים בו תמיד)
+  for (const extra of [{ product: 'supersuite-learn' }, { localStorage: { english: {}, math: {}, school: {}, tools: {} } }]) {
+    const { res } = await recoverFromAutoBackup(trialStart, extra);
+    assert.notEqual(res.marks.hadLicense, true, 'hadLicense של המוצר האחר לא נקלט: ' + JSON.stringify(extra));
+    assert.notEqual(res.marks.trialStart, trialStart, 'תחילת הניסיון של המוצר האחר לא נקלטה');
+  }
 });
