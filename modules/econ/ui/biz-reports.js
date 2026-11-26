@@ -167,7 +167,7 @@ function renderBizDashCard(s) {
   const debtors = (s.topDebtors || []).map(c => `<div class="acct-row"><span>${esc(c.customer)}${c.oldestDays > 30 ? ` <small class="muted">${c.oldestDays} יום</small>` : ''}</span><span>${agMoney(c.openAg)}</span></div>`).join('');
   const pays = (s.payments || []).map(p => `<div class="acct-row"><span>${esc(p.label)} <small class="muted">${esc(p.date)}</small></span><span class="neg">${agMoney(p.amountAg)}</span></div>`).join('');
   return `
-    <div class="hub-grid biz-dash">
+    <div class="hub-grid biz-dash${simpleHide(!s.negative)}">
       <div class="card">
         <h3>💧 תזרים צפוי ${s.negative ? '<span class="bad">⚠ יורד מתחת לאפס</span>' : ''}</h3>
         <div class="acct-row"><span>יתרת בנק היום</span><span>${agMoney(s.bankAg)}</span></div>

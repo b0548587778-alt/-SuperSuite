@@ -135,7 +135,7 @@ function renderGemachApplications(apps) {
         <button class="icon-btn" data-gx-app-edit="${esc(a.id)}" title="עריכה">✎</button>`}
       ${a.status === 'approved' ? '' : `<button class="icon-btn danger" data-gx-app-del="${esc(a.id)}" title="מחיקה">🗑</button>`}</span>
   </div>`;
-  return `<div class="card acct-wide">
+  return `<div class="card acct-wide${simpleHide(!open.length)}">
     <div class="acct-header"><h3>בקשות הלוואה (${open.length} פתוחות)</h3><button class="secondary" id="gxAppAdd">＋ בקשה</button></div>
     <p class="muted">טיוטה ← ראיון ← אימות ערבים ← אישור. באישור נוצרת ההלוואה עם לוח הסילוקין. שינוי ערבים אחרי האימות מחזיר את הבקשה לשלב הראיון.</p>
     ${open.map(row).join('') || '<div class="acct-row muted">אין בקשות פתוחות</div>'}
@@ -156,7 +156,7 @@ function renderGemachGuarantorArrears(list) {
 
 function renderGemachItems(ov) {
   if (!ov || !Array.isArray(ov.rows)) return '';
-  return `<div class="card acct-wide">
+  return `<div class="card acct-wide${simpleHide(!ov.rows.length)}">
     <div class="acct-header"><h3>גמ"ח חפצים (${ov.rows.length})</h3>
       <div class="acct-actions"><button class="secondary" id="gxItemAdd">＋ פריט</button>${ov.rows.length ? '<button class="secondary" data-gemach-export="items">ייצוא</button>' : ''}</div></div>
     <div class="kpis">
@@ -282,7 +282,7 @@ function renderGemach(o) {
       <div class="acct-header">
         <div>
           <h3>${esc(s.fundName || 'קופת הגמ"ח')}</h3>
-          <small class="muted">${esc(GEMACH_TIER_LABEL[ov.licenseTier] || GEMACH_TIER_LABEL.exempt)} · הסכומים להערכה בלבד — יש לאמת מול הרשות לשוק ההון</small>
+          <small class="muted ss-advanced">${esc(GEMACH_TIER_LABEL[ov.licenseTier] || GEMACH_TIER_LABEL.exempt)} · הסכומים להערכה בלבד — יש לאמת מול הרשות לשוק ההון</small>
         </div>
         <div class="acct-actions">
           <button class="secondary" id="gemachSettingsBtn">הגדרות קופה</button>
@@ -291,18 +291,18 @@ function renderGemach(o) {
       </div>
       <div class="kpis">
         <div class="kpi"><small>יתרת קופה</small><strong>${money(ov.balance)}</strong></div>
-        <div class="kpi"><small>הפקדות (סה"כ)</small><strong>${money(ov.depositsTotal)}</strong></div>
-        <div class="kpi"><small>יתרת חוב פתוחה</small><strong>${money(ov.outstandingTotal)}</strong></div>
+        <div class="kpi${simpleHide()}"><small>הפקדות (סה"כ)</small><strong>${money(ov.depositsTotal)}</strong></div>
+        <div class="kpi${simpleHide()}"><small>יתרת חוב פתוחה</small><strong>${money(ov.outstandingTotal)}</strong></div>
         <div class="kpi"><small>הלוואות פעילות</small><strong>${Number(ov.activeLoansCount) || 0}</strong></div>
         <div class="kpi${ov.lateLoansCount ? ' neg' : ''}"><small>הלוואות בפיגור</small><strong>${Number(ov.lateLoansCount) || 0}</strong></div>
-        <div class="kpi${ov.lateTotal ? ' neg' : ''}"><small>סכום בפיגור</small><strong>${money(ov.lateTotal)}</strong></div>
+        <div class="kpi${ov.lateTotal ? ' neg' : ''}${simpleHide()}"><small>סכום בפיגור</small><strong>${money(ov.lateTotal)}</strong></div>
       </div>
       <div class="acct-grid">
         ${renderGemachApplications(o.applications)}
         <div class="card acct-wide">
           <div class="acct-header">
             <h3>הלוואות (${loans.length})</h3>
-            <div class="acct-actions">
+            <div class="acct-actions ss-advanced">
               <button class="secondary" data-gemach-export="loans">ייצוא הלוואות</button>
               <button class="secondary" data-gemach-export="arrears">ייצוא פיגורים</button>
             </div>

@@ -305,7 +305,7 @@ function renderSalesDocs(docs) {
         </div>
       </div>`;
   return `
-    <div class="card-actions">
+    <div class="card-actions ss-advanced">
       <button class="secondary" data-doc-new="quote">＋ הצעת מחיר</button>
       <button class="secondary" data-doc-new="order">＋ הזמנה</button>
       <button class="secondary" data-doc-new="delivery">＋ תעודת משלוח</button>
@@ -345,7 +345,7 @@ function renderRecurring(rec) {
   const templates = Array.isArray(rec?.templates) ? rec.templates : [];
   const drafts = Array.isArray(rec?.drafts) ? rec.drafts : [];
   const name = (id) => (templates.find(t => t.id === id) || {}).customer || '';
-  return `
+  return `<div class="acct-recurring${simpleHide(!templates.length && !drafts.length)}">
     <div class="acct-header"><h3>חשבוניות חוזרות (${templates.length})</h3><button class="secondary" id="acctRecurringNew">＋ תבנית חודשית</button></div>
     ${drafts.length ? `<div class="card"><h4>ממתינות לאישור (${drafts.length})</h4>
       ${drafts.map(x => `<div class="acct-row"><span>${esc(x.date)} · ${esc(x.customer)} · ${money(x.total)}</span><span class="card-actions">
@@ -361,7 +361,8 @@ function renderRecurring(rec) {
           <button class="secondary" data-rec-pause="${esc(t.id)}">${t.paused ? 'חידוש' : 'השהיה'}</button>
           ${Object.keys(t.issued || {}).length ? '' : `<button class="danger-outline" data-rec-delete="${esc(t.id)}">מחיקה</button>`}
         </div>
-      </div>`).join('')}`;
+      </div>`).join('')}
+    </div>`;
 }
 
 // חשבונית מס/קבלה (320): הקבלה חלק מהמסמך — אין "בטל תשלום", רק חשבונית זיכוי. פטור — לעולם לא 320 (כמו docTypeOf)

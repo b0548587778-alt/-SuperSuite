@@ -192,6 +192,33 @@ const VIEW_TASKS = {
   'gemach': ['gemachLoan', 'loanPayment'],
   'contacts': ['contact']
 };
+// מצב פשוט: "＋ הוספת רשומה" אומר מה הוא עושה (לפי המשימה הראשונה של המסך)
+const SIMPLE_ADD_LABEL = {
+  donation: 'לרשום תרומה',
+  invoice: 'להוציא חשבונית',
+  expense: 'לרשום הוצאה',
+  gemachLoan: 'לרשום הלוואה חדשה',
+  contact: 'להוסיף איש קשר'
+};
+function simpleAddLabel(viewName) {
+  if (!isSimpleMode()) return '';
+  const t = (VIEW_TASKS[viewName] || [])[0];
+  return (t && SIMPLE_ADD_LABEL[t]) || '';
+}
+// טקסט שמזכיר את "＋ הוספת רשומה" (הסבר המסך, מצב ריק) — עם השם של הכפתור במצב פשוט
+function withAddLabel(text, viewName) {
+  const label = simpleAddLabel(viewName);
+  return label ? String(text).split('＋ הוספת רשומה').join('＋ ' + label) : String(text);
+}
+// נוגע בכפתור רק כשהשם משתנה (בתצוגה מלאה — לעולם לא). התוויות קבועות מ-SIMPLE_ADD_LABEL, ועוברות esc בכל זאת
+let addBtnLabel = 'הוספת רשומה';
+function updateAddBtnLabel(viewName) {
+  const btn = elements.addBtn;
+  const label = simpleAddLabel(viewName) || 'הוספת רשומה';
+  if (!btn || label === addBtnLabel) return;
+  addBtnLabel = label;
+  btn.innerHTML = `<span aria-hidden="true">＋ </span>${esc(label)}`;
+}
 
 // ---------- הרשאה ורישיון ----------
 const wizHasPerm = (perm) => !!(state.user && Array.isArray(state.user.permissions) && state.user.permissions.includes(perm));
@@ -661,6 +688,7 @@ function attachAgendaHandlers() {
 
 // ---------- כפתור "צעד אחר צעד" בראש המסך (מצב רגיל) ----------
 function updateWizardBtn(viewName) {
+  updateAddBtnLabel(viewName);
   const btn = elements.wizardBtn;
   if (!btn) return;
   const t = (VIEW_TASKS[viewName] || []).find(x => wizardAllowedSync(x));
