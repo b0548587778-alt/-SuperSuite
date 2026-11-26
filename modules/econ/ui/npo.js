@@ -166,7 +166,7 @@ const openCampaignOptions = (o) => [{ value: '', label: '— ללא —' },
 function renderNpoCampaigns(list) {
   if (!Array.isArray(list)) return '';
   const bar = (p) => `<div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden"><div style="width:${Math.min(100, Math.max(0, Number(p) || 0))}%;height:100%;background:var(--ss-cat-teal)"></div></div>`;
-  return `<div class="card acct-wide">
+  return `<div class="card acct-wide${simpleHide(!list.length)}">
     <div class="hub-head"><h3>קמפיינים (${list.length})</h3>
       <div class="acct-actions"><button class="secondary" id="npoCampaignAdd">＋ קמפיין</button></div></div>
     ${list.length === 0 ? renderEmpty('אין קמפיינים. קמפיין מרכז תרומות סביב יעד ותקופה — אפשר גם עם תורם מכפיל.') : list.map(c => `
@@ -240,7 +240,7 @@ function renderNpoMemorials(m) {
   if (!m || !Array.isArray(m.list)) return '';
   const soon = (m.rows || []).filter(r => r.daysLeft <= 30);
   const when = (r) => r.daysLeft === 0 ? 'היום' : r.daysLeft === 1 ? 'מחר' : `בעוד ${Number(r.daysLeft)} ימים`;
-  return `<div class="card acct-wide">
+  return `<div class="card acct-wide${simpleHide(!soon.length)}">
     <div class="hub-head"><h3>הנצחות ויארצייטים (${m.list.length})</h3>
       <div class="acct-actions">
         <button class="secondary" id="npoMemorialAdd">＋ הנצחה</button>
@@ -287,7 +287,7 @@ function renderNpoStanding(st) {
   const monthBtns = (r) => r.status === 'due' || r.status === 'missed' || r.status === 'upcoming'
     ? `<button class="secondary small" data-so-pay="${esc(r.id)}" data-so-month="${esc(st.month)}" title="התקבל — הפקת קבלה">✓ התקבל</button>
        <button class="secondary small" data-so-fail="${esc(r.id)}" data-so-month="${esc(st.month)}" title="החיוב נכשל">✗ נכשל</button>` : '';
-  return `<div class="card acct-wide">
+  return `<div class="card acct-wide${simpleHide(!rows.length)}">
     <div class="hub-head"><h3>הוראות קבע — ${esc(st.month)}</h3>
       <div class="acct-actions"><button class="secondary" id="npoStandingAdd">＋ הוראת קבע</button></div></div>
     <p class="muted">החיוב נעשה בבנק או בחברת האשראי. כאן מסמנים מה התקבל — וקבלה מופקת אוטומטית. פרטי אשראי לא נשמרים; בהוראה בנקאית אפשר לשמור חשבון לחיוב בקובץ מס"ב (🏦).</p>
@@ -395,10 +395,10 @@ function renderNpo(o) {
       ${s.orgName ? '' : `<div class="card"><h4>כדי להפיק קבלות יש להגדיר תחילה את פרטי העמותה</h4><p class="muted">שם, מספר עמותה, אישור סעיף 46 ומעמד מע"מ — בכפתור "הגדרות עמותה".</p></div>`}
       <div class="kpis">
         <div class="kpi"><small>תרומות בשנה</small><strong>${money(r.donationsTotal)}</strong></div>
-        <div class="kpi"><small>מתוכן עם קבלת סעיף 46</small><strong>${money(r.sec46Total)}</strong></div>
-        <div class="kpi"><small>תמיכות שהתקבלו</small><strong>${money(r.grantsReceived)}</strong></div>
-        <div class="kpi"><small>קרנות ייעודיות</small><strong>${money(fs.restrictedTotal)}</strong></div>
-        <div class="kpi"><small>כללי</small><strong>${money(fs.generalTotal)}</strong></div>
+        <div class="kpi${simpleHide()}"><small>מתוכן עם קבלת סעיף 46</small><strong>${money(r.sec46Total)}</strong></div>
+        <div class="kpi${simpleHide()}"><small>תמיכות שהתקבלו</small><strong>${money(r.grantsReceived)}</strong></div>
+        <div class="kpi${simpleHide()}"><small>קרנות ייעודיות</small><strong>${money(fs.restrictedTotal)}</strong></div>
+        <div class="kpi${simpleHide()}"><small>כללי</small><strong>${money(fs.generalTotal)}</strong></div>
         <div class="kpi"><small>תורמים בשנה</small><strong>${Number(r.donorsCount) || 0}</strong></div>
         <div class="kpi${tax.toReport ? ' neg' : ''}"><small>ממתינים לדיווח לרשות המסים</small><strong>${Number(tax.toReport) || 0}</strong></div>
       </div>
@@ -422,11 +422,11 @@ function renderNpo(o) {
         ${renderNpoStanding(o.standing)}
         ${renderMasavPanel('npo', o.standing && o.standing.masav)}
         ${renderNpoMemorials(o.memorials)}
-        <div class="card">
+        <div class="card${simpleHide()}">
           <h3>הכנסות לפי קרן</h3>
           ${fs.funds.map(f => `<div class="acct-row"><span>${esc(f.name)} <small class="muted">${f.restricted ? 'ייעודי' : 'כללי'}${f.archived ? ' · ארכיון' : ''}</small></span><span>${money(f.total)}</span></div>`).join('') || '<div class="acct-row muted">אין קרנות</div>'}
         </div>
-        <div class="card">
+        <div class="card${simpleHide()}">
           <h3>דוח שנתי לרשם העמותות — נתוני בסיס</h3>
           <p class="muted">ייצוא מסודר בלבד. ההגשה עצמה נעשית ידנית מול רשם העמותות.</p>
           <div class="acct-actions">
@@ -443,13 +443,13 @@ function renderNpo(o) {
           <h3>תרומות וקבלות (${donations.length})</h3>
           ${donations.length === 0 ? renderEmpty('אין תרומות בשנה זו — לחץ "＋ הוספת רשומה" כדי לרשום תרומה ולהפיק קבלה') : `
           <div class="acct-scroll"><table class="acct-table">
-            <thead><tr><th>קבלה</th><th>תאריך</th><th>תורם</th><th>סכום</th><th>אמצעי</th><th>קרן</th><th>סעיף 46</th><th>דיווח</th><th></th></tr></thead>
+            <thead><tr><th>קבלה</th><th>תאריך</th><th>תורם</th><th>סכום</th><th>אמצעי</th><th class="ss-advanced">קרן</th><th class="ss-advanced">סעיף 46</th><th>דיווח</th><th></th></tr></thead>
             <tbody>${donations.map(d => `
               <tr class="${d.status === 'cancelled' ? 'muted' : ''}">
                 <td>${d.receipt && d.receipt.external ? `<small class="muted" title="הקבלה הופקה בערוץ התרומה">${esc(NPO_IMPORT_SOURCES[d.receipt.source] || 'חיצונית')}${d.receipt.externalNumber ? ' ' + esc(d.receipt.externalNumber) : ''}</small>` : esc(d.receipt && d.receipt.number)}</td><td>${esc(d.date)}</td>
                 <td>${esc(d.donorName)}</td><td>${money(d.amount)}${currencyNote(d.foreign)}</td>
-                <td>${esc(NPO_METHODS[d.method] || d.method)}${Array.isArray(d.cheques) && d.cheques.length ? ` <small class="muted" title="${esc(d.cheques.map(c => c.number + ' · ' + c.dueDate).join('\n'))}">${d.cheques.length} דחויות</small>` : ''}${d.bouncedCheque ? ' <small class="bad">חזרה</small>' : ''}</td><td>${esc(funds[d.fundId] || 'כללי')}</td>
-                <td>${d.receipt && d.receipt.sec46 ? '✓' : '—'}</td>
+                <td>${esc(NPO_METHODS[d.method] || d.method)}${Array.isArray(d.cheques) && d.cheques.length ? ` <small class="muted" title="${esc(d.cheques.map(c => c.number + ' · ' + c.dueDate).join('\n'))}">${d.cheques.length} דחויות</small>` : ''}${d.bouncedCheque ? ' <small class="bad">חזרה</small>' : ''}</td><td class="ss-advanced">${esc(funds[d.fundId] || 'כללי')}</td>
+                <td class="ss-advanced">${d.receipt && d.receipt.sec46 ? '✓' : '—'}</td>
                 <td><small class="${d.taxStatus === 'pending' || d.taxStatus === 'cancel-pending' ? 'bad' : 'muted'}">${esc(NPO_TAX[d.taxStatus] || '')}${d.taxReport && d.taxReport.registrationNumber ? ' · ' + esc(d.taxReport.registrationNumber) : ''}</small>
                   ${d.taxStatus === 'pending' || d.taxStatus === 'cancel-pending' ? `<button class="icon-btn" data-npo-tax="${esc(d.id)}" title="רישום דיווח לרשות המסים">🏛</button>` : ''}</td>
                 <td>${d.status === 'cancelled' ? 'מבוטלת' : ''}
@@ -460,7 +460,7 @@ function renderNpo(o) {
               </tr>`).join('')}</tbody>
           </table></div>`}
         </div>
-        <div class="card">
+        <div class="card${simpleHide(!grants.length)}">
           <h3>תמיכות ומענקים (${grants.length})</h3>
           <div class="acct-actions"><button class="secondary" data-npo-grant-draft id="npoGrantDraftBtn" title="טיוטת מכתב בקשת מענק — לפי נתוני השנה; אין בה התחייבות או נתונים שאין בכוחינו להציג">📝 טיוטת בקשת מענק</button></div>
           ${grants.map(g => `
@@ -779,7 +779,7 @@ function renderMasavPanel(domain, m) {
   if (!m) return '';
   const batches = Array.isArray(m.batches) ? m.batches : [];
   const ag = (n) => money((Number(n) || 0) / 100);
-  return `<div class="card acct-wide masav-panel">
+  return `<div class="card acct-wide masav-panel${simpleHide(!batches.length)}">
     <div class="hub-head"><h3>מס"ב — חיוב בהרשאה</h3>
       <div class="acct-actions">
         <button class="secondary" data-masav-settings="${domain}">הגדרות מוסד</button>

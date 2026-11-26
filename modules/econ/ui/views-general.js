@@ -54,15 +54,15 @@ function renderDashboard(data) {
             <h2>לוח הבקרה של העסק</h2>
             <small>שנת ${new Date().getFullYear()} · עד ${esc(acc.period.to)}${acc.lockDate ? ` · תקופה נעולה עד ${esc(acc.lockDate)}` : ''}</small>
           </div>
-          <span class="hub-badge ${acc.balanceSheet.balanced && acc.trialBalance.balanced ? 'ok' : 'bad'}">${acc.balanceSheet.balanced && acc.trialBalance.balanced ? '✓ הספרים מאוזנים' : '⚠ יש בעיית איזון'}</span>
+          <span class="hub-badge ${acc.balanceSheet.balanced && acc.trialBalance.balanced ? 'ok' + simpleHide() : 'bad'}">${acc.balanceSheet.balanced && acc.trialBalance.balanced ? '✓ הספרים מאוזנים' : '⚠ יש בעיית איזון'}</span>
         </div>
         <div class="kpis">
           <div class="kpi"><small>יתרת בנק</small><strong>${money(cash)}</strong></div>
           <div class="kpi"><small>הכנסות מתחילת השנה</small><strong>${money(acc.incomeStatement.totalRevenue)}</strong></div>
-          <div class="kpi ${tone(acc.incomeStatement.netProfit)}"><small>רווח נקי</small><strong>${money(acc.incomeStatement.netProfit)}</strong></div>
+          <div class="kpi ${tone(acc.incomeStatement.netProfit)}${simpleHide()}"><small>רווח נקי</small><strong>${money(acc.incomeStatement.netProfit)}</strong></div>
           <div class="kpi"><small>חייבים פתוחים</small><strong>${money(acc.openInvoices)}</strong></div>
-          <div class="kpi ${tone(-acc.vat.netPayable)}"><small>${acc.vat.netPayable >= 0 ? 'מע"מ לתשלום' : 'מע"מ לזיכוי'}</small><strong>${money(Math.abs(acc.vat.netPayable))}</strong></div>
-          <div class="kpi"><small>מוצרים במחירון</small><strong>${(data.products || []).length}</strong></div>
+          <div class="kpi ${tone(-acc.vat.netPayable)}${simpleHide()}"><small>${acc.vat.netPayable >= 0 ? 'מע"מ לתשלום' : 'מע"מ לזיכוי'}</small><strong>${money(Math.abs(acc.vat.netPayable))}</strong></div>
+          <div class="kpi${simpleHide()}"><small>מוצרים במחירון</small><strong>${(data.products || []).length}</strong></div>
         </div>
         ${renderBizDashCard(data.biz)}
         <div class="hub-grid">
@@ -72,20 +72,20 @@ function renderDashboard(data) {
               <div class="acct-row"><span>${esc(i.number)} · ${esc(i.customer)}</span><span>${money(i.total)} <small class="muted">${esc({open:'פתוחה',paid:'שולמה',cancelled:'בוטלה'}[i.status] || '')}</small></span></div>`).join('')}
             <button class="secondary" data-goto="acct-invoices">לכל החשבוניות</button>
           </div>
-          <div class="card">
+          <div class="card${simpleHide()}">
             <h3>מסכים מהירים</h3>
             <div class="quick">${quick.map(([v, ic, label]) => `<button class="quick-btn" data-goto="${v}"><span>${ic}</span>${esc(label)}</button>`).join('')}</div>
           </div>
         </div>
       </section>` : ''}
-      <section class="modules">
+      <section class="modules${simpleHide()}">
         <h3 class="modules-title">מודולים נוספים בחבילה</h3>
         <div class="modules-grid">
           <button class="module-card" data-module="shamai"><span class="module-ic">💎</span><strong>שמאות נכסים</strong><small>הערכת שווי ופנקס הזדמנויות</small></button>
           <button class="module-card" data-module="tools"><span class="module-ic">🧰</span><strong>ארגז כלים</strong><small>13 כלים שימושיים</small></button>
         </div>
       </section>
-      <div class="dashboard-grid">
+      <div class="dashboard-grid${simpleHide()}">
         <div class="card">
           <h3>💰 פיננסים</h3>
           <p>הכנסות: ${finance?.incomes?.length || 0}</p>

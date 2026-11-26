@@ -272,7 +272,7 @@ async function switchView(viewName, opts = {}) {
 
 // הסבר "מה עושים כאן" מתחת לכותרת, וגם data-ss-help לבועת "?" של המעטפת
 function setPageHelp(viewName) {
-  const help = VIEW_HELP[viewName] || '';
+  const help = withAddLabel(VIEW_HELP[viewName] || '', viewName);
   const el = elements.pageHelp;
   if (el) { el.textContent = help; el.hidden = !help; }
   if (elements.pageTitle && elements.pageTitle.setAttribute) {
@@ -737,6 +737,64 @@ function enhanceA11y(root) {
   // רכיב לחיץ שאינו כפתור (data-goto על div וכו') — גם במקלדת
   root.querySelectorAll('[data-goto]:not(button):not(a), [data-clickable]').forEach(el => makeKeyboardClickable(el));
   foldCrowdedActions(root);
+  addShowAllToggle(root);
+}
+
+// מצב פשוט: חלק משני במסך (קמפיינים, מס"ב, ייצוא לרשם...) — מחלקה ss-advanced, שמוסתרת במצב פשוט בלבד.
+// cond=false ← גלוי תמיד (למשל חלק שיש בו נתונים שהמשתמש כבר עובד איתם)
+function simpleHide(cond = true) {
+  return cond ? ' ss-advanced' : '';
+}
+// "הצגת כל חלקי המסך" נזכרת לכל מסך — מי שעובד עם הוראות קבע לא מחפש אותן בכל כניסה.
+// העדפת תצוגה בלבד (localStorage של המסך), לא נתוני משתמש; קלט מהאחסון לא מהימן
+const SHOW_ALL_KEY = 'econ.simpleShowAll';
+function showAllViews() {
+  try {
+    const v = JSON.parse(localStorage.getItem(SHOW_ALL_KEY) || '[]');
+    return Array.isArray(v) ? v.filter(x => typeof x === 'string' && Object.prototype.hasOwnProperty.call(viewTitles, x)) : [];
+  } catch { return []; }
+}
+function rememberShowAll(viewName, on) {
+  const list = showAllViews().filter(x => x !== viewName);
+  if (on) list.push(viewName);
+  try { localStorage.setItem(SHOW_ALL_KEY, JSON.stringify(list)); } catch { /* העדפה בלבד */ }
+}
+// ההצגה מסירה את המחלקה (כמו revealAdvanced בטופס) ומסמנת data-ss-was-advanced להסתרה חוזרת
+function revealViewParts(root, show) {
+  const sel = show ? '.ss-advanced' : '[data-ss-was-advanced]';
+  root.querySelectorAll(sel).forEach(el => {
+    if (show) { el.classList.remove('ss-advanced'); el.setAttribute('data-ss-was-advanced', '1'); }
+    else { el.classList.add('ss-advanced'); el.removeAttribute('data-ss-was-advanced'); }
+  });
+  const btn = root.querySelector('.ss-show-all');
+  if (btn) {
+    btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+    btn.textContent = show ? 'הסתרת החלקים הנוספים' : 'הצגת כל חלקי המסך';
+  }
+}
+// כפתור בתחתית המסך כשיש בו חלקים מוסתרים. רץ שוב על תוכן חדש (MutationObserver) בלי להוסיף כפתור שני
+function addShowAllToggle(root) {
+  if (!isSimpleMode() || !root || typeof root.querySelectorAll !== 'function') return;
+  const viewName = state.currentView;
+  const open = showAllViews().includes(viewName);
+  if (open && root.querySelector('.ss-advanced')) revealViewParts(root, true);
+  if (root.querySelector('.ss-show-all')) return;
+  if (!root.querySelector('.ss-advanced, [data-ss-was-advanced]')) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'secondary ss-show-all';
+  btn.setAttribute('aria-expanded', 'false');
+  btn.textContent = 'הצגת כל חלקי המסך';
+  btn.addEventListener('click', () => {
+    const show = btn.getAttribute('aria-expanded') !== 'true';
+    revealViewParts(root, show);
+    rememberShowAll(viewName, show);
+  });
+  const wrap = document.createElement('div');
+  wrap.className = 'ss-show-all-bar';
+  wrap.appendChild(btn);
+  root.appendChild(wrap);
+  if (open) revealViewParts(root, true);
 }
 
 // מצב פשוט: שורת כפתורים עמוסה ← עד FOLD_KEEP כפתורים גלויים (הראשי קודם), והשאר מאחורי "עוד אפשרויות".
@@ -857,9 +915,12 @@ function renderEmpty(message, icon) {
   // "לחץ ... כדי להתחיל" — הכפתור עצמו אומר את זה
   if (/^לחץ "＋ הוספת רשומה" כדי להתחיל$/.test(hint) && formSchemas[state.currentView]) hint = '';
   const canAdd = /＋ הוספת רשומה/.test(raw) && !!formSchemas[state.currentView];
+  // מצב פשוט: הכפתור וההסבר בשם של הפעולה ("לרשום תרומה"), כמו הכפתור בראש המסך
+  const addText = withAddLabel('＋ הוספת רשומה', state.currentView);
+  hint = withAddLabel(hint, state.currentView);
   return `<div class="empty"><div class="empty-icon" aria-hidden="true">${icon || emptyIcon(state.currentView)}</div>` +
     `<div class="empty-title">${title}</div>${hint ? `<div class="empty-hint">${hint}</div>` : ''}` +
-    `${canAdd ? '<button type="button" class="primary empty-add" data-empty-add>＋ הוספת רשומה</button>' : ''}</div>`;
+    `${canAdd ? `<button type="button" class="primary empty-add" data-empty-add>${esc(addText)}</button>` : ''}</div>`;
 }
 
 // איתור רשומה לפי מזהה בנתונים הטעונים של התצוגה הנוכחית
