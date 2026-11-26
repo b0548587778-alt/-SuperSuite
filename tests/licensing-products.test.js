@@ -80,9 +80,18 @@ test('הצעה ראשית ← הצעה חתומה לכל תוכנה; החביל�
   // תכנית בחבילה בלי תחום באחת התוכנות — נדחית בשמירה
   const noVid = JSON.parse(JSON.stringify(MASTER)); noVid.plans[1].features.vidlearn = [];
   assert.throws(() => OF.cleanMaster(noVid), /לא נבחר אף תחום בVidLearn/);
-  // תחום של תוכנה אחרת לא נכנס (שמות חוזרים: 'english' אינו של SuperSuite)
-  const mixed = JSON.parse(JSON.stringify(MASTER)); mixed.plans[0].features.supersuite = ['english'];
+  // תחום של תוכנה אחרת לא נכנס — בשני הכיוונים. (עד המיזוג עם קו המהדורות הדוגמה כאן הייתה 'english'; מאז שמודולי
+  // הלימוד הם חלק מהמהדורה המלאה — החלטת הבעלים 7.11.2026 — השם הזה חוזר בשתי התוכנות, כמו 'econ' ו-'tools';
+  // tests/licensing-editions-merge.test.js בודק שמהדורה חלקית לא מקבלת אותו)
+  const mixed = JSON.parse(JSON.stringify(MASTER)); mixed.plans[0].features.supersuite = ['shir-studio'];
   assert.throws(() => OF.cleanMaster(mixed), /לא נבחר אף תחום/);
+  const mixed2 = JSON.parse(JSON.stringify(MASTER)); mixed2.plans[0].features.supersuite = ['vidlearn', 'x'];
+  assert.throws(() => OF.cleanMaster(mixed2), /לא נבחר אף תחום/);
+  const mixed3 = JSON.parse(JSON.stringify(MASTER)); mixed3.plans[1].features.learn = ['econ.npo', 'shamai'];
+  assert.throws(() => OF.cleanMaster(mixed3), /לא נבחר אף תחום בSuperSuite לימוד/);
+  // תחום זר לצד תחום אמיתי — מסונן, ולא נכנס להצעה
+  const mixed4 = JSON.parse(JSON.stringify(MASTER)); mixed4.plans[0].features.supersuite = ['econ', 'shir-studio'];
+  assert.deepEqual(OF.cleanMaster(mixed4).plans[0].features.supersuite, ['econ']);
   // תכנית מגרסה קודמת (features מערך) — של SuperSuite
   assert.equal(OF.cleanMaster({ ...MASTER, plans: [{ id: 'x', name: 'ישן', priceAgorot: 0, months: 12, features: ['econ'], limits: LIMITS }] }).plans[0].scope, 'supersuite');
 });

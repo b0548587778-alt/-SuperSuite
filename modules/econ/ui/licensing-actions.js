@@ -425,7 +425,8 @@ function attachLicensingHandlers() {
   });
   on('ownerOfferBtn', async () => {
     const cur = await window.systemAPI.ownerGetOffer();
-    const v = await offerEditor(cur, d.owner && d.owner.products);
+    const editions = typeof window.systemAPI.ownerOfferEditions === 'function' ? await window.systemAPI.ownerOfferEditions().catch(() => null) : null;
+    const v = await offerEditor(cur, d.owner && d.owner.products, editions);
     if (!v) return;
     await window.systemAPI.ownerSetOffer(v);
     showToast('התכניות והתקנון נחתמו ונשמרו');

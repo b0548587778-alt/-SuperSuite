@@ -6,15 +6,21 @@
 // נושאת גם bundle ({ scope, products, features }) — חתום, כך שההנפקה למוצר הנוסף לפי החבילה נבדקת מול מה ששולם.
 const L = require('./license');
 const P = require('./products');
+// מהדורה (shell/edition.js) היא מאפיין של תכנית של SuperSuite בלבד — בתוך ההצעה הראשית של מרכז הרישוי:
+// התכנית מוצעת רק במהדורה שלה (planInEdition), והתחומים שלה ב-SuperSuite רק מאותה מהדורה (cleanEdition).
+// בהצעה של תוכנה אחרת (splitMaster) המהדורה לא נכתבת — לתוכנות האחרות אין מהדורות
+const Edition = require('../edition');
 
 const OFFER_TYPE = 'supersuite-offer';
 const MAX_PLANS = 20;
 const MAX_TERMS = 100000;
-// התחומים של SuperSuite עצמה (התוכנה הזו) — לתקופת הניסיון (store.js) ולהצעה בלי מוצר (מגרסה קודמת)
+// התחומים של SuperSuite עצמה (התוכנה הזו) — לתקופת הניסיון (store.js) ולהצעה בלי מוצר (מגרסה קודמת).
+// המקור — קטלוג המוצרים (products.js), כולל מודולי הלימוד של המהדורה המלאה (החלטת הבעלים 7.11.2026)
 const FEATURES = P.featuresOf(P.THIS_PRODUCT);
 // תחומים שהיו במוצר ועברו למוצר אחר: לא מוצעים בהצעה חדשה, אבל הצעה חתומה ישנה שכוללת אותם עדיין מאומתת
 // (בלעדי זה תכנית שכל תחומיה ישנים הייתה "בלי אף תחום", וכל ההצעה נפסלת). 'trainer' — המוצר החינוכי הנפרד
-const LEGACY_FEATURES = ['trainer'];
+// (ריק מאז שהאימונים חזרו למהדורה המלאה — 'trainer' שוב תכונה רגילה, ורישיון ישן שכולל אותו פותח אותה שם)
+const LEGACY_FEATURES = [];
 
 const clean = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, max);
 const sameSet = (a, b) => [...a].sort().join('\n') === [...b].sort().join('\n');
@@ -36,6 +42,21 @@ function cleanCommon(p, i) {
     maxStorageMb: int(lim.maxStorageMb, 1024, 1000000), maxDepth: int(lim.maxDepth, lim.maxChildren > 0 ? 2 : 1, 8) };
   if (limits.maxDepth < 1) limits.maxDepth = 1;
   return { id, name, desc: clean(p.desc, 300), priceAgorot, currency: 'ILS', months, limits };
+}
+
+// מהדורה של תכנית (shell/edition.js, תכנית אחת לכל מוצר — החלטת הבעלים 5.11.2026): מזהה המהדורה, או null כשלא נבחרה
+// (תכנית לכל המהדורות — הצעה ישנה / תכנית כללית). features — התחומים של התכנית ב-SuperSuite: חייבים להיות של אותה
+// מהדורה — תכנית "עמותות" לא פותחת נדל"ן גם אם תותקן במהדורה המלאה.
+// מהדורה קיימת רק ב-SuperSuite: בתכנית של תוכנה אחרת (או תכנית שלא מכסה את SuperSuite) היא נדחית, ולא מושמטת בשקט
+function cleanEdition(p, name, features, { legacy = false, product = P.THIS_PRODUCT } = {}) {
+  if (p.edition == null || p.edition === '') return null;
+  if (product !== P.THIS_PRODUCT) throw new Error(`בתכנית "${name}" נבחרה מהדורה — מהדורה נקבעת רק לתכנית שכוללת את ${P.productName(P.THIS_PRODUCT)}`);
+  // רק מזהה מהרשימה (לא מפתח של אב-טיפוס כמו 'constructor')
+  const ed = typeof p.edition === 'string' && Edition.IDS.includes(p.edition) ? Edition.get(p.edition) : null;
+  if (!ed) throw new Error(`המהדורה בתכנית "${name}" אינה מוכרת`);
+  const extra = features.filter(f => !Edition.featureAllowed(f, ed) && !(legacy && LEGACY_FEATURES.includes(f)));
+  if (extra.length) throw new Error(`בתכנית "${name}" יש תחומים שאינם חלק מ-${ed.name}`);
+  return ed.id;
 }
 
 // תחומים של מוצר אחד בתכנית: רק המוכרים (legacy — גם ישנים, בהצעה חתומה ישנה של SuperSuite)
@@ -61,11 +82,14 @@ function cleanPlan(p, i, { legacy = false, product = P.THIS_PRODUCT } = {}) {
   const base = cleanCommon(p, i);
   const features = cleanFeatures(p.features, product, legacy);
   if (!features.length) throw new Error(`בתכנית "${base.name}" לא נבחר אף תחום`);
-  if (p.bundle == null) return { ...base, features };
+  const edition = cleanEdition(p, base.name, features, { legacy, product });
+  const out = { ...base, features, ...(edition ? { edition } : {}) };
+  if (p.bundle == null) return out;
   const bundle = cleanBundle(p.bundle, base.name);
   // התחומים של המוצר הזה בחבילה הם התחומים של התכנית — אחרת ההנפקה לפי החבילה הייתה נותנת אחרים
   if (!bundle.products.includes(product) || !sameSet(bundle.features[product], features)) throw new Error(`החבילה בתכנית "${base.name}" אינה תואמת לתכנית`);
-  return { ...base, features, bundle };
+  // תכנית חבילה עם מהדורה: התחומים של SuperSuite בחבילה זהים לתחומי התכנית (נבדק כאן), ולכן גם הם של אותה מהדורה
+  return { ...out, bundle };
 }
 
 function cleanTerms(t) {
@@ -111,8 +135,10 @@ function verifyOffer(text, rootKeys, { expectProduct = null } = {}) {
 }
 
 // ---------- ההצעה הראשית (מסך מנהל-העל) ----------
-// plan: { id, name, desc, priceAgorot, months, limits, scope, features: { <מוצר>: [...] } }.
-// תכנית מגרסה קודמת (features מערך, בלי scope) — של SuperSuite
+// plan: { id, name, desc, priceAgorot, months, limits, scope, features: { <מוצר>: [...] }, edition? }.
+// תכנית מגרסה קודמת (features מערך, בלי scope) — של SuperSuite.
+// edition — מהדורה של SuperSuite (cleanEdition): רק בתכנית שמכסה את SuperSuite (לבד, בחבילת משפחה או ב"כל התוכנות"),
+// ונבדקת מול התחומים של SuperSuite בתכנית. התחומים של שאר התוכנות בחבילה לא קשורים למהדורה
 function cleanMasterPlan(p, i) {
   const src = p || {};
   const base = cleanCommon(src, i);
@@ -126,7 +152,9 @@ function cleanMasterPlan(p, i) {
     features[pid] = cleanFeatures(map[pid], pid, false);
     if (!features[pid].length) throw new Error(products.length > 1 ? `בתכנית "${base.name}" לא נבחר אף תחום ב${P.productName(pid)}` : `בתכנית "${base.name}" לא נבחר אף תחום`);
   }
-  return { ...base, scope, products, features };
+  const own = products.includes(P.THIS_PRODUCT);
+  const edition = cleanEdition(src, base.name, own ? features[P.THIS_PRODUCT] : [], { product: own ? P.THIS_PRODUCT : products[0] });
+  return { ...base, scope, products, features, ...(edition ? { edition } : {}) };
 }
 
 function cleanMaster(input) {
@@ -137,13 +165,15 @@ function cleanMaster(input) {
   return { v: 2, seller: cleanSeller(src.seller), plans, terms: cleanTerms(src.terms) };
 }
 
-// הצעה לכל מוצר שיש לו לפחות תכנית אחת: { <מוצר>: קלט ל-createOffer }
+// הצעה לכל מוצר שיש לו לפחות תכנית אחת: { <מוצר>: קלט ל-createOffer }.
+// המהדורה נכתבת רק בהצעה של SuperSuite — בהצעה של תוכנה אחרת אותה תכנית (חבילה) מופיעה בלי מהדורה
 function splitMaster(master) {
   const out = {};
   for (const pid of P.PRODUCTS.map(x => x.id)) {
     const plans = master.plans.filter(p => p.products.includes(pid)).map(p => ({
       id: p.id, name: p.name, desc: p.desc, priceAgorot: p.priceAgorot, months: p.months, limits: { ...p.limits },
       features: [...p.features[pid]],
+      ...(pid === P.THIS_PRODUCT && p.edition ? { edition: p.edition } : {}),
       ...(p.products.length > 1 ? { bundle: { scope: p.scope, products: [...p.products], features: JSON.parse(JSON.stringify(p.features)) } } : {}),
     }));
     if (plans.length) out[pid] = { seller: { ...master.seller }, plans, terms: { version: master.terms.version, title: master.terms.title, text: master.terms.text } };
@@ -157,6 +187,20 @@ function masterFromOffer(offer) {
     plans: offer.plans.map(p => ({ ...p, scope: P.THIS_PRODUCT, features: { [P.THIS_PRODUCT]: p.features } })) });
 }
 
+// ---------- מהדורות (shell/edition.js) ----------
+// התכניות שמוצעות במהדורה הזו: של המהדורה, או בלי מהדורה (הצעה ישנה / תכנית כללית)
+const planInEdition = (plan, editionId = Edition.current().id) => !plan.edition || plan.edition === editionId;
+const plansForEdition = (offer, editionId) => (offer && Array.isArray(offer.plans) ? offer.plans.filter(p => planInEdition(p, editionId)) : []);
+// תבנית לעורך התכניות: תכנית אחת לכל מוצר עם התחומים של המהדורה. המחיר ריק — הבעלים קובע (העורך לא שומר בלי מחיר)
+function editionPlanTemplates() {
+  return Edition.PARTIAL_IDS.map(id => {
+    const ed = Edition.get(id);
+    return { id: id, name: ed.name, desc: '', edition: id, priceAgorot: null, months: 12,
+      features: [...ed.features, 'ai'], limits: { maxUsers: 3, maxChildren: 0 } };
+  });
+}
+const editionChoices = () => Edition.IDS.map(id => ({ id, name: Edition.get(id).name }));
+
 const planOf = (offer, planId) => {
   const p = offer.plans.find(x => x.id === planId);
   if (!p) throw new Error('התכנית שנבחרה אינה קיימת');
@@ -165,4 +209,5 @@ const planOf = (offer, planId) => {
 
 const formatAgorot = (a) => '₪' + (Math.round(a) / 100).toLocaleString('he-IL', { minimumFractionDigits: a % 100 ? 2 : 0, maximumFractionDigits: 2 });
 
-module.exports = { OFFER_TYPE, FEATURES, LEGACY_FEATURES, createOffer, verifyOffer, productOfOffer, cleanMaster, splitMaster, masterFromOffer, planOf, formatAgorot };
+module.exports = { OFFER_TYPE, FEATURES, LEGACY_FEATURES, createOffer, verifyOffer, productOfOffer, cleanMaster, splitMaster, masterFromOffer, planOf, formatAgorot,
+  planInEdition, plansForEdition, editionPlanTemplates, editionChoices };

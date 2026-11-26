@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>לימוד אנגלית</title>
+<link rel="stylesheet" href="/design-tokens.css">
+<link rel="stylesheet" href="/ui-kit.css">
+<script src="/screen-guard.js"></script>
+<script src="/ss-dialog.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="en-no-he-voice">
+<div id="app" class="en-app">
+
+  <header class="ss-page-head en-head">
+    <div class="en-brand">
+      <span class="en-logo" aria-hidden="true">Aa</span>
+      <div>
+        <h1>לימוד אנגלית</h1>
+        <p class="ss-muted en-sub">אוצר מילים, כרטיסיות, בחנים ודקדוק — הכול במחשב, בלי אינטרנט.</p>
+      </div>
+    </div>
+    <div class="en-learner" id="learnerBox" hidden>
+      <label class="ss-label" for="learnerSel">לומד פעיל</label>
+      <div class="en-row">
+        <select id="learnerSel" class="ss-input"></select>
+        <button type="button" class="ss-btn" id="learnerAdd">+ לומד חדש</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- מסך פתיחה: אין עדיין לומדים -->
+  <section id="welcome" class="ss-card en-welcome" hidden>
+    <span class="en-logo en-logo-lg" aria-hidden="true">Aa</span>
+    <h2>ברוכים הבאים ללימוד אנגלית</h2>
+    <p class="ss-muted">לכל לומד — ילד, תלמיד או מבוגר — יש התקדמות משלו. מתחילים בשם.</p>
+    <div class="en-row en-welcome-row">
+      <input id="welcomeName" class="ss-input" maxlength="30" aria-label="שם הלומד" placeholder="שם הלומד, למשל: יוסי">
+      <button type="button" class="ss-btn-primary" id="welcomeGo">התחלה</button>
+    </div>
+  </section>
+
+  <div id="main" hidden>
+    <div id="roBanner" class="ss-card ss-card-warning en-ro" role="status" hidden></div>
+    <nav class="ss-tabs" role="tablist" aria-label="מסכי לימוד האנגלית" id="tabs">
+      <button type="button" class="ss-tab" role="tab" data-tab="home" aria-controls="view-home">בית</button>
+      <button type="button" class="ss-tab" role="tab" data-tab="cards" aria-controls="view-cards">כרטיסיות</button>
+      <button type="button" class="ss-tab" role="tab" data-tab="quiz" aria-controls="view-quiz">בחנים</button>
+      <button type="button" class="ss-tab" role="tab" data-tab="words" aria-controls="view-words">מילון</button>
+      <button type="button" class="ss-tab" role="tab" data-tab="grammar" aria-controls="view-grammar">דקדוק</button>
+      <button type="button" class="ss-tab" role="tab" data-tab="progress" aria-controls="view-progress">התקדמות</button>
+      <button type="button" class="ss-tab" role="tab" data-tab="settings" aria-controls="view-settings">הגדרות</button>
+    </nav>
+
+    <section data-view="home" id="view-home" role="tabpanel"></section>
+    <section data-view="cards" id="view-cards" role="tabpanel" hidden></section>
+    <section data-view="quiz" id="view-quiz" role="tabpanel" hidden></section>
+    <section data-view="words" id="view-words" role="tabpanel" hidden></section>
+    <section data-view="grammar" id="view-grammar" role="tabpanel" hidden></section>
+    <section data-view="progress" id="view-progress" role="tabpanel" hidden></section>
+    <section data-view="settings" id="view-settings" role="tabpanel" hidden></section>
+  </div>
+</div>
+<div class="en-toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="words.js"></script>
+<script src="grammar.js"></script>
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

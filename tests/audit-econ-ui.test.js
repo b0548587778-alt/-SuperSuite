@@ -407,6 +407,102 @@ test('עורך התכניות: חבילת לימוד — תחומים לכל ת�
   assert.deepEqual(m.plans[1].products, ['learn', 'shir-studio', 'vidlearn']);
 });
 
+// מיזוג מרכז הרישוי עם קו המהדורות: העורך מקבל גם את קטלוג המוצרים וגם את המהדורות. מהדורה נבחרת רק בתכנית
+// שההיקף שלה כולל את SuperSuite, ו"תכנית אחת לכל מוצר" מוסיפה תכניות של SuperSuite עם מהדורה
+test('עורך התכניות: מוצרים ומהדורות יחד — מהדורה רק בתכנית שכוללת את SuperSuite; התבנית נשמרת כתכנית של SuperSuite', async () => {
+  const OF = require('../shell/licensing/offer');
+  const { context, created, run } = load();
+  context.openDialog = fakeDialog;
+  context.__cat = require('../shell/licensing/products').catalog();
+  context.__ed = { choices: OF.editionChoices(), templates: OF.editionPlanTemplates() };
+  context.__cur = { seller: { name: 'ספק', taxId: '' }, terms: { version: '1.0', title: 'תקנון', text: 'נוסח' },
+    plans: [{ id: 'amutot', name: 'עמותות', priceAgorot: 4900, months: 12, scope: 'supersuite', edition: 'npo',
+      features: { supersuite: ['econ', 'econ.npo'] }, limits: { maxUsers: 3, maxChildren: 0 } }] };
+  let result = 'pending';
+  run('offerEditor(__cur, __cat, __ed)').then(v => { result = v; });
+  const fieldSelects = (re) => created.filter(n => n.tagName === 'LABEL' && n.children[0] && re.test(n.children[0].textContent)).map(l => l.children[1]);
+  const scopeSel = () => fieldSelects(/^תוכנה \/ חבילה$/);
+  const edSel = () => fieldSelects(/^מהדורה של SuperSuite/);
+  const button = (text) => created.filter(n => n.tagName === 'BUTTON' && n.textContent === text).pop();
+  const priceInputs = () => created.filter(n => n.tagName === 'LABEL' && n.children[0] && /^מחיר/.test(n.children[0].textContent)).map(l => l.children[1]);
+  assert.equal(edSel().pop().value, 'npo', 'המהדורה של התכנית הקיימת מוצגת');
+  assert.deepEqual(edSel().pop().children.map(o => o.value), ['', 'full', 'npo', 'realty', 'acct']);
+  // תכנית שנייה: חבילת לימוד (בלי SuperSuite) — אין בה שדה מהדורה
+  button('＋ תכנית נוספת').onclick();
+  let before = edSel().length;
+  const sel = scopeSel().pop();
+  sel.value = 'family:learn';
+  sel.onchange();
+  // הציור מחדש: לתכנית 1 שדה מהדורה, לתכנית 2 (חבילת לימוד) — לא
+  assert.equal(edSel().length - before, 1, 'רק לתכנית של SuperSuite');
+  // "תכנית אחת לכל מוצר": שלוש תכניות של SuperSuite, כל אחת במהדורה שלה, בלי מחיר
+  before = scopeSel().length;
+  button('＋ תכנית אחת לכל מוצר (עמותות, נדל"ן, חשבונאות)').onclick();
+  assert.deepEqual(scopeSel().slice(before).map(s => s.value), ['supersuite', 'family:learn', 'supersuite', 'supersuite', 'supersuite']);
+  assert.deepEqual(edSel().slice(-4).map(s => s.value), ['npo', 'npo', 'realty', 'acct']);
+  // בלי מחיר — לא נשמר
+  button('חתימה ושמירה').onclick();
+  await tick();
+  assert.equal(result, 'pending');
+  // משלימים: חבילת הלימוד (תכנית 2) והמחירים של שלוש התבניות
+  const boxes = (pid) => created.filter(n => n.tagName === 'INPUT' && n.type === 'checkbox' && n.dataset.product === pid);
+  for (const pid of ['learn', 'shir-studio', 'vidlearn']) { const list = boxes(pid); list.filter(c => c.value === (pid === 'learn' ? 'english' : pid)).pop().checked = true; }
+  created.filter(n => n.tagName === 'LABEL' && n.children[0] && n.children[0].textContent === 'שם').slice(-4)[0].children[1].value = 'חבילת לימוד';
+  priceInputs().slice(-3).forEach((i, n) => { i.value = String(100 * (n + 1)); });
+  button('חתימה ושמירה').onclick();
+  await tick();
+  assert.notEqual(result, 'pending');
+  const plain = JSON.parse(JSON.stringify(result));
+  assert.deepEqual(plain.plans.map(p => [p.id, p.scope, p.edition || null]),
+    [['amutot', 'supersuite', 'npo'], ['plan2', 'family:learn', null], ['npo', 'supersuite', 'npo'], ['realty', 'supersuite', 'realty'], ['acct', 'supersuite', 'acct']]);
+  assert.ok(Array.isArray(plain.plans[3].features.supersuite) && plain.plans[3].features.supersuite.includes('shamai'), 'התחומים של התבנית — במבנה של ההצעה הראשית');
+  // מה שהמסך מחזיר עובר את הבדיקה בשרת, והמהדורה מגיעה רק להצעה של SuperSuite
+  const m = OF.cleanMaster({ ...plain, terms: { version: '1.0', text: 'נוסח התקנון המלא לבדיקה, ארוך מספיק כדי לעבור את הבדיקה של אורך מינימלי.' } });
+  assert.deepEqual(m.plans.map(p => p.edition || null), ['npo', null, 'npo', 'realty', 'acct']);
+  const parts = OF.splitMaster(m);
+  assert.deepEqual(parts.supersuite.plans.map(p => p.edition), ['npo', 'npo', 'realty', 'acct']);
+  assert.ok(parts.learn.plans.every(p => !('edition' in p)));
+});
+
+test('עורך התכניות: היקף שהוחלף לתוכנה אחרת מוחק את המהדורה; בלי רשימת מהדורות — מהדורה קיימת נשארת', async () => {
+  const OF = require('../shell/licensing/offer');
+  const cur = () => ({ seller: { name: 'ספק', taxId: '' }, terms: { version: '1.0', title: 'תקנון', text: 'נוסח' },
+    plans: [{ id: 'amutot', name: 'עמותות', priceAgorot: 4900, months: 12, scope: 'supersuite', edition: 'npo',
+      features: { supersuite: ['econ', 'econ.npo'] }, limits: { maxUsers: 3, maxChildren: 0 } }] });
+  // 1. ההיקף הוחלף לשיר סטודיו — המהדורה לא נשלחת (השרת היה דוחה אותה)
+  {
+    const { context, created, run } = load();
+    context.openDialog = fakeDialog;
+    context.__cat = require('../shell/licensing/products').catalog();
+    context.__ed = { choices: OF.editionChoices(), templates: [] };
+    context.__cur = cur();
+    let result = 'pending';
+    run('offerEditor(__cur, __cat, __ed)').then(v => { result = v; });
+    const sel = created.filter(n => n.tagName === 'LABEL' && n.children[0] && n.children[0].textContent === 'תוכנה / חבילה').pop().children[1];
+    sel.value = 'shir-studio';
+    sel.onchange();
+    created.filter(n => n.tagName === 'INPUT' && n.type === 'checkbox' && n.dataset.product === 'shir-studio').pop().checked = true;
+    created.filter(n => n.tagName === 'BUTTON' && n.textContent === 'חתימה ושמירה').pop().onclick();
+    await tick();
+    assert.notEqual(result, 'pending');
+    assert.equal('edition' in JSON.parse(JSON.stringify(result)).plans[0], false);
+    assert.equal(result.plans[0].scope, 'shir-studio');
+  }
+  // 2. העורך נפתח בלי המהדורות (owner:offerEditions לא זמין) — אין שדה, והמהדורה שבתכנית לא נמחקת בשקט
+  {
+    const { context, created, run } = load();
+    context.openDialog = fakeDialog;
+    context.__cat = require('../shell/licensing/products').catalog();
+    context.__cur = cur();
+    let result = 'pending';
+    run('offerEditor(__cur, __cat, null)').then(v => { result = v; });
+    assert.equal(created.filter(n => n.tagName === 'LABEL' && n.children[0] && /^מהדורה/.test(n.children[0].textContent)).length, 0);
+    created.filter(n => n.tagName === 'BUTTON' && n.textContent === 'חתימה ושמירה').pop().onclick();
+    await tick();
+    assert.equal(JSON.parse(JSON.stringify(result)).plans[0].edition, 'npo');
+  }
+});
+
 // גם בשרת: ערוץ שנקרא שלא דרך הממשק לא הופך שדה ריק ל-0
 test('בשרת: מחיר חסר בתכנית (null / \'\' / NaN אחרי JSON) נדחה; 0 שהוקלד — תקין', () => {
   const L = require('../shell/licensing/license');

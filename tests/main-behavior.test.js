@@ -170,7 +170,7 @@ test('shell:open-module: מודול יכול לפתוח מודול אחר, וש�
   const econView = created.views[0];
   assert.equal(await handlers['shell:open-module'](viewSender(econView), 'tools'), true);
   assert.equal(await handlers['shell:open-module'](shellSender(), 'tools'), false, 'המעטפת לא עוברת את הערוץ הזה');
-  assert.equal(await handlers['shell:open-module'](viewSender(econView), 'trainer'), false, 'מודול האימונים עבר למוצר נפרד');
+  assert.equal(await handlers['shell:open-module'](viewSender(econView), 'english'), true, 'מודול לימוד — במהדורה המלאה');
   assert.equal(await handlers['shell:open-module'](viewSender(econView), 'evil'), false, 'מזהה לא מוכר נחסם');
 });
 
@@ -280,16 +280,20 @@ test('shell:econ-view: רק המודול הכלכלי מדווח, ורק על ת
   assert.equal(await handlers['shell:econ-view'](shellSender(), 'tasks'), false);
 });
 
-test('מוצר כלכלי: אין מודול אימונים — לא נפתח, אין לו תצוגה ואין לו ערוצים', async () => {
+// המהדורה המלאה כוללת את מודולי הלימוד (החלטת הבעלים 7.11.2026): האימונים נפתחים עם ה-preload שלהם, תצוגה
+// מהקטלוג מגיעה ל-preload כטקסט הכפתור, והדיווח / ה-PDF רק מתצוגת המודול עצמה. יומן הכושר ותשלומי האימונים — לא
+test('המהדורה המלאה: מודול האימונים נפתח עם ה-preload שלו, ניווט לפי הקטלוג, ערוצים רק מהמודול', async () => {
   await loginEcon();
-  assert.equal(await handlers['shell:open'](shellSender(), 'trainer', 'nutrition'), false);
-  assert.equal(await handlers['shell:open'](shellSender(), 'trainer'), false);
-  await handlers['shell:switch'](shellSender(), 'trainer'); // switchTo מתעלם ממזהה שאינו ב-MODS
-  assert.equal(await handlers['shell:open'](shellSender(), 'econ', 'fitness'), false, 'גם יומן הכושר הוסר');
-  assert.ok(!created.views.some(v => /trainer/.test((v.opts.webPreferences || {}).preload || '') || /^app:\/\/trainer\//.test(v.url || '')));
-  for (const ch of ['shell:trainer-view', 'trainer:save-pdf', 'collect:getTrainerPayments', 'collect:issueTrainerReceipt', 'fitness:get']) {
-    assert.equal(handlers[ch], undefined, ch);
-  }
+  assert.equal(await handlers['shell:open'](shellSender(), 'trainer', 'nutrition'), true);
+  assert.equal(await handlers['shell:open'](shellSender(), 'trainer', 'no-such-view'), false);
+  assert.equal(await handlers['shell:open'](shellSender(), 'econ', 'fitness'), false, 'יומן הכושר הוסר');
+  const tv = created.views.find(v => /modules[\\/]trainer[\\/]preload\.js$/.test((v.opts.webPreferences || {}).preload || ''));
+  assert.ok(tv, 'תצוגת האימונים נוצרה עם ה-preload שלה');
+  assert.equal(await handlers['shell:trainer-view'](shellSender(), 'תזונה'), false, 'רק מתצוגת האימונים');
+  assert.equal(await handlers['shell:trainer-view'](viewSender(tv), 'תזונה'), true);
+  assert.equal(await handlers['shell:trainer-view'](viewSender(tv), 'אין כזה'), false);
+  assert.deepEqual(await handlers['trainer:save-pdf'](shellSender(), 'x'), { ok: false });
+  for (const ch of ['collect:getTrainerPayments', 'collect:issueTrainerReceipt', 'fitness:get']) assert.equal(handlers[ch], undefined, ch);
 });
 
 test('shell:catalog-extras: רק המעטפת מקבלת את רשימת המסכים החדשים', async () => {
@@ -412,27 +416,32 @@ test('שמאי: בלי כניסה — מסך הכניסה, ואחרי כניסה
 
 // מודול האימונים עבר למוצר החינוכי הנפרד: גיבוי של האימונים בלבד (גם עם נתונים פגומים) — הודעה ברורה, בלי חלון אישור ובלי קריסה;
 // קובץ JSON ישן מכפתור הייצוא של המודול — אינו גיבוי של SuperSuite
-test('שחזור: גיבוי של מודול האימונים בלבד או קובץ הייצוא הישן שלו — נעצר לפני האישור ולפני כל מחיקה', async () => {
+// מודול האימונים במהדורה המלאה (7.11.2026): נתוני אימונים פגומים — נעצרים לפני האישור ולפני כל מחיקה
+// (shell/trainer-backup-check.js); קובץ הייצוא הישן של המודול — מומר לגיבוי של המודול ומגיע לחלון האישור
+test('שחזור: נתוני אימונים פגומים נעצרים לפני האישור; קובץ הייצוא הישן של האימונים מגיע לאישור', async () => {
   await boot();
   const econView = created.views[0];
   const { AuthService } = require(path.join(ROOT, 'modules/econ/services/authService'));
   await handlers['auth:login'](viewSender(econView), 'restore_viewer', 'viewer-pass-long-1');
   AuthService.getSession(econView.id).permissions = ['data.view', 'data.restore'];
   const file = (name, data) => { const f = path.join(userData, name); fs.writeFileSync(f, JSON.stringify(data)); return f; };
-  const Legacy = require(path.join(ROOT, 'shell', 'legacy-modules.js'));
 
   const broken = { suite: 'SuperSuite', version: 2, scope: 'trainer', econ: null,
     localStorage: { trainer: { 'clients:index': '{"a":1}', 'client:c_1': '{}' } } };
   dialogPlan.open = { canceled: false, filePaths: [file('broken.json', broken)] };
   dialogLog.length = 0;
   assert.deepEqual(await handlers['shell:restore-all'](shellSender(), ''), { ok: false });
-  assert.deepEqual(dialogLog, [['error', Legacy.LEGACY_ONLY + 'אין בקובץ נתונים לשחזור — הנתונים הקיימים לא השתנו']]);
+  assert.equal(dialogLog.length, 1);
+  assert.equal(dialogLog[0][0], 'error');
+  assert.match(dialogLog[0][1], /הקובץ פגום: רשימת המתאמנים אינה תקינה\. לא שוחזר דבר/);
 
   const legacy = { 'trainer:profile': '{"name":"משה כהן"}', 'clients:index': '["c_1"]', 'client:c_1': '{"id":"c_1","name":"יעקב לוי"}' };
   dialogPlan.open = { canceled: false, filePaths: [file('trainer-pro-backup.json', legacy)] };
   dialogLog.length = 0;
+  // ביטול בחלון האישור (ברירת המחדל של ה-stub) — כלום לא משתנה
   assert.deepEqual(await handlers['shell:restore-all'](shellSender(), ''), { ok: false });
-  assert.deepEqual(dialogLog, [['error', 'הקובץ אינו גיבוי של SuperSuite']]);
+  assert.deepEqual(dialogLog.map(x => x[0]), ['box'], 'הגיע לחלון האישור, בלי שגיאה');
+  assert.match(dialogLog[0][1], /השחזור יחליף את הנתונים הקיימים/);
 
   // קובץ JSON אחר לגמרי — לא גיבוי
   dialogPlan.open = { canceled: false, filePaths: [file('other.json', { name: 'קובץ אחר' })] };

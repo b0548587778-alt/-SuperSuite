@@ -49,7 +49,7 @@ curl https://relay.example.co.il/health
 ## התקנה בלי Docker
 
 1. מתקינים Node.js 22 ואת Caddy (`apt install caddy`).
-2. מעתיקים את הפרויקט ל-`/opt/supersuite-relay`. השרת צריך רק את `server/`, `shell/licensing/` ו-`modules/econ/core/israeliId.js`.
+2. מעתיקים את הפרויקט ל-`/opt/supersuite-relay`. השרת צריך רק את `server/`, `shell/licensing/`, `shell/edition.js` + `shell/edition-id.js` ו-`modules/econ/core/israeliId.js`.
 3. מתקינים את השירות: `deploy/relay/supersuite-relay.service` (ההוראות בראש הקובץ).
 4. מעתיקים את `deploy/relay/Caddyfile` ל-`/etc/caddy/Caddyfile`, מחליפים את `{$RELAY_DOMAIN}` בדומיין ואת `{$RELAY_HOST:relay}` ב-`127.0.0.1`, ואז מריצים `systemctl reload caddy`.
 

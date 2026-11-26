@@ -8,7 +8,7 @@
 // אין חשיפה של אובייקט חדש לעמוד: פונקציית השליחה עוברת כארגומנט ל-executeInMainWorld בלבד.
 const { contextBridge, ipcRenderer } = require('electron');
 
-const MOD = { 'shamai': 'shamai' }[location.protocol === 'app:' ? location.host : ''];
+const MOD = { 'shamai': 'shamai', 'trainer': 'trainer', 'english': 'english', 'math': 'math', 'school': 'school' }[location.protocol === 'app:' ? location.host : ''];
 
 if (MOD && window === window.top) {
   let init = null;
@@ -29,7 +29,7 @@ if (MOD && window === window.top) {
       } else {
         // ההעברה נכשלה (למשל הגיבוי שלפניה): ממשיכים עם האחסון הישן, כמו במצב plain (כתיבה רק באישור),
         // וננסה שוב בפתיחה הבאה
-        init = { state: 'plain' };
+        init = { state: 'plain', perms: init.perms };
       }
     }
     if (init) {
@@ -68,8 +68,12 @@ if (MOD && window === window.top) {
         : init.state === 'no-session' ? 'השינוי לא נשמר: יש להיכנס למערכת'
           : 'השינוי לא נשמר: הנתונים המוצפנים של המודול לא נפתחו — פנו לתמיכה עם דוח תקלה (F1)';
       // הפונקציה רצה בעולם של העמוד (מועתקת כטקסט): בלי משתנים מבחוץ — הכול עובר ב-args
+      // הרשאות הפגישה למודול נעול (main.js — modulePerms; ניהול מוסד): לקריאה בלבד בעמוד (window.ssModulePerms)
+      const perms = init.perms && typeof init.perms === 'object'
+        ? { export: init.perms.export === true, delete: init.perms.delete === true, user: typeof init.perms.user === 'string' ? init.perms.user.slice(0, 80) : '' } : null;
       contextBridge.executeInMainWorld({
-        func: (data, readOnlyMessage, send, blobKeys, blobPrefixes, getBlob) => {
+        func: (data, readOnlyMessage, send, blobKeys, blobPrefixes, getBlob, perms) => {
+          if (perms) Object.defineProperty(window, 'ssModulePerms', { value: Object.freeze(perms), configurable: false, enumerable: false, writable: false });
           const m = new Map(Object.entries(data));
           // תמונות: רק המפתחות כאן; הערך — מהתהליך הראשי (קובץ מוצפן משלה), בלי עותק בזיכרון של העמוד
           const blobs = new Set(blobKeys);
@@ -120,7 +124,7 @@ if (MOD && window === window.top) {
           });
           Object.defineProperty(window, 'localStorage', { value: ls, configurable: false, enumerable: true });
         },
-        args: [data, readOnlyMessage, send, blobKeys, blobPrefixes, getBlob]
+        args: [data, readOnlyMessage, send, blobKeys, blobPrefixes, getBlob, perms]
       });
     }
   }

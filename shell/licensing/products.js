@@ -20,6 +20,10 @@ const PRODUCTS = [
     ['econ', 'מערכת כלכלית (בסיס)'], ['econ.accounting', 'הנהלת חשבונות'], ['econ.npo', 'עמותה ותרומות'], ['econ.gemach', 'גמ"ח'],
     ['econ.chesed', 'חסד וחלוקות'], ['econ.mortgage', 'משכנתאות'], ['econ.mortgage-advisor', 'ייעוץ משכנתאות'], ['econ.mortgage-lab', 'מעבדת תמהיל'],
     ['econ.realestate', 'נדל"ן (שמאות מקרקעין, תיווך ויזמים)'], ['shamai', 'שמאות'], ['tools', 'ארגז כלים'], ...AI_FEATURES,
+    // מודולי הלימוד — במהדורה המלאה של SuperSuite (shell/edition.js; החלטת הבעלים 7.11.2026). אותם שמות הם גם תחומים של
+    // SuperSuite לימוד (המוצר הנפרד) — כמו 'econ' ו-'tools', השם חוזר בשתי תוכנות, והרישיון תמיד לפי המוצר.
+    // במהדורה חלקית (עמותות / נדל"ן / חשבונאות) הם סגורים לפני הרישיון (gate.js), ותכנית של מהדורה כזו לא כוללת אותם (offer.js)
+    ['trainer', 'ניהול אימונים'], ['english', 'אנגלית'], ['math', 'חשבון'], ['school', 'ניהול מוסד'],
   ] },
   // SuperSuite לימוד (המאגר SuperSuite-Edu): 'econ' שם = הפלטפורמה (כניסה, משתמשים, רישוי, הגדרות, משימות)
   { id: 'learn', name: 'SuperSuite לימוד', family: 'learn', features: [
@@ -88,6 +92,10 @@ function checkFeatures(productId, features) {
 // מוצר של רישיון ישן (שלא נרשם לו מוצר) — לפי התחומים שלו. שמות שחוזרים בין מוצרים ('econ', 'tools') — SuperSuite
 function productOfFeatures(features) {
   const set = new Set(Array.isArray(features) ? features : []);
+  // תחום שיש רק ב-SuperSuite (הנהלת חשבונות, עמותה, שמאות...) — SuperSuite, גם כשלצדו מודול לימוד (המהדורה המלאה,
+  // או רישיון ישן מהתקופה שהאימונים היו כאן). מודול לימוד בלי תחום כזה — SuperSuite לימוד, כמו קודם
+  const learn = new Set(featuresOf('learn'));
+  if (featuresOf(DEFAULT_PRODUCT).some(f => set.has(f) && !learn.has(f))) return DEFAULT_PRODUCT;
   if (['english', 'math', 'school', 'trainer'].some(f => set.has(f))) return 'learn';
   const only = (id) => set.size > 0 && [...set].every(f => featuresOf(id).includes(f));
   if (only('shir-studio')) return 'shir-studio';

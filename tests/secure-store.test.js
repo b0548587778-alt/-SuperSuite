@@ -31,21 +31,23 @@ test('כתיבה וקריאה: הקובץ מוצפן ואין בו שמות', ()
   assert.deepEqual(make(dir, key).snapshot(), {});
 });
 
-test('מודולים נפרדים: מפתח וקובץ לכל מודול; מחסן האימונים (עבר למוצר נפרד) לא נפתח ולא נמחק', () => {
+test('מודולים נפרדים: מפתח וקובץ לכל מודול (גם מודולי הלימוד במהדורה המלאה)', () => {
   const dir = tmp();
   const key = newKey();
-  const { keyFor } = require('../shell/secure-store');
+  const { keyFor, MODULES } = require('../shell/secure-store');
+  assert.deepEqual(MODULES, ['shamai', 'trainer', 'english', 'math', 'school']);
   assert.notDeepEqual(keyFor(key, 'shamai'), keyFor(key, 'trainer'), 'מפתח נגזר לפי שם המודול');
-  // קובץ של משתמש קיים מגרסה שכללה את מודול האימונים — נשאר בדיסק כמו שהוא
-  const old = path.join(dir, 'secure-trainer.bin');
-  fs.writeFileSync(old, 'encrypted-trainer-data');
+  // קובץ של משתמש קיים מגרסה שבה האימונים היו במוצר — נפתח באותו מפתח
+  const t = make(dir, key, 'trainer');
+  t.set('clients:index', '[]');
+  t.flush();
   const a = make(dir, key, 'shamai');
   a.set('x', '1');
   assert.equal(path.basename(a.file), 'secure-shamai.bin');
-  assert.equal(fs.readFileSync(old, 'utf8'), 'encrypted-trainer-data');
-  assert.throws(() => make(dir, key, 'trainer'), /מודול לא מוכר/);
+  assert.equal(path.basename(t.file), 'secure-trainer.bin');
+  assert.deepEqual(make(dir, key, 'trainer').snapshot(), { 'clients:index': '[]' });
+  assert.deepEqual(make(dir, key, 'shamai').snapshot(), { x: '1' }, 'מודול אחד לא רואה את נתוני האחר');
   assert.throws(() => make(dir, key, 'econ'), /מודול לא מוכר/);
-  assert.equal(fs.readFileSync(old, 'utf8'), 'encrypted-trainer-data');
 });
 
 test('העברה: גיבוי לפני, ואם הגיבוי נכשל — אין העברה', () => {
@@ -138,9 +140,9 @@ test('main.js: כל ערוץ של המחסן בודק שהשולח הוא התצ
   assert.match(src, /for \(const s of Object\.values\(secureStores\)\) s\.flush\(\)/, 'כתיבה אחרונה ביציאה');
 });
 
-test('preload: פועל רק בשמאות, במסגרת העליונה, ומוחק את הישן רק אחרי העברה מוצלחת', () => {
+test('preload: פועל רק במודולים המוצפנים, במסגרת העליונה, ומוחק את הישן רק אחרי העברה מוצלחת', () => {
   const src = fs.readFileSync(path.join(ROOT, 'shell', 'secure-ls-preload.js'), 'utf8');
-  assert.match(src, /\{ 'shamai': 'shamai' \}/);
+  assert.match(src, /\{ 'shamai': 'shamai', 'trainer': 'trainer', 'english': 'english', 'math': 'math', 'school': 'school' \}/);
   assert.match(src, /window === window\.top/);
   assert.match(src, /if \(r && r\.ok\) \{\s*localStorage\.clear\(\)/);
   assert.doesNotMatch(src, /exposeInMainWorld/, 'אין אובייקט חדש בעמוד');

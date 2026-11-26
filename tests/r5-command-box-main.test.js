@@ -215,7 +215,9 @@ test('אנדרואיד: shell:start-task / shell:task-access — אותו אימ
   assert.deepEqual(sent.at(-1), ['econ', 'econ:goto', { view: 'acct-journal', task: 'expense', prefill: { amount: '200', note: 'חשמל' } }]);
   // הקבצים נארזים לאנדרואיד ונטענים לפני shell.js
   const apk = fs.readFileSync(path.join(ROOT, 'android/build-apk.js'), 'utf8').replace(/\r\n/g, '\n');
-  assert.match(apk, /'simple-mode\.js', 'tasks\.js', 'intents\.js'\]/);
+  assert.match(apk, /'simple-mode\.js', 'tasks\.js', 'intents\.js'[,\]]/);
+  // המהדורה (shell/edition.js) — tasks.js, catalog.js ו-onboarding.js נשענים עליה גם באנדרואיד
+  assert.match(apk, /'edition-id\.js', 'edition\.js'\]/);
   const html = fs.readFileSync(path.join(ROOT, 'shell/shell.html'), 'utf8').replace(/\r\n/g, '\n');
   for (const f of ['tasks.js', 'intents.js']) assert.ok(html.indexOf(`src="${f}"`) > 0 && html.indexOf(`src="${f}"`) < html.indexOf('src="shell.js"'), f);
   assert.ok(html.indexOf('src="tasks.js"') < html.indexOf('src="intents.js"'));

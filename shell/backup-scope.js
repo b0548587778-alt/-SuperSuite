@@ -7,8 +7,12 @@ const { THIS_PRODUCT } = require('./licensing/products');
 
 // המוצר שנרשם בכל גיבוי (collectBackup) — המזהה של התוכנה הזו בקטלוג המוצרים של מרכז הרישוי
 const PRODUCT = THIS_PRODUCT;
-// מודולים שיש רק ב-SuperSuite לימוד. גיבוי שלה מלפני שנרשם בו המוצר (בלי product) מכיל אותם תמיד, אפילו ריקים —
-// וכך מבדילים אותו מגיבוי ישן של התוכנה הזו, שגם בו אין product
+// מודולים שמסמנים גיבוי ישן (בלי product) של SuperSuite לימוד: גיבוי שלה מלפני שנרשם בו המוצר מכיל אותם תמיד,
+// אפילו ריקים — וכך מבדילים אותו מגיבוי ישן של התוכנה הזו, שגם בו אין product.
+// מאז שמודולי הלימוד הם חלק מהמהדורה המלאה (shell/edition.js, החלטת הבעלים 7.11.2026) גם הגיבוי של התוכנה הזו מכיל
+// אותם — אבל הוא תמיד נושא product (collectBackup), ולכן מזוהה לפי השדה ולא לפי המודולים. גיבוי בלי product ועם
+// מודול כזה נשאר "של מוצר אחר" (האפשרות המחמירה בזיהוי): הנתונים משוחזרים, סימוני הרישוי לא נקלטים
+// (tests/licensing-editions-merge.test.js)
 const OTHER_PRODUCT_MODULES = ['english', 'math', 'school'];
 
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);

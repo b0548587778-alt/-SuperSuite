@@ -20,10 +20,12 @@ const LIC_FEATURES = [
   ['econ', 'מערכת כלכלית (בסיס)'], ['econ.accounting', 'הנהלת חשבונות'], ['econ.npo', 'עמותה ותרומות'], ['econ.gemach', 'גמ"ח'],
   ['econ.chesed', 'חסד וחלוקות'], ['econ.mortgage', 'משכנתאות'], ['econ.mortgage-advisor', 'ייעוץ משכנתאות'], ['econ.mortgage-lab', 'מעבדת תמהיל'], ['econ.realestate', 'נדל"ן (שמאות מקרקעין, תיווך ויזמים)'],
   ['shamai', 'שמאות'], ['tools', 'ארגז כלים'],
-  ['ai', 'עוזר חכם — כללים'], ['ai.local', 'עוזר חכם — מודל במחשב'], ['ai.cloud', 'עוזר חכם — שדרוג ענן']
+  ['ai', 'עוזר חכם — כללים'], ['ai.local', 'עוזר חכם — מודל במחשב'], ['ai.cloud', 'עוזר חכם — שדרוג ענן'],
+  // מודולי הלימוד — במהדורה המלאה
+  ['trainer', 'ניהול אימונים'], ['english', 'אנגלית'], ['math', 'חשבון'], ['school', 'ניהול מוסד']
 ];
-// תחומים מרישיונות ישנים שאינם במוצר הזה — מוצגים בשם קריא, ולא מוצעים בהנפקה (trainer: עבר למוצר החינוכי הנפרד)
-const LIC_LEGACY_FEATURES = { trainer: 'ניהול אימונים (מוצר נפרד)' };
+// תחומים מרישיונות ישנים שאינם במוצר הזה — מוצגים בשם קריא, ולא מוצעים בהנפקה (כרגע אין)
+const LIC_LEGACY_FEATURES = {};
 const licFeatureLabel = (f) => (LIC_FEATURES.find(x => x[0] === f) || [f, LIC_LEGACY_FEATURES[f] || f])[1];
 // מרכז הרישוי (shell/licensing/products.js): הקטלוג מגיע ממצב מנהל-העל (owner:getState → products).
 // לכל תוכנה תחומים משלה — ושמות תחומים חוזרים בין תוכנות, ולכן שם תחום תמיד לפי התוכנה
@@ -585,11 +587,16 @@ function showRecoveryCodes(r) {
 }
 
 // עורך תכניות ותקנון (מנהל-העל) — מרכז הרישוי: לכל תכנית היקף (תוכנה אחת, חבילת משפחה או כל התוכנות) ותחומים
-// לכל תוכנה בהיקף. נשמרת הצעה ראשית אחת, וממנה נחתמת הצעה לכל תוכנה (shell/licensing/offer.js — splitMaster)
+// לכל תוכנה בהיקף. נשמרת הצעה ראשית אחת, וממנה נחתמת הצעה לכל תוכנה (shell/licensing/offer.js — splitMaster).
+// editions — { choices, templates } מ-owner:offerEditions: מהדורה (shell/edition.js; ריק = כל המהדורות) היא מאפיין של
+// התכנית ב-SuperSuite בלבד, ולכן נבחרת רק בתכנית שההיקף שלה כולל את SuperSuite; ו"תכנית אחת לכל מוצר" — בלי מחיר,
+// הבעלים מקליד
 const LIC_THIS_PRODUCT = 'supersuite';
 // תכנית מגרסה קודמת: features מערך ובלי scope — של SuperSuite
 const licPlanFeatures = (p) => (Array.isArray(p.features) ? { [LIC_THIS_PRODUCT]: p.features } : { ...(p.features || {}) });
-function offerEditor(cur, cat) {
+function offerEditor(cur, cat, editions) {
+  const edChoices = (editions && Array.isArray(editions.choices)) ? editions.choices : [];
+  const edTemplates = (editions && Array.isArray(editions.templates)) ? editions.templates : [];
   return openDialog((card, finish) => {
     card.style.maxWidth = '760px';
     const fresh = (n) => ({ id: n > 1 ? 'plan' + n : 'basic', name: n > 1 ? '' : 'בסיסי', priceAgorot: 0, months: 12, scope: LIC_THIS_PRODUCT,
@@ -610,7 +617,7 @@ function offerEditor(cur, cat) {
         card.appendChild(fsx);
         const f = (label, val, type) => { const l = document.createElement('label'); l.className = 'field'; const sp = document.createElement('span'); sp.textContent = label;
           const i = document.createElement('input'); i.type = type || 'text'; i.value = val == null || Number.isNaN(val) ? '' : val; l.append(sp, i); fsx.appendChild(l); return i; };
-        const out = { id: f('מזהה (אנגלית)', p.id), name: f('שם', p.name), desc: f('תיאור', p.desc), price: f('מחיר ב-₪ (0 = חינם)', p.priceAgorot / 100, 'number'),
+        const out = { id: f('מזהה (אנגלית)', p.id), name: f('שם', p.name), desc: f('תיאור', p.desc), price: f('מחיר ב-₪ (0 = חינם)', p.priceAgorot == null ? '' : p.priceAgorot / 100, 'number'),
           months: f('תקופה (חודשים)', p.months, 'number'), users: f('משתמשים', p.limits.maxUsers, 'number'), children: f('מערכות בת', p.limits.maxChildren, 'number'), feats: [] };
         // היקף: תוכנה אחת או חבילה. שינוי ההיקף מצייר מחדש את התחומים (מה שסומן נשמר)
         const sl = document.createElement('label'); sl.className = 'field';
@@ -621,6 +628,16 @@ function offerEditor(cur, cat) {
         sl.append(ssp, sel); fsx.appendChild(sl);
         sel.onchange = () => { collect(); plans[idx].scope = sel.value; render(); };
         out.scope = sel;
+        // מהדורה — רק בתכנית שכוללת את SuperSuite (לתוכנות האחרות אין מהדורות; השרת דוחה מהדורה בתכנית אחרת)
+        if (edChoices.length && scopeProducts(p.scope).includes(LIC_THIS_PRODUCT)) {
+          const l = document.createElement('label'); l.className = 'field'; const sp = document.createElement('span'); sp.textContent = 'מהדורה של SuperSuite (התוכנה שבה התכנית מוצעת)';
+          const esel = document.createElement('select');
+          for (const [val, label] of [['', 'כל המהדורות'], ...edChoices.map(c => [c.id, c.name])]) {
+            const o = document.createElement('option'); o.value = val; o.textContent = label; esel.appendChild(o);
+          }
+          esel.value = p.edition || '';
+          l.append(sp, esel); fsx.appendChild(l); out.edition = esel;
+        }
         for (const pid of scopeProducts(p.scope)) {
           const box = document.createElement('div'); box.className = 'checks';
           box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'תחומים — ' + licProductName(cat, pid));
@@ -635,6 +652,16 @@ function offerEditor(cur, cat) {
       const add = document.createElement('button'); add.type = 'button'; add.className = 'secondary small'; add.textContent = '＋ תכנית נוספת';
       add.onclick = () => { collect(); plans.push(fresh(plans.length + 1)); render(); };
       card.appendChild(add);
+      if (edTemplates.length) {
+        const addEd = document.createElement('button'); addEd.type = 'button'; addEd.className = 'secondary small'; addEd.textContent = '＋ תכנית אחת לכל מוצר (עמותות, נדל"ן, חשבונאות)';
+        addEd.onclick = () => {
+          collect();
+          // התבנית במבנה של תכנית SuperSuite (features מערך) — כאן היא הופכת לתכנית של ההצעה הראשית: היקף SuperSuite
+          for (const t of edTemplates) if (!plans.some(p => p.id === t.id)) plans.push({ ...t, scope: LIC_THIS_PRODUCT, features: licPlanFeatures(t), limits: { ...t.limits } });
+          render();
+        };
+        card.appendChild(addEd);
+      }
       const tv = mk('גרסת התקנון (למשל 1.0) — שינוי נוסח מחייב גרסה חדשה', cur && cur.terms ? cur.terms.version : '1.0');
       const tt = mk('כותרת התקנון', cur && cur.terms ? cur.terms.title : 'תקנון ותנאי שימוש');
       const tx = mk('נוסח התקנון המלא', cur && cur.terms ? cur.terms.text : '', 'textarea');
@@ -649,7 +676,11 @@ function offerEditor(cur, cat) {
         inputs.forEach((x, i) => { Object.assign(plans[i], { id: x.id.value.trim(), name: x.name.value.trim(), desc: x.desc.value.trim(),
           priceAgorot: Math.round(num(x.price) * 100), months: num(x.months), scope: x.scope.value,
           features: Object.fromEntries(scopeProducts(x.scope.value).map(pid => [pid, x.feats.filter(c => c.checked && c.dataset.product === pid).map(c => c.value)])),
-          limits: { ...plans[i].limits, maxUsers: num(x.users), maxChildren: num(x.children), maxDepth: num(x.children) > 0 ? 2 : 1 } }); });
+          limits: { ...plans[i].limits, maxUsers: num(x.users), maxChildren: num(x.children), maxDepth: num(x.children) > 0 ? 2 : 1 } });
+          // מהדורה: נשמרת רק כשההיקף כולל את SuperSuite. היקף שהוחלף לתוכנה אחרת — המהדורה נמחקת מהתכנית.
+          // בלי רשימת מהדורות (העורך נפתח בלי owner:offerEditions) — מהדורה קיימת בתכנית נשארת כמו שהיא
+          if (!scopeProducts(x.scope.value).includes(LIC_THIS_PRODUCT)) delete plans[i].edition;
+          else if (x.edition) { if (x.edition.value) plans[i].edition = x.edition.value; else delete plans[i].edition; } });
       }
       ok.onclick = () => {
         collect();

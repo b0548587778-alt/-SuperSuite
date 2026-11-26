@@ -8,7 +8,9 @@ test('קובץ ה-EXE נושא את שם התוכנה והאייקון שלה, �
   // לדילוג על חתימה בלבד: signExecutable:false (העריכה נעשית ב-resedit מקומי, בלי הורדות).
   assert.notEqual(pkg.build.win.signAndEditExecutable, false);
   assert.equal(pkg.build.win.signExecutable, false, 'אין תעודת חתימה — מדלגים על החתימה בלבד');
-  assert.equal(pkg.build.productName, 'SuperSuite');
+  // במאגר של מוצר אחד (tools/split-product.js) — שם המוצר
+  const lock = require('../tools/edition-build').productLock();
+  assert.equal(pkg.build.productName, lock ? require('../shell/edition').get(lock[0]).product : 'SuperSuite');
   assert.ok(pkg.build.copyright, 'זכויות יוצרים בפרטי הקובץ');
   assert.ok(pkg.build.win.icon);
 });
@@ -20,10 +22,13 @@ test('CI: משימת הבדיקות מורידה היסטוריה מלאה (בד
   assert.match(build, /actions\/checkout@(?:v4|[0-9a-f]{40} # v4)\s*\n\s*with:\s*\{\s*fetch-depth:\s*0[,\s}]/);
 });
 
-test('CI: מודול האימונים (עבר למוצר החינוכי הנפרד) לא נבנה ולא נארז', () => {
+// מודול האימונים במהדורה המלאה — החבילה הבנויה בלבד (modules/trainer), שמגיעה מ-SuperSuite לימוד (המקור והבנייה שם).
+// כאן לא בונים אותו: אין modules-src ואין צעד בנייה של האימונים ב-CI
+test('CI: מודול האימונים לא נבנה כאן — רק החבילה הבנויה מ-SuperSuite לימוד נארזת', () => {
   const yml = require('fs').readFileSync(require('path').join(__dirname, '..', '.github', 'workflows', 'build.yml'), 'utf8').replace(/\r\n/g, '\n');
   assert.doesNotMatch(yml, /trainer/);
-  assert.ok(!require('fs').existsSync(require('path').join(__dirname, '..', 'modules', 'trainer')));
+  assert.ok(require('fs').existsSync(require('path').join(__dirname, '..', 'modules', 'trainer', 'index.html')));
+  assert.ok(require('fs').existsSync(require('path').join(__dirname, '..', 'modules', 'trainer', 'preload.js')));
   assert.ok(!require('fs').existsSync(require('path').join(__dirname, '..', 'modules-src')));
 });
 
