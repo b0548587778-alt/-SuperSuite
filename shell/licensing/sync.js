@@ -6,12 +6,15 @@ const { createRemote, mailboxOf, randomNonce } = require('./remote');
 const CK = require('./checkin');
 const M = require('./messages');
 const OF = require('./offer');
+const PR = require('./products');
 const SU = require('./signup');
 const PK = require('./prekeys');
-const { PKG_REQUEST, PKG_APPROVAL_REQUEST, READ_ERROR_CODE } = require('./store');
+const { PKG_REQUEST, PKG_APPROVAL_REQUEST, READ_ERROR_CODE, ACTIVATION_REQUIRED, PARENT_CHANGE_CODE } = require('./store');
 
-// תקלה רגעית בקריאה (תיבת ההודעות או קובץ הרישוי תפוסים) — ההודעה לא מאושרת לשרת ותתקבל שוב בסנכרון הבא
-const keepOnServer = (e) => !!(e && (e.code === 'chat-unavailable' || e.code === READ_ERROR_CODE));
+// תקלה רגעית בקריאה (תיבת ההודעות או קובץ הרישוי תפוסים) — ההודעה לא מאושרת לשרת ותתקבל שוב בסנכרון הבא.
+// אישור הנפקה שנחסם בתנאי ההפעלה (ACTIVATION_REQUIRED) — נשאר בשרת עד שהמערכת פעילה (אושר ושולם עליו)
+// prekeys-unavailable — קובץ המפתחות הזמניים לא נקרא; ההודעה תפוענח בסנכרון הבא (סקירה 2.11.2026, f84)
+const keepOnServer = (e) => !!(e && (e.code === 'chat-unavailable' || e.code === READ_ERROR_CODE || e.code === ACTIVATION_REQUIRED || e.code === 'prekeys-unavailable'));
 
 // בקשת רישיון ממערכת בת חדשה: נשמרים רק השדות הדרושים, בגוף שנבנה מחדש — לא הגוף כמו שהגיע. גופים ענקיים
 // ממאות בקשות ניפחו את קובץ הרישוי, שנקרא בכל ערוץ מוגן (בדיקת קוד 23.10.2026, ממצא 30)
@@ -25,7 +28,8 @@ function compactRequest(body) {
   try { keyId = L.keyId(req.publicKey); } catch { throw new Error('בקשה לא תקינה'); }
   if (req.keyId !== keyId) throw new Error('בקשה לא תקינה');
   const name = String(req.name == null ? '' : req.name).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80);
-  return { keyId, name, body: JSON.stringify({ type: PKG_REQUEST, v: 1, name, publicKey: L.publicOf(req.publicKey), keyId }) };
+  const product = PR.isProduct(req.product) ? req.product : undefined;
+  return { keyId, name, body: JSON.stringify({ type: PKG_REQUEST, v: 1, name, publicKey: L.publicOf(req.publicKey), keyId, product }) };
 }
 // רשומה ברשימת הבקשות הממתינות (גם רשומה ישנה שנשמרה עם הגוף המקורי) — או null כשאינה תקינה
 function pendingEntry(p, fallbackAt) {
@@ -43,6 +47,12 @@ const CHILD_RETRY_MS = 60 * 60 * 1000;
 const MAX_CHILD_PUSH = 20;
 // מנהל-העל: עדכוני סטטוס בחלקים של עד 50 נמענים לבקשה (התקרה של השרת)
 const PUSH_BATCH = 50;
+
+// אישור חיבור בקובץ (offlineRequest / offlineRelay / offlineImport)
+const OFFLINE_REQ = 'supersuite-offline-checkin-request';
+const OFFLINE_RES = 'supersuite-offline-checkin-response';
+const OFFLINE_OP = 'offlineFetch';
+const OFFLINE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
 // isRestTime(): בשבת וביום טוב (מצב שבת) — אין תשובות אוטומטיות
 // allowLocalRelay — מצב בדיקה מפורש בלבד: תעודת שרת לכתובת מקומית (checkin.js, assertCertOrigin). התוכנה לא מעבירה אותו
@@ -96,6 +106,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
   }
 
   async function sendApprovalRequest(input) {
+    if (typeof store.assertCanIssue === 'function') store.assertCanIssue(); // תנאי ההפעלה (סקירה 5.11.2026)
     const r = store.requestChildApproval(input);
     await remote().send(store.syncKey(false), [{ to: ownerBox(), kind: 'approval-request', body: r.package }]);
     return { sent: true, childId: r.childId };
@@ -120,18 +131,34 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     const challenge = randomNonce();
     const { messages: msgs, attestation } = await rm.fetchMail(key, { challenge });
     const checkin = verifyCheckin(key, challenge, attestation, msgs, rm.origin);
+    // החיבור המאומת נרשם לפני הטיפול בהודעות: אישור הנפקה שהגיע עכשיו נבדק מול תנאי ההפעלה (issuerContext) — ומערכת
+    // שחזרה לחיבור אחרי 30 יום מנפיקה כבר בסנכרון הזה
+    if (checkin.ok) store.setRemoteSettings({ lastSync: now(), checkinError: null, ...(checkin.att ? { checkin: checkin.att, certExpiresAt: checkin.certExpiresAt } : {}) });
     const done = [];
     const errors = [];
     const forward = [];
     let pending = (store.getRemoteSettings().pendingChildRequests || []).map(p => pendingEntry(p, now())).filter(Boolean);
     const autos = [];
     const owners = ownerIds();
+    // רישיון ממערכת מנפיקה אחרת (ממצא f85) — לא מותקן בלי אישור המנהל, אבל גם לא אובד: נשמר מקומית וממתין
+    // לאישור במסך הרישוי (license:install עם pending), וההודעה נמחקת מהשרת
+    let heldLicense = null;
     for (const m of msgs) {
       try {
-        if (m.kind === 'license') store.install(m.body);
+        if (m.kind === 'license') {
+          try { store.install(m.body); } catch (e) {
+            if (!e || e.code !== PARENT_CHANGE_CODE) throw e;
+            heldLicense = { body: m.body, at: Number(m.at) || now(), name: String(e.name || '').slice(0, 200), expiresAt: Number(e.expiresAt) || null };
+            errors.push('התקבל רישיון ממערכת מנפיקה אחרת — ממתין לאישור במסך הרישוי');
+          }
+        }
         else if (m.kind === 'notices') store.importNotices(m.body);
         else if (m.kind === 'approval') {
-          // אישור ממנהל-העל: הנפקה אוטומטית, והרישיון נשלח ישר למערכת הבת
+          // אישור ממנהל-העל: הנפקה אוטומטית, והרישיון נשלח ישר למערכת הבת. רק ממנהל-העל (ממצא f12) — משולח אחר
+          // (שידור חוזר של אישור ישן שהועתק מרישיון) נמחק בלי הנפקה
+          if (!owners.has(m.from)) { done.push(m.id); continue; }
+          // תנאי ההפעלה (סקירה 5.11.2026) — מערכת בצפייה בלבד או נעולה לא מנפיקה; האישור נשאר בשרת (keepOnServer)
+          if (typeof store.assertCanIssue === 'function') store.assertCanIssue();
           const r = store.issueChild({ approval: m.body });
           forward.push({ msgId: m.id, name: r.child.name, item: { to: r.child.id, kind: 'license', body: r.package } });
         } else if (m.kind === 'rejection') {
@@ -160,9 +187,8 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     }
     // "החיבור האחרון לשרת" (תנאי ההפעלה) — רק אחרי תשובה חתומה שאומתה. שרת שאינו של הספק לא מאריך. התשובה החתומה
     // עצמה נשמרת (checkin) — ממנה מחושב הזמן לתנאי ההפעלה (store.lastSyncTime, ממצא 1), ותפוגת התעודה למסך הרישוי
-    store.setRemoteSettings({ pendingChildRequests: pending.slice(-100),
-      ...(checkin.ok ? { lastSync: now(), checkinError: null, ...(checkin.att ? { checkin: checkin.att, certExpiresAt: checkin.certExpiresAt } : {}) }
-        : { checkinError: checkin.error }) });
+    store.setRemoteSettings({ pendingChildRequests: pending.slice(-100), ...(heldLicense ? { pendingLicense: heldLicense } : {}),
+      ...(checkin.ok ? {} : { checkinError: checkin.error }) });
     // רישיונות שהונפקו לפי אישור — כל אחד בבקשה משלו: תיבה מלאה של נמען אחד לא חוסמת את האחרים ולא את האישור
     // לשרת (ממצא 2). מסירה שנכשלה — האישור נשאר בשרת, וההנפקה והשליחה ינוסו שוב בסנכרון הבא
     for (const f of forward) {
@@ -215,6 +241,97 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
       const prev = store.getRemoteSettings().childNotices || {};
       store.setRemoteSettings({ childNotices: { ...prev, [childId]: { h: L.sha256Hex(pkg), at: now(), ok: !!verified } } });
     } catch { /* לא קריטי — בסנכרון הבא החבילה תישלח שוב */ }
+  }
+
+  // ---------- אישור בקובץ, למחשב בלי חיבור (סקירה 11.2026, f81) ----------
+  // 1. המחשב שאין בו חיבור שומר "בקשת אישור" — בקשה למשיכת התיבה שלו, חתומה במפתח שלו, עם אתגר אקראי חדש.
+  // 2. מחשב מחובר (כל התקנה שמוגדר בה אותו שרת) שולח אותה כמו שהיא לשרת, ושומר את התשובה החתומה לקובץ.
+  //    הוא לא יכול לשנות אותה: היא חתומה במפתח השרת, על האתגר ועל התיבה של המחשב הראשון.
+  // 3. המחשב הראשון טוען את הקובץ: אימות מלא (תעודה, חתימה, אתגר, תיבה, כתובת, וכל הודעה חתומה הגיעה כמו שהיא),
+  //    קליטת הרישיון / עדכוני הסטטוס שבתיבה, ושמירת התשובה החתומה — ממנה נספר "החיבור האחרון לשרת".
+  // ההודעות לא נמחקות בשרת (אין אישור קבלה מכאן) — הן ייקלטו שוב בסנכרון הבא עם חיבור. הודעות שדורשות שליחה
+  // הלאה (אישור למערכת בת, הודעות צ'אט) נשארות לסנכרון עם חיבור.
+  function offlineRequest() {
+    const key = store.syncKey(false);
+    if (!key) throw new Error('במחשב הזה עדיין אין רישיון מותקן — אין צורך באישור חיבור');
+    const rm = remote();
+    const challenge = randomNonce();
+    const pub = L.publicOf(key);
+    const ts = now();
+    const nonce = randomNonce();
+    const payload = { checkin: challenge };
+    const sig = L.signObject({ pub, ts, nonce, op: OFFLINE_OP, payload }, key);
+    store.setRemoteSettings({ offlineCheckin: { challenge, at: ts, origin: rm.origin } });
+    return JSON.stringify({ type: OFFLINE_REQ, v: 1, origin: rm.origin, request: { pub, ts, nonce, op: OFFLINE_OP, payload, sig } });
+  }
+  async function offlineRelay(text) {
+    let j;
+    try { j = JSON.parse(String(text || '')); } catch { j = null; }
+    const q = j && j.request;
+    if (!j || j.type !== OFFLINE_REQ || j.v !== 1 || !q || q.op !== OFFLINE_OP || typeof q.sig !== 'string' || !q.payload || !CK.validChallenge(q.payload.checkin)) {
+      throw new Error('הקובץ אינו בקשת אישור חיבור של SuperSuite');
+    }
+    let box;
+    try { box = mailboxOf(q.pub); } catch { throw new Error('הקובץ אינו בקשת אישור חיבור של SuperSuite'); }
+    const rm = remote();
+    // הבקשה נשלחת רק לשרת שמוגדר במחשב הזה — קובץ לא קובע לאן התוכנה פונה
+    if (j.origin !== rm.origin) throw new Error('הבקשה מיועדת לשרת רישוי אחר (' + String(j.origin).slice(0, 100) + ') — במחשב הזה מוגדר ' + rm.origin);
+    const r = await rm.post({ pub: q.pub, ts: q.ts, nonce: q.nonce, op: OFFLINE_OP, payload: { checkin: q.payload.checkin }, sig: q.sig });
+    if (!r.checkin || typeof r.relayCert !== 'string') throw new Error('שרת הרישוי לא החזיר אישור חתום — ייתכן שהשרת עוד לא עודכן. נסו שוב מאוחר יותר');
+    return { box, text: JSON.stringify({ type: OFFLINE_RES, v: 1, origin: rm.origin, box, messages: Array.isArray(r.messages) ? r.messages : [],
+      more: r.more === true, checkin: r.checkin, relayCert: r.relayCert }) };
+  }
+  function offlineImport(text) {
+    let j;
+    try { j = JSON.parse(String(text || '')); } catch { j = null; }
+    if (!j || j.type !== OFFLINE_RES || j.v !== 1 || !Array.isArray(j.messages)) throw new Error('הקובץ אינו אישור חיבור של SuperSuite');
+    const key = store.syncKey(false);
+    if (!key) throw new Error('במחשב הזה עדיין אין רישיון מותקן');
+    const box = mailboxOf(L.publicOf(key));
+    if (j.box !== box) throw new Error('האישור שייך למחשב אחר');
+    const pend = store.getRemoteSettings().offlineCheckin;
+    if (!pend || typeof pend.challenge !== 'string') throw new Error('אין במחשב הזה בקשת אישור פתוחה — שמרו בקשה חדשה והעבירו אותה');
+    const t = now();
+    if (t - pend.at > OFFLINE_MAX_AGE_MS) throw new Error('בקשת האישור ישנה מדי (יותר מ-14 יום) — שמרו בקשה חדשה');
+    if (j.more) throw new Error('יש בתיבה של המחשב הזה יותר מדי הודעות להעברה בקובץ — יש לחבר אותו לרשת לסנכרון אחד');
+    const msgs = j.messages.filter(m => m && typeof m === 'object' && typeof m.id === 'string');
+    let att = null, certExpiresAt = null, signedAt = null;
+    if (rootKeys && rootKeys.length) {
+      // האתגר חד-פעמי ונוצר כאן: התשובה נחתמה אחרי שהבקשה נוצרה ולא אחרי עכשיו
+      const skewMs = Math.max(0, t - pend.at) + CK.CHECKIN_SKEW_MS;
+      const v = CK.verifyCheckin({ checkin: j.checkin, cert: j.relayCert }, { rootKeys, box, challenge: pend.challenge, origin: pend.origin, now: t, skewMs, allowLocal: allowLocalRelay });
+      if (v.at < pend.at - CK.CHECKIN_SKEW_MS || v.at > t + CK.CHECKIN_SKEW_MS) throw new Error('זמן האישור אינו תואם לבקשה — בדקו את התאריך והשעה במחשב');
+      const got = new Map(msgs.map(m => [m.id, m]));
+      if (!v.items.every(([id, digest]) => got.has(id) && CK.messageDigest(got.get(id)) === digest)) throw new Error('האישור חלקי או ששונה בדרך — לא נקלט');
+      att = { checkin: j.checkin, cert: j.relayCert };
+      certExpiresAt = v.certExpiresAt;
+      signedAt = v.at;
+    }
+    const errors = [];
+    let handled = 0, deferred = 0;
+    let pending = (store.getRemoteSettings().pendingChildRequests || []).map(p => pendingEntry(p, t)).filter(Boolean);
+    const owners = ownerIds();
+    for (const m of msgs) {
+      try {
+        if (m.kind === 'license') store.install(m.body);
+        else if (m.kind === 'notices') store.importNotices(m.body);
+        else if (m.kind === 'update') { if (updates) updates.offer(m.body); }
+        else if (m.kind === 'rejection') {
+          if (owners.has(m.from)) {
+            const r = JSON.parse(m.body);
+            errors.push('הבקשה למערכת הבת "' + String(r.name || '').slice(0, 80) + '" נדחתה: ' + String(r.reason || '').slice(0, 500));
+          }
+        } else if (m.kind === 'license-request') {
+          const req = pendingEntry({ body: m.body, at: m.at }, t);
+          if (req && !pending.some(p => p.keyId === req.keyId)) pending = [...pending, req];
+        } else { deferred++; continue; }
+        handled++;
+      } catch (e) { errors.push(e.message); }
+    }
+    store.setRemoteSettings({ offlineCheckin: null, pendingChildRequests: pending.slice(-100),
+      ...(att ? { lastSync: signedAt, checkinError: null, checkin: att, certExpiresAt } : {}) });
+    store.invalidate();
+    return { handled, deferred, errors, at: signedAt };
   }
 
   // אימות התשובה החתומה. בלי מפתח שורש בתוכנה (התקנה בלי רישוי) אין מה לאמת — כמו קודם.
@@ -299,14 +416,26 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     let added = 0;
     let messages = 0;
     let signups = 0;
+    let signupsHeld = 0;
+    let signupsRejected = 0;
     const autos = [];
     const keep = new Set();
     for (const m of msgs) {
       if (m.kind === 'license-request' || m.kind === 'approval-request') { if (owner.addToInbox(m)) added++; }
       else if (m.kind === 'signup' && m.from === 'relay') {
         // at — זמן המסירה בשרת: ההצעה שבהרשמה נבדקת מול מה שהיה מפורסם אז (ממצא 31)
-        // הרשמה לא תקינה (signup-invalid) — נדחית; תקלה אחרת (קובץ שלא נקרא) — ההרשמה נשארת בשרת לסבב הבא
-        try { if (owner.addSignup(m.body, { at: m.at }).added) signups++; } catch (e) { if (!(e && e.code === 'signup-invalid')) keep.add(m.id); }
+        // הרשמה שלא נקלטה אצלנו (מפתח נעול, קובץ שלא נקרא, פורמט חדש) — נשארת בשרת לסבב הבא: הרשמה בתשלום שאושרה ונמחקה
+        // אובדת. אבל מסירה שנפתחה והתוכן שלה אינו הרשמה תקינה (signup-invalid) — השרת בודק רק את החלק הגלוי, ומעטפה
+        // מזויפת עוברת אותו; אילו נשארה, זבל היה ממלא לתמיד את המקום של הרשמות חינם (MAX_FREE_IN_BOX). היא נשמרת
+        // בהסגר המקומי המוצפן (quarantineSignup) ורק אז מאושרת לשרת ונמחקת שם; כשל בהסגר — נשארת (סקירה 5.11.2026)
+        // "שולם" — רק עם אישור חתום של השרת (f83); בלעדיו ההרשמה נשמרת לבדיקה (owner-core.js)
+        try { if (owner.addSignup(m.body, { at: m.at, origin: rm.origin, requirePaymentProof: !!(rootKeys && rootKeys.length), allowLocal: allowLocalRelay }).added) signups++; } catch (e) {
+          let drop = false;
+          if (e && e.code === 'signup-invalid' && typeof owner.quarantineSignup === 'function') {
+            try { drop = !!owner.quarantineSignup(m.body, { at: m.at, error: e.message }); } catch { drop = false; }
+          }
+          if (drop) signupsRejected++; else { keep.add(m.id); signupsHeld++; }
+        }
       }
       else if (m.kind === 'message' && ownerChat) {
         try { if (receiveMessage(signer, m.body, owner.contacts(), ownerChat, ownerPrekeys, autos, m.at)) messages++; }
@@ -315,7 +444,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     }
     await rm.ack(signer, ackList(msgs, savedBeforeAck(ownerChat, msgs, msgs.map(m => m.id).filter(id => !keep.has(id)))));
     if (ownerChat) await sendAutoReplies(signer, owner.contacts(), ownerChat, ownerPrekeys, autos);
-    return { added, messages, signups, inbox: owner.inbox().length };
+    return { added, messages, signups, ...(signupsHeld ? { signupsHeld } : {}), ...(signupsRejected ? { signupsRejected } : {}), inbox: owner.inbox().length };
   }
 
   // שליחת תוצאה לשולח: רישיון ללקוח, או אישור/דחייה ללקוח שביקש מערכת בת
@@ -353,44 +482,74 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
 
   // ---------- הרשמה ותשלום ----------
   // מנהל-העל: פרסום ההצעה (תכניות + תקנון) בשרת
+  // הצעה לכל מוצר (מרכז הרישוי): SuperSuite קודם — שרת מגרסה קודמת מקבל רק אותה, ושאר המוצרים נכשלים שם בלי לעצור אותה.
+  // published — המוצרים שפורסמו; failed — מוצר ושגיאה. שום מוצר לא פורסם ← השגיאה נזרקת
   async function ownerPublishOffer() {
     const o = owner.offer();
     if (!o) throw new Error('עדיין לא הוגדרו תכניות ותקנון');
-    await remote().setOffer(owner.rootSigner(), o.text);
+    const order = Object.keys(o.texts).sort((a, b) => (a === PR.THIS_PRODUCT ? -1 : b === PR.THIS_PRODUCT ? 1 : 0));
+    const published = [];
+    const failed = [];
+    for (const pid of order) {
+      try { await remote().setOffer(owner.rootSigner(), o.texts[pid]); published.push(pid); } catch (e) {
+        failed.push({ product: pid, name: PR.productName(pid), error: e, message: e.message });
+      }
+    }
+    if (!published.length) throw failed[0].error;
+    failed.forEach(f => { delete f.error; });
     // מתי כל הצעה פורסמה — לבדיקת הרשמות לפי הצעה ישנה (ממצא 31). נרשמת ההצעה שנשלחה, ולא מה שנשמר מקומית
     // בזמן שהפרסום רץ ברשת
-    if (typeof owner.offerPublished === 'function') owner.offerPublished(o.offer.issuedAt);
-    return { ok: true };
+    if (typeof owner.offerPublished === 'function') owner.offerPublished(o.issuedAt);
+    return { ok: true, published, failed };
   }
-  // מערכת חדשה: ההצעה מהשרת — נבדקת בחתימה מול מפתח השורש שבתוכנה
+  // מערכת חדשה: ההצעה מהשרת — נבדקת בחתימה מול מפתח השורש שבתוכנה, ורק הצעה של התוכנה הזו
   async function getOffer() {
-    const text = await remote().getOffer(store.syncKey(true));
-    return { text, offer: OF.verifyOffer(text, rootKeys) };
+    const text = await remote().getOffer(store.syncKey(true), PR.THIS_PRODUCT);
+    return { text, offer: OF.verifyOffer(text, rootKeys, { expectProduct: PR.THIS_PRODUCT }) };
   }
   // הרשמה: חתימה על התקנון ויצירת תשלום. מחזיר קישור לדף התשלום המאובטח של הספק
   // לפני שליחת פרטי לקוח (ת"ז, טלפון, חתימה) ולפני שמירה או פתיחה של קישור תשלום: השרת מוכיח שהוא של הספק —
   // חתימה במפתח השרת על אתגר חדש, עם תעודה ממנהל-העל לכתובת הזו בדיוק (checkin.js). כתובת שעברה לבעלים אחרים
   // (sslip.io), או שרת שמעביר את הבקשות לשרת האמיתי — נדחים, והפרטים לא נשלחים. בלי מפתח שורש (בלי רישוי) — אין דרישה
-  async function assertTrustedRelay(rm, key, what) {
-    if (!rootKeys || !rootKeys.length) return;
+  // needCaps — יכולות שהשרת חייב להכריז עליהן בתוך החתימה (f86: pay-proof). שרת ישן — הודעה ברורה, לא אמון שקט
+  async function assertTrustedRelay(rm, key, what, needCaps = []) {
+    if (!rootKeys || !rootKeys.length) return null;
     const challenge = randomNonce();
+    let v;
     try {
-      CK.verifyCheckin(await rm.hello(key, challenge), { rootKeys, box: mailboxOf(L.publicOf(key)), challenge, origin: rm.origin, purpose: 'hello', now: now(),
+      v = CK.verifyCheckin(await rm.hello(key, challenge), { rootKeys, box: mailboxOf(L.publicOf(key)), challenge, origin: rm.origin, purpose: 'hello', now: now(),
         allowLocal: allowLocalRelay });
     } catch (e) {
       throw new Error('שרת הרישוי לא אומת כשרת של הספק, ולכן ' + what + ': ' + e.message);
     }
+    if (needCaps.some(c => !v.caps.includes(c))) throw new Error('שרת הרישוי בגרסה ישנה, שאינה חותמת על פרטי התשלום, ולכן ' + what + '. יש לפנות לספק התוכנה (השרת צריך עדכון)');
+    return v;
+  }
+  // תשובת checkout / paymentStatus: עם מפתחות שורש — רק מה שבחתימת השרת על האתגר שנשלח (f86); בלי — התשובה כמו שהיא
+  function paymentReply(r, rm, key, op, challenge) {
+    if (!rootKeys || !rootKeys.length) return { paymentId: r.paymentId || null, status: r.free ? 'submitted' : r.status, url: r.url || null, free: !!r.free };
+    return CK.verifyPaymentProof(r, { rootKeys, op, box: mailboxOf(L.publicOf(key)), challenge, origin: rm.origin, now: now(), allowLocal: allowLocalRelay });
   }
   async function signup({ offerText, planId, customer, signatureImage, scrolledToEnd, accepted }) {
     const key = store.syncKey(true);
     const su = SU.createSignup({ deviceJwk: key, offerText, rootKeys, planId, customer, signatureImage, scrolledToEnd, accepted, at: now() });
     const rm = remote();
-    await assertTrustedRelay(rm, key, 'פרטי ההרשמה לא נשלחו');
-    const r = await rm.checkout(key, su.text);
+    await assertTrustedRelay(rm, key, 'פרטי ההרשמה לא נשלחו', [CK.CAP_PAY_PROOF]);
+    // החבילה המלאה (ת.ז, טלפון, תמונת החתימה) מוצפנת למנהל-העל — לשרת עובר בגלוי רק מה שהוא צריך (f89)
+    const sealed = SU.sealSignup({ deviceJwk: key, signup: su, ownerPub: rootKeys[0] });
+    const challenge = randomNonce();
+    const p = paymentReply(await rm.checkout(key, { public: sealed.publicText, sealed: sealed.sealed }, { proof: challenge }), rm, key, 'checkout', challenge);
+    const free = su.body.priceAgorot === 0;
+    if (rootKeys && rootKeys.length) {
+      // החתימה על התשובה הזו: חינם — "נמסר"; בתשלום — הסכום של התכנית שנחתמה, ודף תשלום של ספק הסליקה בלבד
+      if (free !== p.free || (!free && p.amountAgorot !== su.body.priceAgorot)) throw new Error('תשובת שרת הרישוי אינה תואמת לתכנית שנבחרה — ההרשמה לא נשמרה');
+      if (p.status === 'pending') CK.assertPaymentUrl(p.url, { relayOrigin: rm.origin });
+    }
+    const status = p.free ? 'submitted' : p.status;
     // origin — הכתובת שהקישור לתשלום הגיע ממנה (paymentUrl בודק אותה שוב לפני הפתיחה)
-    store.setRemoteSettings({ signup: { id: su.id, paymentId: r.paymentId || null, status: r.free ? 'submitted' : r.status, url: r.url || null,
+    store.setRemoteSettings({ signup: { id: su.id, paymentId: p.paymentId || null, status, url: p.url || null,
       origin: rm.origin, planName: su.body.planName, priceAgorot: su.body.priceAgorot, org: su.body.customer.org, at: now() } });
-    return { id: su.id, free: !!r.free, status: r.free ? 'submitted' : r.status, url: r.url || null };
+    return { id: su.id, free: !!p.free, status, url: p.url || null };
   }
   async function signupStatus() {
     const cur = store.getRemoteSettings().signup;
@@ -398,8 +557,15 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     if (cur.paymentId && cur.status === 'pending') {
       const rm = remote();
       const key = store.syncKey(false);
-      await assertTrustedRelay(rm, key, 'מצב התשלום לא נבדק');
-      const r = await rm.paymentStatus(key, cur.paymentId);
+      // התשובה חתומה על האתגר הזה (f86) — מצב וקישור רק מהחתימה, ורק לתשלום הזה
+      const challenge = randomNonce();
+      let r;
+      try { r = paymentReply(await rm.paymentStatus(key, cur.paymentId, { proof: challenge }), rm, key, 'paymentStatus', challenge); }
+      catch (e) { throw new Error('מצב התשלום לא נבדק: ' + e.message); }
+      if (rootKeys && rootKeys.length) {
+        if (r.paymentId !== cur.paymentId) throw new Error('מצב התשלום לא נבדק: תשובת השרת אינה של התשלום הזה');
+        if (r.status === 'pending') CK.assertPaymentUrl(r.url, { relayOrigin: rm.origin });
+      }
       const next = { ...cur, status: r.status === 'paid' ? 'submitted' : r.status, url: r.url || cur.url, origin: rm.origin };
       store.setRemoteSettings({ signup: next });
       return next;
@@ -414,6 +580,8 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
     if (rootKeys && rootKeys.length) {
       if (cur.origin !== rm.origin) throw new Error('הקישור לתשלום לא התקבל מכתובת השרת הנוכחית — לחצו "בדיקת מצב התשלום" ונסו שוב');
       await assertTrustedRelay(rm, store.syncKey(false), 'דף התשלום לא נפתח');
+      // רק דף של ספק הסליקה (f86) — גם קישור שנשמר בגרסה קודמת, לפני החתימה על התשובה
+      return CK.assertPaymentUrl(cur.url, { relayOrigin: rm.origin });
     }
     return cur.url;
   }
@@ -568,7 +736,7 @@ function createLicenseSync({ store, owner, rootKeys, fetchImpl, clock, chat, own
   const ownerChatSend = (peerId, msg) => chatOps(true).send(peerId, msg);
   const ownerChatMarkRead = (peerId) => chatOps(true).markRead(peerId);
 
-  return { myContacts, chatOps, chatSend, chatMarkRead, ownerChatSend, ownerChatMarkRead, sendLicenseRequest, sendApprovalRequest, sendRequestToParent, receive, receiveMessages, forwardChildRequest, dismissChildRequest, pushToChild,
+  return { offlineRequest, offlineRelay, offlineImport, myContacts, chatOps, chatSend, chatMarkRead, ownerChatSend, ownerChatMarkRead, sendLicenseRequest, sendApprovalRequest, sendRequestToParent, receive, receiveMessages, forwardChildRequest, dismissChildRequest, pushToChild,
     ownerReceive, ownerReply, ownerPushNotices, ownerPublishUpdate, ownerPublishOffer, getOffer, signup, signupStatus, paymentUrl, ownerBox };
 }
 

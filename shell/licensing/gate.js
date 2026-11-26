@@ -25,7 +25,8 @@ const ALWAYS_OPEN = /^(auth|license|owner|chat|update):|^settings:(getGoogle|sav
 // במצב חוב/השבתה זמנית/סוף תקופת ניסיון/סיום: קריאה, ייצוא וגיבוי בלבד — הנתונים של הלקוח לא "נלקחים כבני ערובה"
 const READ_ONLY_PERMS = new Set(['data.view', 'data.export', 'data.backup']);
 
-const READ_ONLY_STATUS = new Set(['pending_payment', 'suspended', 'trial_ended']);
+// offline — בלי בדיקה חתומה מול שרת הרישוי בין 30 ל-60 יום (activation.js): קריאה, ייצוא וגיבוי בלבד
+const READ_ONLY_STATUS = new Set(['pending_payment', 'suspended', 'trial_ended', 'offline']);
 
 // סיום (terminated) — גם הוא קריאה בלבד: סעיף 8 בהסכם הרישיון מבטיח צפייה, ייצוא וגיבוי אחרי סיום (החלטת הבעלים,
 // סקירת קוד 2.11.2026). סיום גובר בחומרה על נעילה (status.js) — ולכן כשיש גם סיבת נעילה (locked), הנעילה קובעת
@@ -38,6 +39,7 @@ function isReadOnly(state) {
 const STATUS_TEXT = {
   trial_ended: 'תקופת הניסיון הסתיימה — אפשר לצפות, לייצא ולגבות. להמשך עבודה יש להתקין רישיון',
   pending_payment: 'המערכת ממתינה לתשלום',
+  offline: 'אין חיבור לשרת הרישוי',
   suspended: 'המערכת מושבתת זמנית',
   locked: 'המערכת נעולה',
   terminated: 'השימוש במערכת הסתיים',
@@ -61,7 +63,7 @@ function featuresForChannel(channel) {
   // עוזר ה-AI הוא תחום רישוי בפני עצמו — לא תלוי בקיום econ
   if (String(channel).startsWith('ai:')) return ['ai'];
   const prefix = String(channel).split(':')[0];
-  const sub = ECON_SUB_FEATURES[prefix];
+  const sub = Object.hasOwn(ECON_SUB_FEATURES, prefix) ? ECON_SUB_FEATURES[prefix] : null;
   return sub ? ['econ', sub] : ['econ'];
 }
 
@@ -127,4 +129,4 @@ function checkUserLimit(state, activeCount) {
   return null;
 }
 
-module.exports = { MODULE_FEATURES, ECON_SUB_FEATURES, PEOPLE_SOURCES, ALWAYS_VIEWS, isReadOnly, peopleSources, featuresForChannel, checkChannel, featureOpen, moduleAllowed, viewAllowed, shellState, checkUserLimit, statusMessage };
+module.exports = { MODULE_FEATURES, ECON_SUB_FEATURES, PEOPLE_SOURCES, ALWAYS_VIEWS, READ_ONLY_STATUS, isReadOnly, peopleSources, featuresForChannel, checkChannel, featureOpen, moduleAllowed, viewAllowed, shellState, checkUserLimit, statusMessage };

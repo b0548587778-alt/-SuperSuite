@@ -11,7 +11,7 @@ const L = require('../shell/licensing/license');
 const S = require('../shell/licensing/status');
 const LS = require('../shell/licensing/store');
 const { createLicenseSync } = require('../shell/licensing/sync');
-const { markActivated } = require('./helpers/activation');
+const { markActivated, allowIssuing } = require('./helpers/activation');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-audit-lic-'));
 // מסד שנפתח דרך ipc נשאר פתוח עד סוף התהליך (Windows לא מוחק אותו) — את השארית מנקה tools/run-tests.js
@@ -41,7 +41,7 @@ function licensed({ clock = () => T0 + DAY, storage = mem() } = {}) {
   const lic = issueFor(node);
   const secret = v2Secret(node);
   storage.write(JSON.stringify({ chain: [lic], notices: [], children: [] }));
-  const store = LS.createLicenseStore({ storage, secret, rootKeys, clock });
+  const store = allowIssuing(LS.createLicenseStore({ storage, secret, rootKeys, clock }));
   return { node, lic, id: lic.payload.id, storage, secret, store };
 }
 const rootHold = (target, over = {}) => S.createNotice({ privateJwk: root.privateJwk },
@@ -337,7 +337,7 @@ function fakeRelay() {
   let onSend = null;
   let onFetch = null;
   let seq = 0;
-  const push = (kind, body, at = T0) => box.push({ id: 'm' + (++seq), kind, body, at, from: 'x'.repeat(22) });
+  const push = (kind, body, at = T0, from = 'x'.repeat(22)) => box.push({ id: 'm' + (++seq), kind, body, at, from });
   const fetchImpl = async (url, opts) => {
     const req = JSON.parse(opts.body);
     let data = { ok: true };
@@ -426,7 +426,8 @@ test('ממצא 35 (סקירה): הודעה שנכשלה בגלל קובץ תפו
   const busy = () => { throw Object.assign(new Error('לא ניתן לקרוא כרגע את קובץ הרישוי'), { code: LS.READ_ERROR_CODE }); };
   const store = { ...t.store, importNotices: busy, issueChild: busy };
   relay.push('notices', noticesPkg([rootHold(t.id)]));
-  relay.push('approval', '{}');
+  // אישור — רק ממנהל-העל (ממצא f12, סקירה 11.2026)
+  relay.push('approval', '{}', T0, require('../shell/licensing/remote').mailboxOf(rootKeys[0]));
   relay.push('rejection', JSON.stringify({ name: 'סניף', reason: 'חסר תשלום' }));
   const sync = createLicenseSync({ store, rootKeys, fetchImpl: relay.fetchImpl, clock: () => T0 + DAY });
   const r = await sync.receive();
@@ -455,8 +456,10 @@ test('ממצא 29 (סקירה): תחילת ניסיון עתידית (בסימו
   const future = Date.UTC(2100, 0, 1);
   const s = LS.createLicenseStore({ storage: mem(), secret: mem(), rootKeys, clock: () => now });
   s.setMark({ trialStart: future });
-  assert.deepEqual(s.mark(), {});
+  // סקירה 2.11.2026 (f8): תאריך עתידי בעותק מקומי = שעון שהוחזר אחורה — נשמר כרצפה לזמן, לא כתחילת ניסיון
+  assert.deepEqual(s.mark(), { lastSeen: future });
   assert.equal(s.current().trial.startedAt, now, 'לא מהתאריך העתידי');
+  assert.equal(s.current().status, 'trial_ended', 'רצפת הזמן — לא ניסיון קבוע');
   s.importMark({ trialStart: future });
   s.invalidate();
   assert.equal(s.current().trial.startedAt, now);
@@ -566,8 +569,8 @@ test('ipc / ממצא 29 (סקירה): הסימון בגיבוי — שחזור �
   await handlers['auth:setup'](ev(91), 'menahel_bk1', PASS);
   assert.equal((await handlers['license:getStatus'](ev(91))).trial.startedAt, T0);
   const marks = ipc.licenseMarks(); // מה שנכנס לכל גיבוי (collectBackup)
-  assert.deepEqual(marks, { trialStart: T0 });
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir1, 'install-marks.json'), 'utf8')), { trialStart: T0 });
+  assert.deepEqual(marks, { trialStart: T0, lastSeen: T0 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir1, 'install-marks.json'), 'utf8')), { trialStart: T0, lastSeen: T0 });
 
   // התקנה נקייה (בלי קבצי רישוי ובלי מסד) ושחזור הגיבוי
   now = T0 + 31 * DAY;
@@ -634,10 +637,15 @@ test('גיבוי ושחזור (סקירה): הסימון נכלל בכל גיב�
   const main = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
   const android = fs.readFileSync(path.join(ROOT, 'android', 'web', 'main-android.js'), 'utf8');
   assert.match(fnBody(main, 'async function collectBackup('), /out\.licenseMarks = econ\.licenseMarks\(\)/);
-  assert.match(fnBody(main, 'async function restoreAllRun('), /econ\.mergeLicenseMarks\(data\.licenseMarks\)/);
-  assert.match(fnBody(main, 'async function recoverDatabase('), /restore\(data\.econ\);[\s\S]*econ\.mergeLicenseMarks\(data\.licenseMarks\)/);
+  // רק מגיבוי מוצפן של התוכנה הזו (shell/backup-scope.js) — לא ישירות מהקובץ
+  assert.match(fnBody(main, 'async function restoreAllRun('), /BackupScope\.licenseMarksToMerge\(data, \{ encrypted \}\)[\s\S]*econ\.mergeLicenseMarks\(marks\)/);
+  assert.match(fnBody(main, 'async function recoverDatabase('), /restore\(data\.econ\);[\s\S]*BackupScope\.licenseMarksToMerge\(data, \{ encrypted: true \}\)[\s\S]*econ\.mergeLicenseMarks\(marks\)/);
   assert.match(fnBody(android, 'async function collectBackup('), /out\.licenseMarks = econ\.licenseMarks\(\)/);
-  assert.match(fnBody(android, 'async function restoreAll('), /econ\.mergeLicenseMarks\(data\.licenseMarks\)/);
+  assert.match(fnBody(android, 'async function restoreAll('), /BackupScope\.licenseMarksToMerge\(data, \{ encrypted \}\)[\s\S]*econ\.mergeLicenseMarks\(marks\)/);
+  for (const src of [main, android]) {
+    assert.doesNotMatch(src, /mergeLicenseMarks\(data\.licenseMarks\)/, 'אין קליטה ישירה מהקובץ');
+    assert.match(src, /product: BackupScope\.PRODUCT/, 'המוצר נרשם בכל גיבוי');
+  }
 });
 
 // main.js האמיתי בתהליך נפרד (כמו tests/db-recovery.test.js): מסד פגום ← שחזור מהגיבוי האוטומטי, שבו הסימון
@@ -672,7 +680,8 @@ require(${JSON.stringify(path.join(__dirname, '..', 'main.js'))});
 })().catch(e => process.stdout.write('RESULT' + JSON.stringify({ fatal: String(e && e.stack) })));
 `;
 
-test('main.js (סקירה): מסד פגום ← שחזור מהגיבוי האוטומטי מחזיר גם את סימוני הרישוי', async () => {
+// מסד פגום + גיבוי אוטומטי מוצפן אחד בתיקיית הגיבוי, ושחזור ממנו בעלייה; extra — שדות נוספים בגיבוי (product וכו')
+async function recoverFromAutoBackup(trialStart, extra = {}) {
   const { spawnSync } = require('child_process');
   const crypto = require('crypto');
   const R = require('../shell/db-recovery');
@@ -692,9 +701,8 @@ test('main.js (סקירה): מסד פגום ← שחזור מהגיבוי האו
   const bkDir = path.join(userData, 'bk');
   fs.mkdirSync(bkDir);
   fs.writeFileSync(path.join(userData, 'backup-settings.json'), JSON.stringify({ targetDir: bkDir }));
-  const trialStart = Date.UTC(2026, 0, 1);
   const out = { suite: 'SuperSuite', version: 2, scope: 'all', econ: { donors: [{ id: 'd1', name: 'משה כהן' }] }, localStorage: {},
-    licenseMarks: { trialStart, hadLicense: true } };
+    licenseMarks: { trialStart, hadLicense: true }, ...extra };
   fs.writeFileSync(path.join(bkDir, 'auto-2026-10-17.ssbk'), BK.encryptBackup(JSON.stringify(out), key));
 
   const r = spawnSync(process.execPath, ['-e', SPAWN_SCRIPT(userData, [0, 0])], { encoding: 'utf8', timeout: 90000 });
@@ -703,6 +711,26 @@ test('main.js (סקירה): מסד פגום ← שחזור מהגיבוי האו
   const res = JSON.parse(r.stdout.slice(i + 6));
   assert.ok(!res.fatal, res.fatal);
   assert.deepEqual(res.donors, ['משה כהן'], 'הנתונים שוחזרו');
+  return { res, userData };
+}
+
+test('main.js (סקירה): מסד פגום ← שחזור מהגיבוי האוטומטי מחזיר גם את סימוני הרישוי', async () => {
+  const trialStart = Date.UTC(2026, 0, 1);
+  // גיבוי ישן של התוכנה הזו (בלי product) — נקלט כמו קודם
+  const { res, userData } = await recoverFromAutoBackup(trialStart);
   assert.deepEqual(res.marks, { trialStart, hadLicense: true });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(userData, 'install-marks.json'), 'utf8')), { trialStart, hadLicense: true });
+  // וגם גיבוי חדש, שנושא את המוצר של התוכנה הזו
+  const own = await recoverFromAutoBackup(trialStart, { product: require('../shell/backup-scope').PRODUCT });
+  assert.deepEqual(own.res.marks, { trialStart, hadLicense: true });
+});
+
+test('main.js: מסד פגום ← גיבוי אוטומטי של מוצר אחר שהונח בתיקייה משוחזר בלי סימוני הרישוי שלו', async () => {
+  const trialStart = Date.UTC(2026, 0, 1);
+  // עם product של SuperSuite לימוד, או גיבוי מלא ישן שלה בלי product (המודולים שלה קיימים בו תמיד)
+  for (const extra of [{ product: 'supersuite-learn' }, { localStorage: { english: {}, math: {}, school: {}, tools: {} } }]) {
+    const { res } = await recoverFromAutoBackup(trialStart, extra);
+    assert.notEqual(res.marks.hadLicense, true, 'hadLicense של המוצר האחר לא נקלט: ' + JSON.stringify(extra));
+    assert.notEqual(res.marks.trialStart, trialStart, 'תחילת הניסיון של המוצר האחר לא נקלטה');
+  }
 });

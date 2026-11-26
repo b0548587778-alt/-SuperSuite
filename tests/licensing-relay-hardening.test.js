@@ -95,7 +95,11 @@ test('הגבלת קצב מאחורי שרת קדמי: לכל לקוח בנפרד
   try {
     for (let i = 0; i < 60; i++) assert.equal(await call('10.0.0.1'), 200);
     assert.equal(await call('10.0.0.1'), 429, 'לקוח אחד שעבר את המכסה נחסם');
-    assert.equal(await call('10.0.0.2'), 200, 'לקוח אחר לא נפגע');
+    // המכסה לדקה — לפי המפתח המאומת (סקירה 2.11.2026, f16): מכשיר אחר, גם מאותה כתובת (NetFree), לא נפגע
+    const k2 = L.generateKeyPair();
+    const call2 = (ip) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(signed(k2, 'fetch', {})) }).then(r => r.status);
+    assert.equal(await call2('10.0.0.2'), 200, 'לקוח אחר לא נפגע');
+    assert.equal(await call2('10.0.0.1'), 200, 'מכשיר אחר מאותה כתובת לא נפגע');
   } finally { await new Promise(r => server.close(r)); }
 });
 

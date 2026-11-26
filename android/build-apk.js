@@ -158,7 +158,7 @@ function buildWeb() {
   const txt = rel => { try { return fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/^\uFEFF/, ''); } catch { return ''; } };
   const about = { license: txt('LICENSE.txt'), eula: txt('build/eula.txt'), notices: txt('THIRD-PARTY-NOTICES.txt') };
   fs.writeFileSync(path.join(shellDst, 'build-info.js'),
-    `window.__ssBuildInfo = ${JSON.stringify({ version: pkg.version, econExtras, about })};\n`);
+    `window.__ssBuildInfo = ${JSON.stringify({ version: pkg.version, product: pkg.name, econExtras, about })};\n`);
 
   let html = fs.readFileSync(path.join(ROOT, 'shell', 'shell.html'), 'utf8');
   const frames = MODS.map(m => `https://${m}.${DOMAIN}`).join(' ');

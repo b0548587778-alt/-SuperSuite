@@ -32,9 +32,12 @@ test('רישוי: ערוצי rlty: דורשים את רישיון "נדל"ן" (e
   const state = { mode: 'licensed', status: 'active', features: ['econ', 'econ.mortgage-advisor'] };
   assert.match(gate.checkChannel(state, 'rlty:getOverview', 'data.view') || '', /אינו כלול ברישיון/);
   assert.equal(gate.checkChannel({ ...state, features: ['econ', 'econ.realestate'] }, 'rlty:getOverview', 'data.view'), null);
-  const offer = fs.readFileSync(path.join(__dirname, '..', 'shell', 'licensing', 'offer.js'), 'utf8');
-  assert.match(offer, /'econ\.mortgage-lab', 'econ\.realestate'/);
-  assert.doesNotMatch(offer, /econ\.realty/, 'רישיון נדל"ן אחד — בלי תחום נפרד לתיווך');
+  // התחומים של SuperSuite — בקטלוג המוצרים (shell/licensing/products.js), וההצעה מקבלת אותם משם
+  const OF = require('../shell/licensing/offer');
+  assert.ok(OF.FEATURES.includes('econ.realestate'));
+  assert.ok(!OF.FEATURES.some(f => /^econ\.realty/.test(f)), 'רישיון נדל"ן אחד — בלי תחום נפרד לתיווך');
+  const products = fs.readFileSync(path.join(__dirname, '..', 'shell', 'licensing', 'products.js'), 'utf8');
+  assert.doesNotMatch(products, /econ\.realty/);
   const ui = fs.readFileSync(path.join(__dirname, '..', 'modules', 'econ', 'ui', 'licensing.js'), 'utf8');
   assert.match(ui, /\['econ\.realestate', 'נדל"ן \(שמאות מקרקעין, תיווך ויזמים\)'\]/);
 });

@@ -335,7 +335,9 @@ test('סקירה (sslip.io): פרטי הרשמה לא נשלחים ודף תשל
   writeOffer(d.dir);
   let good = true;
   const relay = R.createRelay({ dataDir: d.dir, billing: { rootKeys, provider: fakeProvider() }, identity: d.identity });
-  const T2 = install(rootKeys, relayFetch(relay, (r, body) => (!good && body.op === 'checkin' ? { ok: true } : r)));
+  // "מפסיק להוכיח": בלי חתימה על ה-hello ועל תשובת מצב התשלום (f86)
+  const unproven = (r) => { const { payProof: _p, relayCert: _c, ...rest } = r; return rest; };
+  const T2 = install(rootKeys, relayFetch(relay, (r, body) => (good ? r : body.op === 'checkin' ? { ok: true } : body.op === 'paymentStatus' ? unproven(r) : r)));
   const r = await T2.sync.signup(input);
   assert.equal(r.status, 'pending');
   assert.equal(T2.store.getRemoteSettings().signup.origin, RELAY_URL);
@@ -392,7 +394,8 @@ test('סקירה (31): פרסום הצעה — נרשמת ההצעה שנשלח�
   await createLicenseSync({ store, owner: box(new Error('הקובץ תפוס')), rootKeys: keys, fetchImpl: fetchBox }).ownerReceive();
   assert.equal(acks.length, 0, 'תקלה — ההרשמה נשארת בשרת');
   await createLicenseSync({ store, owner: box(Object.assign(new Error('פגומה'), { code: 'signup-invalid' })), rootKeys: keys, fetchImpl: fetchBox }).ownerReceive();
-  assert.deepEqual(acks[0].items, [['sig-1', CK.messageDigest(msg)]], 'הרשמה פגומה — נמחקת, עם תמצית התוכן');
+  // סקירה 5.11.2026: גם "פגומה" לא נמחקת — מסירה של השרת נבדקה שם; מנהל-על בגרסה אחרת (פורמט חדש) לא מאבד הרשמה ששולמה
+  assert.equal(acks.length, 0, 'הרשמה שלא נקלטה — מכל סיבה — נשארת בשרת');
 });
 
 // ---------- ממצא 39: זמן קצוב גם לגוף התשובה ----------
@@ -431,7 +434,7 @@ test('ממצא 39: גוף תשובה גדול מהתקרה — נדחה בלי �
 
 function fakeProvider() {
   let n = 0;
-  return { name: 'fake', async createCheckout() { const id = 'c' + (++n); return { checkoutId: id, url: 'https://pay.example/' + id }; },
+  return { name: 'fake', async createCheckout() { const id = 'c' + (++n); return { checkoutId: id, url: 'https://secure.cardcom.solutions/EA/' + id }; },
     parseWebhook: ({ rawBody }) => JSON.parse(rawBody) };
 }
 const signupOn = (device, offerText, keys, planId, at) => SU.createSignup({ deviceJwk: device.privateJwk, offerText, rootKeys: keys,
@@ -602,7 +605,7 @@ test('ממצא 26: נתוני הלקוחות מוצפנים במפתח השור�
   o.addToInbox({ id: 'm1', from: L.keyId(req.publicKey), at: 1, body: JSON.stringify(req) });
   o.issue({ request: JSON.stringify(req), features: ['econ'], limits: { maxUsers: 2, maxChildren: 0, maxStorageMb: 10, maxDepth: 1 } });
   // payment-provider.json נוצר רק כשמוגדרים פרטי Cardcom — נבדק ב-tests/r4-payments-cardcom.test.js
-  for (const n of OC.SEALED_OWNER_FILES.filter(n => n !== 'signups.json' && n !== 'payment-provider.json')) {
+  for (const n of OC.SEALED_OWNER_FILES.filter(n => n !== 'signups.json' && n !== 'payment-provider.json' && n !== 'signups-rejected.json')) {
     assert.ok(onDisk(n).startsWith(OC.OWNER_SEAL_PREFIX), n + ' מוצפן');
     assert.ok(!onDisk(n).includes('050-1234567'), n + ' בלי טקסט גלוי');
   }

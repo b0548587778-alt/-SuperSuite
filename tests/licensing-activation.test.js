@@ -1,5 +1,6 @@
 // תנאי ההפעלה של מערכת ברישיון (shell/licensing/activation.js):
-// רישיון שנתי פעיל וחיבור לשרת ב-30 הימים האחרונים. בלי שניהם — נעולה. כניסה עם Google אינה תנאי (PLAN.md 4.1).
+// רישיון שנתי פעיל וחיבור לשרת ב-30 הימים האחרונים. בלי חיבור 30–60 יום — צפייה בלבד, אחרי 60 — נעולה
+// (החלטת הבעלים, סקירה 2.11.2026). כניסה עם Google אינה תנאי (PLAN.md 4.1).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -35,13 +36,24 @@ test('שני התנאים: חסר אחד — נעול, עם הסיבה של או
   assert.deepEqual(none.missing, ['license', 'server']);
 });
 
-test('חיבור לשרת: יום 29 — פתוח, יום 31 — נעול עם הסבר', () => {
+test('חיבור לשרת: יום 29 — פתוח, יום 31 — צפייה בלבד, יום 61 — נעול', () => {
   const last = T0 + DAY;
   const day29 = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: last, now: last + 29 * DAY });
   assert.equal(day29.ok, true);
+  assert.equal(day29.readOnly, false);
   const day31 = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: last, now: last + 31 * DAY });
   assert.deepEqual(day31.missing, ['server']);
-  assert.match(ACT.message(day31), /לא היה חיבור לשרת ב-30 הימים האחרונים/);
+  assert.equal(day31.readOnly, true, 'בין יום 30 ליום 60 — צפייה בלבד, לא נעילה');
+  assert.equal(day31.lockAt, last + 60 * DAY);
+  assert.equal(day31.lockSoon, false);
+  assert.match(ACT.message(day31), /צפייה בלבד: לא היה חיבור לשרת ב-30 הימים האחרונים/);
+  assert.equal(ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: last, now: last + 54 * DAY }).lockSoon, true, 'תזכורת שבוע לפני הנעילה');
+  const day61 = ACT.evaluate({ state: active, leaf: yearLeaf, lastSync: last, now: last + 61 * DAY });
+  assert.equal(day61.readOnly, false);
+  assert.equal(day61.ok, false);
+  assert.match(ACT.message(day61), /המערכת לא הופעלה: לא היה חיבור לשרת ב-60 הימים האחרונים/);
+  // רישיון חסר יחד עם החיבור — נעול (צפייה בלבד רק כשחסר החיבור לבדו)
+  assert.equal(ACT.evaluate({ state: active, leaf: { issuedAt: T0, expiresAt: T0 + 30 * DAY }, lastSync: last, now: last + 31 * DAY }).readOnly, false);
 });
 
 test('כניסה עם Google אינה תנאי: בלי כניסה כלל — פתוח', () => {
@@ -153,14 +165,24 @@ test('ipc: מערכת ברישיון שנתי נעולה עד חיבור לשר�
   assert.ok(Array.isArray((await handlers['tasks:get'](ev(21))).tasks));
   assert.equal((await handlers['license:getStatus'](ev(21))).activation.dueSoon, true);
 
-  // יום 31 בלי חיבור — נעול. חיבור חדש פותח
+  // יום 31 בלי חיבור — צפייה בלבד (קריאה פתוחה, כתיבה חסומה)
   now += 7 * DAY;
   ipc.invalidateLicense();
-  await assert.rejects(handlers['tasks:get'](ev(21)), /לא היה חיבור לשרת ב-30 הימים/);
+  assert.ok(Array.isArray((await handlers['tasks:get'](ev(21))).tasks), 'יום 31: קריאה פתוחה');
+  await assert.rejects(handlers['tasks:create'](ev(21), { title: 'משימה' }), /אין חיבור לשרת הרישוי: לא היה חיבור לשרת ב-30 הימים/);
+  const ro = await handlers['license:getStatus'](ev(21));
+  assert.equal(ro.status, 'offline');
+  assert.equal(ro.activation.readOnly, true);
+  assert.ok(ro.activation.lockAt > now);
+  // יום 61 בלי חיבור — נעול לגמרי
+  now += 30 * DAY;
+  ipc.invalidateLicense();
+  await assert.rejects(handlers['tasks:get'](ev(21)), /לא היה חיבור לשרת ב-60 הימים/);
+  assert.equal((await handlers['license:getStatus'](ev(21))).status, 'locked');
   // עריכת הקובץ הגלוי כבר לא מחדשת (ממצא 28: הקובץ נקרא פעם אחת בלבד, במעבר מגרסה ישנה)
   markActivated(dir, now);
   ipc.invalidateLicense();
-  await assert.rejects(handlers['tasks:get'](ev(21)), /לא היה חיבור לשרת ב-30 הימים/);
+  await assert.rejects(handlers['tasks:get'](ev(21)), /לא היה חיבור לשרת ב-60 הימים/);
   // סנכרון אמיתי נרשם בשומר המוצפן (setRemoteSettings ← guard.lastSync) — כאן נכתב ישירות לשומר
   const o = JSON.parse(secret.read());
   secret.write(JSON.stringify({ ...o, guard: { ...o.guard, lastSync: now } }));

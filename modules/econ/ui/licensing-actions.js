@@ -117,14 +117,18 @@ function licForm(title, fields, submitText, intro) {
 }
 
 // תנאים לרישיון: תחומים, מכסות ותוקף. ceiling = המגבלות של ההורה (לא ניתן לחרוג)
-function licTermsFields(ceiling, current) {
+// options — התחומים של התוכנה (מרכז הרישוי); ברירת המחדל — של SuperSuite
+function licTermsFields(ceiling, current, options = LIC_FEATURES) {
   const c = ceiling || {};
   const cur = current || {};
+  const own = options === LIC_FEATURES;
+  const known = new Set(options.map(o => o[0]));
+  const curFeatures = cur.features ? cur.features.filter(f => known.has(f)) : null;
   const limit = (name, label, def) => ({ name, label: label + (c.limits && c.limits[name] != null ? ` (עד ${c.limits[name]})` : ''),
     type: 'number', min: 0, max: c.limits ? c.limits[name] : undefined, value: cur.limits && cur.limits[name] != null ? cur.limits[name] : def });
   return [
-    { name: 'features', label: 'תחומים פתוחים', type: 'checks', options: LIC_FEATURES, allowed: c.features,
-      value: cur.features || (c.features ? ['econ'] : ['econ', 'tools']), required: true },
+    { name: 'features', label: 'תחומים פתוחים', type: 'checks', options, allowed: c.features,
+      value: curFeatures && curFeatures.length ? curFeatures : (!own ? [options[0][0]] : (c.features ? ['econ'] : ['econ', 'tools'])), required: true },
     limit('maxUsers', 'משתמשים פעילים', c.limits ? Math.min(3, c.limits.maxUsers) : 5),
     limit('maxChildren', 'מערכות בת', 0),
     limit('maxDepth', 'עומק מרבי בעץ', 2),
@@ -136,8 +140,45 @@ function licTermsFields(ceiling, current) {
 const licTerms = (v) => ({ features: v.features, months: v.months, graceDays: v.graceDays,
   limits: { maxUsers: v.maxUsers, maxChildren: v.maxChildren, maxDepth: v.maxDepth, maxStorageMb: v.maxStorageMb } });
 
+// מרכז הרישוי: הנפקה לבקשה של לקוח — התוכנה (מהבקשה, או בחירה כשהבקשה לא מציינת), ואז "לפי חבילה ששולמה"
+// (התחומים, המכסות והתקופה מהחבילה) או תנאים לבחירה. מחזיר את הקלט ל-ownerIssue / ownerInboxIssue (בלי request), או null
+async function licIssueDialog(req, cat) {
+  const title = req.renewal ? `חידוש רישיון: ${req.name}` : `לקוח חדש: ${req.name}`;
+  const nameField = { name: 'name', label: 'שם הלקוח', value: req.name, required: true };
+  let product = req.product || null;
+  const bundles = Array.isArray(req.bundles) ? req.bundles : [];
+  if (!product || bundles.length) {
+    const fields = [];
+    if (!product) fields.push({ name: 'product', label: 'מאיזו תוכנה הבקשה?', type: 'select', options: licProducts(cat).map(p => [p.id, p.name]), value: req.productGuess });
+    if (bundles.length) fields.push({ name: 'bundle', label: 'אופן ההנפקה', type: 'select',
+      options: [['', 'רגילה — תחומים ומכסות לבחירה'], ...bundles.map(b => [b.id + '|' + b.forProduct, `לפי חבילה ששולמה: ${b.customer} — ${b.planName} (${licProductName(cat, b.forProduct)})`])] });
+    const intro = product ? `הבקשה נשלחה מ${licProductName(cat, product)}.` : 'הבקשה לא מציינת מאיזו תוכנה היא (גרסה קודמת). בחרו את התוכנה — התחומים יוצגו לפיה.';
+    const v0 = await licForm(title, fields, 'המשך', intro);
+    if (!v0) return null;
+    if (v0.bundle) {
+      const [bundleId, forProduct] = String(v0.bundle).split('|');
+      const v = await licForm(title, [nameField], 'הנפקה',
+        `הרישיון יונפק ל${licProductName(cat, forProduct)} לפי החבילה — התחומים, המכסות והתקופה כפי ששולמו, בלי תשלום נוסף.`);
+      return v ? { name: v.name, product: forProduct, bundleId } : null;
+    }
+    if (v0.product) product = v0.product;
+  }
+  const current = req.current && (!req.current.product || req.current.product === product) ? req.current : null;
+  const v = await licForm(`${title} · ${licProductName(cat, product)}`, [nameField, ...licTermsFields(null, current, licProductFeatures(cat, product))], 'הנפקה');
+  return v ? { name: v.name, product, ...licTerms(v) } : null;
+}
+
 const licReason = (title, extra = []) => licForm(title, [...extra, { name: 'reason', label: 'סיבה (חובה — נרשמת ביומן ומוצגת למשתמשי המערכת)', required: true }], 'אישור');
 const licHoldFields = [{ name: 'kind', label: 'סוג', type: 'select', options: Object.entries(LIC_HOLD_KINDS) }];
+
+// התקנת רישיון מקובץ או מקוד. רישיון ממערכת מנפיקה אחרת (ממצא f85) — רק אחרי אישור מפורש. null — בוטל
+// extra.pending — הרישיון שהתקבל בסנכרון וממתין לאישור (text ריק)
+async function licInstallText(text, extra = {}) {
+  const r = await window.systemAPI.installLicense(text, extra);
+  if (!r || !r.confirm) return r;
+  if (!(await askConfirm(r.confirm + '. להתקין בכל זאת?'))) return null;
+  return window.systemAPI.installLicense(text, { ...extra, allowParentChange: true });
+}
 
 async function licSave(text, name, doneMsg) {
   const r = await window.systemAPI.saveLicenseFile(text, name);
@@ -203,18 +244,23 @@ function attachLicensingHandlers() {
   on('licInstallBtn', async () => {
     const text = await pickFileText('.sslic,.json');
     if (text == null) return;
-    const r = await window.systemAPI.installLicense(text);
-    showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
+    const r = await licInstallText(text);
+    if (r) showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
   });
   // קוד רישיון שהודבק = אותו תוכן כמו קובץ הרישיון — אותה התקנה ואותן בדיקות
   on('licPasteBtn', async () => {
     const v = await licForm('הדבקת קוד רישיון', [{ name: 'code', label: 'קוד הרישיון', type: 'textarea', required: true }], 'התקנה',
       'הדביקו כאן את כל הקוד שקיבלתם מהספק, מההתחלה ועד הסוף.');
     if (!v) return;
-    const r = await window.systemAPI.installLicense(v.code);
-    showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
+    const r = await licInstallText(v.code);
+    if (r) showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
   });
   on('licBuyBtn', async () => { await startSignup(); });
+  // רישיון שהתקבל בסנכרון ממערכת מנפיקה אחרת (ממצא f85) — התקנה רק אחרי אישור
+  on('licPendingInstallBtn', async () => {
+    const r = await licInstallText('', { pending: true });
+    if (r) showToast(`הרישיון הותקן: ${r.name}, בתוקף עד ${licDate(r.expiresAt)}`);
+  });
   const goMessages = document.getElementById('licGoMessagesBtn');
   if (goMessages) goMessages.addEventListener('click', () => switchView('messages'));
   on('licNoticesBtn', async () => {
@@ -304,6 +350,24 @@ function attachLicensingHandlers() {
     (r.errors || []).forEach(e => showError(e));
     showToast(r.handled ? `התקבלו ${r.handled} עדכונים` : 'אין עדכונים חדשים');
   });
+  // אישור חיבור בקובץ (f81)
+  on('licOfflineReqBtn', async () => {
+    const r = await window.systemAPI.licenseOfflineRequest();
+    await licSave(r.text, 'בקשת-אישור-חיבור', 'הבקשה נשמרה. העבירו אותה למחשב מחובר, ושם — "העברת בקשה של מחשב אחר"');
+  });
+  on('licOfflineRelayBtn', async () => {
+    const text = await pickFileText('.sslic,.json');
+    if (!text) return;
+    const r = await window.systemAPI.licenseOfflineRelay(text);
+    await licSave(r.text, 'אישור-חיבור', 'האישור נשמר. העבירו אותו למחשב שביקש, ושם — "טעינת אישור"');
+  });
+  on('licOfflineImportBtn', async () => {
+    const text = await pickFileText('.sslic,.json');
+    if (!text) return;
+    const r = await window.systemAPI.licenseOfflineImport(text);
+    (r.errors || []).forEach(e => showError(e));
+    showToast('האישור נקלט' + (r.handled ? ` (${r.handled} עדכונים)` : '') + (r.deferred ? ' — הודעות נוספות ייקלטו בסנכרון עם חיבור' : ''));
+  });
   on('licRemoteRequestBtn', async () => {
     const v = await licForm('בקשת רישיון מהספק', [{ name: 'name', label: 'שם המערכת / הארגון', required: true }], 'שליחה');
     if (!v) return;
@@ -361,14 +425,17 @@ function attachLicensingHandlers() {
   });
   on('ownerOfferBtn', async () => {
     const cur = await window.systemAPI.ownerGetOffer();
-    const v = await offerEditor(cur);
+    const v = await offerEditor(cur, d.owner && d.owner.products);
     if (!v) return;
     await window.systemAPI.ownerSetOffer(v);
     showToast('התכניות והתקנון נחתמו ונשמרו');
   });
   on('ownerOfferPublishBtn', async () => {
-    await window.systemAPI.ownerPublishOffer();
-    showToast('התכניות והתקנון פורסמו — מערכות חדשות יכולות להירשם');
+    const r = await window.systemAPI.ownerPublishOffer();
+    const failed = Array.isArray(r && r.failed) ? r.failed : [];
+    showToast(failed.length
+      ? `פורסם חלקית — לא פורסם ל: ${failed.map(f => f.name).join(', ')} (${failed[0].message}). ייתכן ששרת הרישוי צריך עדכון`
+      : 'התכניות והתקנון פורסמו — מערכות חדשות יכולות להירשם');
   });
   each('data-owner-signup-issue', async (b) => {
     const id = b.dataset.ownerSignupIssue;
@@ -381,7 +448,8 @@ function attachLicensingHandlers() {
       const c = await window.systemAPI.ownerVerifySignupPayment(id);
       showToast(c.message);
     }
-    // שני אישורים אפשריים: הצעה שהוחלפה (ממצא 31), ואימות התשלום מול חברת הסליקה (סקירת קוד 2.11.2026).
+    // אישורים אפשריים: הצעה שהוחלפה (ממצא 31) או תשלום בלי אישור חתום של השרת (f83) — force; ואימות התשלום מול
+    // חברת הסליקה (סקירת קוד 2.11.2026).
     // כשמוגדרים פרטי Cardcom — קודם אימות אוטומטי במחשב הזה (החלטת הבעלים 5.11.2026); לא ניתן לאמת ← אישור ידני
     for (;;) {
       try { r = await window.systemAPI.ownerSignupIssue(id, { ...opts }); break; } catch (e) {
@@ -391,7 +459,7 @@ function attachLicensingHandlers() {
           const c = await window.systemAPI.ownerVerifySignupPayment(id);
           showToast(c.message);
           // לא תואם / לא שולם — הקריאה הבאה נחסמת בשרת עם ההסבר; לא נבדק — עוברים לאישור הידני
-        } else if (/הוחלפה/.test(m) && !opts.force) {
+        } else if (/הוחלפה|בלי אישור חתום/.test(m) && !opts.force) {
           if (!(await askConfirm(m + '\n\nלהנפיק בכל זאת, לפי התכנית שבהרשמה?'))) return;
           opts.force = true;
         } else if (/נדרש אימות התשלום/.test(m) && !opts.paymentConfirmed) {
@@ -477,11 +545,12 @@ function attachLicensingHandlers() {
   });
   each('data-owner-inbox-issue', async (b) => {
     const m = (d.inbox || []).find(x => x.id === b.dataset.ownerInboxIssue) || {};
-    const sm = m.summary || {};
-    const v = await licForm(sm.renewal ? `חידוש רישיון: ${sm.name}` : `לקוח חדש: ${sm.name}`, [
-      { name: 'name', label: 'שם הלקוח', value: sm.name, required: true }, ...licTermsFields(null, sm.current)], 'הנפקה ושליחה');
+    // הסיכום נשמר כשהבקשה הגיעה — המוצר והחבילות נבדקים שוב מול המצב של עכשיו
+    const sm = { ...(m.summary || {}), bundles: (d.owner && d.owner.bundles || []).filter(x => (x.pending || []).length)
+      .flatMap(x => x.pending.filter(pid => !(m.summary || {}).product || pid === m.summary.product).map(pid => ({ ...x, forProduct: pid }))) };
+    const v = await licIssueDialog(sm, d.owner && d.owner.products);
     if (!v) return;
-    const r = await window.systemAPI.ownerInboxIssue({ id: m.id, name: v.name, ...licTerms(v) });
+    const r = await window.systemAPI.ownerInboxIssue({ id: m.id, ...v });
     showToast(`הרישיון של "${r.name}" נשלח ללקוח`);
   });
   each('data-owner-inbox-approve', async (b) => {
@@ -574,10 +643,9 @@ function attachLicensingHandlers() {
     if (text == null) return;
     const req = await window.systemAPI.ownerOpenRequest(text);
     if (req.kind === 'license') {
-      const v = await licForm(req.renewal ? `חידוש רישיון: ${req.name}` : `לקוח חדש: ${req.name}`, [
-        { name: 'name', label: 'שם הלקוח', value: req.name, required: true }, ...licTermsFields(null, req.current)], 'הנפקת רישיון');
+      const v = await licIssueDialog(req, d.owner && d.owner.products);
       if (!v) return;
-      const r = await window.systemAPI.ownerIssue({ request: text, name: v.name, ...licTerms(v) });
+      const r = await window.systemAPI.ownerIssue({ request: text, ...v });
       await licSave(r.package, 'רישיון-' + r.name, `הרישיון של "${r.name}" נשמר — שלחו אותו ללקוח`);
       return;
     }
@@ -591,12 +659,13 @@ function attachLicensingHandlers() {
     if (choice.decision === 'approve') {
       const r = await window.systemAPI.ownerApprove({ request: text });
       await licSave(r.package, 'אישור-' + r.name, `מערכת הבת "${r.name}" אושרה — שלחו את קובץ האישור ל"${r.parentName}"`);
-    } else {
+    } else if (choice.decision === 'reject') {
+      // רק בחירה מפורשת בדחייה — ערך ריק או לא צפוי אינו דחייה (f66)
       const v = await licReason('דחיית הבקשה');
       if (!v) return;
       await window.systemAPI.ownerReject({ request: text, reason: v.reason });
       showToast('הבקשה נדחתה ונרשמה ביומן');
-    }
+    } else return;
   });
   on('ownerKillBtn', async () => {
     if (!(await askConfirm('נעילה גלובלית תנעל את כל המערכות של כל הלקוחות ברגע שיקבלו את העדכון. להמשיך?', { danger: true, okText: 'כן, לנעול את כולם' }))) return;

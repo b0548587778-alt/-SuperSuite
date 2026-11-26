@@ -18,7 +18,27 @@ function randomBytes(n) {
 
 // storage: { read(), write(text) } — מוצפן (DPAPI בשולחן העבודה)
 function createPrekeyStore({ storage, clock = Date.now }) {
-  const load = () => { try { return JSON.parse(storage.read() || '{"keys":[]}'); } catch { return { keys: [] }; } };
+  // קריאה שנכשלה (קובץ תפוס, DPAPI שנכשל לרגע) — נזרקת עם קוד, ולא "אין מפתחות": אחרת current() יצר מפתח חדש ודרס את
+  // כל המפתחות הפרטיים של 30 הימים האחרונים, והודעות שבדרך אושרו לשרת ונמחקו בלי עותק (סקירה 2.11.2026, f84).
+  // אין קובץ — רשימה ריקה. תוכן שאינו JSON (קובץ פגום לצמיתות) — רשימה ריקה, כמו קודם.
+  // קובץ שלא יפוענח לעולם (secret-undecryptable: סיסמת Windows אופסה, מפתח DPAPI שאבד, פרופיל מחשבון אחר) — מועבר
+  // הצידה (.unreadable-<זמן>) ומתחילים מחדש: אחרת כל סנכרון נכשל לתמיד, מפתח חדש לא מתפרסם וההודעות מצטברות בשרת
+  const load = () => {
+    let text;
+    try { text = storage.read(); }
+    catch (e) {
+      if (e && e.code === 'secret-undecryptable' && typeof storage.aside === 'function') {
+        let moved = false;
+        try { storage.aside(); moved = true; } catch { /* לא הועבר — כמו קריאה שנכשלה */ }
+        if (moved) return { keys: [] };
+      }
+      const err = new Error('קובץ המפתחות הזמניים של ההודעות לא נקרא כרגע — ננסה שוב בסנכרון הבא');
+      err.code = 'prekeys-unavailable';
+      err.cause = e;
+      throw err;
+    }
+    try { const d = JSON.parse(text || '{"keys":[]}'); return d && Array.isArray(d.keys) ? d : { keys: [] }; } catch { return { keys: [] }; }
+  };
   const save = (d) => storage.write(JSON.stringify(d));
 
   // המפתח הנוכחי; יוצר חדש אם אין או שעבר שבוע, ומוחק פרטיים ישנים מ-30 יום

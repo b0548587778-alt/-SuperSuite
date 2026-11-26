@@ -369,6 +369,44 @@ test('עורך התכניות: מחיר ריק לא יוצר תכנית חינם
   assert.deepEqual(result.plans.map(p => p.priceAgorot), [4990, 0]);
 });
 
+// מרכז הרישוי: לכל תכנית "תוכנה / חבילה", ותחומים לכל תוכנה בהיקף — לפי הקטלוג (shell/licensing/products.js)
+test('עורך התכניות: חבילת לימוד — תחומים לכל תוכנה בחבילה; תכנית ישנה נשמרת כתכנית של SuperSuite', async () => {
+  const { context, created, run } = load();
+  context.openDialog = fakeDialog;
+  context.__cat = require('../shell/licensing/products').catalog();
+  context.__cur = { seller: { name: 'ספק', taxId: '' }, terms: { version: '1.0', title: 'תקנון', text: 'נוסח' },
+    plans: [{ id: 'basic', name: 'בסיסי', priceAgorot: 4900, months: 12, features: ['econ'], limits: { maxUsers: 3, maxChildren: 0 } }] };
+  let result = 'pending';
+  run('offerEditor(__cur, __cat)').then(v => { result = v; });
+  const selects = () => created.filter(n => n.tagName === 'SELECT');
+  const boxes = (pid) => created.filter(n => n.tagName === 'INPUT' && n.type === 'checkbox' && n.dataset.product === pid);
+  const button = (text) => created.filter(n => n.tagName === 'BUTTON' && n.textContent === text).pop();
+  assert.equal(selects().pop().value, 'supersuite');
+  button('＋ תכנית נוספת').onclick();
+  const sel = selects().pop();
+  sel.value = 'family:learn';
+  sel.onchange();
+  // אחרי הציור מחדש: לכל אחת משלוש התוכנות בחבילה — התחומים שלה בלבד
+  const learnBoxes = boxes('learn').slice(-9);
+  assert.ok(learnBoxes.some(c => c.value === 'english'));
+  assert.ok(!boxes('shir-studio').slice(-1).some(c => c.value === 'econ'));
+  for (const c of learnBoxes) if (c.value === 'econ' || c.value === 'math') c.checked = true;
+  boxes('shir-studio').pop().checked = true;
+  boxes('vidlearn').pop().checked = true;
+  created.filter(n => n.tagName === 'LABEL' && n.children[0] && n.children[0].textContent === 'שם').pop().children[1].value = 'חבילת לימוד';
+  button('חתימה ושמירה').onclick();
+  await tick();
+  assert.notEqual(result, 'pending');
+  assert.equal(result.plans[0].scope, 'supersuite');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.plans[0].features)), { supersuite: ['econ'] });
+  assert.equal(result.plans[1].scope, 'family:learn');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.plans[1].features)), { learn: ['econ', 'math'], 'shir-studio': ['shir-studio'], vidlearn: ['vidlearn'] });
+  // מה שהמסך מחזיר — עובר את הבדיקה בשרת (הצעה ראשית)
+  const OF = require('../shell/licensing/offer');
+  const m = OF.cleanMaster({ ...JSON.parse(JSON.stringify(result)), terms: { version: '1.0', text: 'נוסח התקנון המלא לבדיקה, ארוך מספיק כדי לעבור את הבדיקה של אורך מינימלי.' } });
+  assert.deepEqual(m.plans[1].products, ['learn', 'shir-studio', 'vidlearn']);
+});
+
 // גם בשרת: ערוץ שנקרא שלא דרך הממשק לא הופך שדה ריק ל-0
 test('בשרת: מחיר חסר בתכנית (null / \'\' / NaN אחרי JSON) נדחה; 0 שהוקלד — תקין', () => {
   const L = require('../shell/licensing/license');

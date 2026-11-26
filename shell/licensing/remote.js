@@ -47,6 +47,7 @@ function randomNonce() {
 }
 
 // signer = מפתח פרטי (JWK) של התיבה. fetchImpl מוזרק לבדיקות
+const FETCH_CAPS = ['signup-v2'];
 function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now, timeoutMs = TIMEOUT_MS }) {
   const origin = validateUrl(url);
   if (typeof fetchImpl !== 'function') throw new Error('אין גישה לרשת בגרסה זו');
@@ -55,6 +56,11 @@ function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now, tim
     const pub = L.publicOf(signer);
     const req = { pub, ts: clock(), nonce: randomNonce(), op, payload };
     req.sig = L.signObject({ pub, ts: req.ts, nonce: req.nonce, op, payload }, signer);
+    return post(req);
+  }
+
+  // בקשה חתומה מראש (אישור בקובץ: חתומה במחשב שאין בו חיבור, ונשלחת ממחשב מחובר)
+  async function post(req) {
     // זמן קצוב אחד לכל הבקשה — גם לקריאת גוף התשובה: שרת שעונה בכותרות ואז "מטפטף" לא תוקע את הסנכרון
     // (בדיקת קוד 23.10.2026, ממצא 39)
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -90,7 +96,8 @@ function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now, tim
     let attestation = null;
     for (let page = 0; page < FETCH_MAX_PAGES; page++) {
       let r;
-      const payload = after ? { after } : (challenge ? { checkin: challenge } : {});
+      // caps — מה הלקוח הזה יודע לקרוא (מסירת הרשמה מוצפנת). שרת ישן מתעלם; שרת חדש לא מוסר אותה ללקוח שלא הודיע
+      const payload = { ...(after ? { after } : (challenge ? { checkin: challenge } : {})), caps: FETCH_CAPS };
       try { r = await call(signer, 'fetch', payload); } catch (e) { if (!page) throw e; break; }
       if (!page && challenge && r.checkin && typeof r.relayCert === 'string') attestation = { checkin: r.checkin, cert: r.relayCert };
       const msgs = Array.isArray(r.messages) ? r.messages : [];
@@ -109,6 +116,7 @@ function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now, tim
     // הראשון — מטפלים במה שכבר הגיע. שרת ישן מחזיר הכול בלי more
     fetch: async (signer) => (await fetchMail(signer)).messages,
     fetchMail,
+    post,
     // מחיקת הודעות שטופלו. list — ההודעות עצמן (כפי שהתקבלו) או מזהים. עם הודעות נשלחת גם התמצית של כל אחת
     // (items): השרת מוחק רק הודעה שהתוכן השמור שלה זהה למה שהלקוח קיבל — שרת ביניים שהחליף תוכן של הודעה
     // (למשל השבתה) בתוכן ישן לא גורם למחיקת ההודעה האמיתית (ממצא 27). ids — לשרת ישן
@@ -132,9 +140,13 @@ function createRemote({ url, fetchImpl = globalThis.fetch, clock = Date.now, tim
     setOffer: (signer, offer) => call(signer, 'setOffer', { offer }),
     setPrekey: (signer, bundle) => call(signer, 'setPrekey', { bundle }),
     getPrekey: async (signer, id) => (await call(signer, 'getPrekey', { id })).bundle,
-    getOffer: async (signer) => (await call(signer, 'getOffer', {})).offer,
-    checkout: (signer, signup) => call(signer, 'checkout', { signup }),
-    paymentStatus: (signer, paymentId) => call(signer, 'paymentStatus', { paymentId }),
+    // product — ההצעה של איזו תוכנה (מרכז הרישוי); שרת מגרסה קודמת מתעלם ומחזיר את ההצעה היחידה שלו
+    getOffer: async (signer, product) => (await call(signer, 'getOffer', product ? { product } : {})).offer,
+    // signup: { public, sealed } (מוצפן למנהל-העל), או טקסט גלוי — רק בבדיקות של תאימות לאחור
+    // proof — אתגר לתשובה חתומה (checkin.js, verifyPaymentProof; f86). שרת ישן מתעלם
+    checkout: (signer, signup, { proof } = {}) => call(signer, 'checkout', { ...(typeof signup === 'string' ? { signup } : { public: signup.public, sealed: signup.sealed }),
+      ...(proof ? { proof } : {}) }),
+    paymentStatus: (signer, paymentId, { proof } = {}) => call(signer, 'paymentStatus', { paymentId, ...(proof ? { proof } : {}) }),
   };
 }
 

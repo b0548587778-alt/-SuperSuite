@@ -6,14 +6,24 @@ const ACT = require('./activation');
 const S = require('./status');
 const CK = require('./checkin');
 const { FEATURES: ALL_FEATURES } = require('./offer');
+const PR = require('./products');
 
 const CACHE_MS = 60 * 1000;
 const LASTSEEN_WRITE_MS = 10 * 60 * 1000;
+// שעון שמאחורי הזמן שנצפה (הוחזר או הוקפא — ממצא f9): הזמן נשמר לעיתים קרובות יותר, וכל הפעלה מוסיפה לפחות LAUNCH_MS
+const FLOOR_WRITE_MS = 60 * 1000;
+const LAUNCH_MS = 2 * 60 * 1000;
+// תקרה ל-issuedAt של הודעה כ"זמן שנצפה" (ממצא f7): עד יום אחרי השעון / הבדיקה החתומה האחרונה
+const NOTICE_SKEW_MS = 24 * 60 * 60 * 1000;
 // תקרת הודעות לכל מנפיק (חוץ מהשורש) — מנפיק אחד, גם המערכת עצמה, לא חוסם הודעות של אחרים
 const MAX_NOTICES = 2000;
 const READ_ERROR = 'לא ניתן לקרוא כרגע את קובץ הרישוי (ייתכן שתוכנה אחרת, למשל אנטי-וירוס, תופסת אותו) — נסו שוב בעוד רגע';
 // code — כדי שהסנכרון לא יאשר לשרת הודעה שנכשלה רק בגלל קובץ תפוס (sync.js, receive)
 const READ_ERROR_CODE = 'license-read-error';
+// הנפקה של מערכת בת נחסמה בתנאי ההפעלה (issuerContext) — האישור נשאר בשרת לסנכרון הבא (sync.js)
+const ACTIVATION_REQUIRED = 'activation-required';
+// רישיון ממערכת מנפיקה אחרת (ממצא f85) — דורש אישור מפורש בהתקנה ידנית
+const PARENT_CHANGE_CODE = 'license-parent-change';
 const readError = () => Object.assign(new Error(READ_ERROR), { code: READ_ERROR_CODE });
 // שומר שנכתב בגרסה הזו (guard.syncV). בלעדיו — שומר מגרסה קודמת: זמן הסנכרון בקובץ הגלוי מועבר אליו פעם אחת
 const GUARD_SYNC_V = 1;
@@ -37,9 +47,28 @@ const TRIAL_WARN_DAYS = 7;
 // onMark(mark): סימון בלתי תלוי בקבצי הרישוי ({ trialStart, hadLicense }) — נשמר מחוץ להם (במסד הנתונים, ipc.js)
 // ונטען בחזרה ב-setMark. בלי onMark (בדיקות, אנדרואיד בלי מסד) — רק הקובץ והשומר
 // markStorage ({ read, write }): עותק נוסף של אותו סימון מחוץ למסד (קובץ קטן בתיקיית הנתונים) — מחיקת המסד לבדו לא מספיקה
-function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, defaultUrl = '', onMark = null, markStorage = null }) {
+// deferWrites(): מצב שבת (isRestTime) — הכתיבה התקופתית של "הזמן המאוחר ביותר שנצפה" (lastSeen) לקובץ, לשומר
+// ולסימונים נדחית עד אחרי השבת; החישוב בזיכרון נמשך כרגיל (סקירה 2.11.2026, f168)
+// שעון מונוטוני של התהליך (לא מושפע משינוי שעון המערכת). בלי performance — שעון רגיל (רק מצטמצם להגנה הקיימת)
+const defaultMono = () => (typeof performance !== 'undefined' && performance && typeof performance.now === 'function' ? performance.now() : Date.now());
+// mono: שעון מונוטוני של התהליך (ממצא f9) — בבדיקות מוזרק. onTrialStart(at): תחילת ניסיון חדשה (בלי שום סימון קודם)
+function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, defaultUrl = '', onMark = null, markStorage = null, deferWrites = () => false, mono = defaultMono, onTrialStart = null }) {
   let cached = null;
   let cachedAt = -Infinity;
+  const quiet = () => { try { return !!deferWrites(); } catch { return false; } };
+
+  // זמן מצטבר (סקירת קוד 11.2026, ממצא f9): lastSeen לבדו הוא רק השעה המאוחרת שנצפתה, ושעון שמוחזר לאותו רגע בכל
+  // הפעלה עצר את הניסיון, את התפוגה ואת חובת החיבור. עכשיו "עכשיו" הוא לפחות הזמן שנשמר בתחילת ההפעלה ועוד משך
+  // הריצה (שעון מונוטוני), וכל הפעלה שבה השעון מאחור מוסיפה LAUNCH_MS — כך כל שימוש מקדם את הזמן
+  let runBase = null;
+  function effNow(storedSeen) {
+    const now = clock();
+    const stored = Number.isSafeInteger(storedSeen) ? storedSeen : 0;
+    if (!runBase) runBase = { seen: stored > now ? stored + LAUNCH_MS : now, at: mono() };
+    return Math.max(now, runBase.seen + Math.max(0, Math.floor(mono() - runBase.at)));
+  }
+  // הזמן נשמר כל LASTSEEN_WRITE_MS — וכשהשעון מאחוריו, כל FLOOR_WRITE_MS
+  const seenDue = (stored, seen) => (stored || 0) + (clock() < seen ? FLOOR_WRITE_MS : LASTSEEN_WRITE_MS) <= seen && seen > (stored || 0);
 
   // שגיאת קריאה (למשל EBUSY) — readError: הקובץ לא נדרס ולא מסומן "פגום" לצמיתות (בדיקת קוד 23.10.2026, ממצא 35)
   function load() {
@@ -48,8 +77,21 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     if (raw == null) return null;
     try {
       const d = JSON.parse(raw);
-      return d && typeof d === 'object' ? d : { corrupt: true };
+      return d && typeof d === 'object' && shapeOk(d) ? d : { corrupt: true };
     } catch { return { corrupt: true }; }
+  }
+  // מבנה הקובץ (סקירת קוד 2.11.2026, ממצא f1): שדה מסוג לא צפוי (notices שאינו מערך וכו') הפיל את החישוב בחריגה,
+  // וזו תורגמה ל"התקנה בלי רישוי" — הכול נפתח. קובץ כזה = פגום (מועבר הצידה, כמו JSON שבור)
+  const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  const listOf = (v, ok) => v == null || (Array.isArray(v) && v.every(ok));
+  function shapeOk(d) {
+    if (Array.isArray(d)) return false;
+    if (d.chain != null && !(Array.isArray(d.chain) && d.chain.every(l => isObj(l) && isObj(l.payload)))) return false;
+    if (!listOf(d.notices, n => isObj(n) && isObj(n.payload))) return false;
+    if (!listOf(d.children, isObj)) return false;
+    if (d.lastSeen != null && !Number.isSafeInteger(d.lastSeen)) return false;
+    if (d.remote != null && !isObj(d.remote)) return false;
+    return true;
   }
   const blank = () => ({ chain: null, notices: [], children: [], lastSeen: 0 });
 
@@ -69,11 +111,28 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
       hashes,
       ...(Number.isSafeInteger(g.trialStart) && g.trialStart > 0 ? { trialStart: g.trialStart } : {}), ...(g.hadLicense === true ? { hadLicense: true } : {}),
       ...(Number.isSafeInteger(g.lastSync) && g.lastSync > 0 ? { lastSync: g.lastSync } : {}),
-      ...(g.syncV === GUARD_SYNC_V ? { syncV: GUARD_SYNC_V } : {}) } : null;
+      ...(g.syncV === GUARD_SYNC_V ? { syncV: GUARD_SYNC_V } : {}),
+      ...(Number.isSafeInteger(g.leafAt) && g.leafAt > 0 && typeof g.leafHash === 'string' ? { leafAt: g.leafAt, leafHash: g.leafHash } : {}) } : null;
     return { key, guard };
   }
   // טביעת אצבע של הודעה: שינוי של תו אחד בהודעה (שמבטל את החתימה, וכך "מעלים" השעיה) מתגלה מול השומר
   const noticeHash = (n) => L.sha256Hex(L.canonical({ payload: n.payload, sig: n.sig }));
+  // הרישיון האחרון שהותקן (ממצא f10): issuedAt וטביעה של ה-leaf נשמרים בשומר — החזרת שרשרת ישנה ל-license.json
+  // בעריכה ידנית (רישיון קודם עם יותר תחומים או תוקף ארוך) מתגלה גם מחוץ ל-install
+  const leafOf = (chain) => (Array.isArray(chain) && chain.length ? chain[chain.length - 1] : null);
+  const leafHash = (l) => L.sha256Hex(L.canonical({ payload: l.payload, sig: l.sig }));
+  function guardLeaf(prev, chain) {
+    const l = leafOf(chain);
+    const at = l && l.payload ? Number(l.payload.issuedAt) : 0;
+    const prevAt = prev && prev.leafAt ? prev.leafAt : 0;
+    // רק רישיון חתום ותקין מתקדם את השומר — זבל בקובץ לא "נועל" אותו קדימה
+    if (Number.isSafeInteger(at) && at > prevAt) {
+      let ok = false;
+      try { L.verifyChain(chain, rootKeys); ok = true; } catch { /* לא חתום — לא נרשם */ }
+      if (ok) return { leafAt: at, leafHash: leafHash(l) };
+    }
+    return prevAt ? { leafAt: prevAt, leafHash: prev.leafHash } : {};
+  }
   // זמן הסנכרון שבקובץ הגלוי (לא מאוחר מ"עכשיו" ומהתאריך הקבוע LEGACY_SYNC_CUTOFF) — רק להעברה משומר של גרסה
   // קודמת. null — הקובץ תפוס כרגע. בלי התקרה הקבועה, שחזור עותק ישן של קובץ המפתח + עריכת הקובץ הגלוי נתנו כל זמן
   function fileLastSync() {
@@ -101,7 +160,7 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
   // עדכון השומר אחרי כל שמירה: איחוד מזהי ההודעות, והזמן — רק קדימה. רק הודעות שקובעות את המצב של
   // המערכת הזו (לכולם / לשרשרת שלה) — לא הודעות שהיא הוציאה למערכות הבת שלה
   // lastSync — רק מסנכרון אמיתי (setRemoteSettings), לא מהקובץ הגלוי: עריכת הקובץ לא "מחדשת" את החיבור לשרת
-  function guardFrom(d, prev, { lastSync } = {}) {
+  function guardFrom(d, prev, { lastSync, resetSeen } = {}) {
     const ids = new Set(prev ? prev.notices : []);
     // טביעה נרשמת פעם אחת, כשההודעה נקלטת — ולא מתעדכנת מהקובץ אחר כך
     const hashes = { ...((prev && prev.hashes) || {}) };
@@ -123,10 +182,13 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     // תחילת הניסיון: המוקדמת מבין השומר והקובץ — מחיקה או שינוי של הקובץ לא מאריכים אותו. תאריך עתידי בקובץ — לא נקלט
     const fromFile = Number.isSafeInteger(d.trialStart) && d.trialStart <= clock() ? d.trialStart : 0;
     const starts = [prev && prev.trialStart, fromFile].filter(x => Number.isSafeInteger(x) && x > 0);
-    return { lastSeen: Math.max(prev ? prev.lastSeen : 0, Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0), notices: [...ids], hashes,
+    // resetSeen — זמן מבדיקה חתומה של השרת שהשעון המקומי מסכים איתה (ממצא f7): מוריד זמן עתידי שנשמר בטעות
+    const seenAt = Number.isSafeInteger(resetSeen) ? resetSeen : Math.max(prev ? prev.lastSeen : 0, Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0);
+    return { lastSeen: seenAt, notices: [...ids], hashes,
       ...(starts.length ? { trialStart: Math.min(...starts) } : {}),
       ...(syncAt > 0 ? { lastSync: syncAt } : {}),
       ...(prev && prev.syncV === GUARD_SYNC_V ? { syncV: GUARD_SYNC_V } : {}),
+      ...guardLeaf(prev, d.chain),
       // הותקן כאן רישיון פעם — מחיקת הקובץ לא מחזירה לתקופת ניסיון
       ...((prev && prev.hadLicense) || Array.isArray(d.chain) ? { hadLicense: true } : {}) };
   }
@@ -188,19 +250,52 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
   // להתקנה נקייה. תחילת הניסיון — רק אחורה; "הותקן רישיון" — לא מתבטל
   // ערך מבחוץ: תאריך עתידי — מתעלמים (הזמן נספר ממנו, וערך כמו 2100 היה נותן ניסיון קבוע). רק בקליטה: מה שכבר
   // נקלט לא נמחק אחר כך בגלל שעון שהוחזר אחורה
-  function cleanMark(m) {
+  // סקירת קוד 2.11.2026: lastSeen (ממצא f8 — מחיקת קבצי הרישוי והחזרת השעון כבר לא מחזירה את הניסיון) ומזהי
+  // ההודעות שקובעות את מצב המערכת, לכל רישיון (ממצא f11 — שחזור עותק ישן של שני קבצי הרישוי יחד מתגלה).
+  // local — עותק מקומי (המסד, install-marks.json): תאריך "עתידי" שם מעיד על שעון שהוחזר אחורה, ולכן נשמר כרצפה
+  // לזמן (lastSeen) ולא נזרק. מגיבוי (importMark) — עתידי לא נקלט, כמו קודם
+  function cleanMark(m, { local = false } = {}) {
     const o = m && typeof m === 'object' ? m : {};
+    const now = clock();
     const t = Number(o.trialStart);
-    return { ...(Number.isSafeInteger(t) && t > 0 && t <= clock() ? { trialStart: t } : {}), ...(o.hadLicense === true ? { hadLicense: true } : {}) };
+    const okT = Number.isSafeInteger(t) && t > 0;
+    const ls = Number(o.lastSeen);
+    const seen = Math.max(Number.isSafeInteger(ls) && ls > 0 ? (local ? ls : Math.min(ls, now)) : 0, local && okT && t > now ? t : 0);
+    const notices = {};
+    const leaves = {};
+    // מזהי ההודעות והרישיון האחרון — רק מעותק מקומי. מגיבוי (importMark) לא נקלטים: הם לא חתומים, וגיבוי
+    // ערוך היה נועל את המערכת לצמיתות; ובמחשב אחר (מפתח אחר) ממילא אין להם משמעות
+    if (local && o.leaves && typeof o.leaves === 'object' && !Array.isArray(o.leaves)) {
+      for (const [id, v] of Object.entries(o.leaves)) {
+        if (id && v && Number.isSafeInteger(v.at) && v.at > 0 && typeof v.hash === 'string') leaves[id] = { at: v.at, hash: v.hash };
+      }
+    }
+    if (local && o.notices && typeof o.notices === 'object' && !Array.isArray(o.notices)) {
+      for (const [id, list] of Object.entries(o.notices)) {
+        if (typeof id === 'string' && id && Array.isArray(list)) notices[id] = [...new Set(list.filter(x => typeof x === 'string' && x))];
+      }
+    }
+    return { ...(okT && t <= now ? { trialStart: t } : {}), ...(o.hadLicense === true ? { hadLicense: true } : {}),
+      ...(seen ? { lastSeen: seen } : {}), ...(Object.keys(notices).length ? { notices } : {}), ...(Object.keys(leaves).length ? { leaves } : {}) };
   }
   function mergeMark(a, b) {
     const starts = [a.trialStart, b.trialStart].filter(x => Number.isSafeInteger(x) && x > 0);
-    return { ...(starts.length ? { trialStart: Math.min(...starts) } : {}), ...(a.hadLicense === true || b.hadLicense === true ? { hadLicense: true } : {}) };
+    const seen = Math.max(a.lastSeen || 0, b.lastSeen || 0);
+    const notices = {};
+    for (const src of [a.notices, b.notices]) {
+      for (const [id, list] of Object.entries(src || {})) notices[id] = [...new Set([...(notices[id] || []), ...list])];
+    }
+    const leaves = { ...(a.leaves || {}) };
+    for (const [id, v] of Object.entries(b.leaves || {})) if (!leaves[id] || v.at > leaves[id].at) leaves[id] = v;
+    return { ...(starts.length ? { trialStart: Math.min(...starts) } : {}), ...(a.hadLicense === true || b.hadLicense === true ? { hadLicense: true } : {}),
+      ...(seen ? { lastSeen: seen } : {}), ...(Object.keys(notices).length ? { notices } : {}), ...(Object.keys(leaves).length ? { leaves } : {}) };
   }
-  const sameMark = (a, b) => a.trialStart === b.trialStart && !!a.hadLicense === !!b.hadLicense;
+  const noticesKey = (n) => JSON.stringify(Object.keys(n || {}).sort().map(k => [k, [...n[k]].sort()]));
+  const sameMark = (a, b) => a.trialStart === b.trialStart && !!a.hadLicense === !!b.hadLicense && (a.lastSeen || 0) === (b.lastSeen || 0) && noticesKey(a.notices) === noticesKey(b.notices)
+    && JSON.stringify(Object.entries(a.leaves || {}).sort()) === JSON.stringify(Object.entries(b.leaves || {}).sort());
   function readMarkFile() {
     if (!markStorage) return {};
-    try { const raw = markStorage.read(); return raw ? cleanMark(JSON.parse(raw)) : {}; } catch { return {}; }
+    try { const raw = markStorage.read(); return raw ? cleanMark(JSON.parse(raw), { local: true }) : {}; } catch { return {}; }
   }
   let fileMark = readMarkFile();
   let mark = { ...fileMark };
@@ -211,8 +306,8 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     }
     if (db && typeof onMark === 'function') { try { onMark({ ...mark }); } catch { /* לא קריטי — ינוסה בשינוי הבא */ } }
   }
-  function noteMark(m) {
-    const next = mergeMark(mark, cleanMark(m));
+  function noteMark(m, opts) {
+    const next = mergeMark(mark, cleanMark(m, opts));
     if (sameMark(next, mark)) return;
     mark = next;
     cached = null;
@@ -220,7 +315,7 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
   }
   // מהמסד בעלייה: איחוד עם מה שכבר ידוע כאן, וכתיבה חזרה כשבמסד (או בקובץ) חסר משהו
   function setMark(m) {
-    const stored = cleanMark(m);
+    const stored = cleanMark(m, { local: true });
     mark = mergeMark(mark, stored);
     cached = null;
     persistMark({ db: !sameMark(mark, stored) });
@@ -242,14 +337,20 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     const fromGuard = sec && sec.guard && sec.guard.trialStart && sec.guard.trialStart <= now ? sec.guard.trialStart : 0;
     const known = [fromFile, fromGuard, mark.trialStart || 0].filter(Boolean);
     const start = known.length ? Math.min(...known) : now;
-    noteMark({ trialStart: start });
-    const seen = Math.max(now, start, d && Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0, sec && sec.guard ? sec.guard.lastSeen : 0);
+    // ניסיון חדש לגמרי — נרשם גם ביומן הביקורת (ipc.js): אם כל הסימונים יימחקו, היומן נותן רצפה לתחילת הניסיון
+    if (!known.length && typeof onTrialStart === 'function') { try { onTrialStart(start); } catch { /* לא קריטי */ } }
+    const stored = Math.max(d && Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0, sec && sec.guard ? sec.guard.lastSeen : 0, mark.lastSeen || 0);
+    const seen = Math.max(effNow(stored), start, stored);
+    // הזמן נרשם גם בסימונים הבלתי תלויים (ממצא f8) — לכל היותר פעם ב-LASTSEEN_WRITE_MS
+    // בשבת (quiet) — רק רישום ראשון של תחילת הניסיון; הזמן שנצפה נכתב אחרי השבת
+    const tick = !quiet();
+    noteMark({ trialStart: start, ...(tick && seenDue(mark.lastSeen, seen) ? { lastSeen: seen } : {}) }, { local: true });
     // רישום (פעם ראשונה, או השלמה של מקום חסר)
     const base = d || blank();
-    if (base.trialStart !== start || (base.lastSeen || 0) + LASTSEEN_WRITE_MS < seen) {
+    if (base.trialStart !== start || (tick && seenDue(base.lastSeen, seen))) {
       try { storage.write(JSON.stringify({ ...base, trialStart: start, lastSeen: Math.max(base.lastSeen || 0, seen) })); } catch { /* לא קריטי */ }
     }
-    if (sec && (fromGuard !== start || (sec.guard ? sec.guard.lastSeen : 0) + LASTSEEN_WRITE_MS < seen)) {
+    if (sec && (fromGuard !== start || (tick && seenDue(sec.guard ? sec.guard.lastSeen : 0, seen)))) {
       const g = sec.guard || { lastSeen: 0, notices: [] };
       try { writeSecret(sec.key, { ...g, trialStart: start, lastSeen: Math.max(g.lastSeen || 0, seen) }); } catch { /* לא קריטי */ }
     }
@@ -287,8 +388,26 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
       sec.guard = { ...sec.guard, hadLicense: true };
       try { sec.guard = writeSecret(sec.key, sec.guard); } catch { /* ינוסה שוב בפעם הבאה */ }
     }
+    // שרשרת ישנה מזו שהותקנה, או שונה באותו זמן הנפקה — נעול (ממצא f10). שומר בלי הרישום (גרסה קודמת) — נרשם עכשיו
+    // גם מול הסימונים הבלתי תלויים (המסד, install-marks.json): שחזור שני קבצי הרישוי יחד לא מספיק
+    const leafAt = Number(leaf.payload.issuedAt);
+    const markLeaf = mark.leaves && mark.leaves[leaf.payload.id];
+    for (const known of [sec.guard.leafAt ? { at: sec.guard.leafAt, hash: sec.guard.leafHash } : null, markLeaf]) {
+      if (known && (!(leafAt >= known.at) || (leafAt === known.at && leafHash(leaf) !== known.hash))) {
+        return lockedState('קובץ הרישוי שונה מחוץ לתוכנה: הרישיון בו ישן מהרישיון שהותקן. יש להתקין שוב את קובץ הרישיון העדכני מהספק');
+      }
+    }
+    if (!sec.guard.leafAt || leafAt > sec.guard.leafAt) {
+      const g = { ...sec.guard, ...guardLeaf(sec.guard, d.chain) };
+      if (g.leafAt !== sec.guard.leafAt) { sec.guard = g; try { sec.guard = writeSecret(sec.key, sec.guard); } catch { /* ינוסה שוב בפעם הבאה */ } }
+    }
+    if (sec.guard.leafAt && (!markLeaf || markLeaf.at < sec.guard.leafAt)) noteMark({ leaves: { [leaf.payload.id]: { at: sec.guard.leafAt, hash: sec.guard.leafHash } } }, { local: true });
     const have = new Map((d.notices || []).filter(n => n && n.payload).map(n => [n.payload.id, n]));
-    const missing = sec.guard.notices.filter(id => !have.has(id)).length;
+    // מזהי ההודעות גם בסימונים הבלתי תלויים (ממצא f11): שחזור עותק ישן של license.json ושל license-key.bin
+    // יחד (מלפני השעיה או סיום) — השומר הישן "עקבי", אבל המסד ו-install-marks.json זוכרים את ההודעה
+    const leafId = leaf.payload.id;
+    const known = new Set([...sec.guard.notices, ...((mark.notices && mark.notices[leafId]) || [])]);
+    const missing = [...known].filter(id => !have.has(id)).length;
     if (missing) return lockedState(`קובץ הרישוי שונה מחוץ לתוכנה: חסרות ${missing} הודעות סטטוס. יש לייבא שוב את קובץ ההודעות מהספק (או לסנכרן)`);
     // הודעה ששונתה: החתימה נפסלת וההודעה נזרקת בשקט — כך "נעלמה" השעיה. מול הטביעה בשומר — נעול
     const altered = sec.guard.notices.filter(id => sec.guard.hashes[id] && noticeHash(have.get(id)) !== sec.guard.hashes[id]).length;
@@ -298,19 +417,34 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
       sec.guard = guardFrom(d, sec.guard);
       try { sec.guard = writeSecret(sec.key, sec.guard); } catch { /* ינוסה שוב בפעם הבאה */ }
     }
+    if (sec.guard.notices.some(id => !((mark.notices && mark.notices[leafId]) || []).includes(id))) noteMark({ notices: { [leafId]: sec.guard.notices } }, { local: true });
+    // mark.lastSeen משמש רק את תקופת הניסיון: ברישיון הוא היה נשאר לצמיתות (גם אחרי התקנה מחדש עם מפתח חדש)
+    // ושעון שקפץ קדימה פעם אחת היה נועל גם רישיון חדש
     const lastSeen = Math.max(Number.isSafeInteger(d.lastSeen) ? d.lastSeen : 0, sec.guard.lastSeen);
-    const r = S.effectiveStatus({ chain: d.chain, notices: d.notices || [], rootKeys, now: clock(), lastSeen });
+    const now = effNow(lastSeen);
+    // זמן ההנפקה של הודעה נחשב "זמן שנצפה" רק עד יום אחרי השעון או אחרי הבדיקה החתומה האחרונה (ממצא f7): הודעה
+    // שנחתמה בשעון שגוי (2027 במקום 2026) נעלה את ההפעלה עד שהזמן האמיתי הגיע אליה
+    let signedAt = 0;
+    try { const v = d.remote ? proofOf(d.remote.checkin, leafId) : null; signedAt = v ? v.at : 0; } catch { signedAt = 0; }
+    // התקרה — לפי שעון הקיר והזמן החתום בלבד, לא לפי now (שכולל את lastSeen): אחרת כל הפעלה הייתה מקדמת את
+    // התקרה ביום נוסף, וההודעה העתידית הייתה דוחפת את הזמן קדימה יום אחרי יום
+    const r = S.effectiveStatus({ chain: d.chain, notices: d.notices || [], rootKeys, now, lastSeen, noticeCap: Math.max(clock(), signedAt) + NOTICE_SKEW_MS });
     // הזמן המאוחר ביותר שנצפה נשמר — הגנה מהחזרת שעון גם בין הפעלות (בקובץ ובשומר)
-    if (r.seenAt && r.seenAt > lastSeen + LASTSEEN_WRITE_MS) {
+    // בשבת — בלי כתיבה אוטומטית לדיסק; הזמן נכתב בחישוב הראשון אחרי השבת (f168)
+    if (r.seenAt && seenDue(lastSeen, r.seenAt) && !quiet()) {
       try { storage.write(JSON.stringify({ ...d, lastSeen: r.seenAt })); } catch { /* לא קריטי */ }
       try { writeSecret(sec.key, { ...sec.guard, lastSeen: r.seenAt }); } catch { /* לא קריטי */ }
     }
     return { mode: 'licensed', ...r, features: r.features || [], limits: r.limits || {} };
   }
 
+  // חריגה בחישוב = נעול, לא "בלי רישוי" (ממצא f1: fail-closed)
+  function safeCompute() {
+    try { return compute(); } catch { return lockedState('קובץ הרישוי פגום — יש להתקין שוב את קובץ הרישיון מהספק'); }
+  }
   function current() {
     const t = clock();
-    if (!cached || t - cachedAt > CACHE_MS || t < cachedAt) { cached = compute(); cachedAt = t; }
+    if (!cached || t - cachedAt > CACHE_MS || t < cachedAt) { cached = safeCompute(); cachedAt = t; }
     const r = cached;
     if (r.transient) cached = null;
     return r;
@@ -365,11 +499,13 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
   function request(name) {
     const key = nodeKey(true);
     const pub = L.publicOf(key);
-    return { type: PKG_REQUEST, v: 1, name: String(name || '').trim().slice(0, 80), publicKey: pub, keyId: L.keyId(pub) };
+    // product — מרכז הרישוי אצל מנהל-העל מנפיק לכמה תוכנות (products.js); כך הבקשה מזוהה כבקשה של SuperSuite
+    return { type: PKG_REQUEST, v: 1, name: String(name || '').trim().slice(0, 80), publicKey: pub, keyId: L.keyId(pub), product: PR.THIS_PRODUCT };
   }
 
   // ---------- התקנת רישיון (חדש או חידוש) ----------
-  function install(text) {
+  // allowParentChange — רק בהתקנה ידנית אחרי אישור מפורש של המנהל (license:install), לא בסנכרון
+  function install(text, { allowParentChange = false } = {}) {
     if (!rootKeys.length) throw new Error('ההתקנה הזו אינה מוגדרת לרישוי');
     const pkg = parsePackage(text, PKG_LICENSE);
     const leaf = L.verifyChain(pkg.chain, rootKeys);
@@ -385,8 +521,24 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     // יכול היה לשלוח שוב רישיון ישן ולקצר רישיון שחודש (בדיקת קוד 23.10.2026)
     const cur = Array.isArray(base.chain) && base.chain.length ? base.chain[base.chain.length - 1].payload : null;
     if (cur && cur.id === leaf.id && Number(leaf.issuedAt) < Number(cur.issuedAt)) throw new Error('הרישיון בקובץ ישן מהרישיון המותקן — יש להתקין את הרישיון העדכני מהספק');
+    // אישור ישן של מנהל-העל (ממצא f12): הורה שקיבל שוב אישור קודם הנפיק רישיון "חדש" בתנאים הקודמים (תוקף קצר יותר)
+    const approvedAt = (l) => (l && l.approval && l.approval.payload ? Number(l.approval.payload.approvedAt) : 0);
+    const curLic = cur ? base.chain[base.chain.length - 1] : null;
+    // רק מאותו מנפיק: לאישורים של הורים שונים (או לרישיון ישיר מהשורש, בלי אישור) אין סדר משותף — מעבר מנפיק
+    // נבדק למטה ודורש אישור מפורש
+    const sameParent = cur && (cur.parentId || null) === (leaf.parentId || null);
+    if (cur && cur.id === leaf.id && sameParent && approvedAt(pkg.chain[pkg.chain.length - 1]) < approvedAt(curLic)) {
+      throw new Error('הרישיון בקובץ מבוסס על אישור ישן מהרישיון המותקן — יש להתקין את הרישיון העדכני');
+    }
+    // מעבר להורה אחר (ממצא f85): רישיון ממערכת מנפיקה אחרת היה מותקן בשקט (גם מהסנכרון), וההשבתות של ההורה
+    // הקודם הפסיקו לחול. רק בהתקנה ידנית, אחרי אישור מפורש
+    if (cur && cur.id === leaf.id && (cur.parentId || null) !== (leaf.parentId || null) && !allowParentChange) {
+      throw Object.assign(new Error('הרישיון בקובץ הונפק על ידי מערכת מנפיקה אחרת מזו של הרישיון המותקן. התקנתו תעביר את המערכת לניהול של המנפיק החדש — יש לוודא מול הספק לפני ההתקנה'), { code: PARENT_CHANGE_CODE, name: leaf.name, expiresAt: leaf.expiresAt });
+    }
     const { notices } = mergeNotices(base.notices, pkg.notices, noticeContext(pkg.chain, base.children));
-    save({ ...base, chain: pkg.chain, notices });
+    // רישיון שהתקבל בסנכרון וממתין לאישור מעבר (sync.js) — הותקן רישיון, הוא כבר לא ממתין
+    const { pendingLicense, ...restRemote } = base.remote || {};
+    save({ ...base, chain: pkg.chain, notices, ...(pendingLicense ? { remote: restRemote } : {}) });
     return { nodeId: leaf.id, name: leaf.name, expiresAt: leaf.expiresAt };
   }
   // העברת קובץ הרישוי הפגום הצידה. אחסון בלי אפשרות כזו — לא דורסים
@@ -427,6 +579,22 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     return { d, key, own };
   }
 
+  // הנפקה של מערכת בת (בקשת אישור / הנפקה לפי אישור) — גם תנאי ההפעלה (activation.js) חייבים להתקיים, כמו בשער של
+  // המערכת (withActivation ב-ipc.js): מערכת בלי חיבור לשרת 30–60 יום (צפייה בלבד) או נעולה לא מנפיקה מערכות בת
+  // (סקירה 5.11.2026). נקרא ב-IPC (license:issueChild / license:requestChildApproval) ובהנפקה האוטומטית בסנכרון.
+  // השבתה / שחרור של מערכת בת — מותרים. מחסן בלי מפתח שורש (בלי רישוי) — אין תנאי
+  function assertCanIssue() {
+    if (!rootKeys.length) return;
+    const st = current();
+    if (st.mode !== 'licensed' || st.status !== 'active' || st.trial) return; // issuerContext דוחה עם הסיבה המדויקת
+    const act = ACT.evaluate({ state: st, leaf: leafPayload(), chain: chainPayloads(), lastSync: lastSyncTime(),
+      now: Math.max(clock(), Number(st.seenAt) || 0) });
+    if (act.ok) return;
+    const e = new Error('לא ניתן להנפיק מערכות בת: ' + ACT.message(act));
+    e.code = ACTIVATION_REQUIRED;
+    throw e;
+  }
+
   // שלב א: בקשת אישור ממנהל-העל. התנאים נבדקים כבר כאן מול הרישיון של המערכת;
   // המשבצת והחתימה הסופית נקבעות אצל מנהל-העל (הוא גם סופר את המכסה)
   function requestChildApproval(input) {
@@ -452,6 +620,10 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     const pkg = parsePackage(input.approval, PKG_APPROVAL);
     const a = pkg.approval && pkg.approval.payload;
     if (!a || a.parentId !== own.payload.id) throw new Error('האישור אינו מיועד למערכת הזו');
+    // אישור ישן מזה של הרישיון שכבר הונפק לאותה מערכת בת (ממצא f12) — שידור חוזר, לא חידוש
+    const prev = (d.children || []).find(c => c && c.id === a.childId);
+    const prevAt = prev && prev.license && prev.license.approval && prev.license.approval.payload ? Number(prev.license.approval.payload.approvedAt) : 0;
+    if (prevAt && !(Number(a.approvedAt) >= prevAt)) throw new Error('האישור ישן מהאישור של הרישיון שכבר הונפק למערכת הבת — לא הונפק רישיון');
     const now = Math.max(clock(), d.lastSeen || 0);
     const lic = L.issueLicense({ privateJwk: key, license: own }, {
       name: a.name, publicKey: a.childPublicKey, slot: a.slot, features: a.features, limits: a.limits,
@@ -542,12 +714,20 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     const { checkin, ...rest } = r || {};
     const remote = { ...(base.remote || {}), ...rest };
     // התשובה החתומה של השרת (sync.js, אחרי אימות) — נשמרת רק כשהיא תקינה למערכת הזו וחדשה מהשמורה
+    let resetSeen;
     if (checkin !== undefined) {
       const fresh = proofOf(checkin);
       const cur = proofOf(remote.checkin);
-      if (fresh && (!cur || fresh.at > cur.at)) remote.checkin = checkin;
+      if (fresh && (!cur || fresh.at > cur.at)) {
+        remote.checkin = checkin;
+        // השעון המקומי מסכים עם הזמן החתום של השרת — זה הזמן האמיתי. זמן עתידי שנשמר (שעון שקפץ קדימה, הודעה
+        // שנחתמה בשנה שגויה) יורד אליו, ואחרת הנעילה נמשכה עד שהזמן האמיתי הגיע אליו (ממצא f7)
+        const t = clock();
+        if (Math.abs(t - fresh.at) <= CK.CHECKIN_SKEW_MS) resetSeen = Math.max(t, fresh.at);
+      }
     }
-    save({ ...base, remote }, { lastSync: r && r.lastSync });
+    if (resetSeen !== undefined) runBase = { seen: resetSeen, at: mono() };
+    save({ ...base, remote, ...(resetSeen !== undefined ? { lastSeen: resetSeen } : {}) }, { lastSync: r && r.lastSync, resetSeen });
   }
   // אימות מחדש של תשובה חתומה שמורה (CK.storedCheckinTime) — לתיבה של המערכת הזו. התוצאה במטמון לפי החתימות
   // (בדיקה זהה נותנת תוצאה זהה; "לא אחרי עכשיו" — נבדק מול השעון בכל קריאה)
@@ -595,14 +775,14 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
   }
 
   // תנאי ההפעלה (activation.js): הרישיון של המערכת, וזמן הכניסה האחרונה עם Google
+  // ה-payloads של כל השרשרת (מהשורש ועד המערכת) — לפטור של מערכת בת שהתוקף שלה מוגבל להורה (activation.js, ממצא f2)
+  function chainPayloads() {
+    const d = load();
+    return d && Array.isArray(d.chain) ? d.chain.map(l => l && l.payload).filter(Boolean) : [];
+  }
   function leafPayload() {
     const d = load();
     return d && Array.isArray(d.chain) && d.chain.length ? d.chain[d.chain.length - 1].payload : null;
-  }
-  // כל ה-payloads בשרשרת (מהשורש לעלה) — לתנאי "רישיון שנתי" של מערכת בת (activation.js)
-  function chainPayloads() {
-    const d = load();
-    return d && Array.isArray(d.chain) ? d.chain.map(l => l && l.payload) : [];
   }
   // הזמן נשמר רק קדימה — אי אפשר לחדש כניסה ישנה בהחזרת שעון
   function markGoogleSignIn(at = clock()) {
@@ -615,9 +795,9 @@ function createLicenseStore({ storage, secret, rootKeys = [], clock = Date.now, 
     }
   }
   // סימון מגיבוי ששוחזר — רק מחמיר: תחילת ניסיון מוקדמת יותר, "הותקן רישיון". גיבוי ישן לא מאריך דבר
-  const importMark = (m) => noteMark(m);
+  const importMark = (m) => noteMark(m, { local: false });
 
-  return { current, invalidate() { cached = null; }, leafPayload, chainPayloads, lastSyncTime, syncProof: () => syncProof(), markGoogleSignIn, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
+  return { current, invalidate() { cached = null; }, assertCanIssue, leafPayload, chainPayloads, lastSyncTime, syncProof: () => syncProof(), markGoogleSignIn, request, install, importNotices, requestChildApproval, issueChild, noticeForChild, listChildren,
     syncKey, syncInfo, noticesForChild, getRemoteSettings, setRemoteSettings, setMark, importMark, mark: () => ({ ...mark }) };
 }
 
@@ -656,8 +836,13 @@ function encryptedFileSecret(fs, file, safeStorage) {
     read() {
       if (!fs.existsSync(file)) return null;
       if (!safeStorage || !safeStorage.isEncryptionAvailable()) throw new Error('הצפנת המערכת אינה זמינה — לא ניתן לקרוא את מפתח המערכת');
-      return safeStorage.decryptString(fs.readFileSync(file));
+      const raw = fs.readFileSync(file); // EBUSY / EPERM — זמני: נזרק כמו שהוא
+      // הצפנת המערכת זמינה ובכל זאת הפענוח נכשל — הקובץ של חשבון אחר / מפתח DPAPI שאבד: לא יפוענח לעולם
+      try { return safeStorage.decryptString(raw); }
+      catch (e) { throw Object.assign(new Error('קובץ מוצפן שאינו ניתן לפענוח בחשבון הזה'), { code: 'secret-undecryptable', cause: e }); }
     },
+    // קובץ שלא יפוענח לעולם — מועבר הצידה, לא נמחק (כמו ב-fileStorage)
+    aside() { const to = `${file}.unreadable-${localStamp()}`; fs.renameSync(file, to); return to; },
     write(text) {
       if (!safeStorage || !safeStorage.isEncryptionAvailable()) throw new Error('הצפנת המערכת (DPAPI) אינה זמינה — לא ניתן לשמור את מפתח המערכת בבטחה');
       fs.mkdirSync(file.replace(/[\\/][^\\/]*$/, ''), { recursive: true }); // התיקייה (למשל owner/) אולי עוד לא קיימת
@@ -672,4 +857,4 @@ function webStorage(ls, key) {
     aside() { const to = `${key}.unreadable-${localStamp()}`; ls.setItem(to, ls.getItem(key) || ''); ls.removeItem(key); return to; } };
 }
 
-module.exports = { TRIAL_DAYS, READ_ERROR_CODE, LEGACY_SYNC_CUTOFF, createLicenseStore, fileStorage, encryptedFileSecret, webStorage, CACHE_MS, PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL };
+module.exports = { TRIAL_DAYS, READ_ERROR_CODE, ACTIVATION_REQUIRED, PARENT_CHANGE_CODE, LEGACY_SYNC_CUTOFF, createLicenseStore, fileStorage, encryptedFileSecret, webStorage, CACHE_MS, PKG_LICENSE, PKG_REQUEST, PKG_NOTICES, PKG_APPROVAL_REQUEST, PKG_APPROVAL };

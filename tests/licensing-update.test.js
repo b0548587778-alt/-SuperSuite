@@ -127,3 +127,23 @@ test('הרשאות: מצב עדכון לכל משתמש, הורדה/התקנה �
     assert.match(src, new RegExp(`handle(?:Net|Long)?\\('${ch}'`), ch + ' דרך השומר');
   }
 });
+
+// SuperSuite לימוד ו-SuperSuite הכלכלית חתומות באותו מפתח שורש — עדכון של מוצר אחד לא מוצע לשני
+test('מוצר: עדכון של מוצר אחר נדחה גם כשהגרסה שלו גבוהה; תעודה בלי מוצר — של SuperSuite הכלכלית', () => {
+  const learn = manager({ product: 'supersuite-learn', currentVersion: '1.0.0' }).m;
+  assert.deepEqual(learn.offer(rel()), { added: false, reason: 'product' }, 'תעודה ישנה בלי מוצר — לא ל-SuperSuite לימוד');
+  assert.equal(learn.offer(rel({ product: 'super-suite', version: '9.0.0' })).reason, 'product');
+  assert.equal(learn.offer(rel({ product: 'supersuite-learn', version: '1.0.1' })).added, true);
+  const econ = manager().m;
+  assert.equal(econ.offer(rel()).added, true, 'ברירת המחדל — כמו קודם');
+  assert.equal(econ.offer(rel({ product: 'supersuite-learn', version: '3.9.1' })).reason, 'product');
+  // המוצר חלק מהחתימה: שינוי שלו שובר אותה
+  const t = JSON.parse(rel({ product: 'supersuite-learn' }));
+  t.payload.product = 'super-suite';
+  assert.throws(() => UP.verifyRelease(JSON.stringify(t), [root.publicJwk]), /חתימת העדכון/);
+  assert.throws(() => rel({ product: 'Bad Name!' }), /שם המוצר/);
+  // שחרור גרסה ממצב מנהל-העל חותם את המוצר של ההתקנה
+  const ipc = fs.readFileSync(path.join(__dirname, '..', 'modules/econ/ipc.js'), 'utf8');
+  assert.match(ipc, /UP\.createRelease\(ownerCore\.rootSigner\(\), \{.*product: appProductOf\(\)/);
+  assert.match(ipc, /product: opts\.appProduct \|\| appProductOf\(\)/);
+});

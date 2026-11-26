@@ -58,13 +58,14 @@ const paidEvent = (checkoutId) => ({ rawBody: JSON.stringify({ checkoutId, statu
 test('ממצא 1: כתובת אחת עם מפתח חדש לכל בקשה — עוצרת אחרי מכסת השעה', () => {
   const { relay } = relayWith();
   let sent = 0, err = null;
-  for (let i = 0; i < 40 && !err; i++) {
-    try { sent += relay.handle(req(L.generateKeyPair(), 'send', { items: Array.from({ length: 50 }, () => ({ to: randomBox(), kind: 'message', body: 'x' })) }), '203.0.113.7').sent; }
+  // עד R.SEND_MAX_BOXES נמענים בבקשה (סקירה 2.11.2026, f3); המכסה לכתובת הוגדלה (כתובת משותפת של NetFree, f16)
+  for (let i = 0; i < 400 && !err; i++) {
+    try { sent += relay.handle(req(L.generateKeyPair(), 'send', { items: Array.from({ length: R.SEND_MAX_BOXES }, () => ({ to: randomBox(), kind: 'message', body: 'x' })) }), '203.0.113.7').sent; }
     catch (e) { err = e; }
   }
   assert.ok(err && err.status === 429, 'נעצר במכסה');
   assert.match(err.message, /מהכתובת הזו/);
-  assert.ok(sent <= 1000, 'לא יותר מ-1,000 הודעות בשעה מכתובת אחת');
+  assert.ok(sent <= R.SEND_PER_IP_HOUR, 'לא יותר מהמכסה לשעה מכתובת אחת');
   // כתובת אחרת לא נפגעת
   assert.equal(relay.handle(req(L.generateKeyPair(), 'send', { items: [{ to: randomBox(), kind: 'message', body: 'x' }] }), '198.51.100.2').sent, 1);
 });
@@ -101,7 +102,7 @@ test('ממצא 1: הודעה שלא נקראה 60 יום נמחקת; מסירה 
   assert.equal(box(dir, ownerId).length, 1, 'הרשמה ששולמה נשארת');
 });
 
-test('ממצא 2: דפי תשלום — מכסה לכתובת, והרשמה זהה לא פותחת דף שני', async () => {
+test('ממצא 2: דפי תשלום — מכסה למכשיר ולכתובת (f16), והרשמה זהה לא פותחת דף שני', async () => {
   const provider = fakeProvider();
   const { dir, relay } = relayWith({ provider });
   const kp = L.generateKeyPair();
@@ -110,13 +111,28 @@ test('ממצא 2: דפי תשלום — מכסה לכתובת, והרשמה זה
   const b = await relay.handle(req(kp, 'checkout', { signup: su }), '203.0.113.9');
   assert.equal(b.paymentId, a.paymentId, 'אותה הרשמה — אותו תשלום');
   assert.equal(provider.created(), 1);
+  // מכשיר אחד: עד R.CHECKOUT_PER_KEY_DAY דפי תשלום ביום (MAX_PENDING_PAYMENTS נבדק קודם — לכן תשלום שפג ביניהם)
   let err = null, ok = 1;
-  for (let i = 0; i < 40 && !err; i++) {
-    const k = L.generateKeyPair();
-    try { await relay.handle(req(k, 'checkout', { signup: signupOf(k) }), '203.0.113.9'); ok++; } catch (e) { err = e; }
+  for (let i = 0; i < R.CHECKOUT_PER_KEY_DAY + 2 && !err; i++) {
+    try {
+      const r = await relay.handle(req(kp, 'checkout', { signup: signupOf(kp, 'pro', 'ארגון ' + i) }), '198.51.100.40');
+      ok++;
+      // התשלום הקודם "פג" — כדי שהמכסה למכשיר היא שעוצרת, ולא תקרת התשלומים הפתוחים
+      const list = JSON.parse(fs.readFileSync(path.join(dir, 'payments.json'), 'utf8')).map(x => (x.id === r.paymentId ? { ...x, status: 'expired' } : x));
+      fs.writeFileSync(path.join(dir, 'payments.json'), JSON.stringify(list));
+    } catch (e) { err = e; }
   }
-  assert.ok(err && err.status === 429, 'נעצר במכסה');
-  assert.ok(ok <= 20 && provider.created() <= 20, 'עד 20 דפי תשלום ביום מכתובת אחת');
+  assert.ok(err && err.status === 429, 'נעצר במכסה למכשיר');
+  assert.match(err.message, /מהמכשיר הזה/);
+  assert.equal(ok, R.CHECKOUT_PER_KEY_DAY, 'הראשון (מכתובת אחרת) + עוד עד המכסה');
+  // מכסת הגיבוי לכתובת — גבוהה (לקוחות NetFree חולקים כתובת), אבל קיימת
+  err = null; ok = 0;
+  for (let i = 0; i < R.CHECKOUT_PER_IP_DAY + 5 && !err; i++) {
+    const k = L.generateKeyPair();
+    try { await relay.handle(req(k, 'checkout', { signup: signupOf(k) }), '203.0.113.10'); ok++; } catch (e) { err = e; }
+  }
+  assert.ok(err && err.status === 429, 'נעצר במכסה לכתובת');
+  assert.equal(ok, R.CHECKOUT_PER_IP_DAY);
   // payments.json מחזיק רק פרטי תשלום — חבילת ההרשמה בקובץ נפרד
   const list = JSON.parse(fs.readFileSync(path.join(dir, 'payments.json'), 'utf8'));
   assert.ok(list.every(x => x.signup === undefined));
@@ -132,13 +148,18 @@ test('ממצא 2: חבילת ההרשמה נמסרת מהקובץ הנפרד, ו
   relay.webhook(paidEvent(x.checkoutId));
   const got = box(dir, ownerId).filter(m => m.kind === 'signup');
   assert.equal(got.length, 1);
-  assert.equal(SU.verifySignup(JSON.parse(got[0].body).signup, [root.publicJwk]).body.keyId, kp.keyId);
+  // חבילה מגרסה קודמת (גלויה) — השרת מצפין אותה למנהל-העל לפני השמירה (f89)
+  const d = JSON.parse(got[0].body);
+  assert.equal(d.signup, undefined, 'אין חבילה גלויה במסירה');
+  assert.equal(SU.verifySignup(SU.openSealedSignup(root.privateJwk, d.sealed, d.public || null), [root.publicJwk]).body.keyId, kp.keyId);
   assert.equal(fs.existsSync(path.join(dir, 'signups', x.id + '.json')), false);
   // רשומה מלפני השינוי (signup בתוך payments.json)
   const old = L.generateKeyPair();
   fs.writeFileSync(path.join(dir, 'payments.json'), JSON.stringify([{ id: 'old1', keyId: old.keyId, signupId: 's-old', amountAgorot: 49900, checkoutId: 'c-old', status: 'pending', createdAt: Date.now(), signup: signupOf(old) }]));
   relay.webhook(paidEvent('c-old'));
-  assert.equal(box(dir, ownerId).filter(m => m.kind === 'signup').length, 2);
+  const all = box(dir, ownerId).filter(m => m.kind === 'signup');
+  assert.equal(all.length, 2);
+  assert.ok(!JSON.stringify(all).includes(CUSTOMER.phone), 'גם הרשומה הישנה נמסרת מוצפנת');
 });
 
 test('ממצא 3: קובץ תשלומים שאינו קריא — שגיאה, ולא נדרס', async () => {
@@ -164,18 +185,26 @@ test('ממצא 3: תיבה פגומה — שליחה אליה נדחית ולא 
   assert.equal(fs.readFileSync(path.join(dir, to + '.json'), 'utf8'), '[{"id":"a","from":"x"');
 });
 
-test('ממצא 4: הרשמות חינם — מכסה לכתובת, ולא חוסמות הרשמה ששולמה', async () => {
+test('ממצא 4: הרשמות חינם — מכסה למכשיר ולכתובת (f16), ולא חוסמות הרשמה ששולמה', async () => {
   const { dir, relay } = relayWith();
   let err = null, ok = 0;
-  for (let i = 0; i < 10 && !err; i++) {
+  const same = L.generateKeyPair();
+  for (let i = 0; i < 5 && !err; i++) {
+    try { assert.equal((await relay.handle(req(same, 'checkout', { signup: signupOf(same, 'free', 'גמ"ח ' + i) }), '198.51.100.77')).free, true); ok++; }
+    catch (e) { err = e; }
+  }
+  assert.equal(ok, R.FREE_SIGNUP_PER_KEY_DAY);
+  assert.equal(err.status, 429);
+  err = null; ok = 0;
+  for (let i = 0; i < R.FREE_SIGNUP_PER_IP_DAY + 5 && !err; i++) {
     const k = L.generateKeyPair();
     try { assert.equal((await relay.handle(req(k, 'checkout', { signup: signupOf(k, 'free', 'גמ"ח ' + i) }), '203.0.113.5')).free, true); ok++; }
     catch (e) { err = e; }
   }
-  assert.equal(ok, 3);
+  assert.equal(ok, R.FREE_SIGNUP_PER_IP_DAY);
   assert.equal(err.status, 429);
   const frees = box(dir, ownerId).filter(m => m.free);
-  assert.equal(frees.length, 3);
+  assert.equal(frees.length, R.FREE_SIGNUP_PER_KEY_DAY + R.FREE_SIGNUP_PER_IP_DAY);
   // תקרת הרשמות חינם בתיבה: גם מכתובות רבות — לא נכנסות מעבר לה, והרשמה ששולמה עדיין נמסרת
   fs.writeFileSync(path.join(dir, ownerId + '.json'), JSON.stringify(Array.from({ length: 1000 }, (_, i) => ({ id: 'f' + i, from: 'relay', kind: 'signup', body: '{}', at: Date.now(), free: true }))));
   const late = L.generateKeyPair();
