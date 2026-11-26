@@ -1,0 +1,30 @@
+build: success
+  1. Set up job: success
+  2. Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262: success
+  3. Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020: success
+  4. Run mkdir -p ci-logs: success
+  5. Release check: success
+  6. npm ci (minify): success
+  7. npm install: success
+  8. npm test: success
+  9. minify: success
+  10. Build: success
+  11. Smoke test (packaged): success
+  12. installer for publish: success
+  13. llm runtime for ci-status: success
+  14. logs for report: success
+  27. Post Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020: success
+  28. Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262: success
+  29. Complete job: success
+publish: success
+  1. Set up job: success
+  2. Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262: success
+  3. Run actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830: success
+  4. GitHub Release: success
+  8. Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262: success
+  9. Complete job: success
+report: in_progress
+  1. Set up job: success
+  2. Run actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830: success
+  3. jobs summary: in_progress
+  4. push ci-status: pending

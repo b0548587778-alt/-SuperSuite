@@ -1,0 +1,9 @@
+{
+  "package": "node-llama-cpp",
+  "version": "3.22.2",
+  "binaries": [
+    "win-arm64",
+    "win-x64"
+  ],
+  "sha256": "51cd26029d6e7aa4ef6f3f139f992ed440cc6a23048336f7bcdfe3ef17afc29a"
+}

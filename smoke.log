@@ -1,0 +1,6 @@
+smoke: יציאה 0
+  נטענו: shell, econ, shamai, tools (4842ms)
+debug-port: מסרבת לעלות ✓ (יציאה 1)
+inspect: מסרבת לעלות ✓ (יציאה 1)
+tamper: מסרבת לעלות ✓ (יציאה 2147483651)
+סיכום: עבר {"smoke":true,"debugPort":true,"inspect":true,"tamper":true}
